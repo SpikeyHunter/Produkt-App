@@ -42,5 +42,6 @@
 	"/login/reset-password": [],
 	"/marketing/eventsinfo": [],
 	"/production": [],
-	"/settings": []
+	"/settings": [],
+	"/wifi": []
 }

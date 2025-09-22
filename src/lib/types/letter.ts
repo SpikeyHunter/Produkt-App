@@ -32,6 +32,23 @@ export interface PromoterLetterData {
     letterDate: string;
 }
 
+export interface PromoterLetterCrewData {
+	crewFullName: string;
+	crewLegalFullName: string;
+	crewLastName: string;
+	crewDob: string;
+	crewCitizenship: string;
+	passportNumber: string;
+	artistName: string;
+	performanceDate: string;
+	arrivalDate: string;
+	showDuration: number;
+	stayDurationDays: number;
+	letterDate: string;
+	crewGender: 'male' | 'female';
+	visaNumber?: string;
+}
+
 export interface ImmigrationInfo {
     letterType: string;
     promoter: {

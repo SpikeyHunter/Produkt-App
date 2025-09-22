@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { PromoterLetterData } from '$lib/types/letter';
+	import type { PromoterLetterCrewData } from '$lib/types/letter';
 	import { getPronouns, numberToWord } from '$lib/utils/letter-helpers';
 
-	export let data: PromoterLetterData;
-	$: pronouns = getPronouns(data.artistGender);
+	export let data: PromoterLetterCrewData;
+	$: pronouns = getPronouns(data.crewGender);
 	$: visaLabel = data.visaNumber ? '& Visa #' : '';
 	$: passportVisaNumbers = data.visaNumber
 		? `${data.passportNumber} & ${data.visaNumber}`
@@ -11,7 +11,7 @@
 	$: stayDurationWord = numberToWord(data.stayDurationDays);
 </script>
 
-<div id="letter-content" style="background-color: #ffffff; width: 8.5in; height: 11in; box-sizing: border-box;" class="text-black text-[12pt] leading-tight mx-auto p-[0.5in] print:p-[0.5in] print:m-0">
+<div id="letter-content-crew" style="background-color: #ffffff; width: 8.5in; height: 11in; box-sizing: border-box;" class="text-black text-[12pt] leading-tight mx-auto p-[0.5in] print:p-[0.5in] print:m-0">
 	<div class="text-center mb-3 letter-header leading-tight">
 		<div class="font-bold underline text-[14pt] mb-0.5">4427319 Canada INC.</div>
 		<div class="font-bold mb-0.5">315 Place d'Youville, Suite #187</div>
@@ -31,15 +31,15 @@
 		<div class="ml-11 leading-tight">
 			<div class="flex mb-0.5">
 				<span class="font-bold inline-block w-36">Name:</span>
-				<span class="font-bold">{data.artistFullName}</span>
+				<span class="font-bold">{data.crewFullName}</span>
 			</div>
 			<div class="flex mb-0.5">
 				<span class="font-bold inline-block w-36">D.O.B.:</span>
-				<span class="font-bold">{data.artistDob}</span>
+				<span class="font-bold">{data.crewDob}</span>
 			</div>
 			<div class="flex mb-0.5">
 				<span class="font-bold inline-block w-36">Citizenship:</span>
-				<span class="font-bold"><span class="font-bold">{data.artistCitizenship}</span> Citizen</span>
+				<span class="font-bold">{data.crewCitizenship} Citizen</span>
 			</div>
 			<div class="flex mb-2">
 				<span class="font-bold inline-block w-36">Passport #{visaLabel}:</span>
@@ -52,36 +52,37 @@
 
 	<div class="mb-1.5 text-justify">
 		We are writing this letter in support of {pronouns.title}
-		<span class="font-bold">{data.artistLegalFullName}</span>, a
-		<span class="font-bold">{data.artistCitizenship}</span>
+		<span class="font-bold">{data.crewLegalFullName}</span>, a
+		<span class="font-bold">{data.crewCitizenship}</span>
 		Citizen, so that
 		{pronouns.subject} may be permitted to enter Canada as a Business Visitor on
-		<span class="font-bold">{data.arrivalDate}</span> to provide {pronouns.possessive} essential services
-		as performing artist for <span class="font-bold">{data.performanceName}</span>.
+		<span class="font-bold">{data.arrivalDate}</span> to provide {pronouns.possessive} essential support services
+		as support crew for <span class="font-bold">{data.artistName}</span>.
 	</div>
 
 	<div class="mb-1.5 text-justify">
-		{pronouns.title} <span class="font-bold">{data.artistLastName}</span> will be
-		<span class="font-bold">performing for {data.performanceName}</span> (<span >{data.showDuration}</span>) hour show on
-		<span class="font-bold">{data.performanceDate}</span> at New City Gas Concert hall. Upon the
+		{pronouns.title} <span class="font-bold">{data.crewLastName}</span> will be
+		<span class="font-bold">part of the support team</span> for <span class="font-bold">{data.artistName}</span> (<span>{data.showDuration}</span>) hour show on
+		<span class="font-bold">{data.performanceDate}</span> at New City Gas Concert Hall. Upon the
 		conclusion of this one (1) night performance,
-		{pronouns.title} <span class="font-bold">{data.artistLastName}</span> will travel back and
-		will resume {pronouns.possessive} freelance work activities as an independent musical artist.
+		{pronouns.title} <span class="font-bold">{data.crewLastName}</span> will travel back and
+		{pronouns.subject} will resume {pronouns.possessive} freelance work activities.
 	</div>
 
 	<div class="mb-1.5 text-justify">
-		Please note that {pronouns.title} <span class="font-bold">{data.artistLastName}</span> will
-		be remunerated by 4427319 Canada inc. in the amount of
-		<span class="font-bold">{data.paymentCurrency}</span>
-		<span class="font-bold">${data.paymentAmount}</span> for {pronouns.possessive} participation in
-		<span class="font-bold">{data.performanceName}</span>.
+		Please note that {pronouns.title} <span class="font-bold">{data.crewLastName}</span> will
+		not be remunerated by 4427319 Canada inc. for {pronouns.possessive} participation for
+		<span class="font-bold">{data.artistName}</span> on
+		<span class="font-bold">{data.performanceDate}</span> at New City Gas Concert Hall.
+		{pronouns.title} <span class="font-bold">{data.crewLastName}</span> is being remunerated via
+		<span class="font-bold">{data.artistName}</span> who will in turn be remunerated by our company.
 	</div>
 
 	<div class="mb-3 text-justify">
-		Since {pronouns.title} <span class="font-bold">{data.artistLastName}</span> will be entering
-		Canada as an Artist to a foreign-based musical performance for a time-limited live performance
-		at a concert hall, we respectfully request that you allow {pronouns.possessive}
-		entry into Canada for the <span >{data.stayDurationDays}</span> (<span
+		Since {pronouns.title} <span class="font-bold">{data.crewLastName}</span> will be entering
+		Canada as a member of the essential support crew to a foreign-based musical performance artist
+		for a time-limited live performance at a concert hall, we respectfully request that you allow
+		{pronouns.possessive} entry into Canada for the <span>{data.stayDurationDays}</span> (<span
 			>{stayDurationWord}</span>) day period.
 	</div>
 
@@ -102,7 +103,7 @@
 	@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap');
 	
 	/* Set default font with better rendering for crisp text */
-	#letter-content {
+	#letter-content-crew {
 		font-family: 'Times New Roman', Times, serif !important;
 		-webkit-font-smoothing: antialiased;
 		-moz-osx-font-smoothing: grayscale;
@@ -112,8 +113,8 @@
 	}
 
 	/* Forcefully reset font-weight for the container and EVERYTHING inside it */
-	#letter-content,
-	#letter-content * {
+	#letter-content-crew,
+	#letter-content-crew * {
 		font-weight: normal;
 	}
 
@@ -125,18 +126,17 @@
 	}
 
 	/* Re-apply font-bold where it's needed, using !important to override global styles */
-	#letter-content .font-bold {
+	#letter-content-crew .font-bold {
 		font-weight: bold !important;
 	}
 
-
 	/* Ensure crisp borders */
-	#letter-content .border-black {
+	#letter-content-crew .border-black {
 		border-color: #000000 !important;
 	}
 
 	@media print {
-		#letter-content {
+		#letter-content-crew {
 			margin: 0 !important;
 			padding: 0.75in !important;
 			max-width: none !important;
@@ -147,14 +147,14 @@
 		}
 		
 		/* Ensure no page breaks within content */
-		#letter-content > div {
+		#letter-content-crew > div {
 			page-break-inside: avoid;
 		}
 	}
 
 	/* For PDF generation - ensure proper sizing */
 	@media screen {
-		#letter-content {
+		#letter-content-crew {
 			box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
 		}
 	}

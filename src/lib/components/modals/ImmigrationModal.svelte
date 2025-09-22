@@ -2,10 +2,11 @@
 	import { createEventDispatcher, tick } from 'svelte';
 	import Modal from './Modal.svelte';
 	import PromoterLetter from '../advance/PromoterLetter.svelte';
+	import PromoterLetterCrew from '../advance/PromoterLetterCrew.svelte';
 	import PreviewModal from './PreviewModal.svelte';
 	import UploadButton from '../buttons/UploadButton.svelte';
 	import type { EventAdvance, Person } from '$lib/types/events.js';
-	import type { PromoterLetterData } from '$lib/types/letter';
+	import type { PromoterLetterData, PromoterLetterCrewData } from '$lib/types/letter';
 	import { updateEventAdvance } from '$lib/services/eventsService.js';
 	import DropdownButton from '../buttons/DropdownButton.svelte';
 	import { portal } from '$lib/utils/portalUtils';
@@ -86,6 +87,9 @@
 		d.assignedRoles?.includes(`${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`)
 	);
 
+	$: hasPromoterLetters = Array.from(immigrationInfos.values()).some(
+		(info) => info.letter_type === 'Promoter Letter'
+	);
 	$: stayDuration = (() => {
 		if (currentArrival?.date && currentDeparture?.date) {
 			const arrival = new Date(currentArrival.date);
@@ -106,9 +110,8 @@
 
 	$: letterInfoIsFilled = !!(
 		currentImmigrationInfo?.gender &&
-		currentImmigrationInfo?.artist_fee &&
-		isArtist &&
-		currentImmigrationInfo?.letter_type === 'Promoter Letter'
+		currentImmigrationInfo?.letter_type === 'Promoter Letter' &&
+		(isArtist ? currentImmigrationInfo?.artist_fee : true) // Remove fee requirement for crew
 	);
 
 	$: formattedDob = (() => {
@@ -152,49 +155,109 @@
 
 		return departureDate.toISOString().split('T')[0];
 	})();
-
+	$: artistLetterData = isArtist ? (promoterLetterRenderData as PromoterLetterData) : null;
+	$: {
+		console.log('DEBUG: isArtist =', isArtist);
+		console.log('DEBUG: promoterLetterRenderData =', promoterLetterRenderData);
+		console.log('DEBUG: artistLetterData =', artistLetterData);
+	}
+	$: crewLetterData = !isArtist ? (promoterLetterRenderData as PromoterLetterCrewData) : null;
 	$: promoterLetterRenderData = (() => {
-		const data: PromoterLetterData = {
-			artistFullName: `${currentPassportInfo?.givenName || ''} ${currentPassportInfo?.lastName || ''} AKA ${event?.artist_name || ''}`,
-			artistLegalFullName: `${currentPassportInfo?.givenName || ''} ${currentPassportInfo?.lastName || ''}`,
-			artistLastName: currentPassportInfo?.lastName || '',
-			artistDob: currentPassportInfo?.dateOfBirth
-				? new Date(currentPassportInfo.dateOfBirth).toLocaleDateString('en-US', {
-						year: 'numeric',
-						month: 'long',
-						day: 'numeric'
-					})
-				: '',
-			artistCitizenship: normalizeCountry(currentPassportInfo?.country || ''),
-			passportNumber: currentPassportInfo?.passportNumber || '',
-			performanceName: event?.artist_name || '',
-			performanceDate: event?.date || '',
-			arrivalDate: currentArrival?.date
-				? new Date(currentArrival.date).toLocaleDateString('en-US', {
-						year: 'numeric',
-						month: 'long',
-						day: 'numeric'
-					})
-				: event?.date
-					? new Date(event.date).toLocaleDateString('en-US', {
+		if (isArtist) {
+			// Return existing PromoterLetterData for artists
+			const data: PromoterLetterData = {
+				artistFullName: `${currentPassportInfo?.givenName || ''} ${currentPassportInfo?.lastName || ''} AKA ${event?.artist_name || ''}`,
+				artistLegalFullName: `${currentPassportInfo?.givenName || ''} ${currentPassportInfo?.lastName || ''}`,
+				artistLastName: currentPassportInfo?.lastName || '',
+				artistDob: currentPassportInfo?.dateOfBirth
+					? (() => {
+							const [year, month, day] = currentPassportInfo.dateOfBirth.split('-');
+							const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+							return date.toLocaleDateString('en-US', {
+								year: 'numeric',
+								month: 'long',
+								day: 'numeric'
+							});
+						})()
+					: '',
+				artistCitizenship: normalizeCountry(currentPassportInfo?.country || ''),
+				artistGender: (currentImmigrationInfo?.gender || 'male') as 'male' | 'female',
+				passportNumber: currentPassportInfo?.passportNumber || '',
+				visaNumber: currentImmigrationInfo?.visa_required
+					? currentImmigrationInfo?.visa_number
+					: '',
+				performanceName: event?.artist_name || '',
+				arrivalDate: currentArrival?.date
+					? new Date(currentArrival.date).toLocaleDateString('en-US', {
 							year: 'numeric',
 							month: 'long',
 							day: 'numeric'
 						})
+					: event?.date
+						? new Date(event.date).toLocaleDateString('en-US', {
+								year: 'numeric',
+								month: 'long',
+								day: 'numeric'
+							})
+						: '',
+				performanceDate: event?.date || '',
+				showDuration: 2,
+				paymentCurrency: 'USD',
+				paymentAmount: formattedFee,
+				stayDurationDays: stayDuration,
+				letterDate: new Date().toLocaleDateString('en-US', {
+					year: 'numeric',
+					month: 'long',
+					day: 'numeric'
+				})
+			};
+			return data;
+		} else {
+			// Return new PromoterLetterCrewData for crew
+			const data: PromoterLetterCrewData = {
+				crewFullName: `${currentPassportInfo?.givenName || ''} ${currentPassportInfo?.lastName || ''}`,
+				crewLegalFullName: `${currentPassportInfo?.givenName || ''} ${currentPassportInfo?.lastName || ''}`,
+				crewLastName: currentPassportInfo?.lastName || '',
+				crewDob: currentPassportInfo?.dateOfBirth
+					? (() => {
+							const [year, month, day] = currentPassportInfo.dateOfBirth.split('-');
+							const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+							return date.toLocaleDateString('en-US', {
+								year: 'numeric',
+								month: 'long',
+								day: 'numeric'
+							});
+						})()
 					: '',
-			showDuration: 2,
-			paymentCurrency: 'USD',
-			stayDurationDays: stayDuration,
-			letterDate: new Date().toLocaleDateString('en-US', {
-				year: 'numeric',
-				month: 'long',
-				day: 'numeric'
-			}),
-			artistGender: (currentImmigrationInfo?.gender || 'male') as 'male' | 'female',
-			paymentAmount: formattedFee,
-			visaNumber: currentImmigrationInfo?.visa_required ? currentImmigrationInfo?.visa_number : ''
-		};
-		return data;
+				crewCitizenship: normalizeCountry(currentPassportInfo?.country || ''),
+				passportNumber: currentPassportInfo?.passportNumber || '',
+				artistName: event?.artist_name || '',
+				performanceDate: event?.date || '',
+				arrivalDate: currentArrival?.date
+					? new Date(currentArrival.date).toLocaleDateString('en-US', {
+							year: 'numeric',
+							month: 'long',
+							day: 'numeric'
+						})
+					: event?.date
+						? new Date(event.date).toLocaleDateString('en-US', {
+								year: 'numeric',
+								month: 'long',
+								day: 'numeric'
+							})
+						: '',
+				showDuration: 2,
+				stayDurationDays: stayDuration,
+				letterDate: new Date().toLocaleDateString('en-US', {
+					year: 'numeric',
+					month: 'long',
+					day: 'numeric'
+				}),
+				crewGender: (currentImmigrationInfo?.gender || 'male') as 'male' | 'female',
+				visaNumber: currentImmigrationInfo?.visa_required ? currentImmigrationInfo?.visa_number : ''
+			};
+			return data;
+		}
 	})();
 
 	$: if (isOpen && event) {
@@ -691,7 +754,13 @@
 							const base64 = await blobToBase64(blob);
 							const fileName =
 								info.letter_type === 'Promoter Letter'
-									? `Promoter Letter_Artist - ${passportInfo.givenName} ${passportInfo.lastName}.pdf`
+									? (() => {
+											const roleInfo = parsedRoles.find((r: Person) => r.id === personId);
+											const isPersonArtist = isArtistRole(roleInfo?.role);
+											return isPersonArtist
+												? `Promoter Letter_Artist - ${passportInfo.givenName} ${passportInfo.lastName}.pdf`
+												: `Promoter Letter_Crew - ${passportInfo.givenName} ${passportInfo.lastName}.pdf`;
+										})()
 									: `IMM5686E_${passportInfo.givenName} ${passportInfo.lastName}.pdf`;
 
 							attachments.push({
@@ -888,9 +957,16 @@ ${att.content}
 			reader.readAsDataURL(blob);
 		});
 	}
-
+	function isArtistRole(role: string | undefined): boolean {
+		return role === 'Artist';
+	}
 	async function handleGenerateAndUploadPDF() {
 		if (!letterInfoIsFilled || !currentPerson || !currentPassportInfo) return;
+
+		console.log('Starting PDF generation...');
+		console.log('isArtist:', isArtist);
+		console.log('artistLetterData:', artistLetterData);
+		console.log('crewLetterData:', crewLetterData);
 
 		isGeneratingPdf = true;
 		showLetterPreview = true;
@@ -898,9 +974,16 @@ ${att.content}
 
 		await new Promise((resolve) => setTimeout(resolve, 500));
 		const html2pdf = (await import('html2pdf.js')).default;
-		const element = document.getElementById('letter-content');
+
+		const elementId = isArtist ? 'letter-content' : 'letter-content-crew';
+		const element = document.getElementById(elementId);
+
+		console.log('Looking for element:', elementId);
+		console.log('Element found:', !!element);
+		console.log('Element innerHTML length:', element?.innerHTML.length || 0);
+
 		if (!element) {
-			console.error('PDF preview element not found.');
+			console.error(`PDF preview element ${elementId} not found.`);
 			isGeneratingPdf = false;
 			showLetterPreview = false;
 			return;
@@ -933,7 +1016,9 @@ ${att.content}
 				.from(element)
 				.output('blob');
 
-			const fileName = `Promoter Letter_Artist - ${currentPassportInfo.givenName} ${currentPassportInfo.lastName}.pdf`;
+			const fileName = isArtist
+				? `Promoter Letter_Artist - ${currentPassportInfo.givenName} ${currentPassportInfo.lastName}.pdf`
+				: `Promoter Letter_Crew - ${currentPassportInfo.givenName} ${currentPassportInfo.lastName}.pdf`;
 			const filePath = `promoter_letters/${fileName}`;
 
 			const { error: uploadError } = await supabase.storage
@@ -1030,7 +1115,13 @@ ${att.content}
 					if (person && passportInfo) {
 						const fileName =
 							info.letter_type === 'Promoter Letter'
-								? `Promoter Letter_Artist - ${passportInfo.givenName} ${passportInfo.lastName}.pdf`
+								? (() => {
+										const roleInfo = parsedRoles.find((r: Person) => r.id === personId);
+										const isPersonArtist = isArtistRole(roleInfo?.role);
+										return isPersonArtist
+											? `Promoter Letter_Artist - ${passportInfo.givenName} ${passportInfo.lastName}.pdf`
+											: `Promoter Letter_Crew - ${passportInfo.givenName} ${passportInfo.lastName}.pdf`;
+									})()
 								: `IMM5686E_${passportInfo.givenName} ${passportInfo.lastName}.pdf`;
 
 						try {
@@ -1272,17 +1363,15 @@ ${att.content}
 									</button>
 								{/if}
 							{:else if currentImmigrationInfo.letter_type === 'Promoter Letter'}
-								{#if !isArtist}
-									<span class="text-gray2 text-xs italic">
-										Can't use template for non-Artist roles
-									</span>
-								{:else if currentImmigrationInfo.letter_url}
+								{#if currentImmigrationInfo.letter_url}
 									<div class="flex items-center gap-2 !cursor-pointer">
 										<button
 											on:click={() =>
 												handlePreview(
 													currentImmigrationInfo.letter_url,
-													`Promoter Letter_Artist - ${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`
+													isArtist
+														? `Promoter Letter_Artist - ${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`
+														: `Promoter Letter_Crew - ${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`
 												)}
 											class="px-3 py-1.5 bg-gray2 text-black rounded-full !hover:cursor-pointer text-sm font-semibold hover:bg-lime"
 										>
@@ -1292,7 +1381,9 @@ ${att.content}
 											on:click={() =>
 												handleDirectDownload(
 													currentImmigrationInfo.letter_url,
-													`Promoter Letter_Artist - ${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}.pdf`
+													isArtist
+														? `Promoter Letter_Artist - ${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}.pdf`
+														: `Promoter Letter_Crew - ${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}.pdf`
 												)}
 											class="p-2 bg-gray2 text-black rounded-full hover:bg-lime"
 											aria-label="Download"
@@ -1402,7 +1493,7 @@ ${att.content}
 							</div>
 						{/if}
 
-						{#if currentImmigrationInfo.letter_type === 'Promoter Letter'}
+						{#if currentImmigrationInfo.letter_type === 'Promoter Letter' && isArtist}
 							<div class="flex items-center gap-3 text-sm">
 								<span class="font-semibold min-w-[130px] text-gray3">Artist Fee (USD)</span>
 								<input
@@ -1485,55 +1576,57 @@ ${att.content}
 						Download All
 					</button>
 
-					<button
-						on:click={handleEmailIRCC}
-						disabled={isGeneratingEmail}
-						class="px-4 py-2 rounded-3xl hover:cursor-pointer transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed {showSendAnyway
-							? 'bg-tentatif text-black hover:bg-yellow-400'
-							: 'bg-lime text-black hover:bg-green-400'}"
-						title={showSendAnyway
-							? 'Send email anyway with missing documents'
-							: 'Generate email with attachments for IRCC'}
-					>
-						{#if isGeneratingEmail}
-							<div
-								class="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"
-							></div>
-							Generating...
-						{:else if showSendAnyway}
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								class="w-4 h-4"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
-								/>
-							</svg>
-							Send Anyway
-						{:else}
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								class="w-4 h-4"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke="currentColor"
-								stroke-width="2"
-							>
-								<path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									d="M3 8l7.89 7.89a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-								/>
-							</svg>
-							Email IRCC
-						{/if}
-					</button>
+					{#if !hasPromoterLetters}
+						<button
+							on:click={handleEmailIRCC}
+							disabled={isGeneratingEmail}
+							class="px-4 py-2 rounded-3xl hover:cursor-pointer transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed {showSendAnyway
+								? 'bg-tentatif text-black hover:bg-yellow-400'
+								: 'bg-lime text-black hover:bg-green-400'}"
+							title={showSendAnyway
+								? 'Send email anyway with missing documents'
+								: 'Generate email with attachments for IRCC'}
+						>
+							{#if isGeneratingEmail}
+								<div
+									class="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"
+								></div>
+								Generating...
+							{:else if showSendAnyway}
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									class="w-4 h-4"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
+									/>
+								</svg>
+								Send Anyway
+							{:else}
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									class="w-4 h-4"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M3 8l7.89 7.89a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+									/>
+								</svg>
+								Email IRCC
+							{/if}
+						</button>
+					{/if}
 				{/if}
 			</div>
 
@@ -1555,7 +1648,7 @@ ${att.content}
 			</div>
 		</div>
 
-		{#if !validateDocumentsForEmail().isValid}
+		{#if !hasPromoterLetters && !validateDocumentsForEmail().isValid}
 			<div class="mt-4 p-3 bg-tentatif/20 border border-tentatif rounded-lg">
 				<p class="text-tentatif font-semibold text-sm mb-2">Some documents are missing:</p>
 				<ul class="text-tentatif text-xs space-y-1">
@@ -1581,9 +1674,31 @@ ${att.content}
 </Modal>
 
 {#if showLetterPreview}
-	<div id="letter-content" style="position: absolute; left: -9999px;">
-		<PromoterLetter data={promoterLetterRenderData} />
-	</div>
+	{#if isArtist}
+		<div style="position: fixed; top: -9999px; left: 0; width: 816px; height: 1056px; z-index: -1;">
+			<div id="letter-content">
+				{#if artistLetterData}
+					<PromoterLetter data={artistLetterData} />
+				{:else}
+					<div style="background: red; color: white; padding: 20px;">
+						DEBUG: No artist letter data available
+					</div>
+				{/if}
+			</div>
+		</div>
+	{:else}
+		<div style="position: fixed; top: -9999px; left: 0; width: 816px; height: 1056px; z-index: -1;">
+			<div id="letter-content-crew">
+				{#if crewLetterData}
+					<PromoterLetterCrew data={crewLetterData} />
+				{:else}
+					<div style="background: blue; color: white; padding: 20px;">
+						DEBUG: No crew letter data available
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
 {/if}
 
 {#if showPreviewModal}
