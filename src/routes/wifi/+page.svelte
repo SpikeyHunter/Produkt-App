@@ -170,6 +170,7 @@
       // If we have Aruba parameters, use them for authentication
       if (arubaParams.switch_url) {
         debugInfo += '✅ Found switch_url, authenticating with Aruba controller\n';
+        debugInfo += '📡 Auth URL: ' + arubaParams.switch_url + '\n';
         
         // Create form to POST to Aruba controller
         const authForm = document.createElement('form');
@@ -177,15 +178,32 @@
         authForm.action = arubaParams.switch_url;
         authForm.style.display = 'none';
         
-        // Use email as username, empty password for guest access
-        authForm.innerHTML = `
-          <input type="hidden" name="user" value="${formData.email}">
-          <input type="hidden" name="password" value="">
-          <input type="hidden" name="cmd" value="authenticate">
-          <input type="hidden" name="Login" value="Log In">
-          <input type="hidden" name="url" value="${arubaParams.url || 'https://google.com'}">
-          ${arubaParams.sessionid ? `<input type="hidden" name="sessionid" value="${arubaParams.sessionid}">` : ''}
-        `;
+        // Use the parameters your Aruba controller expects
+        const authFields: Record<string, string> = {
+          user: formData.email,
+          password: '', // Empty for guest access
+          cmd: 'authenticate',
+          Login: 'Log In',
+          url: arubaParams.url || 'http://captive.apple.com/hotspot-detect.html',
+          // Include original parameters that Aruba sent
+          mac: arubaParams.client_mac,
+          ip: new URLSearchParams(window.location.search).get('ip') || '',
+          apmac: arubaParams.ap_mac,
+          essid: new URLSearchParams(window.location.search).get('essid') || ''
+        };
+
+        debugInfo += '📋 Auth fields: ' + JSON.stringify(authFields, null, 2) + '\n';
+
+        // Add all fields to form
+        Object.keys(authFields).forEach(key => {
+          if (authFields[key]) { // Only add non-empty values
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = key;
+            input.value = authFields[key];
+            authForm.appendChild(input);
+          }
+        });
         
         document.body.appendChild(authForm);
         
@@ -241,11 +259,14 @@
     // Extract Aruba captive portal parameters from URL
     const urlParams = new URLSearchParams(window.location.search);
     arubaParams = {
-      switch_url: urlParams.get('switch_url') || urlParams.get('login_url') || '',
+      // Your Aruba uses 'switchip' instead of 'switch_url'
+      switch_url: urlParams.get('switchip') ? `https://${urlParams.get('switchip')}/cgi-bin/login` : 
+                  urlParams.get('switch_url') || urlParams.get('login_url') || '',
       url: urlParams.get('url') || urlParams.get('redirect') || '',
-      sessionid: urlParams.get('sessionid') || '',
-      ap_mac: urlParams.get('ap_mac') || '',
-      client_mac: urlParams.get('client_mac') || ''
+      sessionid: urlParams.get('sessionid') || urlParams.get('sid') || '',
+      // Your Aruba provides 'apmac' and 'mac' (client MAC)
+      ap_mac: urlParams.get('apmac') || urlParams.get('ap_mac') || '',
+      client_mac: urlParams.get('mac') || urlParams.get('client_mac') || ''
     };
 
     // Debug info for display
