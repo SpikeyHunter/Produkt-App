@@ -1,0 +1,46 @@
+{
+	"/": [],
+	"/advancing/gathered": [],
+	"/advancing/gathered/[event_param]": [
+		"src/routes/advancing/gathered/[event_param]/+page.ts"
+	],
+	"/api/flight-lookup": [
+		"src/routes/api/flight-lookup/+server.ts"
+	],
+	"/api/passport-ocr": [
+		"src/routes/api/passport-ocr/+server.ts"
+	],
+	"/api/register": [
+		"src/routes/api/register/+server.ts"
+	],
+	"/api/upload": [
+		"src/routes/api/upload/+server.ts"
+	],
+	"/api/validate-registration-code": [
+		"src/routes/api/validate-registration-code/+server.ts"
+	],
+	"/api/validate-team-code": [
+		"src/routes/api/validate-team-code/+server.ts"
+	],
+	"/auth/callback": [
+		"src/routes/auth/callback/+server.ts"
+	],
+	"/auth/forgot-password": [
+		"src/routes/auth/forgot-password/+server.ts"
+	],
+	"/auth/reset-password": [
+		"src/routes/auth/reset-password/+server.ts"
+	],
+	"/auth/verify": [],
+	"/booking/settimes": [],
+	"/calendar": [],
+	"/dashboard": [],
+	"/letter": [],
+	"/login/forgot-password": [],
+	"/login/register": [],
+	"/login/reset-confirmed": [],
+	"/login/reset-password": [],
+	"/marketing/eventsinfo": [],
+	"/production": [],
+	"/settings": []
+}

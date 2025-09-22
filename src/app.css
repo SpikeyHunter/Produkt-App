@@ -1,0 +1,100 @@
+/* Font import MUST be first */
+@import url('https://fonts.googleapis.com/css2?family=Helvetica+Neue:wght@700&display=swap');
+
+/* Then Tailwind */
+@import 'tailwindcss';
+
+
+@theme {
+	--color-lime: #E1FF00;
+	--color-lime-rgb: 225, 255, 0; 
+	--color-gray1: #2F2F2F;
+	--color-gray2: #BDBDBB;
+	--color-gray3: #E4E4E4;
+	--color-black: #000000;
+	--color-white: #F7F7F7;
+	--color-navbar: #212121;
+	--color-confirmed: #86EFAC;
+	--color-tentatif: #FCD34D;
+	--color-proposed: #FDBA74;
+	--color-problem: #FCA5A5;
+	--color-info: #c4b5fd;
+	--color-question: #93c5fd;
+
+	/* Add font to theme */
+	--font-helvetica: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Global font styling */
+* {
+	font-family: var(--font-helvetica);
+	font-weight: 700;
+	letter-spacing: -0.03em;
+}
+
+/* Prevent horizontal scrollbars across the entire app */
+html,
+body {
+	overflow-x: hidden;
+}
+
+/* Custom checkbox styling */
+.custom-checkbox {
+	appearance: none;
+	background-color: #ffffff;
+	position: relative;
+}
+
+.custom-checkbox:checked {
+	background-color: var(--color-lime);
+	border-color: var(--color-lime);
+}
+
+.custom-checkbox:checked::after {
+	content: '✓';
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	color: black;
+	font-size: 10px;
+	font-weight: bold;
+	line-height: 1;
+}
+
+/* Modal close button styling */
+.modal-close-btn {
+	color: var(--color-lime);
+	border: 2px solid var(--color-lime);
+	background: transparent;
+	padding: 0;
+	border-radius: 50%;
+	transition: all 0.2s ease;
+	cursor: pointer;
+	font-weight: 900;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+}
+
+.modal-close-btn:hover {
+	background-color: var(--color-lime);
+	color: var(--color-black);
+}
+
+.modal-close-btn svg {
+	stroke-width: 4;
+	width: 20px;
+	height: 20px;
+}
+
+input:focus {
+	outline: none !important;
+}
+
+button {
+	margin: 0 !important;
+	margin-bottom: 0 !important;
+}
