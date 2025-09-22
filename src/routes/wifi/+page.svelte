@@ -22,6 +22,15 @@
   let language: 'fr' | 'en' = 'fr';
   let isDarkMode = false;
 
+  // Aruba captive portal parameters
+  let arubaParams = {
+    switch_url: '',
+    url: '',
+    sessionid: '',
+    ap_mac: '',
+    client_mac: ''
+  };
+
   // Your Google Apps Script Web App URL
   const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/Q6X_Y3N72WaWypSRHJkmpvhmUPS2jnofhiaVcRdUBIc/exec';
 
@@ -113,6 +122,7 @@
     errorMessage = '';
 
     try {
+      // 1. Save data to Google Sheets first
       const response = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         mode: 'cors',
@@ -124,24 +134,62 @@
           language,
           timestamp: new Date().toISOString(),
           userAgent: navigator.userAgent,
-          ip: await getClientIP()
+          ip: await getClientIP(),
+          arubaParams // Include Aruba session info
         })
       });
 
-      if (response.ok) {
-        isSuccess = true;
-        // Redirect after 3 seconds
-        setTimeout(() => {
-          window.location.href = 'https://google.com';
-        }, 3000);
-      } else {
-        throw new Error('Failed to submit form');
+      if (!response.ok) {
+        throw new Error('Failed to save data');
       }
+
+      // 2. Authenticate with Aruba using dynamic switch_url
+      await authenticateWithAruba();
+
     } catch (error) {
       console.error('Error:', error);
       errorMessage = t.errors.connection;
-    } finally {
       isSubmitting = false;
+    }
+  }
+
+  async function authenticateWithAruba() {
+    try {
+      // If we have Aruba parameters, use them for authentication
+      if (arubaParams.switch_url) {
+        // Create form to POST to Aruba controller
+        const authForm = document.createElement('form');
+        authForm.method = 'POST';
+        authForm.action = arubaParams.switch_url;
+        authForm.style.display = 'none';
+        
+        // Use email as username, empty password for guest access
+        authForm.innerHTML = `
+          <input type="hidden" name="user" value="${formData.email}">
+          <input type="hidden" name="password" value="">
+          <input type="hidden" name="cmd" value="authenticate">
+          <input type="hidden" name="Login" value="Log In">
+          <input type="hidden" name="url" value="${arubaParams.url || 'https://google.com'}">
+          ${arubaParams.sessionid ? `<input type="hidden" name="sessionid" value="${arubaParams.sessionid}">` : ''}
+        `;
+        
+        document.body.appendChild(authForm);
+        authForm.submit();
+        
+      } else {
+        // Fallback: show success page and redirect
+        isSuccess = true;
+        setTimeout(() => {
+          window.location.href = arubaParams.url || 'https://google.com';
+        }, 3000);
+      }
+    } catch (error) {
+      console.error('Aruba auth failed:', error);
+      // Fallback to success page
+      isSuccess = true;
+      setTimeout(() => {
+        window.location.href = 'https://google.com';
+      }, 3000);
     }
   }
 
@@ -217,7 +265,8 @@
             <img 
               src="/images/NCG_LOGO2_BLANC.png" 
               alt="New City Gas Logo" 
-              class={`h-16 mx-auto object-contain transition-all duration-300 ${isDarkMode ? '' : 'invert'}`}
+              class={`h-16 mx-auto object-contain transition-all duration-300 ${isDarkMode ? 'brightness-100' : 'brightness-0'}`}
+              style={isDarkMode ? '' : 'filter: invert(1) brightness(0);'}
               on:error={(e) => {
                 // Fallback if logo image doesn't exist
                 const img = e.currentTarget as HTMLImageElement;
