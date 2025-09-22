@@ -32,7 +32,7 @@
   };
 
   // Your Google Apps Script Web App URL
-  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/Q6X_Y3N72WaWypSRHJkmpvhmUPS2jnofhiaVcRdUBIc/exec';
+  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbz0legLYtCzzO0BGC96SValOwKNAU5G2Zvydm2-TjKrN40DaOz8MStL8-28yFm-5R5oCg/exec';
 
   // Translations
   const translations = {
@@ -143,6 +143,8 @@
         throw new Error('Failed to save data');
       }
 
+      console.log('✅ Data saved to Google Sheets successfully');
+
       // 2. Authenticate with Aruba using dynamic switch_url
       await authenticateWithAruba();
 
@@ -215,8 +217,20 @@
     language = language === 'fr' ? 'en' : 'fr';
   }
 
-  // Detect dark mode
+  // Detect dark mode and extract Aruba parameters
   onMount(() => {
+    // Extract Aruba captive portal parameters from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    arubaParams = {
+      switch_url: urlParams.get('switch_url') || urlParams.get('login_url') || '',
+      url: urlParams.get('url') || urlParams.get('redirect') || '',
+      sessionid: urlParams.get('sessionid') || '',
+      ap_mac: urlParams.get('ap_mac') || '',
+      client_mac: urlParams.get('client_mac') || ''
+    };
+
+    console.log('Aruba Parameters:', arubaParams); // Debug log
+
     // Check for dark mode preference
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     isDarkMode = mediaQuery.matches;
