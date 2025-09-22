@@ -19,6 +19,7 @@
   let isSubmitting = false;
   let isSuccess = false;
   let errorMessage = '';
+  let debugInfo = '';
   let language: 'fr' | 'en' = 'fr';
   let isDarkMode = false;
 
@@ -163,8 +164,13 @@
 
   async function authenticateWithAruba() {
     try {
+      debugInfo += '🔐 Starting Aruba authentication...\n';
+      debugInfo += 'Aruba params: ' + JSON.stringify(arubaParams, null, 2) + '\n';
+      
       // If we have Aruba parameters, use them for authentication
       if (arubaParams.switch_url) {
+        debugInfo += '✅ Found switch_url, authenticating with Aruba controller\n';
+        
         // Create form to POST to Aruba controller
         const authForm = document.createElement('form');
         authForm.method = 'POST';
@@ -182,22 +188,29 @@
         `;
         
         document.body.appendChild(authForm);
+        
+        debugInfo += '📤 Submitting authentication to: ' + arubaParams.switch_url + '\n';
         authForm.submit();
         
+        // Don't show success page - let Aruba handle the redirect
+        
       } else {
-        // Fallback: show success page and redirect
+        debugInfo += '⚠️ No switch_url found - might be direct access or different setup\n';
+        debugInfo += 'Current URL: ' + window.location.href + '\n';
+        debugInfo += 'Search params: ' + window.location.search + '\n';
+        
+        // Show success page since no Aruba params
         isSuccess = true;
         setTimeout(() => {
-          window.location.href = arubaParams.url || 'https://google.com';
-        }, 3000);
+          window.location.href = 'https://google.com';
+        }, 5000); // Longer delay to read debug info
       }
     } catch (error) {
-      console.error('Aruba auth failed:', error);
-      // Fallback to success page
+      debugInfo += '❌ Aruba auth failed: ' + (error as Error).message + '\n';
       isSuccess = true;
       setTimeout(() => {
         window.location.href = 'https://google.com';
-      }, 3000);
+      }, 5000);
     }
   }
 
@@ -235,7 +248,12 @@
       client_mac: urlParams.get('client_mac') || ''
     };
 
-    console.log('Aruba Parameters:', arubaParams); // Debug log
+    // Debug info for display
+    debugInfo = '🔍 DEBUG INFO:\n';
+    debugInfo += 'Current URL: ' + window.location.href + '\n';
+    debugInfo += 'Search params: ' + window.location.search + '\n';
+    debugInfo += 'All URL params: ' + JSON.stringify(Object.fromEntries(urlParams.entries()), null, 2) + '\n';
+    debugInfo += 'Extracted Aruba params: ' + JSON.stringify(arubaParams, null, 2) + '\n\n';
 
     // Check for dark mode preference
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -423,6 +441,16 @@
             {t.terms}
           </p>
         </div>
+
+        <!-- Debug Info (only show if there's info) -->
+        {#if debugInfo}
+          <details class="mt-6 bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+            <summary class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+              🔍 Debug Information (Click to expand)
+            </summary>
+            <pre class="text-xs text-gray-600 dark:text-gray-400 mt-2 whitespace-pre-wrap overflow-x-auto">{debugInfo}</pre>
+          </details>
+        {/if}
       </div>
     {:else}
       <!-- Success State -->
