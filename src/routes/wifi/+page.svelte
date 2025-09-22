@@ -7,17 +7,25 @@
   const scriptURL =
     "https://script.google.com/macros/s/AKfycbzV4nNB_28ln5pCXSpjrw_kbqCww2DwiVEMJM9NFAg_zVCmRIIeqE6S8yKqMtqggo5HJg/exec";
 
-  // ✅ Grab Aruba’s query params (safe, won’t crash if none exist)
+  // ✅ Grab Aruba’s query params safely
   $: queryParams = $page.url.search || "";
+  const urlParams = new URLSearchParams(queryParams);
 
-  // ✅ Build Aruba success URL dynamically
-  // Aruba will redirect users with ?cmd=login&mac=...&ip=... etc
-  // We must send them back with the same params.
-  let arubaSuccessURL: string;
-  if (typeof window !== "undefined") {
-    // Use the same host that redirected us (usually the AP/VC IP)
-    const host = window.location.hostname;
-    arubaSuccessURL = "http://" + host + "/cgi-bin/login" + queryParams;
+  // ✅ Detect Aruba controller IP/host
+  let loginHost: string | null = null;
+  if (urlParams.get("switchip")) {
+    // Some Aruba versions send switchip=<controller_ip>
+    loginHost = urlParams.get("switchip");
+  } else {
+    // Fallback: use the host that redirected us (usually AP/VC)
+    loginHost = typeof window !== "undefined" ? window.location.hostname : null;
+  }
+
+  // ✅ Build Aruba success URL (local AP/VC, not Vercel!)
+  let arubaSuccessURL: string | null = null;
+  if (loginHost) {
+    arubaSuccessURL =
+      "http://" + loginHost + "/cgi-bin/login?" + queryParams.substring(1);
   }
 
   async function handleSubmit(event: Event) {
@@ -31,16 +39,18 @@
     try {
       await fetch(scriptURL, {
         method: "POST",
-        mode: "no-cors", // avoids CORS issues inside captive portal
+        mode: "no-cors",
         body: formData
       });
     } catch (err) {
-      // ignore errors in captive portal
+      // Ignore errors inside captive portal
     }
 
-    // ✅ Always redirect back to Aruba with its query params
+    // ✅ Always redirect back to Aruba’s controller to unlock internet
     if (arubaSuccessURL) {
       window.location.href = arubaSuccessURL;
+    } else {
+      status = "Error: Aruba login host not found.";
     }
   }
 </script>
