@@ -208,7 +208,14 @@
         document.body.appendChild(authForm);
         
         debugInfo += '📤 Submitting authentication to: ' + arubaParams.switch_url + '\n';
-        authForm.submit();
+        
+        // Show success message before submitting
+        isSuccess = true;
+        
+        // Submit after a brief delay to show success message
+        setTimeout(() => {
+          authForm.submit();
+        }, 1500);
         
         // Don't show success page - let Aruba handle the redirect
         
@@ -259,21 +266,37 @@
     // Extract Aruba captive portal parameters from URL
     const urlParams = new URLSearchParams(window.location.search);
     arubaParams = {
-      // Your Aruba uses 'switchip' instead of 'switch_url'
-      switch_url: urlParams.get('switchip') ? `https://${urlParams.get('switchip')}/cgi-bin/login` : 
-                  urlParams.get('switch_url') || urlParams.get('login_url') || '',
+      // For internal server authentication, we need to construct the correct URL
+      // The switchip points to an external service, but auth happens internally
+      switch_url: '', // We'll determine this differently
       url: urlParams.get('url') || urlParams.get('redirect') || '',
       sessionid: urlParams.get('sessionid') || urlParams.get('sid') || '',
-      // Your Aruba provides 'apmac' and 'mac' (client MAC)
       ap_mac: urlParams.get('apmac') || urlParams.get('ap_mac') || '',
       client_mac: urlParams.get('mac') || urlParams.get('client_mac') || ''
     };
 
+    // For internal server captive portals, the auth endpoint is usually relative
+    // Try to determine the correct internal auth URL
+    const currentUrl = new URL(window.location.href);
+    const baseUrl = `${currentUrl.protocol}//${currentUrl.host}`;
+    
+    // Common internal auth endpoints for Aruba
+    const possibleAuthUrls = [
+      '/cgi-bin/login',
+      '/auth/index.html/u/user/p/password/cmd/authenticate',
+      '/auth/login',
+      '/captiveportal/login'
+    ];
+
+    // For now, try the most common one
+    arubaParams.switch_url = '/cgi-bin/login';
+
     // Debug info for display
-    debugInfo = '🔍 DEBUG INFO:\n';
+    debugInfo = 'DEBUG INFO:\n';
     debugInfo += 'Current URL: ' + window.location.href + '\n';
     debugInfo += 'Search params: ' + window.location.search + '\n';
     debugInfo += 'All URL params: ' + JSON.stringify(Object.fromEntries(urlParams.entries()), null, 2) + '\n';
+    debugInfo += 'Aruba Config: Internal Server Captive Portal\n';
     debugInfo += 'Extracted Aruba params: ' + JSON.stringify(arubaParams, null, 2) + '\n\n';
 
     // Check for dark mode preference
