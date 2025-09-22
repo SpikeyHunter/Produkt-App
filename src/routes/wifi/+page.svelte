@@ -1,31 +1,24 @@
 <script lang="ts">
+  import { page } from '$app/stores';
+
   let status = "";
 
   // ✅ Your Google Apps Script Web App endpoint
   const scriptURL =
     "https://script.google.com/macros/s/AKfycbzV4nNB_28ln5pCXSpjrw_kbqCww2DwiVEMJM9NFAg_zVCmRIIeqE6S8yKqMtqggo5HJg/exec";
 
+  // ✅ Grab Aruba’s query params (safe, won’t crash if none exist)
+  $: queryParams = $page.url.search || "";
+
   // ✅ Build Aruba success URL dynamically
-  // Aruba appends query params like ?cmd=login&mac=...&ip=...&essid=...
-  const params = window.location.search;
-
-  // Detect if Aruba gave us a "loginurl" param (some firmware versions do this)
-  const urlParams = new URLSearchParams(window.location.search);
-  let baseLoginURL = urlParams.get("loginurl");
-
-  // If no explicit loginurl param, fall back to using the Aruba controller IP
-  // Clients are usually redirected from something like http://192.168.200.1:8080/...
-  if (!baseLoginURL) {
-    // Use the host from the current request (the AP’s captive portal host)
-    baseLoginURL = window.location.origin.replace(window.location.hostname, window.location.hostname);
-    // Force plain HTTP since captive portals don’t usually use HTTPS internally
-    if (baseLoginURL.startsWith("https://")) {
-      baseLoginURL = baseLoginURL.replace("https://", "http://");
-    }
+  // Aruba will redirect users with ?cmd=login&mac=...&ip=... etc
+  // We must send them back with the same params.
+  let arubaSuccessURL: string;
+  if (typeof window !== "undefined") {
+    // Use the same host that redirected us (usually the AP/VC IP)
+    const host = window.location.hostname;
+    arubaSuccessURL = "http://" + host + "/cgi-bin/login" + queryParams;
   }
-
-  // Final success URL to redirect back into Aruba captive portal
-  const arubaSuccessURL = baseLoginURL + "/cgi-bin/login" + params;
 
   async function handleSubmit(event: Event) {
     event.preventDefault();
@@ -38,15 +31,17 @@
     try {
       await fetch(scriptURL, {
         method: "POST",
-        mode: "no-cors", // avoids CORS preflight inside captive portal
+        mode: "no-cors", // avoids CORS issues inside captive portal
         body: formData
       });
     } catch (err) {
-      // ignore – CNA will block error details anyway
+      // ignore errors in captive portal
     }
 
-    // ✅ Redirect back to Aruba’s login page (unlocks internet)
-    window.location.href = arubaSuccessURL;
+    // ✅ Always redirect back to Aruba with its query params
+    if (arubaSuccessURL) {
+      window.location.href = arubaSuccessURL;
+    }
   }
 </script>
 
