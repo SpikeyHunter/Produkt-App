@@ -1,31 +1,22 @@
 <script lang="ts">
-  import { page } from '$app/stores';
-
   let status = "";
 
-  // ✅ Your Google Apps Script Web App endpoint
+  // ✅ Your Google Apps Script endpoint
   const scriptURL =
     "https://script.google.com/macros/s/AKfycbzV4nNB_28ln5pCXSpjrw_kbqCww2DwiVEMJM9NFAg_zVCmRIIeqE6S8yKqMtqggo5HJg/exec";
 
-  // ✅ Grab Aruba’s query params safely
-  $: queryParams = $page.url.search || "";
-  const urlParams = new URLSearchParams(queryParams);
-
-  // ✅ Detect Aruba controller IP/host
-  let loginHost: string | null = null;
-  if (urlParams.get("switchip")) {
-    // Some Aruba versions send switchip=<controller_ip>
-    loginHost = urlParams.get("switchip");
-  } else {
-    // Fallback: use the host that redirected us (usually AP/VC)
-    loginHost = typeof window !== "undefined" ? window.location.hostname : null;
-  }
-
-  // ✅ Build Aruba success URL (local AP/VC, not Vercel!)
   let arubaSuccessURL: string | null = null;
-  if (loginHost) {
+
+  // ✅ Only run in browser (prevents hydration crash)
+  if (typeof window !== "undefined") {
+    const urlParams = new URLSearchParams(window.location.search);
+
+    // Aruba sometimes passes switchip=<controller ip>
+    const loginHost = urlParams.get("switchip") || window.location.hostname;
+
+    // Rebuild Aruba login URL (must include all query params)
     arubaSuccessURL =
-      "http://" + loginHost + "/cgi-bin/login?" + queryParams.substring(1);
+      "http://" + loginHost + "/cgi-bin/login" + window.location.search;
   }
 
   async function handleSubmit(event: Event) {
@@ -43,14 +34,20 @@
         body: formData
       });
     } catch (err) {
-      // Ignore errors inside captive portal
+      // Ignore fetch errors inside captive portal
     }
 
-    // ✅ Always redirect back to Aruba’s controller to unlock internet
     if (arubaSuccessURL) {
-      window.location.href = arubaSuccessURL;
+      // ✅ Hidden iframe trick: send login to Aruba without leaving your page
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = arubaSuccessURL;
+      document.body.appendChild(iframe);
+
+      // Show friendly success message
+      status = "✅ Connected! You may now close this window.";
     } else {
-      status = "Error: Aruba login host not found.";
+      status = "❌ Error: Aruba login host not found.";
     }
   }
 </script>
