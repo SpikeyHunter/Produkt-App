@@ -33,7 +33,7 @@
   };
 
   // Your Google Apps Script Web App URL
-  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzV4nNB_28ln5pCXSpjrw_kbqCww2DwiVEMJM9NFAg_zVCmRIIeqE6S8yKqMtqggo5HJg/exec';
+  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwDAyJNzI9SdV5l_5V5SnplhQ5f1gH3z2vd9G6XXmR4O-a5naIdqKcuWWwgEI-_Kq-qgQ/exec';
 
   // Translations
   const translations = {
