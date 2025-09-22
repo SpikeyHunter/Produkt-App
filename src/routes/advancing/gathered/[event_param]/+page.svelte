@@ -32,43 +32,58 @@
 		}
 	});
 
-	async function loadEvent(id: string, showLoadingState = true) {
-		try {
-			if (showLoadingState) {
-				loading = true;
-			}
-			error = null;
-			const eventData = await fetchEventById(id);
-			if (eventData) {
-				const numericEventId = eventData.event_id;
-				const { data: timetableData, error: timetableError } = await supabase
-					.from('events')
-					.select('timetable, timetable_active')
-					.eq('event_id', numericEventId)
-					.single();
+async function loadEvent(id: string, showLoadingState = true) {
+    try {
+        if (showLoadingState) {
+            loading = true;
+        }
+        error = null;
+        const eventData = await fetchEventById(id);
+        
+        if (eventData) {
+            const numericEventId = eventData.event_id;
+            console.log('🔍 Looking for timetable data for event_id:', numericEventId);
+            
+            const { data: timetableData, error: timetableError } = await supabase
+                .from('events')
+                .select('timetable, timetable_active')
+                .eq('event_id', numericEventId)
+                .single();
 
-				if (!timetableError && timetableData) {
-					event = {
-						...eventData,
-						timetable: timetableData.timetable,
-						timetable_active: timetableData.timetable_active
-					};
-				} else {
-					event = eventData;
-				}
-			} else {
-				event = null;
-			}
-		} catch (err) {
-			console.error('âŒ Failed to load event:', err);
-			error = 'Failed to load event. Please try again.';
-			event = null;
-		} finally {
-			if (showLoadingState) {
-				loading = false;
-			}
-		}
-	}
+            console.log('📊 Timetable query result:', { timetableData, timetableError });
+
+            if (!timetableError && timetableData) {
+                event = {
+                    ...eventData,
+                    timetable: timetableData.timetable,
+                    timetable_active: timetableData.timetable_active
+                };
+                console.log('✅ Event loaded with timetable data');
+            } else {
+                // This is probably where your custom events are getting stuck
+                console.log('⚠️ No timetable data found, using fallback');
+                event = {
+                    ...eventData,
+                    timetable: null,
+                    timetable_active: false
+                };
+            }
+            
+            console.log('🎯 Final event object:', event);
+        } else {
+            console.log('❌ No event data returned from fetchEventById');
+            event = null;
+        }
+    } catch (err) {
+        console.error('💥 Failed to load event:', err);
+        error = 'Failed to load event. Please try again.';
+        event = null;
+    } finally {
+        if (showLoadingState) {
+            loading = false;
+        }
+    }
+}
 
 	function handleGoBack() {
 		goto('/advancing/gathered');

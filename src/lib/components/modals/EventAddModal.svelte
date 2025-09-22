@@ -219,7 +219,8 @@
 						{
 							event_name: searchValue.trim(),
 							event_date: customEventDate,
-							event_venue: finalVenue // Correctly store the venue with the event.
+							event_venue: finalVenue, // Correctly store the venue with the event.
+							event_status: 'LIVE' 
 						}
 					])
 					.select('event_id');

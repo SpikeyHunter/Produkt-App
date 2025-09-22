@@ -37,7 +37,6 @@
 	let fileInput: HTMLInputElement;
 	let tempFiles: Map<string, File> = new Map();
 	let currentTempFile: File | null = null;
-	// For robust preview
 
 	// Auto-detect states
 	let isDetecting = false;
@@ -45,7 +44,9 @@
 
 	// Reactive statements
 	$: currentPerson = people[currentPersonIndex];
-	$: currentPassportInfo = currentPerson ? passportInfos.find((p) => p.id === currentPerson.id) : undefined;
+	$: currentPassportInfo = currentPerson
+		? passportInfos.find((p) => p.id === currentPerson.id)
+		: undefined;
 	$: canSave = isFormReadyToSave(passportInfos);
 	$: if (isOpen && event) {
 		setTimeout(() => loadEventData(), 50);
@@ -113,19 +114,51 @@
 		fileInput?.click();
 	}
 
-	async function handleFileSelect(e: Event) {
-		const target = e.target as HTMLInputElement;
-		const file = target.files?.[0];
-		if (!file || !currentPerson) return;
+	// Add the missing processFile function
+	async function processFile(file: File) {
+		if (!currentPerson) return;
+		
+		// Validate file type
+		const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
+		if (!allowedTypes.includes(file.type)) {
+			detectionError = 'Invalid file type. Please upload a PDF, JPG, JPEG, or PNG file.';
+			return;
+		}
+		
+		// Validate file size (10MB limit)
+		const maxSize = 10 * 1024 * 1024;
+		if (file.size > maxSize) {
+			detectionError = 'File too large. Please upload a file smaller than 10MB.';
+			return;
+		}
+
 		try {
 			isUploading = true;
+			detectionError = '';
 			const tempUrl = URL.createObjectURL(file);
 			tempFiles.set(currentPerson.id, file);
 			updateCurrentPassportInfo('passportImageUrl', tempUrl);
 		} finally {
 			isUploading = false;
-			if (fileInput) fileInput.value = '';
 		}
+	}
+
+	async function handleFileSelect(e: Event) {
+		const target = e.target as HTMLInputElement;
+		const file = target.files?.[0];
+		if (!file) return;
+		
+		await processFile(file);
+		
+		if (fileInput) fileInput.value = '';
+	}
+
+	async function handleFileDrop(event: CustomEvent<File>) {
+		await processFile(event.detail);
+	}
+
+	function handleFileError(event: CustomEvent<string>) {
+		detectionError = event.detail;
 	}
 
 	function openPreviewModal() {
@@ -156,7 +189,10 @@
 					method: 'DELETE',
 					credentials: 'include',
 					headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-					body: JSON.stringify({ fileUrl: currentPassportInfo.passportImageUrl, bucket: 'documents' })
+					body: JSON.stringify({
+						fileUrl: currentPassportInfo.passportImageUrl,
+						bucket: 'documents'
+					})
 				});
 			}
 			passportInfos = passportInfos.map((info) => {
@@ -167,7 +203,7 @@
 			closePreviewModal();
 			await saveStateToDB();
 		} catch (error) {
-			console.error('❌ Error deleting passport:', error);
+			console.error('⚠ Error deleting passport:', error);
 		} finally {
 			isDeleting = false;
 		}
@@ -200,7 +236,10 @@
 				headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
 				body: JSON.stringify({
 					imageUrl: imageData,
-					nameHints: { expectedFirstName: currentPerson.firstName, expectedLastName: currentPerson.lastName }
+					nameHints: {
+						expectedFirstName: currentPerson.firstName,
+						expectedLastName: currentPerson.lastName
+					}
 				})
 			});
 			if (!response.ok) {
@@ -243,7 +282,7 @@
 				return info;
 			});
 		} catch (error) {
-			console.error('❌ Error during auto-detection:', error);
+			console.error('⚠ Error during auto-detection:', error);
 			detectionError = error instanceof Error ? error.message : 'Failed to detect info.';
 		} finally {
 			isDetecting = false;
@@ -304,7 +343,10 @@
 			}
 			await saveStateToDB();
 			dispatch('save', {
-				event: { ...event, passport_info: JSON.stringify(preparePassportDataForSave(passportInfos)) }
+				event: {
+					...event,
+					passport_info: JSON.stringify(preparePassportDataForSave(passportInfos))
+				}
 			});
 			closeModal();
 		} catch (error) {
@@ -337,9 +379,29 @@
 	function handleUpdateField(event: CustomEvent<{ field: string; value: any }>) {
 		updateCurrentPassportInfo(event.detail.field, event.detail.value);
 	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (!isOpen || people.length === 0) return;
+
+		if (event.key === 'ArrowLeft' && currentPersonIndex > 0) {
+			event.preventDefault();
+			currentPersonIndex = currentPersonIndex - 1;
+		} else if (event.key === 'ArrowRight' && currentPersonIndex < people.length - 1) {
+			event.preventDefault();
+			currentPersonIndex = currentPersonIndex + 1;
+		}
+	}
 </script>
 
-<input bind:this={fileInput} type="file" accept=".pdf,.jpg,.jpeg,.png" on:change={handleFileSelect} class="hidden" />
+<svelte:window on:keydown={handleKeydown} />
+
+<input
+	bind:this={fileInput}
+	type="file"
+	accept=".pdf,.jpg,.jpeg,.png"
+	on:change={handleFileSelect}
+	class="hidden"
+/>
 
 <Modal
 	bind:isOpen
@@ -352,7 +414,13 @@
 	{#if people.length === 0}
 		<div class="text-center py-6">
 			<div class="w-14 h-14 bg-gray1 rounded-full flex items-center justify-center mx-auto mb-3">
-				<svg class="w-7 h-7 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<svg
+					class="w-7 h-7 text-gray2"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
 					<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
 					<circle cx="8.5" cy="7" r="4" />
 					<path d="M20 8v6" />
@@ -360,7 +428,9 @@
 				</svg>
 			</div>
 			<h3 class="text-base font-bold text-white mb-1">No Team Members Found</h3>
-			<p class="text-gray2 text-sm">Please add team members to the role list first before managing passports.</p>
+			<p class="text-gray2 text-sm">
+				Please add team members to the role list first before managing passports.
+			</p>
 		</div>
 	{:else}
 		<div class="space-y-4">
@@ -377,24 +447,28 @@
 					on:preview={openPreviewModal}
 					on:delete={handleDeletePassport}
 					on:autoDetect={handleAutoDetect}
+					on:fileDrop={handleFileDrop}
+					on:error={handleFileError}
 				/>
-				<PassportInfoForm {currentPerson} {currentPassportInfo} on:updateField={handleUpdateField} />
+				<PassportInfoForm
+					{currentPerson}
+					{currentPassportInfo}
+					on:updateField={handleUpdateField}
+				/>
 			</div>
 		</div>
 	{/if}
 
 	<div slot="footer" class="flex gap-2 justify-end">
 		<button
-			class="px-4 py-2 border border-gray2 text-gray2 rounded-full 
-text-sm hover:bg-gray2 hover:text-black transition-colors cursor-pointer"
+			class="px-4 py-2 border border-gray2 text-gray2 rounded-full text-sm hover:bg-gray2 hover:text-black transition-colors cursor-pointer"
 			on:click={closeModal}
 		>
 			Cancel
 		</button>
 		<button
 			class="px-4 py-2 rounded-full transition-colors cursor-pointer text-sm border border-white text-white hover:bg-lime hover:text-black hover:border-lime disabled:opacity-50 disabled:cursor-not-allowed"
-			disabled={isSubmitting ||
-people.length === 0 || !canSave}
+			disabled={isSubmitting || people.length === 0 || !canSave}
 			on:click={handleSave}
 		>
 			{isSubmitting ? 'Saving...' : 'Done'}

@@ -29,6 +29,8 @@
 				// Update the local event object to reflect the change immediately
 				// The 'value' from the event is the display value ("Yes" or "No")
 				event.asked = (value === 'Yes');
+			} else if (column === 'immigration_status') {
+				event.immigration_status = value;
 			}
 		}
 	}
@@ -117,9 +119,7 @@
 		});
 		return isConfirmed ? 'Yes' : 'No';
 	})();
-	
-	$: immigrationStatus = '—';
-	
+		
 	$: flightsStatus = (() => {
 		const groundInfo = parseJson(event.ground_info);
 		if (!groundInfo) return 'No';
@@ -158,8 +158,8 @@
 	})();
 
 	function getBadgeColor(status: string): string {
-		const normalizedStatus = status.toLowerCase().trim();
-		if (normalizedStatus === 'yes' || normalizedStatus === 'done' || normalizedStatus === 'confirmed') {
+		const normalizedStatus = status ? status.toLowerCase().trim() : 'to do';
+		if (normalizedStatus === 'yes' || normalizedStatus === 'done' || normalizedStatus === 'confirmed' || normalizedStatus === 'sent') {
 			return 'bg-confirmed text-black';
 		}
 		if (normalizedStatus === 'no' || normalizedStatus === 'to do' || normalizedStatus === 'todo') {
@@ -222,9 +222,15 @@
 
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Immigration</span>
-					<div class="{getBadgeColor(immigrationStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
-						<span>{immigrationStatus}</span>
-					</div>
+					<DropdownButton
+						{event}
+						options={['To Do', 'Waiting', 'Sent']}
+						value={event.immigration_status || 'To Do'}
+						column="immigration_status"
+						valueType="text"
+						buttonClass={getBadgeColor(event.immigration_status || 'To Do')}
+						on:fieldUpdate={handleFieldUpdate}
+					/>
 				</div>
 
 				<div class="flex items-center gap-3 text-sm">
@@ -245,3 +251,4 @@
 		</div>
 	</div>
 </div>
+

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import Modal from '$lib/components/modals/Modal.svelte';
-	import { updateEventAdvance, deleteEventAdvance } from '$lib/services/eventsService.js';
+	import { updateEventAdvance, deleteEventAdvance, updateEvent } from '$lib/services/eventsService.js';
 	import { supabase } from '$lib/supabase.js';
 
 	export let isOpen = false;
@@ -16,18 +16,37 @@
 	let showDeleteConfirm = false;
 	let showDropdown = false;
 	let showEventDropdown = false;
+	let showVenueDropdown = false;
 	let customArtistType = '';
 	let isCustomEvent = false;
 	let availableEvents: any[] = [];
 	let filteredEvents: any[] = [];
 	let hasLoadedEvents = false;
-
+	let venue = '';
+	let customVenue = '';
 	const artistTypeOptions = ['Headliner', 'Support', 'Local', 'Other'];
+	const venueOptions = ['New City Gas', 'Bazart', 'Other'];
 	// Reset form when modal opens/closes or event changes
 	$: if (event && isOpen && !hasLoadedEvents) {
-		artistName = event?.name || '';
+		artistName = event?.artist_name || ''; // <-- CORRECTED LINE
 		const currentEventId = event?.id?.split('-')[0] || '';
 		const eventArtistType = event?.artist_type || '';
+		// Initialize venue from event data
+		const eventVenue = event?.event_venue || event?.venue || '';
+		if (eventVenue) {
+			const knownVenue = venueOptions.find(v => v.toLowerCase() === eventVenue.toLowerCase());
+			if (knownVenue) {
+				venue = knownVenue;
+				customVenue = '';
+			} else {
+				venue = 'Other';
+				customVenue = eventVenue;
+			}
+		} else {
+			venue = '';
+			customVenue = '';
+		}
+		
 		// Load events once and set selected event
 		loadEvents().then(() => {
 			// Find the matching event in availableEvents
@@ -62,6 +81,7 @@
 		showDeleteConfirm = false;
 		showDropdown = false;
 		showEventDropdown = false;
+		showVenueDropdown = false;
 	}
 
 	$: if (searchValue && !isCustomEvent) {
@@ -104,10 +124,13 @@
 		selectedEvent = null;
 		searchValue = '';
 		customArtistType = '';
+		venue = '';
+		customVenue = '';
 		isSubmitting = false;
 		showDeleteConfirm = false;
 		showDropdown = false;
 		showEventDropdown = false;
+		showVenueDropdown = false;
 		isCustomEvent = false;
 		hasLoadedEvents = false;
 	}
@@ -129,6 +152,18 @@
 		showEventDropdown = !showEventDropdown;
 	}
 
+	function selectVenue(selectedVenue: string) {
+		venue = selectedVenue;
+		showVenueDropdown = false;
+		if (selectedVenue !== 'Other') {
+			customVenue = '';
+		}
+	}
+
+	function toggleVenueDropdown() {
+		showVenueDropdown = !showVenueDropdown;
+	}
+
 	async function handleSave() {
 		if (!artistName.trim() || (!selectedEvent && !isCustomEvent) || !event) return;
 
@@ -142,10 +177,17 @@
 				event_id: selectedEvent ? selectedEvent.event_id : -1, // Use -1 for custom events
 				artist_name: artistName.trim(),
 				artist_type: artistType === 'Other' ?
-				customArtistType.trim() || undefined : artistType || undefined
+					customArtistType.trim() || undefined : artistType || undefined
 			};
 
 			await updateEventAdvance(parseInt(originalEventIdStr), originalArtistName, updates);
+			// Update venue in the events table if venue was changed
+			const finalVenue = venue === 'Other' ? customVenue.trim() : venue;
+			if (finalVenue && (selectedEvent || parseInt(originalEventIdStr) !== -1)) {
+				const eventIdToUpdate = selectedEvent ? selectedEvent.event_id : parseInt(originalEventIdStr);
+				await updateEvent(eventIdToUpdate, { event_venue: finalVenue });
+			}
+
 			dispatch('save', {
 				eventId: parseInt(originalEventIdStr),
 				originalArtistName: originalArtistName,
@@ -154,10 +196,11 @@
 					...event,
 					id: `${updates.event_id}-${artistName.trim()}`,
 					name: artistName.trim(),
-					artist_type: artistType === 'Other' ? customArtistType.trim() || null : artistType || null
+					artist_type: artistType === 'Other' ? customArtistType.trim() || null : artistType || null,
+					venue: finalVenue,
+					event_venue: finalVenue
 				}
 			});
-
 			closeModal();
 		} catch (error) {
 			console.error('Error saving event:', error);
@@ -166,51 +209,50 @@
 		}
 	}
 
+	// UPDATED handleDelete function
+	async function handleDelete() {
+		if (!event) return;
+		isSubmitting = true;
+		try {
+			// More robust parsing of the event ID
+			const eventParts = event.id?.split('-') || [];
+			const eventIdStr = eventParts[0] || '';
+			const originalArtistName = eventParts.slice(1).join('-') || '';
+			
+			console.log('Deleting event with:', {
+				fullId: event.id,
+				eventIdStr,
+				originalArtistName,
+				parsedEventId: parseInt(eventIdStr)
+			});
+			// Validate that we have both required parameters
+			if (!eventIdStr || !originalArtistName) {
+				console.error('Invalid event ID format:', event.id);
+				throw new Error('Invalid event ID format');
+			}
 
-// UPDATED handleDelete function
-async function handleDelete() {
-	if (!event) return;
-	isSubmitting = true;
-	try {
-		// More robust parsing of the event ID
-		const eventParts = event.id?.split('-') || [];
-		const eventIdStr = eventParts[0] || '';
-		const originalArtistName = eventParts.slice(1).join('-') || '';
-		
-		console.log('Deleting event with:', {
-			fullId: event.id,
-			eventIdStr,
-			originalArtistName,
-			parsedEventId: parseInt(eventIdStr)
-		});
-		// Validate that we have both required parameters
-		if (!eventIdStr || !originalArtistName) {
-			console.error('Invalid event ID format:', event.id);
-			throw new Error('Invalid event ID format');
+			// Pass the file URLs to the service function for cleanup
+			await deleteEventAdvance(
+				parseInt(eventIdStr),
+				originalArtistName,
+				event.contract_url,
+				event.passport_info
+			);
+			dispatch('delete', {
+				eventId: parseInt(eventIdStr),
+				artistName: originalArtistName,
+				event
+			});
+
+			closeModal();
+		} catch (error) {
+			console.error('Error deleting event:', error);
+			// Optionally show an error message to the user
+			alert('Failed to delete event. Please check the console for details.');
+		} finally {
+			isSubmitting = false;
 		}
-
-		// Pass the file URLs to the service function for cleanup
-		await deleteEventAdvance(
-			parseInt(eventIdStr),
-			originalArtistName,
-			event.contract_url,
-			event.passport_info
-		);
-		dispatch('delete', {
-			eventId: parseInt(eventIdStr),
-			artistName: originalArtistName,
-			event
-		});
-
-		closeModal();
-	} catch (error) {
-		console.error('Error deleting event:', error);
-		// Optionally show an error message to the user
-		alert('Failed to delete event. Please check the console for details.');
-	} finally {
-		isSubmitting = false;
 	}
-}
 
 	function confirmDelete() {
 		showDeleteConfirm = true;
@@ -237,6 +279,7 @@ async function handleDelete() {
 		if (event.target && (event.target as Element).closest && !(event.target as Element).closest('.dropdown-container')) {
 			showDropdown = false;
 			showEventDropdown = false;
+			showVenueDropdown = false;
 		}
 	}
 
@@ -257,7 +300,9 @@ async function handleDelete() {
 
 	$: isFormValid = artistName.trim().length > 0 && 
 					 (selectedEvent || isCustomEvent) &&
-					 (artistType !== 'Other' || customArtistType.trim().length > 0);
+					 (artistType !== 'Other' || customArtistType.trim().length > 0) &&
+					 (venue !== 'Other' || customVenue.trim().length > 0) &&
+					 venue.trim().length > 0;
 </script>
 
 <svelte:window on:click={handleClickOutside} />
@@ -278,7 +323,8 @@ async function handleDelete() {
 					<input
 						type="text"
 						class="w-full bg-transparent border border-lime rounded-full px-4 py-3 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime pr-16"
-						placeholder={selectedEvent ? selectedEvent.event_name : (isCustomEvent ? 'Custom Event' : 'Search for an event')}
+						placeholder={selectedEvent ?
+							selectedEvent.event_name : (isCustomEvent ? 'Custom Event' : 'Search for an event')}
 						bind:value={searchValue}
 						on:focus={() => showEventDropdown = true}
 						on:input={() => {
@@ -446,6 +492,55 @@ async function handleDelete() {
 					/>
 				</div>
 			{/if}
+
+			<div class="dropdown-container relative">
+				<p class="font-normal text-lime mb-2">Venue</p>
+				<button
+					type="button"
+					class="w-full bg-transparent border border-lime rounded-full px-4 py-3 text-white focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime flex items-center justify-between cursor-pointer"
+					on:click={toggleVenueDropdown}
+				>
+					<span class={venue ? 'text-white' : 'text-gray2'}>
+						{#if venue}
+							{venue === 'Other' && customVenue ? `${venue}: ${customVenue}` : venue}
+						{:else}
+							Select venue
+						{/if}
+					</span>
+					<svg 
+						class="w-4 h-4 text-lime transition-transform {showVenueDropdown ? 'rotate-180' : ''}" 
+						viewBox="0 0 24 24" 
+						fill="none" 
+						stroke="currentColor" 
+						stroke-width="2"
+					>
+						<path d="M6 9l6 6 6-6"/>
+					</svg>
+				</button>
+
+				{#if showVenueDropdown}
+					<div class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-10">
+						{#each venueOptions as option}
+							<button
+								type="button"
+								class="w-full px-4 py-3 text-left text-white hover:bg-lime hover:text-black transition-colors cursor-pointer border-b border-gray1 last:border-b-0"
+								on:click={() => selectVenue(option)}
+							>
+								{option}
+							</button>
+						{/each}
+					</div>
+				{/if}
+
+				{#if venue === 'Other'}
+					<input
+						type="text"
+						class="w-full bg-transparent border border-lime rounded-full px-4 py-2 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime mt-2"
+						placeholder="Enter custom venue"
+						bind:value={customVenue}
+					/>
+				{/if}
+			</div>
 
 			{#if showDeleteConfirm}
 				<div class="bg-red-900/20 border border-red-500/30 rounded-lg p-4">

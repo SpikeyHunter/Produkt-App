@@ -308,33 +308,35 @@ function findNamesWithPatterns(text: string, lines: string[]): Partial<DetectedP
   return result;
 }
 
-// Extract passport number with enhanced patterns
+// ** MODIFIED FUNCTION **
+// Extract passport number with enhanced patterns and logic
 function extractPassportNumber(text: string): string | null {
-  for (const pattern of passportNumberPatterns) {
-    const matches = text.match(new RegExp(pattern, 'g'));
-    if (matches && matches.length > 0) {
-      // Filter out dates and other false positives
-      const validMatch = matches.find(match => {
-        // Skip if it looks like a date
-        if (/\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}/.test(match)) return false;
-        if (/\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/.test(match)) return false;
-        if (/JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC/i.test(match)) return false;
-        
-        // Valid passport number length (including letters)
-        const cleaned = match.replace(/[^A-Z0-9]/gi, '');
-        return cleaned.length >= 6 && cleaned.length <= 12;
-      });
-      
-      if (validMatch) {
-        const passportNumber = validMatch.replace(/^\D+/, ''); // Remove leading non-alphanumeric if captured by pattern
-        console.log('✅ Found passport number:', passportNumber);
-        return passportNumber;
-      }
-    }
-  }
-  
-  return null;
+	for (const pattern of passportNumberPatterns) { 
+		const match = pattern.exec(text);
+
+		if (match) {
+			// Prioritize a capturing group if it exists (match[1]), otherwise use the full match (match[0])
+			let potentialNumber = match[1] || match[0];
+
+			// Clean the result to ensure it's purely alphanumeric
+			potentialNumber = potentialNumber.replace(/[^A-Z0-9]/gi, '');
+
+			// Skip potential matches that are likely dates or other false positives
+			if (/\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}/.test(potentialNumber)) continue;
+			if (/\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/.test(potentialNumber)) continue;
+			if (/JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC/i.test(potentialNumber)) continue;
+
+			// Final validation for typical passport number length
+			if (potentialNumber.length >= 6 && potentialNumber.length <= 12) {
+				console.log('✅ Found passport number:', potentialNumber);
+				return potentialNumber;
+			}
+		}
+	}
+
+	return null;
 }
+
 
 // Extract country
 function extractCountry(text: string): string | null {

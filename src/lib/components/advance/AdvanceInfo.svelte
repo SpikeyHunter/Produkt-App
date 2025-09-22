@@ -105,7 +105,7 @@
 				<div
 					class="w-full h-full flex flex-col justify-center items-center text-center p-4 bg-gradient-to-br from-blue-900 to-green-800"
 				>
-					<div class="text-lg font-bold text-yellow-500 mb-2">{displayEventName}</div>
+					<div class="text-lg font-bold text-lime mb-2">{displayEventName}</div>
 					<div class="text-sm text-white">{artistName}</div>
 				</div>
 			{/if}

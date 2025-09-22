@@ -31,7 +31,7 @@ export interface TimetableEntry {
 
 export async function fetchMainEvent(eventId: number): Promise<any | null> {
 	try {
-		console.log('🔍 Fetching main event with id:', eventId);
+		console.log('Fetching main event with id:', eventId);
 		
 		const { data: event, error } = await supabase
 			.from('events')
@@ -40,14 +40,14 @@ export async function fetchMainEvent(eventId: number): Promise<any | null> {
 			.single();
 			
 		if (error) {
-			console.error('❌ Error fetching main event:', error);
+			console.error('Error fetching main event:', error);
 			return null;
 		}
 		
-		console.log('✅ Successfully fetched main event:', event);
+		console.log('Successfully fetched main event:', event);
 		return event;
 	} catch (err) {
-		console.error('❌ Error in fetchMainEvent:', err);
+		console.error('Error in fetchMainEvent:', err);
 		return null;
 	}
 }
@@ -87,26 +87,26 @@ export async function updateEventTimetable(
 	timetable: TimetableEntry[] | null
 ): Promise<void> {
 	try {
-		console.log(`🔄 Updating timetable for event ${eventId}`);
+		console.log(`Updating timetable for event ${eventId}`);
 		const { error } = await supabase
 			.from('events')
 			.update({ timetable: timetable })
 			.eq('event_id', eventId);
 
 		if (error) {
-			console.error('❌ Error updating timetable:', error);
+			console.error('Error updating timetable:', error);
 			throw error;
 		}
-		console.log(`✅ Timetable for event ${eventId} updated successfully.`);
+		console.log(`Timetable for event ${eventId} updated successfully.`);
 	} catch (error) {
-		console.error(`❌ Fatal error in updateEventTimetable:`, error);
+		console.error(`Fatal error in updateEventTimetable:`, error);
 		throw error;
 	}
 }
 
 export async function updateEventTimetableActive(eventId: string, active: boolean): Promise<void> {
 	try {
-		console.log(`🔄 Updating timetable_active for event ${eventId} to ${active}`);
+		console.log(`Updating timetable_active for event ${eventId} to ${active}`);
 		const numericEventId = parseInt(eventId);
 		const { data, error } = await supabase
 			.from('events')
@@ -115,20 +115,20 @@ export async function updateEventTimetableActive(eventId: string, active: boolea
 			.select();
 
 		if (error) {
-			console.error(`❌ Error updating timetable_active:`, error);
+			console.error(`Error updating timetable_active:`, error);
 			throw error;
 		}
 
-		console.log(`✅ Successfully updated timetable_active for event ${eventId}:`, data);
+		console.log(`Successfully updated timetable_active for event ${eventId}:`, data);
 	} catch (error) {
-		console.error(`❌ Error in updateEventTimetableActive:`, error);
+		console.error(`Error in updateEventTimetableActive:`, error);
 		throw error;
 	}
 }
 
 export async function fetchLiveEventsWithSetTimes(): Promise<EventWithTimetable[]> {
 	try {
-		console.log("🔍 Fetching 'LIVE' events for Set Times dashboard...");
+		console.log("Fetching 'LIVE' events for Set Times dashboard...");
 		const { data: liveEvents, error: eventsError } = await supabase
 			.from('events')
 			.select('event_id, event_name, event_date, event_flyer, timetable_active, timetable')
@@ -136,19 +136,19 @@ export async function fetchLiveEventsWithSetTimes(): Promise<EventWithTimetable[
 			.order('event_date', { ascending: true });
 
 		if (eventsError) {
-			console.error('❌ Error fetching live events:', eventsError);
+			console.error('Error fetching live events:', eventsError);
 			throw eventsError;
 		}
 
 		if (!liveEvents || liveEvents.length === 0) {
-			console.log('🔭 No live events found.');
+			console.log('No live events found.');
 			return [];
 		}
 
-		console.log(`✅ Successfully fetched ${liveEvents.length} live events with their timetables.`);
+		console.log(`Successfully fetched ${liveEvents.length} live events with their timetables.`);
 		return liveEvents as EventWithTimetable[];
 	} catch (error) {
-		console.error('❌ Fatal error in fetchLiveEventsWithSetTimes:', error);
+		console.error('Fatal error in fetchLiveEventsWithSetTimes:', error);
 		return [];
 	}
 }
@@ -181,7 +181,7 @@ async function deleteFileByUrl(fileUrl: string) {
 
 export async function updateEventColumn( eventId: string, column: string, value: any ): Promise<void> {
 	try {
-		console.log(`🔄 Updating column ${column} to:`, value);
+		console.log(`Updating column ${column} to:`, value);
 		let numericEventId: number;
 		let artistName: string;
 
@@ -201,13 +201,13 @@ export async function updateEventColumn( eventId: string, column: string, value:
 			.select();
 
 		if (error) {
-			console.error(`❌ Error updating ${column}:`, error);
+			console.error(`Error updating ${column}:`, error);
 			throw error;
 		}
 
-		console.log(`✅ Successfully updated ${column}:`, data);
+		console.log(`Successfully updated ${column}:`, data);
 	} catch (error) {
-		console.error(`❌ Error in updateEventColumn:`, error);
+		console.error(`Error in updateEventColumn:`, error);
 		throw error;
 	}
 }
@@ -217,20 +217,20 @@ export async function updateEventColumn( eventId: string, column: string, value:
  */
 export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 	try {
-		console.log('🔍 Fetching events from Supabase...');
+		console.log('Fetching events from Supabase...');
 
 		const { data: advanceData, error: advanceError } = await supabase
 			.from('events_advance')
-			.select('*')
+			.select('*, artist_bio, artist_bio_url')
 			.order('created_at', { ascending: false });
 
 		if (advanceError) {
-			console.error('❌ Error fetching events_advance:', advanceError);
+			console.error('Error fetching events_advance:', advanceError);
 			throw advanceError;
 		}
 
 		if (!advanceData || advanceData.length === 0) {
-			console.log('🔭 No events found');
+			console.log('No events found');
 			return [];
 		}
 
@@ -244,7 +244,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				.in('event_id', eventIds);
 
 			if (eventsError) {
-				console.warn('⚠️ Error fetching events details:', eventsError);
+				console.warn('Error fetching events details:', eventsError);
 			} else if (eventsData) {
 				eventsData.forEach((event) => {
 					eventsMap.set(event.event_id, event);
@@ -270,10 +270,11 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				passport_info: row.passport_info,
 				hotel_info: row.hotel_info,
 				immigration_info: row.immigration_info,
+				immigration_status: row.immigration_status,
 				tech_rider: row.tech_rider,
 				sfx_rider: row.sfx_rider,
 				soundcheck: row.soundcheck,
-				hospo_rider: row.hospo_rider, // ADDED hospo_rider
+				hospo_rider: row.hospo_rider,
 				ground_transport: row.ground_transport,
 				ground_info: row.ground_info,
 				advance_completed: row.advance_completed,
@@ -283,6 +284,8 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				ground_done: row.ground_done,
 				created_at: row.created_at,
 				updated_at: row.updated_at,
+				artist_bio: row.artist_bio,
+				artist_bio_url: row.artist_bio_url,
 
 				// Computed fields for UI
 				name: eventName,
@@ -308,10 +311,10 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 			};
 		});
 
-		console.log('✅ Successfully fetched and transformed events:', transformedEvents.length);
+		console.log('Successfully fetched and transformed events:', transformedEvents.length);
 		return transformedEvents;
 	} catch (error) {
-		console.error('❌ Error in fetchEventsAdvance:', error);
+		console.error('Error in fetchEventsAdvance:', error);
 		return [];
 	}
 }
@@ -332,7 +335,7 @@ export async function createEventAdvance( eventId: number | null, artistName: st
 		let finalEventId = eventId;
 
 		if (finalEventId === null) {
-			console.log('✨ Creating a new custom shell event...');
+			console.log('Creating a new custom shell event...');
 			if (!customEventName || !customEventDate) {
 				throw new Error('Custom event name and date are required to create a new event.');
 			}
@@ -350,18 +353,18 @@ export async function createEventAdvance( eventId: number | null, artistName: st
 				.single();
 
 			if (eventError) {
-				console.error('❌ Error creating shell event in "events" table:', eventError);
+				console.error('Error creating shell event in "events" table:', eventError);
 				throw eventError;
 			}
 			finalEventId = newEvent.event_id;
-			console.log(`✅ Shell event created with new unique ID: ${finalEventId}`);
+			console.log(`Shell event created with new unique ID: ${finalEventId}`);
 		}
 
 		if (finalEventId === null) {
 			throw new Error('Could not determine a valid event ID for the advance.');
 		}
 
-		console.log(`➕ Creating advance record for event ID: ${finalEventId}`);
+		console.log(`Creating advance record for event ID: ${finalEventId}`);
 		const { data, error } = await supabase
 			.from('events_advance')
 			.insert({
@@ -373,45 +376,45 @@ export async function createEventAdvance( eventId: number | null, artistName: st
 			.single();
 
 		if (error) {
-			console.error('❌ Error creating record in "events_advance" table:', error);
+			console.error('Error creating record in "events_advance" table:', error);
 			throw error;
 		}
 
-		console.log('✅ Successfully created event advance:', data);
+		console.log('Successfully created event advance:', data);
 		return data;
 	} catch (error) {
-		console.error('❌ Fatal error in createEventAdvance:', error);
+		console.error('Fatal error in createEventAdvance:', error);
 		throw error;
 	}
 }
 
 export async function updateEventAdvance( originalEventId: number, artistName: string, updates: Record<string, any> ) {
 	try {
-		console.log(`🔄 Updating event advance for ${artistName} on event ${originalEventId} with:`, updates);
+		console.log(`Updating event advance for ${artistName} on event ${originalEventId} with:`, updates);
 		const { data: updatedAdvance, error: updateError } = await supabase
 			.from('events_advance')
 			.update(updates)
 			.eq('event_id', originalEventId)
 			.eq('artist_name', artistName)
-			.select()
+			.select('*, artist_bio, artist_bio_url')
 			.single();
 
 		if (updateError) {
-			console.error('❌ Error updating event advance record:', updateError);
+			console.error('Error updating event advance record:', updateError);
 			throw updateError;
 		}
 
-		console.log('✅ Successfully updated event advance record.');
+		console.log('Successfully updated event advance record.');
 		return updatedAdvance;
 	} catch (error) {
-		console.error('❌ Fatal error in updateEventAdvance:', error);
+		console.error('Fatal error in updateEventAdvance:', error);
 		throw error;
 	}
 }
 
 export async function deleteEventAdvance( eventId: number, artistName: string, contractUrl?: string | null, passportInfo?: any | null ) {
 	try {
-		console.log('🗑️ Deleting event advance entry and associated files...');
+		console.log('Deleting event advance entry and associated files...');
 		if (contractUrl) { await deleteFileByUrl(contractUrl); }
 		if (passportInfo) { /* (Your logic to parse and delete passport images) */ }
 		await cleanupEventFiles(eventId, artistName);
@@ -423,12 +426,12 @@ export async function deleteEventAdvance( eventId: number, artistName: string, c
 			.eq('artist_name', artistName);
 
 		if (deleteAdvanceError) {
-			console.error('❌ Error deleting event advance from DB:', deleteAdvanceError);
+			console.error('Error deleting event advance from DB:', deleteAdvanceError);
 			throw deleteAdvanceError;
 		}
-		console.log('✅ Successfully deleted advance record.');
+		console.log('Successfully deleted advance record.');
 	} catch (error) {
-		console.error('❌ Error in deleteEventAdvance:', error);
+		console.error('Error in deleteEventAdvance:', error);
 		throw error;
 	}
 }
@@ -438,7 +441,7 @@ export async function deleteEventAdvance( eventId: number, artistName: string, c
  */
 export async function fetchEventById(eventId: string): Promise<EventAdvance | null> {
 	try {
-		console.log('🔍 Fetching event with id:', eventId);
+		console.log('Fetching event with id:', eventId);
 		let numericEventId: number;
 		let artistName: string | null = null;
 
@@ -458,17 +461,17 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
             .single();
 
         if (eventError) {
-            console.warn('⚠️ Event not found in events table:', eventError);
+            console.warn('Event not found in events table:', eventError);
         } else {
             eventData = event;
         }
 
-		let query = supabase.from('events_advance').select('*').eq('event_id', numericEventId);
+		let query = supabase.from('events_advance').select('*, artist_bio, artist_bio_url').eq('event_id', numericEventId);
 		if (artistName) { query = query.eq('artist_name', artistName); }
 		const { data: advanceData, error: advanceError } = await query.single();
 
 		if (advanceError) {
-			console.error('❌ Advance data not found:', advanceError);
+			console.error('Advance data not found:', advanceError);
 			return null;
 		}
 
@@ -488,10 +491,11 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			passport_info: advanceData.passport_info,
 			hotel_info: advanceData.hotel_info,
 			immigration_info: advanceData.immigration_info,
+			immigration_status: advanceData.immigration_status,
 			tech_rider: advanceData.tech_rider,
 			sfx_rider: advanceData.sfx_rider,
 			soundcheck: advanceData.soundcheck,
-			hospo_rider: advanceData.hospo_rider, // ADDED hospo_rider
+			hospo_rider: advanceData.hospo_rider,
 			ground_transport: advanceData.ground_transport,
 			ground_info: advanceData.ground_info,
 			advance_completed: advanceData.advance_completed,
@@ -501,6 +505,8 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			ground_done: advanceData.ground_done,
 			created_at: advanceData.created_at,
 			updated_at: advanceData.updated_at,
+			artist_bio: advanceData.artist_bio,
+			artist_bio_url: advanceData.artist_bio_url,
 
 			// Computed fields for UI
 			name: finalEventName,
@@ -523,7 +529,7 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 
 		return combinedData;
 	} catch (err) {
-		console.error('❌ Error fetching event by ID:', err);
+		console.error('Error fetching event by ID:', err);
 		throw new Error(`Failed to fetch event: ${err instanceof Error ? err.message : 'Unknown error'}`);
 	}
 }
