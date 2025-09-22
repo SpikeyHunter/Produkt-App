@@ -122,28 +122,34 @@
     errorMessage = '';
 
     try {
-      // 1. Save data to Google Sheets first
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        mode: 'cors',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...formData,
-          language,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent,
-          ip: await getClientIP(),
-          arubaParams // Include Aruba session info
-        })
-      });
+      // 1. Save data to Google Sheets using JSONP fallback
+      try {
+        const response = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'cors',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...formData,
+            language,
+            timestamp: new Date().toISOString(),
+            userAgent: navigator.userAgent,
+            ip: await getClientIP(),
+            arubaParams // Include Aruba session info
+          })
+        });
 
-      if (!response.ok) {
-        throw new Error('Failed to save data');
+        if (!response.ok) {
+          throw new Error('Failed to save data');
+        }
+
+        console.log('✅ Data saved to Google Sheets successfully');
+      } catch (error) {
+        console.error('Google Sheets save failed:', error);
+        // Continue with Aruba auth even if Google Sheets fails
+        console.log('📝 Continuing with Aruba authentication...');
       }
-
-      console.log('✅ Data saved to Google Sheets successfully');
 
       // 2. Authenticate with Aruba using dynamic switch_url
       await authenticateWithAruba();
