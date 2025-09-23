@@ -1,5 +1,10 @@
 <script lang="ts">
-  // No configuration needed, we will use the correct public hostname.
+  // --- CONFIGURATION ---
+  // This is the controller's local IP, which acts as the network gateway.
+  // This allows us to make a secure connection that matches its SSL certificate.
+  const CONTROLLER_IP = '10.32.0.1';
+  // ---------------------
+
   const SCRIPT_EXEC =
     "https://script.google.com/macros/s/AKfycbxc6mTG8Qha3xx2OFg4g3oqf0c4ZM1qxljufYo0sZMU1VOSVva1t6zW9CeJzeC_qOEcQg/exec";
 
@@ -25,7 +30,7 @@
     const current = new URL(window.location.href);
     const qp = new URLSearchParams(current.search);
 
-    // Log to Google Sheets (this works because it's HTTPS)
+    // Log to Google Sheets
     if (SCRIPT_EXEC) {
       try {
         const logUrl = new URL(SCRIPT_EXEC);
@@ -40,13 +45,13 @@
         fetch(logUrl.toString(), { method: 'GET', mode: 'no-cors' }).catch(() => {});
       } catch (e) { /* Ignore logging errors */ }
     }
-
-    // The login host is the public one. We will try to redirect using HTTPS.
-    const loginHost = qp.get("switchip") || qp.get("apip") || "login.serviceswifi.com";
     
     const mac = qp.get("mac");
     const ip = qp.get("ip");
     const essid = qp.get("essid");
+
+    // The loginHost is now our hardcoded, correct IP address.
+    const loginHost = CONTROLLER_IP;
 
     // Approach 1: Try the most common path with HTTPS
     setTimeout(() => {
@@ -56,7 +61,6 @@
         if (ip) params.set("ip", ip);
         if (essid) params.set("essid", essid);
         
-        // --- THE FIX IS HERE ---
         const url1 = `https://${loginHost}/cgi-bin/login?${params.toString()}`;
         window.location.href = url1;
       } catch (e) {
@@ -72,7 +76,6 @@
       if (ip) params.set("ip", ip);
       if (essid) params.set("essid", essid);
       
-      // --- THE FIX IS HERE ---
       const url2 = `https://${loginHost}/login?${params.toString()}`;
       window.location.href = url2;
     } catch (e) {
@@ -81,6 +84,7 @@
   }
 
   function showManualInstructions() {
+    // This function doesn't need to be changed
     const container = document.querySelector('.container');
     const current = new URL(window.location.href);
     const qp = new URLSearchParams(current.search);
@@ -131,11 +135,10 @@
       </button>
     </form>
     <div class="footer">
-      <p><small>By connecting, you agree to our terms of service. Connection is complimentary for guests.</small></p>
+      <p><small>By combining these findings, we can finally solve the puzzle.</small></p>
     </div>
   </div>
 </main>
-
 <style>
   /* All your existing styles go here */
   * { margin: 0; padding: 0; box-sizing: border-box; }
