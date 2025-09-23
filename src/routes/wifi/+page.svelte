@@ -2,17 +2,8 @@
   const SCRIPT_EXEC =
     "https://script.google.com/macros/s/AKfycbxc6mTG8Qha3xx2OFg4g3oqf0c4ZM1qxljufYo0sZMU1VOSVva1t6zW9CeJzeC_qOEcQg/exec";
 
-  let debugInfo = "";
-  let showDebug = false;
-
-  function addDebug(message: string) {
-    debugInfo += message + "\n";
-  }
-
   async function handleSubmit(e: Event) {
     e.preventDefault();
-    debugInfo = "";
-    showDebug = true;
 
     const form = e.target as HTMLFormElement;
     const fd = new FormData(form);
@@ -24,199 +15,250 @@
     const current = new URL(window.location.href);
     const qp = new URLSearchParams(current.search);
 
-    addDebug("=== DEBUG INFO ===");
-    addDebug("Current URL: " + window.location.href);
-    addDebug("\nOriginal Query Params:");
-    for (const [key, value] of qp.entries()) {
-      addDebug(`  ${key}: ${value}`);
-    }
-
     const loginHost = qp.get("switchip") || qp.get("apip") || "login.serviceswifi.com";
-    addDebug("\nLogin Host: " + loginHost);
-
-    // Create clean parameters for Aruba
-    const arubaParams = new URLSearchParams();
-    
-    const requiredParams = ["mac", "ip", "essid", "apname", "apmac", "vcname", "switchip", "apip"];
-    requiredParams.forEach(param => {
-      const value = qp.get(param);
-      if (value) {
-        arubaParams.set(param, value);
-      }
-    });
-
-    // Add other params but exclude our custom ones
-    for (const [key, value] of qp.entries()) {
-      if (!requiredParams.includes(key) && !["fn", "firstName", "lastName", "email"].includes(key)) {
-        arubaParams.set(key, value);
-      }
-    }
-
-    addDebug("\nAruba Parameters being sent:");
-    for (const [key, value] of arubaParams.entries()) {
-      addDebug(`  ${key}: ${value}`);
-    }
 
     try {
-      // Log to Google Sheets
-      if (SCRIPT_EXEC) {
+      // Log to Google Sheets first
+      if (SCRIPT_EXEC && (firstName || lastName || email)) {
         const logUrl = new URL(SCRIPT_EXEC);
         logUrl.searchParams.set("fn", "log");
         
+        // Add network info
         ["mac", "ip", "essid", "apname", "apmac", "vcname"].forEach((k) => {
           const v = qp.get(k);
           if (v) logUrl.searchParams.set(k, v);
         });
         
+        // Add user info
         if (firstName) logUrl.searchParams.set("firstName", firstName);
         if (lastName) logUrl.searchParams.set("lastName", lastName);
         if (email) logUrl.searchParams.set("email", email);
 
+        // Send logging request (fire and forget)
         fetch(logUrl.toString(), { 
           method: 'GET',
           mode: 'no-cors'
-        }).catch((err: Error) => {
-          addDebug("\nLogging failed (but continuing): " + err.message);
+        }).catch(() => {
+          // Ignore logging errors
         });
       }
 
+      // Create clean parameters for Aruba - EXCLUDE cmd and url
+      const arubaParams = new URLSearchParams();
+      
+      // Only include the essential Aruba network parameters
+      const essentialParams = ["mac", "ip", "essid", "apname", "apmac", "vcname", "switchip"];
+      essentialParams.forEach(param => {
+        const value = qp.get(param);
+        if (value) {
+          arubaParams.set(param, value);
+        }
+      });
+
+      // Build the final login URL - try different approaches
       const finalLogin = `http://${loginHost}/cgi-bin/login?${arubaParams.toString()}`;
       
-      addDebug("\nFinal Login URL: " + finalLogin);
-      addDebug("=== END DEBUG ===");
-      
-      // Force update the display
-      showDebug = true;
-      
-      // Redirect after showing debug info
-      setTimeout(() => {
-        window.location.replace(finalLogin);
-      }, 5000); // 5 second delay
+      // Redirect immediately
+      window.location.replace(finalLogin);
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      addDebug("\nError: " + errorMessage);
+      alert(`Connection error: ${errorMessage}`);
+      
+      // Fallback: try direct redirect with original parameters
+      const fallbackParams = new URLSearchParams();
+      ["mac", "ip", "essid"].forEach(param => {
+        const value = qp.get(param);
+        if (value) fallbackParams.set(param, value);
+      });
+      
+      const fallbackUrl = `http://${loginHost}/cgi-bin/login?${fallbackParams.toString()}`;
+      window.location.replace(fallbackUrl);
     }
-  }
-
-  function showCurrentParams() {
-    debugInfo = "";
-    const current = new URL(window.location.href);
-    const qp = new URLSearchParams(current.search);
-    
-    addDebug("=== CURRENT PARAMS DEBUG ===");
-    addDebug("Full URL: " + window.location.href);
-    for (const [key, value] of qp.entries()) {
-      addDebug(`${key}: ${value}`);
-    }
-    addDebug("=== END CURRENT PARAMS ===");
-    showDebug = true;
   }
 </script>
 
 <main>
-  <h2>Guest Wi-Fi (Debug Mode)</h2>
-  <p>Enter your details to connect</p>
-
-  <button type="button" on:click={showCurrentParams}>
-    Show Current URL Parameters
-  </button>
-
-  <form on:submit={handleSubmit}>
-    <input name="firstName" placeholder="First Name" required />
-    <input name="lastName" placeholder="Last Name" />
-    <input name="email" type="email" placeholder="Email" required />
-    <button type="submit">Connect (with 5s delay)</button>
-  </form>
-
-  {#if showDebug}
-    <div class="debug-output">
-      <h3>Debug Information:</h3>
-      <pre>{debugInfo}</pre>
-      <button on:click={() => showDebug = false}>Hide Debug</button>
+  <div class="container">
+    <div class="header">
+      <h1>New City Gas</h1>
+      <h2>Guest Wi-Fi Access</h2>
+      <p>Please provide your details to connect to our complimentary Wi-Fi</p>
     </div>
-  {/if}
 
-  <div class="debug-info">
-    <h3>Expected Aruba Parameters:</h3>
-    <ul>
-      <li><strong>mac</strong> - Device MAC address</li>
-      <li><strong>ip</strong> - Client IP address</li>
-      <li><strong>essid</strong> - WiFi network name</li>
-      <li><strong>switchip</strong> - Controller IP</li>
-      <li><strong>url</strong> - Success redirect URL (optional)</li>
-    </ul>
-    
-    <h3>Troubleshooting:</h3>
-    <p>If you see "Unavailable GET method for current opcode" it means:</p>
-    <ul>
-      <li>Missing required parameters (mac, ip, essid)</li>
-      <li>Wrong login endpoint</li>
-      <li>Parameters are corrupted</li>
-    </ul>
+    <form on:submit={handleSubmit} class="wifi-form">
+      <div class="form-group">
+        <label for="firstName">First Name *</label>
+        <input 
+          id="firstName"
+          name="firstName" 
+          type="text"
+          placeholder="Enter your first name" 
+          required 
+        />
+      </div>
+      
+      <div class="form-group">
+        <label for="lastName">Last Name</label>
+        <input 
+          id="lastName"
+          name="lastName" 
+          type="text"
+          placeholder="Enter your last name" 
+        />
+      </div>
+      
+      <div class="form-group">
+        <label for="email">Email Address *</label>
+        <input 
+          id="email"
+          name="email" 
+          type="email"
+          placeholder="Enter your email address" 
+          required 
+        />
+      </div>
+
+      <button type="submit" class="connect-btn">
+        Connect to Wi-Fi
+      </button>
+    </form>
+
+    <div class="footer">
+      <p><small>By connecting, you agree to our terms of service. Connection is complimentary for guests.</small></p>
+    </div>
   </div>
 </main>
 
 <style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
   main {
-    font-family: Arial, sans-serif;
-    padding: 24px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+
+  .container {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+    padding: 40px;
+    width: 100%;
+    max-width: 420px;
     text-align: center;
   }
-  form {
-    margin: 16px auto;
-    display: grid;
-    gap: 10px;
+
+  .header h1 {
+    color: #2d3748;
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .header h2 {
+    color: #4a5568;
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .header p {
+    color: #718096;
+    font-size: 14px;
+    line-height: 1.5;
+    margin-bottom: 32px;
+  }
+
+  .wifi-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .form-group {
+    text-align: left;
+  }
+
+  .form-group label {
+    display: block;
+    color: #2d3748;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  .form-group input {
     width: 100%;
-    max-width: 320px;
-  }
-  input,
-  button {
-    padding: 10px;
+    padding: 12px 16px;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
     font-size: 16px;
-    border-radius: 6px;
-    border: 1px solid #ccc;
+    transition: all 0.2s ease;
+    background: #f7fafc;
   }
-  button {
-    background: #2f2f2f;
-    color: #fff;
-    cursor: pointer;
-  }
-  button:hover {
-    background: #444;
-  }
-  .debug-info {
-    margin-top: 20px;
-    padding: 15px;
-    background: #f5f5f5;
-    border-radius: 6px;
-    text-align: left;
-  }
-  .debug-info h3 {
-    margin-top: 0;
-  }
-  .debug-info ul {
-    margin: 10px 0;
-    padding-left: 20px;
-  }
-  .debug-output {
-    margin-top: 20px;
-    padding: 15px;
-    background: #e8f4fd;
-    border: 1px solid #b3d9ff;
-    border-radius: 6px;
-    text-align: left;
-  }
-  .debug-output pre {
+
+  .form-group input:focus {
+    outline: none;
+    border-color: #667eea;
     background: white;
-    padding: 10px;
-    border-radius: 4px;
-    overflow-x: auto;
-    font-size: 12px;
-    white-space: pre-wrap;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
   }
-  .debug-output h3 {
-    margin-top: 0;
-    color: #0066cc;
+
+  .connect-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 16px 24px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-top: 8px;
+  }
+
+  .connect-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+  }
+
+  .connect-btn:active {
+    transform: translateY(0);
+  }
+
+  .footer {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .footer p {
+    color: #a0aec0;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  @media (max-width: 480px) {
+    .container {
+      padding: 24px;
+      margin: 10px;
+    }
+    
+    .header h1 {
+      font-size: 24px;
+    }
+    
+    .header h2 {
+      font-size: 18px;
+    }
   }
 </style>
