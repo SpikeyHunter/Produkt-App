@@ -51,7 +51,7 @@
     }
 
     // Try multiple connection approaches
-    const loginHost = qp.get("switchip") || qp.get("apip") || "login.serviceswifi.com";
+    const loginHost = qp.get("switchip") || qp.get("apip") || "10.32.0.1";
     const mac = qp.get("mac");
     const ip = qp.get("ip");
     const essid = qp.get("essid");
