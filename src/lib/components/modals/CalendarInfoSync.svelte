@@ -143,16 +143,22 @@
 		return isDomestic ? 2 : 3;
 	}
 
-	function calculateTimeAtAirport(
-		departureTimeISO: string,
-		hoursBeforeDeparture: number
-	): string {
+	function calculateTimeAtAirport(departureTimeISO: string, hoursBeforeDeparture: number): string {
 		const departureDate = new Date(departureTimeISO);
 		const timeAtAirport = subHours(departureDate, hoursBeforeDeparture);
 		const roundedTime = roundToNearestMinutes(timeAtAirport, { nearestTo: 15 });
 		return roundedTime.toISOString();
 	}
+	function formatHours(hours: number): string {
+		const wholeHours = Math.floor(hours);
+		const minutes = Math.round((hours - wholeHours) * 60);
 
+		if (minutes === 0) {
+			return `${wholeHours}h`;
+		} else {
+			return `${wholeHours}h${minutes.toString().padStart(2, '0')}`;
+		}
+	}
 	function updateHoursBeforeDeparture(flightId: number, change: number) {
 		departures = departures.map((flight) => {
 			if (flight.id === flightId) {
@@ -247,11 +253,7 @@
 		}
 	}
 
-	function removeRoleFromFlight(
-		flightId: number,
-		roleName: string,
-		type: 'arrival' | 'departure'
-	) {
+	function removeRoleFromFlight(flightId: number, roleName: string, type: 'arrival' | 'departure') {
 		updateFlightInList(flightId, type, (flight) => {
 			const currentRoles = flight.assignedRoles || [];
 			if (currentRoles.length <= 1) return flight;
@@ -413,7 +415,11 @@
 							id="arrivalFlightNumber"
 						/>
 					</div>
-					<Button on:click={() => findFlight('arrival')} disabled={isSearchingArrival} width="w-full">
+					<Button
+						on:click={() => findFlight('arrival')}
+						disabled={isSearchingArrival}
+						width="w-full"
+					>
 						{isSearchingArrival ? 'Detecting...' : 'Detect Arrival'}
 					</Button>
 					<p class="text-center text-xs pt-1.5">
@@ -770,19 +776,17 @@
 									<span class="font-semibold text-white">{formatTime(flight.timeAtAirport)}</span>
 									<div class="flex items-center gap-1 ml-auto bg-navbar p-0.5 rounded-md">
 										<button
-											on:click={() => updateHoursBeforeDeparture(flight.id, -0.5)}
+											on:click={() => updateHoursBeforeDeparture(flight.id, -0.25)}
 											class="w-5 h-5 bg-gray2/20 hover:bg-lime/20 text-gray2 hover:text-lime rounded text-lg flex items-center justify-center transition-colors"
-											aria-label="Decrease time"
-											>−</button
+											aria-label="Decrease time">−</button
 										>
-										<span class="text-xs text-white font-mono px-1.5 w-10 text-center"
-											>{flight.hoursBeforeDeparture || 2}h</span
-										>
+										<span class="text-xs text-white font-mono px-1.5 w-12 text-center">
+											{formatHours(flight.hoursBeforeDeparture || 2)}
+										</span>
 										<button
-											on:click={() => updateHoursBeforeDeparture(flight.id, 0.5)}
+											on:click={() => updateHoursBeforeDeparture(flight.id, 0.25)}
 											class="w-5 h-5 bg-gray2/20 hover:bg-lime/20 text-gray2 hover:text-lime rounded text-lg flex items-center justify-center transition-colors"
-											aria-label="Increase time"
-											>+</button
+											aria-label="Increase time">+</button
 										>
 									</div>
 								</div>
@@ -824,19 +828,17 @@
 									<span class="font-semibold text-white">{formatTime(flight.timeAtAirport)}</span>
 									<div class="flex items-center gap-1 ml-auto bg-navbar p-0.5 rounded-md">
 										<button
-											on:click={() => updateHoursBeforeDeparture(flight.id, -0.5)}
+											on:click={() => updateHoursBeforeDeparture(flight.id, -0.25)}
 											class="w-5 h-5 bg-gray2/20 hover:bg-lime/20 text-gray2 hover:text-lime rounded text-lg flex items-center justify-center transition-colors"
-											aria-label="Decrease time"
-											>−</button
+											aria-label="Decrease time">−</button
 										>
-										<span class="text-xs text-white font-mono px-1.5 w-10 text-center"
-											>{flight.hoursBeforeDeparture || 2}h</span
-										>
+										<span class="text-xs text-white font-mono px-1.5 w-12 text-center">
+											{formatHours(flight.hoursBeforeDeparture || 2)}
+										</span>
 										<button
-											on:click={() => updateHoursBeforeDeparture(flight.id, 0.5)}
+											on:click={() => updateHoursBeforeDeparture(flight.id, 0.25)}
 											class="w-5 h-5 bg-gray2/20 hover:bg-lime/20 text-gray2 hover:text-lime rounded text-lg flex items-center justify-center transition-colors"
-											aria-label="Increase time"
-											>+</button
+											aria-label="Increase time">+</button
 										>
 									</div>
 								</div>
@@ -853,8 +855,7 @@
 										{roleName}
 										{#if (flight.assignedRoles || []).length > 1}
 											<button
-												on:click={() =>
-													removeRoleFromFlight(flight.id, roleName, 'departure')}
+												on:click={() => removeRoleFromFlight(flight.id, roleName, 'departure')}
 												class="hover:text-white hover:cursor-pointer transition-colors"
 												aria-label="Remove {roleName} from flight"
 											>
@@ -876,7 +877,7 @@
 									{#each availableRoles as name}
 										<button
 											on:click={() => addRoleToFlight(flight.id, name, 'departure')}
-											class="px-2 py-1 bg-gray2/20 text-gray2 text-xs rounded-full  hover:cursor-pointer hover:bg-lime/20 hover:text-lime transition-colors opacity-60 hover:opacity-100"
+											class="px-2 py-1 bg-gray2/20 text-gray2 text-xs rounded-full hover:cursor-pointer hover:bg-lime/20 hover:text-lime transition-colors opacity-60 hover:opacity-100"
 										>
 											+ {name}
 										</button>

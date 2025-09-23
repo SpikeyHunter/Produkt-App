@@ -13,15 +13,16 @@
 	$: artistName = event ? event.artist_name : 'Artist Name';
 	const dispatch = createEventDispatcher();
 	let isSaving = false;
+	let isSyncing = false;
+	let syncError = '';
+	let syncSuccess = '';
 
-	// --- Drag & Drop State ---
-	let draggedIndex: number | null = null;
-	let dragOverIndex: number | null = null;
-	let isDragging = false;
+	// Check if already synced with calendar
+	$: isCalendarSynced = event?.calendar_synced || false;
+	$: calendarEventIds = event?.calendar_event_ids || {};
 
 	// --- State for custom dropdowns ---
 	let openDropdownId: string | null = null;
-
 	function toggleDropdown(id: string) {
 		openDropdownId = openDropdownId === id ? null : id;
 	}
@@ -56,63 +57,7 @@
 		};
 	});
 
-	// --- Drag & Drop Functions ---
-	function handleDragStart(e: DragEvent, index: number) {
-		if (e.dataTransfer) {
-			e.dataTransfer.setData('text/plain', 'dragging');
-			e.dataTransfer.effectAllowed = 'move';
-		}
-		draggedIndex = index;
-		isDragging = true;
-	}
-
-	function handleDragEnd() {
-		draggedIndex = null;
-		dragOverIndex = null;
-		isDragging = false;
-	}
-
-	function handleDragOver(e: DragEvent, index: number) {
-		e.preventDefault();
-		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-		if (draggedIndex !== null && draggedIndex !== index) {
-			dragOverIndex = index;
-		}
-	}
-
-	function handleDragLeave(e: DragEvent) {
-		// Only clear dragOverIndex if we're actually leaving the drop zone
-		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		const x = e.clientX;
-		const y = e.clientY;
-		if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-			dragOverIndex = null;
-		}
-	}
-
-	function handleDrop(e: DragEvent, dropIndex: number) {
-		e.preventDefault();
-		if (draggedIndex === null || draggedIndex === dropIndex) {
-			handleDragEnd();
-			return;
-		}
-
-		// Perform the reorder
-		const draggedItem = rows[draggedIndex];
-		const newRows = [...rows];
-		
-		// Remove dragged item
-		newRows.splice(draggedIndex, 1);
-		
-		// Insert at new position (adjust index if we removed an item before the drop position)
-		const adjustedDropIndex = draggedIndex < dropIndex ? dropIndex - 1 : dropIndex;
-		newRows.splice(adjustedDropIndex, 0, draggedItem);
-		
-		rows = newRows;
-		handleDragEnd();
-	}
-
-	// --- Move functions for accessibility and touch devices ---
+	// --- Move functions ---
 	function moveRowUp(index: number) {
 		if (index <= 0) return;
 		const newRows = [...rows];
@@ -133,7 +78,7 @@
 	}
 
 	const columnStyles = {
-		dragHandle: 'w-[50px]',
+		move: 'w-[50px]',
 		date: 'w-[110px]',
 		type: 'w-[120px]',
 		driver: 'w-[80px]',
@@ -146,7 +91,6 @@
 		contact: 'w-[180px]',
 		delete: 'w-[40px]'
 	};
-
 	type CalendarEntry = {
 		id: number;
 		date: string;
@@ -179,6 +123,23 @@
 		'Departure'
 	];
 
+	// Function to get type-specific colors
+	function getTypeButtonColor(type: CalendarEntry['type']): string {
+		switch (type) {
+			case 'Arrival':
+			case 'Departure':
+				return 'bg-[#93c5fd] text-black hover:bg-[#7dd3fc]'; // question blue
+			case 'Soundcheck':
+			case 'Post-SC':
+				return 'bg-[#c4b5fd] text-black hover:bg-[#a78bfa]'; // info purple
+			case 'Show':
+			case 'Post Show':
+				return 'bg-[#FCA5A5] text-black hover:bg-[#f87171]'; // problem red
+			default:
+				return 'bg-gray2 text-black hover:bg-lime hover:text-black'; // default
+		}
+	}
+
 	function createNewRow(type: CalendarEntry['type'] = ''): CalendarEntry {
 		return {
 			id: Date.now() + Math.random(),
@@ -209,7 +170,8 @@
 			rows = defaultEventTypes.map((type) => createNewRow(type));
 		}
 		openDropdownId = null; // Reset dropdown state when modal opens
-		handleDragEnd(); // Reset drag state when modal opens
+		syncError = ''; // Clear any previous errors
+		syncSuccess = ''; // Clear any previous success messages
 	}
 
 	function addRow() {
@@ -301,37 +263,54 @@
 			isSaving = false;
 		}
 	}
+
+	// Google Calendar sync function
+	async function handleCalendarSync() {
+		if (!event || !rows || rows.length === 0) return;
+		isSyncing = true;
+		syncError = '';
+		syncSuccess = '';
+
+		try {
+			const response = await fetch('/api/calendar-sync', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					rows,
+					artistName,
+					eventId: event.event_id,
+					existingEventIds: isCalendarSynced ? calendarEventIds : undefined
+				})
+			});
+			const result = await response.json();
+
+			if (result.success) {
+				syncSuccess = result.message || 'Successfully synced with Google Calendar!';
+				isCalendarSynced = true;
+				calendarEventIds = result.eventIds;
+
+				// Update the local event object
+				if (event) {
+					event.calendar_synced = true;
+					event.calendar_event_ids = result.eventIds;
+					event.calendar_sync_time = new Date().toISOString();
+				}
+
+				// Dispatch success event
+				dispatch('calendar_sync_success', result);
+			} else {
+				syncError = result.error || 'Failed to sync with Google Calendar';
+			}
+		} catch (error) {
+			console.error('Calendar sync error:', error);
+			syncError = 'Network error: Could not connect to calendar service';
+		} finally {
+			isSyncing = false;
+		}
+	}
 </script>
-
-<style>
-	.dragging {
-		opacity: 0.6;
-		transform: rotate(2deg);
-		z-index: 50;
-	}
-	
-	.drag-over {
-		box-shadow: 0 -3px 0 var(--color-lime);
-		transform: translateY(-1px);
-	}
-
-	.drag-handle {
-		cursor: grab;
-	}
-	
-	.drag-handle:active {
-		cursor: grabbing;
-	}
-
-	.drag-handle:hover .drag-dots {
-		opacity: 1;
-	}
-
-	.drag-dots {
-		opacity: 0.6;
-		transition: opacity 0.2s ease;
-	}
-</style>
 
 <Modal
 	{isOpen}
@@ -372,11 +351,23 @@
 			</button>
 		</div>
 
+		{#if syncError}
+			<div class="mb-4 p-3 bg-red-500/20 border border-red-500 rounded-lg text-red-400 text-sm">
+				{syncError}
+			</div>
+		{/if}
+
+		{#if syncSuccess}
+			<div class="mb-4 p-3 bg-lime/20 border border-lime rounded-lg text-lime text-sm">
+				{syncSuccess}
+			</div>
+		{/if}
+
 		<div>
 			<div
 				class="flex items-center gap-3 pb-2 mb-2 border-b border-gray2 text-gray2 text-xs font-bold uppercase"
 			>
-				<div class={columnStyles.dragHandle}>Order</div>
+				<div class={columnStyles.move}>Move</div>
 				<div class={columnStyles.date}>Date</div>
 				<div class={columnStyles.type}>Type</div>
 				<div class={columnStyles.driver}>Driver</div>
@@ -394,31 +385,44 @@
 				{#each rows as row, index (row.id)}
 					{@const typeDropdownId = `${row.id}-type`}
 					{@const driverDropdownId = `${row.id}-driver`}
-					{@const isDraggedOver = dragOverIndex === index && draggedIndex !== null}
-					{@const isBeingDragged = draggedIndex === index}
 					<div
 						in:fly={{ y: 10, duration: 300, delay: index * 50 }}
-						class="flex items-center gap-3 transition-all duration-200 {isBeingDragged ? 'dragging' : ''} {isDraggedOver ? 'drag-over' : ''}"
-						draggable="true"
-						on:dragstart={(e) => handleDragStart(e, index)}
-						on:dragover={(e) => handleDragOver(e, index)}
-						on:dragleave={handleDragLeave}
-						on:drop={(e) => handleDrop(e, index)}
-						on:dragend={handleDragEnd}
+						class="flex items-center gap-3 transition-all duration-200"
 						role="listitem"
 					>
-						<!-- Drag Handle Column -->
-						<div class="{columnStyles.dragHandle} flex items-center justify-center">
-							<div class="drag-handle flex items-center justify-center p-2 rounded hover:bg-gray2/20" title="Drag to reorder">
-								<div class="drag-dots grid grid-cols-2 gap-0.5">
-									<div class="w-1 h-1 bg-gray2 rounded-full"></div>
-									<div class="w-1 h-1 bg-gray2 rounded-full"></div>
-									<div class="w-1 h-1 bg-gray2 rounded-full"></div>
-									<div class="w-1 h-1 bg-gray2 rounded-full"></div>
-									<div class="w-1 h-1 bg-gray2 rounded-full"></div>
-									<div class="w-1 h-1 bg-gray2 rounded-full"></div>
-								</div>
-							</div>
+						<div class="{columnStyles.move} flex items-center justify-center gap-1">
+							<button
+								on:click={() => moveRowUp(index)}
+								disabled={index === 0}
+								class="p-1 rounded-full text-gray2 hover:bg-gray2/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+								aria-label="Move up"
+							>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									class="h-4 w-4"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+									stroke-width="3"
+									><path stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7" /></svg
+								>
+							</button>
+							<button
+								on:click={() => moveRowDown(index)}
+								disabled={index === rows.length - 1}
+								class="p-1 rounded-full text-gray2 hover:bg-gray2/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+								aria-label="Move down"
+							>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									class="h-4 w-4"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+									stroke-width="3"
+									><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg
+								>
+							</button>
 						</div>
 
 						<div class={columnStyles.date}>
@@ -432,16 +436,18 @@
 						<div class="dropdown-container relative {columnStyles.type}">
 							<button
 								type="button"
-								class="bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime hover:text-black transition-all duration-200 cursor-pointer flex items-center justify-between gap-2 w-full"
+								class="{getTypeButtonColor(
+									row.type
+								)} rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200 cursor-pointer flex items-center justify-between gap-2 w-full"
 								on:click={() => toggleDropdown(typeDropdownId)}
 							>
 								<span class={row.type ? 'text-black' : 'text-gray-500'}>
 									{row.type || 'Select Type'}
 								</span>
 								<svg
-									class="w-3 h-3 text-black transition-transform {openDropdownId === typeDropdownId ?
-										'rotate-180' :
-										''}"
+									class="w-3 h-3 text-black transition-transform {openDropdownId === typeDropdownId
+										? 'rotate-180'
+										: ''}"
 									viewBox="0 0 24 24"
 									fill="none"
 									stroke="currentColor"
@@ -477,9 +483,10 @@
 									{row.driverName || 'Select'}
 								</span>
 								<svg
-									class="w-3 h-3 text-black transition-transform {openDropdownId === driverDropdownId ?
-										'rotate-180' :
-										''}"
+									class="w-3 h-3 text-black transition-transform {openDropdownId ===
+									driverDropdownId
+										? 'rotate-180'
+										: ''}"
 									viewBox="0 0 24 24"
 									fill="none"
 									stroke="currentColor"
@@ -594,7 +601,50 @@
 		</div>
 	</div>
 
-	<div slot="footer" class="flex justify-end items-center w-full p-4">
+	<div slot="footer" class="flex justify-between items-center w-full p-4">
+		<button
+			on:click={handleCalendarSync}
+			disabled={isSyncing || rows.length === 0}
+			class="flex items-center gap-2 px-4 py-2 {isCalendarSynced
+				? 'bg-[#93c5fd]'
+				: 'bg-lime'} text-black rounded-xl text-sm font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+		>
+			{#if isSyncing}
+				<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+					<circle
+						class="opacity-25"
+						cx="12"
+						cy="12"
+						r="10"
+						stroke="currentColor"
+						stroke-width="4"
+					></circle>
+					<path
+						class="opacity-75"
+						fill="currentColor"
+						d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+					></path>
+				</svg>
+				Syncing...
+			{:else}
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					class="h-4 w-4"
+					fill="none"
+					viewBox="0 0 24 24"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+					/>
+				</svg>
+				{isCalendarSynced ? 'Update Calendar' : 'Sync to Calendar'}
+			{/if}
+		</button>
+
 		<Button on:click={handleSave} variant="filled" disabled={isSaving}>
 			{isSaving ? 'Saving...' : 'Save & Close'}
 		</Button>

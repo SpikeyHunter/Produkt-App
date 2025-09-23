@@ -3,16 +3,14 @@ import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-	plugins: [
-		tailwindcss(),
-		sveltekit()
-	],
-	optimizeDeps: {
-		exclude: ['fsevents', 'lightningcss']
-	},
-	server: {
-		fs: {
-			strict: false
-		}
-	}
+  plugins: [
+    sveltekit(),
+    tailwindcss()
+  ],
+  optimizeDeps: {
+    exclude: ['fsevents', 'lightningcss']
+  },
+  server: {
+    fs: { strict: false }
+  }
 });

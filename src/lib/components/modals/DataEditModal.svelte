@@ -21,6 +21,7 @@
   export let event_id: string | number;
   export let content: ContentItem[] = [];
   export let event_name: string | undefined = undefined;
+  export let event_venue: string | undefined = undefined;
   export let show_header = true;
   export let show_footer = true;
   export let width = 'max-w-lg';
@@ -33,9 +34,9 @@
   let activeDropdown: string | null = null;
   let isSuggesting = false;
   let suggestionError: string | null = null;
-  
+
   $: if (isOpen && content.length > 0) {
-    editableContent = JSON.parse(JSON.stringify(content)); // Deep copy to avoid prop mutation
+    editableContent = [...content];
     customValues = {};
     suggestionError = null;
     // Initialize custom values for items that have non-standard values
@@ -56,15 +57,18 @@
     }
     isSuggesting = true;
     suggestionError = null;
-
     try {
-      const event_venue = editableContent.find(c => c.column === 'event_venue')?.value as string | undefined;
       const suggested = await suggestGenre(event_name, event_venue);
+      
+      // Find and update the specific item
       const index = editableContent.findIndex(c => c.column === item.column);
       if (index !== -1) {
         editableContent[index].value = suggested;
+        // Force reactivity
         editableContent = [...editableContent];
       }
+      
+      // Wait for DOM update
       await tick();
     } catch (err) {
       suggestionError = 'Could not get suggestion.';
@@ -95,6 +99,9 @@
     });
   }
 
+  /**
+   * Clears the content of all input fields in the modal.
+  */
   function handleClear() {
     if (is_saving) return;
     editableContent.forEach(item => {
@@ -113,10 +120,7 @@
     if (option === 'Other') {
       customValues[item.column] = customValues[item.column] || '';
     } else {
-      // Clear custom value if a standard option is selected
-      if(customValues[item.column]) {
-         customValues[item.column] = '';
-      }
+      customValues[item.column] = '';
     }
     
     // Force reactivity update
