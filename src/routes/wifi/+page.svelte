@@ -2,8 +2,19 @@
   const SCRIPT_EXEC =
     "https://script.google.com/macros/s/AKfycbxc6mTG8Qha3xx2OFg4g3oqf0c4ZM1qxljufYo0sZMU1VOSVva1t6zW9CeJzeC_qOEcQg/exec";
 
+  let isSubmitting = false;
+
   async function handleSubmit(e: Event) {
     e.preventDefault();
+    
+    if (isSubmitting) return;
+    isSubmitting = true;
+
+    const submitBtn = document.querySelector('.connect-btn') as HTMLButtonElement;
+    if (submitBtn) {
+      submitBtn.textContent = 'Connecting...';
+      submitBtn.disabled = true;
+    }
 
     const form = e.target as HTMLFormElement;
     const fd = new FormData(form);
@@ -15,65 +26,116 @@
     const current = new URL(window.location.href);
     const qp = new URLSearchParams(current.search);
 
-    const loginHost = qp.get("switchip") || qp.get("apip") || "login.serviceswifi.com";
-
-    try {
-      // Log to Google Sheets first
-      if (SCRIPT_EXEC && (firstName || lastName || email)) {
+    // Log to Google Sheets first (fire and forget)
+    if (SCRIPT_EXEC && (firstName || lastName || email)) {
+      try {
         const logUrl = new URL(SCRIPT_EXEC);
         logUrl.searchParams.set("fn", "log");
         
-        // Add network info
         ["mac", "ip", "essid", "apname", "apmac", "vcname"].forEach((k) => {
           const v = qp.get(k);
           if (v) logUrl.searchParams.set(k, v);
         });
         
-        // Add user info
         if (firstName) logUrl.searchParams.set("firstName", firstName);
         if (lastName) logUrl.searchParams.set("lastName", lastName);
         if (email) logUrl.searchParams.set("email", email);
 
-        // Send logging request (fire and forget)
         fetch(logUrl.toString(), { 
           method: 'GET',
           mode: 'no-cors'
-        }).catch(() => {
-          // Ignore logging errors
-        });
+        }).catch(() => {});
+      } catch (e) {
+        // Ignore logging errors
       }
+    }
 
-      // Create clean parameters for Aruba - EXCLUDE cmd and url
-      const arubaParams = new URLSearchParams();
+    // Try multiple connection approaches
+    const loginHost = qp.get("switchip") || qp.get("apip") || "login.serviceswifi.com";
+    const mac = qp.get("mac");
+    const ip = qp.get("ip");
+    const essid = qp.get("essid");
+
+    // Approach 1: Minimal required parameters only
+    setTimeout(() => {
+      try {
+        const minimalParams = new URLSearchParams();
+        if (mac) minimalParams.set("mac", mac);
+        if (ip) minimalParams.set("ip", ip);
+        if (essid) minimalParams.set("essid", essid);
+        
+        const url1 = `http://${loginHost}/cgi-bin/login?${minimalParams.toString()}`;
+        window.location.href = url1;
+      } catch (e) {
+        // If that fails, try approach 2
+        setTimeout(() => tryApproach2(), 1000);
+      }
+    }, 500);
+  }
+
+  function tryApproach2() {
+    const current = new URL(window.location.href);
+    const qp = new URLSearchParams(current.search);
+    const loginHost = qp.get("switchip") || qp.get("apip") || "login.serviceswifi.com";
+    
+    try {
+      // Approach 2: Different endpoint
+      const minimalParams = new URLSearchParams();
+      const mac = qp.get("mac");
+      const ip = qp.get("ip");
+      const essid = qp.get("essid");
       
-      // Only include the essential Aruba network parameters
-      const essentialParams = ["mac", "ip", "essid", "apname", "apmac", "vcname", "switchip"];
-      essentialParams.forEach(param => {
+      if (mac) minimalParams.set("mac", mac);
+      if (ip) minimalParams.set("ip", ip);
+      if (essid) minimalParams.set("essid", essid);
+      
+      const url2 = `http://${loginHost}/login?${minimalParams.toString()}`;
+      window.location.href = url2;
+    } catch (e) {
+      setTimeout(() => tryApproach3(), 1000);
+    }
+  }
+
+  function tryApproach3() {
+    const current = new URL(window.location.href);
+    const qp = new URLSearchParams(current.search);
+    const loginHost = qp.get("switchip") || qp.get("apip") || "login.serviceswifi.com";
+    
+    try {
+      // Approach 3: Original parameters but cleaned
+      const cleanParams = new URLSearchParams();
+      ["mac", "ip", "essid", "apname", "apmac", "vcname"].forEach(param => {
         const value = qp.get(param);
         if (value) {
-          arubaParams.set(param, value);
+          cleanParams.set(param, value);
         }
       });
+      
+      const url3 = `http://${loginHost}/cgi-bin/login?${cleanParams.toString()}`;
+      window.location.href = url3;
+    } catch (e) {
+      // Final fallback
+      showManualInstructions();
+    }
+  }
 
-      // Build the final login URL - try different approaches
-      const finalLogin = `http://${loginHost}/cgi-bin/login?${arubaParams.toString()}`;
-      
-      // Redirect immediately
-      window.location.replace(finalLogin);
-
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      alert(`Connection error: ${errorMessage}`);
-      
-      // Fallback: try direct redirect with original parameters
-      const fallbackParams = new URLSearchParams();
-      ["mac", "ip", "essid"].forEach(param => {
-        const value = qp.get(param);
-        if (value) fallbackParams.set(param, value);
-      });
-      
-      const fallbackUrl = `http://${loginHost}/cgi-bin/login?${fallbackParams.toString()}`;
-      window.location.replace(fallbackUrl);
+  function showManualInstructions() {
+    const container = document.querySelector('.container');
+    if (container) {
+      container.innerHTML = `
+        <div class="error-message">
+          <h2>Connection Issue</h2>
+          <p>We're having trouble automatically connecting you to the Wi-Fi.</p>
+          <h3>Manual Connection Steps:</h3>
+          <ol>
+            <li>Open your Wi-Fi settings</li>
+            <li>Connect to network: <strong>New City Gas</strong></li>
+            <li>Open any webpage in your browser</li>
+            <li>You should be redirected to complete the login</li>
+          </ol>
+          <button onclick="location.reload()" class="retry-btn">Try Again</button>
+        </div>
+      `;
     }
   }
 </script>
@@ -213,7 +275,7 @@
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
   }
 
-  .connect-btn {
+  .connect-btn, .retry-btn {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border: none;
@@ -226,13 +288,20 @@
     margin-top: 8px;
   }
 
-  .connect-btn:hover {
+  .connect-btn:hover, .retry-btn:hover {
     transform: translateY(-1px);
     box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
   }
 
-  .connect-btn:active {
+  .connect-btn:active, .retry-btn:active {
     transform: translateY(0);
+  }
+
+  .connect-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
   }
 
   .footer {
@@ -246,6 +315,7 @@
     font-size: 12px;
     line-height: 1.4;
   }
+
 
   @media (max-width: 480px) {
     .container {
