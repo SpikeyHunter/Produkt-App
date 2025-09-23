@@ -4,14 +4,13 @@
 	import InputButton from '$lib/components/buttons/InputButton.svelte';
 	import ProgressBar from '$lib/components/inputs/ProgressBar.svelte';
 	import type { EventAdvance } from '$lib/services/eventsService';
+	import { updateEventColumn } from '$lib/services/eventsService'; // <-- IMPORT THE UPDATE FUNCTION
 	import { PROGRESS_FIELDS } from '$lib/utils/progressUtils';
 	import UploadButton from '$lib/components/buttons/UploadButton.svelte';
-
 	export let event: EventAdvance;
 
 	// This allows the component to send messages (events) to its parent
 	const dispatch = createEventDispatcher();
-
 	// Component references
 	let progressBarRef: any;
 
@@ -31,7 +30,8 @@
 	$: displayEventName =
 		eventName && eventName.length > 25
 			? eventName.substring(0, 25) + '...'
-			: eventName || 'Untitled Event';
+			: eventName ||
+			  'Untitled Event';
 
 	$: formattedDate = formatDisplayDate(eventDate);
 
@@ -67,7 +67,8 @@
 
 	// This function also handles updates but includes logic for the progress bar
 	function handleProgressFieldUpdate(updateEvent: CustomEvent) {
-		handleFieldUpdate(updateEvent); // Reuse the main update logic
+		handleFieldUpdate(updateEvent);
+		// Reuse the main update logic
 
 		const { column } = updateEvent.detail;
 		if (PROGRESS_FIELDS.includes(column)) {
@@ -81,22 +82,40 @@
 		event = { ...event, ...updatedEvent };
 	}
 
-	function handleUploadComplete(uploadEvent: CustomEvent) {
+	// MODIFIED: This function now sets the rider status to 'To Do' on upload
+	async function handleUploadComplete(uploadEvent: CustomEvent) {
 		const { statusColumn, urlColumn } = uploadEvent.detail;
-		// Force update of the event to trigger reactivity
-		event = { ...event };
+
+		// If a rider was uploaded, set its status to 'To Do'
+		if (statusColumn === 'tech_rider_status' || statusColumn === 'hospitality_rider_status') {
+			// Update the local state immediately for UI responsiveness
+			(event as any)[statusColumn] = 'To Do';
+			event = { ...event };
+
+			// Persist the change to the database using the service function
+			// The event.id is in the format 'event_id-artist_name' [cite: 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54]
+			await updateEventColumn(event.id, statusColumn, 'To Do');
+		}
+
+		// Refresh the progress bar
 		progressBarRef?.refreshProgress([statusColumn, urlColumn]);
 	}
 
 	function handleDeleteComplete(deleteEvent: CustomEvent) {
 		const { statusColumn, urlColumn } = deleteEvent.detail;
+
+		// If a rider was deleted, set its status back to 'Waiting'
+		if (statusColumn === 'tech_rider_status' || statusColumn === 'hospitality_rider_status') {
+			(event as any)[statusColumn] = 'Waiting';
+			event = { ...event };
+		}
+
 		// Force update of the event to trigger reactivity
-		event = { ...event };
 		progressBarRef?.refreshProgress([statusColumn, urlColumn]);
 	}
 </script>
 
-<div class="flex bg-navbar rounded-2xl w-[500px] h-[365px] overflow-hidden">
+<div class="flex bg-navbar rounded-2xl w-[500px] h-[425px] overflow-hidden">
 	<div class="relative w-[220px] flex-shrink-0 pt-4 px-4 pb-4">
 		<div class="relative w-full h-[285px] rounded-md overflow-hidden">
 			{#if imageUrl}
@@ -189,8 +208,8 @@
 					on:fieldUpdate={handleProgressFieldUpdate}
 				/>
 			</div>
-			<div class="flex items-center gap-3 text-sm mt-3">
-				<span class="font-semibold min-w-[50px] text-gray3 whitespace-nowrap">Contract</span>
+			<div class="flex items-center gap-1 text-sm mt-1">
+				<span class="font-semibold min-w-[95px] text-gray3">Contract</span>
 				<UploadButton
 					{event}
 					placeholder="Upload Contract"
@@ -204,7 +223,36 @@
 					on:fieldUpdate={handleFieldUpdate}
 				/>
 			</div>
-			
+			<div class="flex items-center gap-1 text-sm">
+				<span class="font-semibold min-w-[95px] text-gray3">Tech Rider</span>
+				<UploadButton
+					{event}
+					placeholder="Upload Rider"
+					viewText="View Rider"
+					urlColumn="tech_rider_url"
+					statusColumn="tech_rider_status"
+					fileNameTemplate="Tech Rider - {event.artist_name}"
+					acceptedTypes=".pdf"
+					on:upload-complete={handleUploadComplete}
+					on:delete-complete={handleDeleteComplete}
+					on:fieldUpdate={handleFieldUpdate}
+				/>
+			</div>
+			<div class="flex items-center gap-1 text-sm">
+				<span class="font-semibold min-w-[95px] text-gray3">Hospitality Rider</span>
+				<UploadButton
+					{event}
+					placeholder="Upload Rider"
+					viewText="View Rider"
+					urlColumn="hospitality_rider_url"
+					statusColumn="hospitality_rider_status"
+					fileNameTemplate="Hospitality Rider - {event.artist_name}"
+					acceptedTypes=".pdf"
+					on:upload-complete={handleUploadComplete}
+					on:delete-complete={handleDeleteComplete}
+					on:fieldUpdate={handleFieldUpdate}
+				/>
+			</div>
 		</div>
 	</div>
 </div>
