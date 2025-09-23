@@ -1,7 +1,7 @@
 <script lang="ts">
-  // ✅ Your updated Google Apps Script endpoint
+  // ✅ Your Google Apps Script endpoint
   const SCRIPT_EXEC =
-    "https://script.google.com/macros/s/AKfycbzGUnpmPC2t8PgjtoH8ctpKAbJlYSq7__Pykvq7MCFY9IXulcqrVZ9ZsIpVG6JVZmArWw/exec";
+    "https://script.google.com/macros/s/AKfycbxc6mTG8Qha3xx2OFg4g3oqf0c4ZM1qxljufYo0sZMU1VOSVva1t6zW9CeJzeC_qOEcQg/exec";
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
@@ -17,29 +17,45 @@
     const current = new URL(window.location.href);
     const qp = new URLSearchParams(current.search);
 
-    // Aruba gives us switchip=... (your debug showed login.serviceswifi.com)
     const loginHost =
       qp.get("switchip") || qp.get("apip") || "login.serviceswifi.com";
 
-    // Build the logging URL to your GAS Web App
-    const logUrl = new URL(SCRIPT_EXEC);
-    logUrl.searchParams.set("fn", "log");
-    ["mac", "ip", "essid", "apname", "apmac", "vcname"].forEach((k) => {
-      const v = qp.get(k);
-      if (v) logUrl.searchParams.set(k, v);
-    });
-    if (firstName) logUrl.searchParams.set("firstName", firstName);
-    if (lastName) logUrl.searchParams.set("lastName", lastName);
-    if (email) logUrl.searchParams.set("email", email);
+    try {
+      // First, log to Google Sheets
+      const logUrl = new URL(SCRIPT_EXEC);
+      logUrl.searchParams.set("fn", "log");
+      
+      // Add all the parameters
+      ["mac", "ip", "essid", "apname", "apmac", "vcname"].forEach((k) => {
+        const v = qp.get(k);
+        if (v) logUrl.searchParams.set(k, v);
+      });
+      
+      if (firstName) logUrl.searchParams.set("firstName", firstName);
+      if (lastName) logUrl.searchParams.set("lastName", lastName);
+      if (email) logUrl.searchParams.set("email", email);
 
-    // ✅ URL-encode the GAS URL before giving it to Aruba
-    qp.set("url", encodeURIComponent(logUrl.toString()));
+      // Make the logging request (but don't wait for response)
+      fetch(logUrl.toString(), { 
+        method: 'GET',
+        mode: 'no-cors' // This prevents CORS issues
+      }).catch(() => {
+        // Ignore errors - we'll redirect anyway
+      });
 
-    // Build final Aruba login URL
-    const finalLogin = `http://${loginHost}/cgi-bin/login?${qp.toString()}`;
+      // Small delay to allow logging, then redirect directly to Aruba
+      setTimeout(() => {
+        const finalLogin = `http://${loginHost}/cgi-bin/login?${qp.toString()}`;
+        window.location.replace(finalLogin);
+      }, 500);
 
-    // Navigate there (top-level, avoids mixed-content blocking)
-    window.location.replace(finalLogin);
+    } catch (error) {
+      console.error('Logging failed:', error);
+      
+      // Even if logging fails, still proceed with WiFi connection
+      const finalLogin = `http://${loginHost}/cgi-bin/login?${qp.toString()}`;
+      window.location.replace(finalLogin);
+    }
   }
 </script>
 
