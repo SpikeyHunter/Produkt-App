@@ -38,6 +38,7 @@
 		"src/routes/auth/reset-password/+server.ts"
 	],
 	"/auth/verify": [],
+	"/booking/artist": [],
 	"/booking/settimes": [],
 	"/calendar": [],
 	"/dashboard": [],

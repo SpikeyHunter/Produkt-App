@@ -32,18 +32,18 @@ export interface TimetableEntry {
 export async function fetchMainEvent(eventId: number): Promise<any | null> {
 	try {
 		console.log('Fetching main event with id:', eventId);
-		
+
 		const { data: event, error } = await supabase
 			.from('events')
 			.select('*')
 			.eq('event_id', eventId)
 			.single();
-			
+
 		if (error) {
 			console.error('Error fetching main event:', error);
 			return null;
 		}
-		
+
 		console.log('Successfully fetched main event:', event);
 		return event;
 	} catch (err) {
@@ -179,7 +179,7 @@ async function deleteFileByUrl(fileUrl: string) {
 	}
 }
 
-export async function updateEventColumn( eventId: string, column: string, value: any ): Promise<void> {
+export async function updateEventColumn(eventId: string, column: string, value: any): Promise<void> {
 	try {
 		console.log(`Updating column ${column} to:`, value);
 		let numericEventId: number;
@@ -221,7 +221,9 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 
 		const { data: advanceData, error: advanceError } = await supabase
 			.from('events_advance')
-			.select('*, artist_bio, artist_bio_url')
+			.select(
+				'*, artist_bio, artist_bio_url, rider_files, visuals, visual_received'
+			)
 			.order('created_at', { ascending: false });
 
 		if (advanceError) {
@@ -234,13 +236,17 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 			return [];
 		}
 
-		const eventIds = [...new Set(advanceData.map((item) => item.event_id))].filter(id => id !== CUSTOM_EVENT_ID);
-        let eventsMap = new Map();
+		const eventIds = [...new Set(advanceData.map((item) => item.event_id))].filter(
+			(id) => id !== CUSTOM_EVENT_ID
+		);
+		let eventsMap = new Map();
 
 		if (eventIds.length > 0) {
 			const { data: eventsData, error: eventsError } = await supabase
 				.from('events')
-				.select('event_id, event_name, event_date, event_artist, event_status, event_genre, event_flyer, event_tags, event_venue')
+				.select(
+					'event_id, event_name, event_date, event_artist, event_status, event_genre, event_flyer, event_tags, event_venue'
+				)
 				.in('event_id', eventIds);
 
 			if (eventsError) {
@@ -254,8 +260,8 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 
 		const transformedEvents: EventAdvance[] = advanceData.map((row: any) => {
 			const eventData = eventsMap.get(row.event_id);
-            const eventName = eventData?.event_name || 'Custom Event';
-            const eventDate = eventData?.event_date ? formatEventDate(eventData.event_date) : 'TBD';
+			const eventName = eventData?.event_name || 'Custom Event';
+			const eventDate = eventData?.event_date ? formatEventDate(eventData.event_date) : 'TBD';
 
 			return {
 				// Base fields from events_advance
@@ -286,6 +292,9 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				updated_at: row.updated_at,
 				artist_bio: row.artist_bio,
 				artist_bio_url: row.artist_bio_url,
+				rider_files: row.rider_files, // New field
+				visuals: row.visuals, // New field
+				visual_received: row.visual_received, // New field
 
 				// Computed fields for UI
 				name: eventName,
@@ -297,7 +306,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 					...(row.artist_type ? [row.artist_type] : []),
 					...(eventData?.event_venue ? [eventData.event_venue] : [])
 				].filter(Boolean),
-				
+
 				// Joined fields from events table
 				venue: eventData?.event_venue || null,
 				event_venue: eventData?.event_venue || null,
@@ -330,7 +339,14 @@ function formatEventDate(dateString: string): string {
 	}
 }
 
-export async function createEventAdvance( eventId: number | null, artistName: string, artistType?: string, venue?: string, customEventName?: string, customEventDate?: string ) {
+export async function createEventAdvance(
+	eventId: number | null,
+	artistName: string,
+	artistType?: string,
+	venue?: string,
+	customEventName?: string,
+	customEventDate?: string
+) {
 	try {
 		let finalEventId = eventId;
 
@@ -388,15 +404,24 @@ export async function createEventAdvance( eventId: number | null, artistName: st
 	}
 }
 
-export async function updateEventAdvance( originalEventId: number, artistName: string, updates: Record<string, any> ) {
+export async function updateEventAdvance(
+	originalEventId: number,
+	artistName: string,
+	updates: Record<string, any>
+) {
 	try {
-		console.log(`Updating event advance for ${artistName} on event ${originalEventId} with:`, updates);
+		console.log(
+			`Updating event advance for ${artistName} on event ${originalEventId} with:`,
+			updates
+		);
 		const { data: updatedAdvance, error: updateError } = await supabase
 			.from('events_advance')
 			.update(updates)
 			.eq('event_id', originalEventId)
 			.eq('artist_name', artistName)
-			.select('*, artist_bio, artist_bio_url')
+			.select(
+				'*, artist_bio, artist_bio_url, rider_files, visuals, visual_received'
+			)
 			.single();
 
 		if (updateError) {
@@ -412,11 +437,20 @@ export async function updateEventAdvance( originalEventId: number, artistName: s
 	}
 }
 
-export async function deleteEventAdvance( eventId: number, artistName: string, contractUrl?: string | null, passportInfo?: any | null ) {
+export async function deleteEventAdvance(
+	eventId: number,
+	artistName: string,
+	contractUrl?: string | null,
+	passportInfo?: any | null
+) {
 	try {
 		console.log('Deleting event advance entry and associated files...');
-		if (contractUrl) { await deleteFileByUrl(contractUrl); }
-		if (passportInfo) { /* (Your logic to parse and delete passport images) */ }
+		if (contractUrl) {
+			await deleteFileByUrl(contractUrl);
+		}
+		if (passportInfo) {
+			/* (Your logic to parse and delete passport images) */
+		}
 		await cleanupEventFiles(eventId, artistName);
 
 		const { error: deleteAdvanceError } = await supabase
@@ -454,20 +488,29 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 		}
 
 		let eventData = null;
-        const { data: event, error: eventError } = await supabase
-            .from('events')
-            .select('event_id, event_name, event_date, event_artist, event_status, event_genre, event_flyer, event_tags, event_venue')
-            .eq('event_id', numericEventId)
-            .single();
+		const { data: event, error: eventError } = await supabase
+			.from('events')
+			.select(
+				'event_id, event_name, event_date, event_artist, event_status, event_genre, event_flyer, event_tags, event_venue'
+			)
+			.eq('event_id', numericEventId)
+			.single();
 
-        if (eventError) {
-            console.warn('Event not found in events table:', eventError);
-        } else {
-            eventData = event;
-        }
+		if (eventError) {
+			console.warn('Event not found in events table:', eventError);
+		} else {
+			eventData = event;
+		}
 
-		let query = supabase.from('events_advance').select('*, artist_bio, artist_bio_url').eq('event_id', numericEventId);
-		if (artistName) { query = query.eq('artist_name', artistName); }
+		let query = supabase
+			.from('events_advance')
+			.select(
+				'*, artist_bio, artist_bio_url, rider_files, visuals, visual_received'
+			)
+			.eq('event_id', numericEventId);
+		if (artistName) {
+			query = query.eq('artist_name', artistName);
+		}
 		const { data: advanceData, error: advanceError } = await query.single();
 
 		if (advanceError) {
@@ -507,6 +550,9 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			updated_at: advanceData.updated_at,
 			artist_bio: advanceData.artist_bio,
 			artist_bio_url: advanceData.artist_bio_url,
+			rider_files: advanceData.rider_files, // New field
+			visuals: advanceData.visuals, // New field
+			visual_received: advanceData.visual_received, // New field
 
 			// Computed fields for UI
 			name: finalEventName,
@@ -514,10 +560,10 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			progress: calculateDynamicProgress(advanceData),
 			poster: eventData?.event_flyer || null,
 			tags: eventData?.event_tags || [],
-			
+
 			// Joined fields from events table
-            venue: eventData?.event_venue || null,
-            event_venue: eventData?.event_venue || null,
+			venue: eventData?.event_venue || null,
+			event_venue: eventData?.event_venue || null,
 			event_flyer: eventData?.event_flyer || null,
 			event_name: finalEventName,
 			event_date: eventData?.event_date || null,

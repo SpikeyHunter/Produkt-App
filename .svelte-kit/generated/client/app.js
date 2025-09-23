@@ -18,7 +18,8 @@ export const nodes = [
 	() => import('./nodes/14'),
 	() => import('./nodes/15'),
 	() => import('./nodes/16'),
-	() => import('./nodes/17')
+	() => import('./nodes/17'),
+	() => import('./nodes/18')
 ];
 
 export const server_loads = [];
@@ -28,18 +29,19 @@ export const dictionary = {
 		"/advancing/gathered": [3],
 		"/advancing/gathered/[event_param]": [4],
 		"/auth/verify": [5],
-		"/booking/settimes": [6],
-		"/calendar": [7],
-		"/dashboard": [8],
-		"/letter": [9],
-		"/login/forgot-password": [10],
-		"/login/register": [11],
-		"/login/reset-confirmed": [12],
-		"/login/reset-password": [13],
-		"/marketing/eventsinfo": [14],
-		"/production": [15],
-		"/settings": [16],
-		"/wifi": [17]
+		"/booking/artist": [6],
+		"/booking/settimes": [7],
+		"/calendar": [8],
+		"/dashboard": [9],
+		"/letter": [10],
+		"/login/forgot-password": [11],
+		"/login/register": [12],
+		"/login/reset-confirmed": [13],
+		"/login/reset-password": [14],
+		"/marketing/eventsinfo": [15],
+		"/production": [16],
+		"/settings": [17],
+		"/wifi": [18]
 	};
 
 export const hooks = {

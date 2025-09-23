@@ -166,6 +166,10 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	event_status?: string;
 	event_genre?: string;
 	event_tags?: string[];
+	// --- NEWLY ADDED PROPERTIES ---
+	rider_files?: any;
+	visuals?: any;
+	visual_received?: boolean;
 }
 
 /**
