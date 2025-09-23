@@ -3,7 +3,7 @@
   let arubaLoginURL:string|undefined;
 
   // Your Google Apps Script endpoint (we will hit it via GET after login)
-  const SCRIPT_EXEC = "https://script.google.com/macros/s/AKfycbzp2bh9GUuBfQtT4q2eaKEopGW3tD7sA9lT1JXFo-rakV04p8LGB-nKXSO5viqT6JecqQ/exec";
+  const SCRIPT_EXEC = "https://script.google.com/macros/s/AKfycbzGUnpmPC2t8PgjtoH8ctpKAbJlYSq7__Pykvq7MCFY9IXulcqrVZ9ZsIpVG6JVZmArWw/exec";
 
   if (typeof window !== "undefined") {
     // 1) Read Aruba params from query
