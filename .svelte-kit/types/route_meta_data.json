@@ -7,6 +7,9 @@
 	"/api/flight-lookup": [
 		"src/routes/api/flight-lookup/+server.ts"
 	],
+	"/api/guests": [
+		"src/routes/api/guests/+server.ts"
+	],
 	"/api/passport-ocr": [
 		"src/routes/api/passport-ocr/+server.ts"
 	],

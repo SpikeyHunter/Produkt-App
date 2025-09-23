@@ -1,171 +1,238 @@
 <script lang="ts">
-  // --- CONFIGURATION ---
-  // This is the controller's local IP, which acts as the network gateway.
-  // This allows us to make a secure connection that matches its SSL certificate.
-  const CONTROLLER_IP = '10.32.0.1';
-  // ---------------------
-
-  const SCRIPT_EXEC =
-    "https://script.google.com/macros/s/AKfycbxc6mTG8Qha3xx2OFg4g3oqf0c4ZM1qxljufYo0sZMU1VOSVva1t6zW9CeJzeC_qOEcQg/exec";
-
-  let isSubmitting = false;
-
-  async function handleSubmit(e: Event) {
-    e.preventDefault();
-    if (isSubmitting) return;
-    isSubmitting = true;
-
-    const submitBtn = document.querySelector('.connect-btn') as HTMLButtonElement;
-    if (submitBtn) {
-      submitBtn.textContent = 'Connecting...';
-      submitBtn.disabled = true;
-    }
-
-    const form = e.target as HTMLFormElement;
-    const fd = new FormData(form);
-    const firstName = (fd.get("firstName") || "").toString();
-    const lastName = (fd.get("lastName") || "").toString();
-    const email = (fd.get("email") || "").toString();
-    
-    const current = new URL(window.location.href);
-    const qp = new URLSearchParams(current.search);
-
-    // Log to Google Sheets
-    if (SCRIPT_EXEC) {
-      try {
-        const logUrl = new URL(SCRIPT_EXEC);
-        logUrl.searchParams.set("fn", "log");
-        ["mac", "ip", "essid", "apname", "apmac", "vcname"].forEach((k) => {
-          const v = qp.get(k);
-          if (v) logUrl.searchParams.set(k, v);
-        });
-        if (firstName) logUrl.searchParams.set("firstName", firstName);
-        if (lastName) logUrl.searchParams.set("lastName", lastName);
-        if (email) logUrl.searchParams.set("email", email);
-        fetch(logUrl.toString(), { method: 'GET', mode: 'no-cors' }).catch(() => {});
-      } catch (e) { /* Ignore logging errors */ }
-    }
-    
-    const mac = qp.get("mac");
-    const ip = qp.get("ip");
-    const essid = qp.get("essid");
-
-    // The loginHost is now our hardcoded, correct IP address.
-    const loginHost = CONTROLLER_IP;
-
-    // Approach 1: Try the most common path with HTTPS
-    setTimeout(() => {
-      try {
-        const params = new URLSearchParams();
-        if (mac) params.set("mac", mac);
-        if (ip) params.set("ip", ip);
-        if (essid) params.set("essid", essid);
-        
-        const url1 = `https://${loginHost}/cgi-bin/login?${params.toString()}`;
-        window.location.href = url1;
-      } catch (e) {
-        setTimeout(() => tryApproach2(loginHost, mac, ip, essid), 1500);
-      }
-    }, 500);
-  }
-
-  function tryApproach2(loginHost: string, mac: string | null, ip: string | null, essid: string | null) {
-    try {
-      const params = new URLSearchParams();
-      if (mac) params.set("mac", mac);
-      if (ip) params.set("ip", ip);
-      if (essid) params.set("essid", essid);
-      
-      const url2 = `https://${loginHost}/login?${params.toString()}`;
-      window.location.href = url2;
-    } catch (e) {
-      setTimeout(showManualInstructions, 1500);
-    }
-  }
-
-  function showManualInstructions() {
-    // This function doesn't need to be changed
-    const container = document.querySelector('.container');
-    const current = new URL(window.location.href);
-    const qp = new URLSearchParams(current.search);
-    let essid = qp.get("essid") || "the Guest Wi-Fi";
-    if (essid.includes('_')) {
-        essid = essid.split('_').pop() || essid;
-    }
-    if (container) {
-      container.innerHTML = `
-        <div class="error-message">
-          <h2>Connection Issue</h2>
-          <p>We're having trouble automatically connecting you.</p>
-          <h3>Manual Connection Steps:</h3>
-          <ol>
-            <li>Open your device's Wi-Fi settings.</li>
-            <li>Ensure you are connected to: <strong>${essid}</strong></li>
-            <li>Open a new tab and try visiting any http website (like http://example.com).</li>
-          </ol>
-          <button onclick="location.reload()" class="retry-btn">Try Again</button>
-        </div>
-      `;
-    }
-  }
+	import { onMount } from 'svelte';
+	
+	interface FormData {
+		firstName: string;
+		lastName: string;
+		email: string;
+		phone: string;
+	}
+	
+	let formData: FormData = {
+		firstName: '',
+		lastName: '',
+		email: '',
+		phone: ''
+	};
+	
+	let isSubmitting = false;
+	let submitMessage = '';
+	let isSuccess = false;
+	
+	// Extract URL parameters from Aruba captive portal
+	let urlParams: URLSearchParams;
+	let redirectUrl = '';
+	
+	onMount(() => {
+		urlParams = new URLSearchParams(window.location.search);
+		redirectUrl = urlParams.get('url') || '';
+	});
+	
+	async function handleSubmit() {
+		if (!validateForm()) return;
+		
+		isSubmitting = true;
+		submitMessage = '';
+		
+		try {
+			// Store guest data in Supabase
+			const response = await fetch('/api/guests', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					...formData,
+					timestamp: new Date().toISOString(),
+					redirectUrl: redirectUrl
+				})
+			});
+			
+			if (response.ok) {
+				isSuccess = true;
+				submitMessage = 'Registration successful! Connecting to WiFi...';
+				
+				// Redirect to Aruba success URL or default
+				setTimeout(() => {
+					if (redirectUrl) {
+						window.location.href = redirectUrl;
+					} else {
+						// Fallback redirect for Aruba captive portal
+						window.location.href = 'http://1.1.1.1/';
+					}
+				}, 2000);
+			} else {
+				throw new Error('Registration failed');
+			}
+		} catch (error) {
+			submitMessage = 'Registration failed. Please try again.';
+			isSuccess = false;
+		} finally {
+			isSubmitting = false;
+		}
+	}
+	
+	function validateForm(): boolean {
+		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+		const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
+		
+		if (!formData.firstName.trim()) {
+			submitMessage = 'First name is required';
+			return false;
+		}
+		if (!formData.lastName.trim()) {
+			submitMessage = 'Last name is required';
+			return false;
+		}
+		if (!emailRegex.test(formData.email)) {
+			submitMessage = 'Please enter a valid email address';
+			return false;
+		}
+		if (!phoneRegex.test(formData.phone.replace(/[\s\-\(\)]/g, ''))) {
+			submitMessage = 'Please enter a valid phone number';
+			return false;
+		}
+		
+		return true;
+	}
+	
+	function formatPhoneInput(event: Event) {
+		const input = event.target as HTMLInputElement;
+		let value = input.value.replace(/\D/g, '');
+		
+		if (value.length >= 6) {
+			value = value.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3');
+		} else if (value.length >= 3) {
+			value = value.replace(/(\d{3})(\d{0,3})/, '$1-$2');
+		}
+		
+		formData.phone = value;
+	}
 </script>
 
-<main>
-  <div class="container">
-    <div class="header">
-      <h1>New City Gas</h1>
-      <h2>Guest Wi-Fi Access</h2>
-      <p>Please provide your details to connect to our complimentary Wi-Fi</p>
-    </div>
-    <form on:submit={handleSubmit} class="wifi-form">
-      <div class="form-group">
-        <label for="firstName">First Name *</label>
-        <input id="firstName" name="firstName" type="text" placeholder="Enter your first name" required />
-      </div>
-      <div class="form-group">
-        <label for="lastName">Last Name</label>
-        <input id="lastName" name="lastName" type="text" placeholder="Enter your last name" />
-      </div>
-      <div class="form-group">
-        <label for="email">Email Address *</label>
-        <input id="email" name="email" type="email" placeholder="Enter your email address" required />
-      </div>
-      <button type="submit" class="connect-btn">
-        Connect to Wi-Fi
-      </button>
-    </form>
-    <div class="footer">
-      <p><small>By combining these findings, we can finally solve the puzzle.</small></p>
-    </div>
-  </div>
+<svelte:head>
+	<title>WiFi Access - Guest Registration</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</svelte:head>
+
+<main class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+	<div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
+		<!-- Header -->
+		<div class="text-center mb-8">
+			<div class="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+				<svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"></path>
+				</svg>
+			</div>
+			<h1 class="text-2xl font-bold text-gray-900 mb-2">Welcome to Free WiFi</h1>
+			<p class="text-gray-600">Please register to access the internet</p>
+		</div>
+
+		<!-- Registration Form -->
+		<form on:submit|preventDefault={handleSubmit} class="space-y-6">
+			<!-- First Name -->
+			<div>
+				<label for="firstName" class="block text-sm font-medium text-gray-700 mb-2">
+					First Name *
+				</label>
+				<input
+					type="text"
+					id="firstName"
+					bind:value={formData.firstName}
+					required
+					class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+					placeholder="Enter your first name"
+					disabled={isSubmitting}
+				>
+			</div>
+
+			<!-- Last Name -->
+			<div>
+				<label for="lastName" class="block text-sm font-medium text-gray-700 mb-2">
+					Last Name *
+				</label>
+				<input
+					type="text"
+					id="lastName"
+					bind:value={formData.lastName}
+					required
+					class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+					placeholder="Enter your last name"
+					disabled={isSubmitting}
+				>
+			</div>
+
+			<!-- Email -->
+			<div>
+				<label for="email" class="block text-sm font-medium text-gray-700 mb-2">
+					Email Address *
+				</label>
+				<input
+					type="email"
+					id="email"
+					bind:value={formData.email}
+					required
+					class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+					placeholder="Enter your email address"
+					disabled={isSubmitting}
+				>
+			</div>
+
+			<!-- Phone -->
+			<div>
+				<label for="phone" class="block text-sm font-medium text-gray-700 mb-2">
+					Phone Number *
+				</label>
+				<input
+					type="tel"
+					id="phone"
+					value={formData.phone}
+					on:input={formatPhoneInput}
+					required
+					class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+					placeholder="Enter your phone number"
+					disabled={isSubmitting}
+				>
+			</div>
+
+			<!-- Submit Button -->
+			<button
+				type="submit"
+				disabled={isSubmitting}
+				class="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-3 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
+			>
+				{#if isSubmitting}
+					<svg class="animate-spin w-5 h-5" fill="none" viewBox="0 0 24 24">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+					</svg>
+					Connecting...
+				{:else}
+					Connect to WiFi
+				{/if}
+			</button>
+
+			<!-- Status Message -->
+			{#if submitMessage}
+				<div class="text-center p-3 rounded-lg {isSuccess ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
+					{submitMessage}
+				</div>
+			{/if}
+		</form>
+
+		<!-- Terms -->
+		<div class="mt-6 text-center">
+			<p class="text-xs text-gray-500">
+				By connecting, you agree to our terms of service and privacy policy.
+				Internet usage may be monitored for security purposes.
+			</p>
+		</div>
+	</div>
 </main>
+
 <style>
-  /* All your existing styles go here */
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  main { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-  .container { background: white; border-radius: 16px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1); padding: 40px; width: 100%; max-width: 420px; text-align: center; }
-  .header h1 { color: #2d3748; font-size: 28px; font-weight: 700; margin-bottom: 8px; }
-  .header h2 { color: #4a5568; font-size: 20px; font-weight: 600; margin-bottom: 12px; }
-  .header p { color: #718096; font-size: 14px; line-height: 1.5; margin-bottom: 32px; }
-  .wifi-form { display: flex; flex-direction: column; gap: 20px; }
-  .form-group { text-align: left; }
-  .form-group label { display: block; color: #2d3748; font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-  .form-group input { width: 100%; padding: 12px 16px; border: 2px solid #e2e8f0; border-radius: 8px; font-size: 16px; transition: all 0.2s ease; background: #f7fafc; }
-  .form-group input:focus { outline: none; border-color: #667eea; background: white; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
-  .connect-btn, .retry-btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 16px 24px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; margin-top: 8px; }
-  .connect-btn:hover, .retry-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3); }
-  .connect-btn:active, .retry-btn:active { transform: translateY(0); }
-  .connect-btn:disabled { opacity: 0.7; cursor: not-allowed; transform: none; box-shadow: none; }
-  .footer { margin-top: 24px; padding-top: 20px; border-top: 1px solid #e2e8f0; }
-  .footer p { color: #a0aec0; font-size: 12px; line-height: 1.4; }
-  .error-message { padding: 20px; text-align: left; }
-  .error-message h2 { margin-bottom: 12px; }
-  .error-message p { margin-bottom: 16px; }
-  .error-message ol { margin-left: 20px; margin-bottom: 20px; }
-  .error-message li { margin-bottom: 8px; }
-  @media (max-width: 480px) {
-    .container { padding: 24px; margin: 10px; }
-    .header h1 { font-size: 24px; }
-    .header h2 { font-size: 18px; }
-  }
+	/* Additional Tailwind v4 compatible styles if needed */
+	input:focus {
+		outline: none;
+	}
 </style>
