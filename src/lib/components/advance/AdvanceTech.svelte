@@ -285,10 +285,10 @@
 
 <div
 	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300"
-	style="width: 350px; height: 420px;"
+	style="width: 340px; height: 420px;"
 >
 	<div class="flex items-center justify-between px-6 py-3 border-b border-gray1">
-		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Tech & Visuals</h2>
+		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Riders & Visuals</h2>
 		{#if saving || uploading}
 			<div class="text-xs text-gray3 animate-pulse">
 				{uploading ? 'Updating file...' : 'Saving...'}
@@ -303,7 +303,7 @@
 				<h3 class="font-semibold text-gray2 text-sm">Rider Section</h3>
 				
 				<div class="flex items-center gap-3">
-					<span class="font-semibold min-w-[80px] text-gray3 text-xs">Tech Rider</span>
+					<span class="font-semibold min-w-[120px] text-gray3 text-xs">Tech Rider</span>
 					{#if !riderFiles.tech_rider_url}
 						<button
 							on:click={() => showUploadModal = 'tech'}
@@ -325,25 +325,25 @@
 				{#if hasTechRider}
 					<div class="flex items-center gap-3">
 						<span class="font-semibold min-w-[120px] text-gray3 text-xs">Hospitality Included</span>
-						<div class="flex-1 grid grid-cols-2 gap-2">
-							<button
-								on:click={() => { riderFiles.hospitality_included = 'Yes'; scheduleAutoSave(); }}
-								class="w-full text-center text-xs px-2 py-1 rounded-lg cursor-pointer border border-transparent transition-all {riderFiles.hospitality_included === 'Yes' ? 'bg-lime text-black font-bold' : 'bg-gray1 text-gray3 hover:border-lime'}"
-							>
-								Yes
-							</button>
-							<button
-								on:click={() => { riderFiles.hospitality_included = 'No'; scheduleAutoSave(); }}
-								class="w-full text-center text-xs px-2 py-1 rounded-lg cursor-pointer border border-transparent transition-all {riderFiles.hospitality_included === 'No' ? 'bg-lime text-black font-bold' : 'bg-gray1 text-gray3 hover:border-lime'}"
-							>
-								No
-							</button>
-						</div>
+						<button
+							on:click={() => {
+								riderFiles.hospitality_included = riderFiles.hospitality_included === 'Yes' ? 'No' : 'Yes';
+								scheduleAutoSave();
+							}}
+							class="w-12 text-center rounded-xl px-3 py-1 text-xs transition-colors duration-200 cursor-pointer"
+							class:bg-lime={riderFiles.hospitality_included === 'Yes'}
+							class:text-black={riderFiles.hospitality_included === 'Yes'}
+							class:font-bold={riderFiles.hospitality_included === 'Yes'}
+							class:bg-gray1={riderFiles.hospitality_included !== 'Yes'}
+							class:text-gray3={riderFiles.hospitality_included !== 'Yes'}
+						>
+							{riderFiles.hospitality_included === 'Yes' ? 'Yes' : 'No'}
+						</button>
 					</div>
 
 					{#if riderFiles.hospitality_included === 'No'}
-						<div class="flex items-center gap-3 pl-4 animate-fade-in">
-							<span class="font-semibold min-w-[80px] text-gray3 text-xs">Hospo Rider</span>
+						<div class="flex items-center gap-3  animate-fade-in">
+							<span class="font-semibold min-w-[120px] text-gray3 text-xs">Upload Rider</span>
 							{#if !riderFiles.hospo_rider_url}
 								<button
 									on:click={() => showUploadModal = 'hospo'}
@@ -394,7 +394,7 @@
 							/>
 							<button
 								on:click={() => removeVisualInput(key)}
-								class="flex-shrink-0 flex items-center justify-center w-6 h-6 text-red-500 hover:bg-red-500 hover:text-white rounded-full transition-colors"
+								class="flex-shrink-0 flex items-center justify-center w-6 h-6 text-red-500 hover:cursor-pointer hover:bg-red-500 hover:text-white rounded-full transition-colors"
 								aria-label="Remove visual"
 							>
 								<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

@@ -157,6 +157,41 @@
 		return 'Waiting';
 	})();
 
+	$: riderStatus = (() => {
+		const riderFiles = parseJson(event.rider_files);
+		
+		// If no rider files at all
+		if (!riderFiles) return 'No';
+		
+		const techRiderUrl = riderFiles.tech_rider_url;
+		const hospoRiderUrl = riderFiles.hospo_rider_url;
+		const hospitalityIncluded = riderFiles.hospitality_included;
+		
+		// If no tech rider uploaded
+		if (!techRiderUrl || techRiderUrl.trim() === '') {
+			return 'No';
+		}
+		
+		// If hospitality is not included
+		if (hospitalityIncluded === 'No') {
+			// Check if hospo rider is missing
+			if (!hospoRiderUrl || hospoRiderUrl.trim() === '') {
+				return '1/2';
+			} else {
+				return 'Yes';
+			}
+		}
+		
+		// If hospitality is included and tech rider is present
+		if (hospitalityIncluded === 'Yes' && techRiderUrl && techRiderUrl.trim() !== '') {
+			return 'Yes';
+		}
+		
+		return 'No';
+	})();
+
+	$: visualsStatus = event.visual_received === true ? 'Yes' : 'No';
+
 	function getBadgeColor(status: string): string {
 		const normalizedStatus = status ? status.toLowerCase().trim() : 'to do';
 		if (normalizedStatus === 'yes' || normalizedStatus === 'done' || normalizedStatus === 'confirmed' || normalizedStatus === 'sent') {
@@ -165,7 +200,7 @@
 		if (normalizedStatus === 'no' || normalizedStatus === 'to do' || normalizedStatus === 'todo') {
 			return 'bg-problem text-black';
 		}
-		if (normalizedStatus === 'waiting' || normalizedStatus === 'received') {
+		if (normalizedStatus === 'waiting' || normalizedStatus === 'received' || normalizedStatus === '1/2') {
 			return 'bg-tentatif text-black';
 		}
 		return 'bg-gray2 text-black';
@@ -218,8 +253,6 @@
 					</div>
 				</div>
 
-				
-
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Immigration</span>
 					<DropdownButton
@@ -246,9 +279,22 @@
 						<span>{hotelsStatus}</span>
 					</div>
 				</div>
+
+				<div class="flex items-center gap-3 text-sm">
+					<span class="font-semibold min-w-[120px] text-gray3">Rider</span>
+					<div class="{getBadgeColor(riderStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
+						<span>{riderStatus}</span>
+					</div>
+				</div>
+
+				<div class="flex items-center gap-3 text-sm">
+					<span class="font-semibold min-w-[120px] text-gray3">Visuals</span>
+					<div class="{getBadgeColor(visualsStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
+						<span>{visualsStatus}</span>
+					</div>
+				</div>
 			{/if}
 			
 		</div>
 	</div>
 </div>
-

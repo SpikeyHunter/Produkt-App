@@ -1,4 +1,4 @@
-// src/routes/api/calendar-sync/+server.ts
+// src/routes/api/google-calendar/+server.ts
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';

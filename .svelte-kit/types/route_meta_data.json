@@ -4,11 +4,11 @@
 	"/advancing/gathered/[event_param]": [
 		"src/routes/advancing/gathered/[event_param]/+page.ts"
 	],
-	"/api/calendar-sync": [
-		"src/routes/api/calendar-sync/+server.ts"
-	],
 	"/api/flight-lookup": [
 		"src/routes/api/flight-lookup/+server.ts"
+	],
+	"/api/google-calendar": [
+		"src/routes/api/google-calendar/+server.ts"
 	],
 	"/api/guests": [
 		"src/routes/api/guests/+server.ts"
