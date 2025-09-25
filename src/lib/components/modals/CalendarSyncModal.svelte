@@ -7,6 +7,7 @@
 	import { updateEventAdvance, type EventAdvance } from '$lib/services/eventsService';
 	import { browser } from '$app/environment';
 	import { autofillData } from '$lib/services/autofillService';
+	import type { CalendarEntry } from '$lib/types/GoogleCalendar';
 
 	export let isOpen = false;
 	export let event: EventAdvance;
@@ -90,19 +91,6 @@
 		flightInfo: 'w-[150px]',
 		contact: 'w-[180px]',
 		delete: 'w-[40px]'
-	};
-	type CalendarEntry = {
-		id: number;
-		date: string;
-		type: 'Arrival' | 'Departure' | 'Soundcheck' | 'Post-SC' | 'Show' | 'Post Show' | '';
-		driverName: string;
-		pickupTime: string;
-		pickupLocation: string;
-		dropoffTime: string;
-		dropoffLocation: string;
-		paxNames: string;
-		flightInfo: string;
-		contact: string;
 	};
 
 	const driverOptions = ['Eddy', 'Reza', 'Tarek', 'Charles', 'UBER'];
@@ -264,54 +252,84 @@
 		}
 	}
 
-	// Google Calendar sync function
-	async function handleCalendarSync() {
-		if (!event || !rows || rows.length === 0) return;
-		isSyncing = true;
-		syncError = '';
-		syncSuccess = '';
+	// Google Calendar sync function - FIXED ENDPOINT
+// Fixed handleCalendarSync function in CalendarSyncModal.svelte
+async function handleCalendarSync() {
+	if (!event || !rows || rows.length === 0) return;
+	isSyncing = true;
+	syncError = '';
+	syncSuccess = '';
 
-		try {
-			const response = await fetch('/api/calendar-sync', {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json'
-				},
-				body: JSON.stringify({
-					rows,
-					artistName,
-					eventId: event.event_id,
-					existingEventIds: isCalendarSynced ? calendarEventIds : undefined
-				})
-			});
-			const result = await response.json();
+	try {
 
-			if (result.success) {
+		// Sync to calendar (API will handle saving both transport data AND calendar fields)
+		const response = await fetch('/api/google-calendar', {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				rows,
+				artistName,
+				eventId: event.event_id,
+				existingEventIds: isCalendarSynced ? calendarEventIds : undefined
+			})
+		});
+
+		// Better error handling
+		if (!response.ok) {
+			const errorText = await response.text();
+			console.error('Calendar sync failed:', errorText);
+			syncError = `Server error (${response.status}): ${errorText}`;
+			return;
+		}
+
+		const result = await response.json();
+
+		if (result.success) {
+			// Only update database if we actually have event IDs
+			const hasEventIds = Object.keys(result.eventIds).length > 0;
+			
+			if (hasEventIds) {
 				syncSuccess = result.message || 'Successfully synced with Google Calendar!';
-				isCalendarSynced = true;
-				calendarEventIds = result.eventIds;
-
-				// Update the local event object
+				
+				// Update the local event object with fresh data
 				if (event) {
 					event.calendar_synced = true;
 					event.calendar_event_ids = result.eventIds;
 					event.calendar_sync_time = new Date().toISOString();
+					event.ground_transport = rows; // Update the ground transport data too
 				}
 
-				// Dispatch success event
-				dispatch('calendar_sync_success', result);
+				// Update reactive variables
+				isCalendarSynced = true;
+				calendarEventIds = result.eventIds;
+
+				// Dispatch success event with updated data
+				dispatch('calendar_sync_success', { 
+					...result, 
+					updatedEvent: event 
+				});
 			} else {
-				syncError = result.error || 'Failed to sync with Google Calendar';
+				syncError = 'No events were created or found in calendar';
 			}
-		} catch (error) {
-			console.error('Calendar sync error:', error);
-			syncError = 'Network error: Could not connect to calendar service';
-		} finally {
-			isSyncing = false;
+		} else {
+			syncError = result.error || 'Failed to sync with Google Calendar';
 		}
+	} catch (error) {
+		console.error('Calendar sync error:', error);
+		syncError = 'Network error: Could not connect to calendar service';
+	} finally {
+		isSyncing = false;
 	}
+}
 </script>
 
+// Fixed CalendarSyncModal.svelte // Main fixes: // 1. Corrected API endpoint from
+'/api/calendar-sync' to '/api/google-calendar' // 2. Added better error handling // 3. Moved
+CalendarEntry type to a proper types file
+
+<!-- Rest of the template remains the same -->
 <Modal
 	{isOpen}
 	on:close={handleClose}
@@ -353,6 +371,7 @@
 
 		{#if syncError}
 			<div class="mb-4 p-3 bg-red-500/20 border border-red-500 rounded-lg text-red-400 text-sm">
+				<strong>Calendar Sync Error:</strong>
 				{syncError}
 			</div>
 		{/if}
@@ -611,13 +630,7 @@
 		>
 			{#if isSyncing}
 				<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-					<circle
-						class="opacity-25"
-						cx="12"
-						cy="12"
-						r="10"
-						stroke="currentColor"
-						stroke-width="4"
+					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
 					></circle>
 					<path
 						class="opacity-75"

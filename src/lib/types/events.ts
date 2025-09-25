@@ -166,10 +166,12 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	event_status?: string;
 	event_genre?: string;
 	event_tags?: string[];
-	// --- NEWLY ADDED PROPERTIES ---
 	rider_files?: any;
 	visuals?: any;
 	visual_received?: boolean;
+	calendar_synced?: boolean;
+	calendar_sync_time?: string | null;
+	calendar_event_ids?: { [key: number]: string } | null;
 }
 
 /**

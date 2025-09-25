@@ -102,7 +102,7 @@
 	function handleRoleClose() {
 		showRoleModal = false;
 	}
-	
+
 	// FIXED: Update the event object with spread to trigger reactivity
 	function handleRoleSave(e: CustomEvent<{ event: EventAdvance }>) {
 		// Create a new object reference to trigger Svelte reactivity
@@ -117,7 +117,7 @@
 	function handlePassportClose() {
 		showPassportModal = false;
 	}
-	
+
 	// FIXED: Update passport handler to properly update event
 	function handlePassportSave(e: CustomEvent<{ event: EventAdvance }>) {
 		// Create a new object reference to trigger Svelte reactivity
@@ -132,7 +132,7 @@
 	function handleImmigrationClose() {
 		showImmigrationModal = false;
 	}
-	
+
 	// FIXED: Update immigration handler to properly update event
 	function handleImmigrationSave(e: CustomEvent<{ event: EventAdvance }>) {
 		// Create a new object reference to trigger Svelte reactivity
@@ -161,6 +161,14 @@
 	}
 	function handleCalendarClose() {
 		showCalendarModal = false;
+	}
+	function handleCalendarSyncSuccess(e: CustomEvent) {
+		// Update the event object with fresh data from the sync
+		if (e.detail.updatedEvent) {
+			event = { ...e.detail.updatedEvent };
+		}
+		handleModalSaveSuccess();
+		// Don't close the modal here - let user see the success message and close manually
 	}
 
 	function openScheduleModal() {
@@ -349,11 +357,11 @@
 {/if}
 {#if showCalendarModal}
 	<div use:portal>
-		<CalendarInfoSync
+		<CalendarSyncModal
 			bind:isOpen={showCalendarModal}
 			{event}
-			on:close={handleCalendarClose}
-			on:save_success={handleModalSaveSuccess}
+			on:close={() => (showCalendarModal = false)}
+			on:calendar_sync_success={handleCalendarSyncSuccess}
 		/>
 	</div>
 {/if}
