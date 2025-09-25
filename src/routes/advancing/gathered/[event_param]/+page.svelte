@@ -138,10 +138,22 @@
 		// We still increment the key to guarantee the child component itself remounts reliably.
 		timetableKey += 1;
 	}
+	async function handleDataChanged(e: CustomEvent) {
+		const updatedEventFromChild = e.detail;
 
-	// The handler for the other tools simply calls the same unified refresh function.
-	async function handleDataChanged() {
-		await handleDataRefresh();
+		// Check if the event detail contains our updated event object
+		if (
+			updatedEventFromChild &&
+			typeof updatedEventFromChild === 'object' &&
+			updatedEventFromChild.id
+		) {
+			console.log('🔄 Received updated event object from child. Updating page state directly.');
+			event = updatedEventFromChild;
+		} else {
+			// Fallback for other components that don't pass data up yet.
+			console.log('No event object in payload, falling back to refetch.');
+			await handleDataRefresh();
+		}
 	}
 </script>
 

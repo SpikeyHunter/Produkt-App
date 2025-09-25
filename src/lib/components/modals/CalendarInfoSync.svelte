@@ -110,31 +110,38 @@
 		departures = departures.filter((flight) => flight.id !== id);
 	}
 
-	function addManualFlight(type: 'arrival' | 'departure') {
-		const now = new Date();
-		const newFlightBase = {
-			id: Date.now(),
-			flightNumber: '',
-			from: '',
-			to: '',
-			time: now.toISOString(),
-			assignedRoles: [...roleNames],
-			isEditable: true
+function addManualFlight(type: 'arrival' | 'departure') {
+	// FIX: Use the event's date as the default, not the current date.
+	// We append T12:00:00 to avoid timezone parsing issues with "YYYY-MM-DD" strings.
+	const defaultDate = event.event_date ? new Date(event.event_date + 'T12:00:00') : new Date();
+
+	const newFlightBase = {
+		id: Date.now(),
+		flightNumber: '',
+		from: '',
+		to: '',
+		time: defaultDate.toISOString(), // Set time to the event's date
+		assignedRoles: [...roleNames],
+		isEditable: true
+	};
+
+	if (type === 'arrival') {
+		const newArrival: Flight = {
+			...newFlightBase,
+			date: defaultDate.toISOString().split('T')[0] // Set date to the event's date
 		};
-		if (type === 'arrival') {
-			const newArrival: Flight = { ...newFlightBase, date: now.toISOString().split('T')[0] };
-			arrivals = [newArrival, ...arrivals];
-		} else {
-			const hours = 3;
-			const newDeparture: Flight = {
-				...newFlightBase,
-				date: now.toISOString().split('T')[0],
-				hoursBeforeDeparture: hours,
-				timeAtAirport: calculateTimeAtAirport(newFlightBase.time, hours)
-			};
-			departures = [newDeparture, ...departures];
-		}
+		arrivals = [newArrival, ...arrivals];
+	} else {
+		const hours = 3;
+		const newDeparture: Flight = {
+			...newFlightBase,
+			date: defaultDate.toISOString().split('T')[0], // Set date to the event's date
+			hoursBeforeDeparture: hours,
+			timeAtAirport: calculateTimeAtAirport(newFlightBase.time, hours)
+		};
+		departures = [newDeparture, ...departures];
 	}
+}
 
 	// --- Departure Time Logic ---
 	function getDefaultHoursBeforeDeparture(origin: string, destination: string): number {

@@ -298,9 +298,12 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				updated_at: row.updated_at,
 				artist_bio: row.artist_bio,
 				artist_bio_url: row.artist_bio_url,
-				rider_files: row.rider_files, // New field
-				visuals: row.visuals, // New field
-				visual_received: row.visual_received, // New field
+				rider_files: row.rider_files,
+				visuals: row.visuals,
+				visual_received: row.visual_received,
+				calendar_synced: row.calendar_synced,
+				calendar_sync_time: row.calendar_sync_time,
+				calendar_event_ids: row.calendar_event_ids,
 
 				// Computed fields for UI
 				name: eventName,
@@ -616,9 +619,12 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			updated_at: advanceData.updated_at,
 			artist_bio: advanceData.artist_bio,
 			artist_bio_url: advanceData.artist_bio_url,
-			rider_files: advanceData.rider_files, // New field
-			visuals: advanceData.visuals, // New field
-			visual_received: advanceData.visual_received, // New field
+			rider_files: advanceData.rider_files,
+			visuals: advanceData.visuals,
+			visual_received: advanceData.visual_received,
+			calendar_synced: advanceData.calendar_synced,
+			calendar_sync_time: advanceData.calendar_sync_time,
+			calendar_event_ids: advanceData.calendar_event_ids,
 
 			// Computed fields for UI
 			name: finalEventName,

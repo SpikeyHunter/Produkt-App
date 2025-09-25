@@ -138,186 +138,181 @@ const findDuplicateEventId = async (
 };
 
 // Create or update calendar events - matches Google Apps Script behavior
+// src/lib/services/GoogleCalendar.ts
+
 export async function syncToCalendar(
-  rows: CalendarEntry[],
-  artistName: string,
-  existingEventIds?: { [key: number]: string }
+	rows: CalendarEntry[],
+	artistName: string,
+	existingEventIds?: { [key: number]: string }
 ): Promise<CalendarSyncResponse> {
-  const eventIds: { [key: number]: string } = existingEventIds || {};
-  let hasErrors = false;
-  let errorMessage = '';
-  let newEventsCreated = 0;
-  let eventsUpdated = 0;
-  let duplicatesFound = 0;
+	const eventIds: { [key: number]: string } = existingEventIds ? { ...existingEventIds } : {};
+	let hasErrors = false;
+	let errorMessage = '';
+	let newEventsCreated = 0;
+	let eventsUpdated = 0;
+	let duplicatesFound = 0;
+	let eventsDeleted = 0;
 
-  // Validate environment variables
-  if (!GOOGLE_CALENDAR_ID || !GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
-    console.error('Missing Google Calendar OAuth environment variables');
-    return {
-      success: false,
-      eventIds: {},
-      error: 'Google Calendar not configured - missing OAuth credentials'
-    };
-  }
+	// Validate environment variables
+	if (!GOOGLE_CALENDAR_ID || !GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
+		console.error('Missing Google Calendar OAuth environment variables');
+		return {
+			success: false,
+			eventIds: {},
+			error: 'Google Calendar not configured - missing OAuth credentials'
+		};
+	}
 
-  console.log('Starting calendar sync for', rows.length, 'rows');
-  console.log('Calendar ID:', GOOGLE_CALENDAR_ID);
+	console.log('Starting calendar sync for', rows.length, 'rows');
 
-  // Test authentication first
-  try {
-    console.log('Testing Google Calendar authentication...');
-    await calendar.calendarList.list({ maxResults: 1 });
-    console.log('✅ Authentication successful');
-  } catch (authError: any) {
-    console.error('❌ Authentication failed:', authError.message);
-    return {
-      success: false,
-      eventIds: {},
-      error: `Google Calendar authentication failed: ${authError.message}`
-    };
-  }
+	// Test authentication first
+	try {
+		await calendar.calendarList.list({ maxResults: 1 });
+	} catch (authError: any) {
+		console.error('❌ Authentication failed:', authError.message);
+		return {
+			success: false,
+			eventIds: {},
+			error: `Google Calendar authentication failed: ${authError.message}`
+		};
+	}
 
-  // Handle deleted rows - remove events that no longer exist in rows
-  if (existingEventIds) {
-    const currentRowIds = new Set(rows.map(row => row.id));
-    const deletedEventIds = Object.keys(existingEventIds)
-      .filter(rowId => !currentRowIds.has(parseInt(rowId)))
-      .map(rowId => existingEventIds[parseInt(rowId)])
-      .filter(Boolean);
+	// FIX: Correctly handle deleted rows using parseFloat
+	if (existingEventIds) {
+		const currentRowIds = new Set(rows.map((row) => row.id));
+		const existingRowIdStrings = Object.keys(existingEventIds);
 
-    for (const eventId of deletedEventIds) {
-      try {
-        await calendar.events.delete({
-          calendarId: CALENDAR_ID,
-          eventId: eventId,
-        });
-        console.log(`Deleted calendar event: ${eventId}`);
-        
-        // Remove from eventIds object
-        const rowIdToDelete = Object.keys(existingEventIds).find(
-          rowId => existingEventIds[parseInt(rowId)] === eventId
-        );
-        if (rowIdToDelete) {
-          delete eventIds[parseInt(rowIdToDelete)];
-        }
-      } catch (deleteError: any) {
-        console.warn(`Could not delete event ${eventId}:`, deleteError.message);
-        // Continue processing other events even if delete fails
-      }
-    }
-  }
+		for (const rowIdString of existingRowIdStrings) {
+			const rowIdNumber = parseFloat(rowIdString); // Use parseFloat
+			if (!currentRowIds.has(rowIdNumber)) {
+				const eventIdToDelete = existingEventIds[rowIdNumber];
+				if (eventIdToDelete) {
+					try {
+						await calendar.events.delete({
+							calendarId: CALENDAR_ID,
+							eventId: eventIdToDelete
+						});
+						console.log(`Deleted calendar event: ${eventIdToDelete}`);
+						delete eventIds[rowIdNumber]; // Remove from the map to be returned
+						eventsDeleted++;
+					} catch (deleteError: any) {
+						console.warn(`Could not delete event ${eventIdToDelete}:`, deleteError.message);
+						// If an event is already deleted from Google Calendar manually, this might error.
+						// We still remove it from our list.
+						delete eventIds[rowIdNumber];
+					}
+				}
+			}
+		}
+	}
 
-  // Process current rows
-  for (const row of rows) {
-    if (!row.type || !row.date || !row.pickupTime) {
-      console.log('Skipping incomplete row:', row.id);
-      continue;
-    }
+	// Process current rows (create/update)
+	for (const row of rows) {
+		if (!row.type || !row.date || !row.pickupTime) {
+			console.log('Skipping incomplete row:', row.id);
+			continue;
+		}
 
-    try {
-      const startTime = roundUp15(combineDateAndTime(row.date, row.pickupTime));
-      const endTime = new Date(startTime.getTime() + 60 * 60000); // 1 hour duration
+		try {
+			const startTime = roundUp15(combineDateAndTime(row.date, row.pickupTime));
+			const endTime = new Date(startTime.getTime() + 60 * 60000); // 1 hour duration
 
-      if (isNaN(startTime.getTime())) {
-        console.warn(`Skipping row with invalid date/time:`, row);
-        continue;
-      }
+			if (isNaN(startTime.getTime())) {
+				console.warn(`Skipping row with invalid date/time:`, row);
+				continue;
+			}
 
-      const title = buildTitle(
-        row.type,
-        row.driverName,
-        artistName,
-        row.paxNames,
-        row.flightInfo,
-        row.pickupLocation,
-        row.dropoffLocation,
-        startTime
-      );
+			const title = buildTitle(
+				row.type,
+				row.driverName,
+				artistName,
+				row.paxNames,
+				row.flightInfo,
+				row.pickupLocation,
+				row.dropoffLocation,
+				startTime
+			);
 
-      // Exactly like Google Apps Script
-      const eventData = {
-        summary: title,
-        start: { dateTime: startTime.toISOString(), timeZone: 'America/Toronto' },
-        end: { dateTime: endTime.toISOString(), timeZone: 'America/Toronto' },
-        description: row.contact,
-        attendees: row.driverName !== 'UBER' && getGuestEmail(row.driverName)
-          ? [{ email: getGuestEmail(row.driverName), responseStatus: 'needsAction' }]
-          : [],
-        reminders: {
-          useDefault: false,
-          overrides: [{ method: 'popup', minutes: getReminderMinutes(row.type) }],
-        },
-      };
+			const eventData = {
+				summary: title,
+				start: { dateTime: startTime.toISOString(), timeZone: 'America/Toronto' },
+				end: { dateTime: endTime.toISOString(), timeZone: 'America/Toronto' },
+				description: row.contact,
+				attendees:
+					row.driverName !== 'UBER' && getGuestEmail(row.driverName)
+						? [{ email: getGuestEmail(row.driverName), responseStatus: 'needsAction' }]
+						: [],
+				reminders: {
+					useDefault: false,
+					overrides: [{ method: 'popup', minutes: getReminderMinutes(row.type) }]
+				}
+			};
 
-      const existingEventId = eventIds[row.id];
-      
-      if (existingEventId && (await findEventById(existingEventId))) {
-        // Update existing event
-        await calendar.events.update({
-          calendarId: CALENDAR_ID,
-          eventId: existingEventId,
-          requestBody: eventData,
-          sendUpdates: 'all', // Send invites like Google Apps Script
-        });
-        console.log(`Updated event: ${title}`);
-        eventsUpdated++;
-      } else {
-        // Check if a duplicate exists and get its ID
-        const duplicateEventId = await findDuplicateEventId(title, startTime, endTime);
-        
-        if (duplicateEventId) {
-          // Found duplicate - store its ID instead of creating new
-          eventIds[row.id] = duplicateEventId;
-          console.log(`Found existing event ID for: ${title}`);
-          duplicatesFound++;
-        } else {
-          // Create new event
-          const response = await calendar.events.insert({
-            calendarId: CALENDAR_ID,
-            requestBody: eventData,
-            sendUpdates: 'all', // Send invites like Google Apps Script
-          });
-          
-          if (response.data.id) {
-            eventIds[row.id] = response.data.id;
-            console.log(`Created event: ${title}`);
-            newEventsCreated++;
-          }
-        }
-      }
-    } catch (rowError: any) {
-      console.error(`Error processing row ${row.id}:`, rowError);
-      hasErrors = true;
-      const errorDetail = rowError.message || rowError.toString();
-      errorMessage += `Failed to sync ${row.type || 'event'}: ${errorDetail}. `;
-    }
-  }
+			const existingEventId = eventIds[row.id];
 
-  // Only consider it successful if we have event IDs for the processed rows
-  const processedRows = rows.filter(row => row.type && row.date && row.pickupTime);
-  const hasAllEventIds = processedRows.every(row => eventIds[row.id]);
-  
-  const success = !hasErrors && hasAllEventIds;
-  
-  let message = '';
-  if (success) {
-    if (newEventsCreated > 0 && eventsUpdated === 0 && duplicatesFound === 0) {
-      message = `Created ${newEventsCreated} new calendar events`;
-    } else if (eventsUpdated > 0 && newEventsCreated === 0 && duplicatesFound === 0) {
-      message = `Updated ${eventsUpdated} calendar events`;
-    } else if (duplicatesFound > 0 && newEventsCreated === 0 && eventsUpdated === 0) {
-      message = `Found ${duplicatesFound} existing calendar events`;
-    } else {
-      message = `Synced calendar: ${newEventsCreated} created, ${eventsUpdated} updated, ${duplicatesFound} existing`;
-    }
-  }
+			if (existingEventId && (await findEventById(existingEventId))) {
+				// Update existing event
+				await calendar.events.update({
+					calendarId: CALENDAR_ID,
+					eventId: existingEventId,
+					requestBody: eventData,
+					sendUpdates: 'all'
+				});
+				console.log(`Updated event: ${title}`);
+				eventsUpdated++;
+			} else {
+				// Check for duplicates before creating a new one
+				const duplicateEventId = await findDuplicateEventId(title, startTime, endTime);
 
-  return {
-    success,
-    eventIds,
-    error: hasErrors ? errorMessage.trim() : undefined,
-    message: hasErrors 
-      ? 'Some events synced with errors' 
-      : message || (existingEventIds ? 'Calendar events updated' : 'Events synced to calendar')
-  };
+				if (duplicateEventId) {
+					eventIds[row.id] = duplicateEventId;
+					console.log(`Found existing event ID for: ${title}`);
+					duplicatesFound++;
+				} else {
+					// Create new event
+					const response = await calendar.events.insert({
+						calendarId: CALENDAR_ID,
+						requestBody: eventData,
+						sendUpdates: 'all'
+					});
+
+					if (response.data.id) {
+						eventIds[row.id] = response.data.id;
+						console.log(`Created event: ${title}`);
+						newEventsCreated++;
+					}
+				}
+			}
+		} catch (rowError: any) {
+			console.error(`Error processing row ${row.id}:`, rowError);
+			hasErrors = true;
+			const errorDetail = rowError.message || rowError.toString();
+			errorMessage += `Failed to sync ${row.type || 'event'}: ${errorDetail}. `;
+		}
+	}
+
+	const processedRows = rows.filter((row) => row.type && row.date && row.pickupTime);
+	const hasAllEventIds = processedRows.every((row) => eventIds[row.id]);
+
+	const success = !hasErrors && hasAllEventIds;
+	
+	// Construct a meaningful success message
+	let messageParts = [];
+	if (newEventsCreated > 0) messageParts.push(`${newEventsCreated} created`);
+	if (eventsUpdated > 0) messageParts.push(`${eventsUpdated} updated`);
+	if (eventsDeleted > 0) messageParts.push(`${eventsDeleted} deleted`);
+	if (duplicatesFound > 0) messageParts.push(`${duplicatesFound} existing`);
+
+	let message = `Synced calendar: ${messageParts.join(', ')}`;
+	if (messageParts.length === 0) {
+		message = "No calendar changes needed.";
+	}
+
+
+	return {
+		success,
+		eventIds,
+		error: hasErrors ? errorMessage.trim() : undefined,
+		message: hasErrors ? 'Some events synced with errors' : message
+	};
 }

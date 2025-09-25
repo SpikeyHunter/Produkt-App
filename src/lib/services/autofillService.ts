@@ -228,44 +228,61 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 
 	// --- Process Flight Arrivals and Departures ---
 	if (event.ground_info) {
-		const groundInfo: GroundInfo = typeof event.ground_info === 'string' ? JSON.parse(event.ground_info) : event.ground_info;
+		const groundInfo: GroundInfo =
+			typeof event.ground_info === 'string' ? JSON.parse(event.ground_info) : event.ground_info;
 
 		// Process Arrivals
 		(groundInfo.arrivals || []).forEach((flight) => {
-			const pickupTime = flight.time.substring(11, 16); // Extract "HH:MM" from ISO string
+			const flightDate = flight.time.substring(0, 10); // FIX: Extract date from the ISO timestamp
+			const pickupTime = flight.time.substring(11, 16); // Extract "HH:MM"
 			const dropoffTime = minutesToTime(timeToMinutes(pickupTime) + 30);
-			const pax = flight.assignedRoles.map(name => name.split(' ')[0]);
-			const driverAssignment = getDriverAssignments(pax.length, [], pax); // Simplified for arrivals
+			const pax = flight.assignedRoles.map((name) => name.split(' ')[0]);
+			const driverAssignment = getDriverAssignments(pax.length, [], pax);
 
 			const entry: CalendarEntry = {
-				id: Date.now() + Math.random(), date: flight.date, type: 'Arrival',
-				driverName: driverAssignment.car1Driver, pickupTime, pickupLocation: 'Airport',
-				dropoffTime, dropoffLocation: hotelName, paxNames: driverAssignment.car1Passengers,
-				flightInfo: `${flight.from}>${flight.to} ${flight.flightNumber}`, contact: contactInfo,
+				id: Date.now() + Math.random(),
+				date: flightDate, // FIX: Use the correct extracted date
+				type: 'Arrival',
+				driverName: driverAssignment.car1Driver,
+				pickupTime,
+				pickupLocation: 'Airport',
+				dropoffTime,
+				dropoffLocation: hotelName,
+				paxNames: driverAssignment.car1Passengers,
+				flightInfo: `${flight.from}>${flight.to} ${flight.flightNumber}`,
+				contact: contactInfo
 			};
 			generatedEntries.push(entry);
 		});
 
 		// Process Departures
 		(groundInfo.departures || []).forEach((flight) => {
+			const flightDate = flight.time.substring(0, 10); // FIX: Extract date from the ISO timestamp for consistency
 			const departureTimeMinutes = timeToMinutes(flight.time.substring(11, 16));
 			const hoursBefore = flight.hoursBeforeDeparture || 2;
-			const totalMinutesToSubtract = (hoursBefore * 60) + 30; // hours + 30 min drive
-			
+			const totalMinutesToSubtract = hoursBefore * 60 + 30; // hours + 30 min drive
+
 			const pickupMinutes = departureTimeMinutes - totalMinutesToSubtract;
 			const roundedPickupMinutes = roundMinutesToNearest15(pickupMinutes);
-			
+
 			const pickupTime = minutesToTime(roundedPickupMinutes);
 			const dropoffTime = minutesToTime(roundedPickupMinutes + 30);
-			
-			const pax = flight.assignedRoles.map(name => name.split(' ')[0]);
+
+			const pax = flight.assignedRoles.map((name) => name.split(' ')[0]);
 			const driverAssignment = getDriverAssignments(pax.length, [], pax);
 
 			const entry: CalendarEntry = {
-				id: Date.now() + Math.random(), date: flight.date, type: 'Departure',
-				driverName: driverAssignment.car1Driver, pickupTime, pickupLocation: hotelName,
-				dropoffTime, dropoffLocation: 'Airport', paxNames: driverAssignment.car1Passengers,
-				flightInfo: `${flight.from}>${flight.to} ${flight.flightNumber}`, contact: contactInfo,
+				id: Date.now() + Math.random(),
+				date: flightDate, // FIX: Use the correct extracted date
+				type: 'Departure',
+				driverName: driverAssignment.car1Driver,
+				pickupTime,
+				pickupLocation: hotelName,
+				dropoffTime,
+				dropoffLocation: 'Airport',
+				paxNames: driverAssignment.car1Passengers,
+				flightInfo: `${flight.from}>${flight.to} ${flight.flightNumber}`,
+				contact: contactInfo
 			};
 			generatedEntries.push(entry);
 		});
@@ -273,51 +290,92 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 
 	// --- Process Soundcheck Schedule ---
 	if (event.soundcheck) {
-		const soundcheckInfo: SoundcheckInfo = typeof event.soundcheck === 'string' ? JSON.parse(event.soundcheck) : event.soundcheck;
+		const soundcheckInfo: SoundcheckInfo =
+			typeof event.soundcheck === 'string' ? JSON.parse(event.soundcheck) : event.soundcheck;
 
 		if (soundcheckInfo.enabled && soundcheckInfo.start_time) {
-			const driverAssignment = getDriverAssignments(roleData.totalPeople, roleData.artistAndManager, roleData.crew);
-			
+			const driverAssignment = getDriverAssignments(
+				roleData.totalPeople,
+				roleData.artistAndManager,
+				roleData.crew
+			);
+
 			// Soundcheck pickup (15 minutes before)
 			const scPickupMinutes = timeToMinutes(soundcheckInfo.start_time) - 15;
 			const scPickupTime = minutesToTime(roundMinutesToNearest15(scPickupMinutes));
-			
+
 			generatedEntries.push({
-				id: Date.now() + Math.random(), date: eventDateStr, type: 'Soundcheck',
-				driverName: driverAssignment.car1Driver, pickupTime: scPickupTime, pickupLocation: hotelName,
-				dropoffTime: soundcheckInfo.start_time, dropoffLocation: 'NCG',
-				paxNames: driverAssignment.car1Passengers, flightInfo: '', contact: contactInfo
+				id: Date.now() + Math.random(),
+				date: eventDateStr,
+				type: 'Soundcheck',
+				driverName: driverAssignment.car1Driver,
+				pickupTime: scPickupTime,
+				pickupLocation: hotelName,
+				dropoffTime: soundcheckInfo.start_time,
+				dropoffLocation: 'NCG',
+				paxNames: driverAssignment.car1Passengers,
+				flightInfo: '',
+				contact: contactInfo
 			});
 
 			// Post-Soundcheck pickup
 			generatedEntries.push({
-				id: Date.now() + Math.random(), date: eventDateStr, type: 'Post-SC',
-				driverName: driverAssignment.car1Driver, pickupTime: soundcheckInfo.end_time, pickupLocation: 'NCG',
-				dropoffTime: minutesToTime(timeToMinutes(soundcheckInfo.end_time) + 15), dropoffLocation: hotelName,
-				paxNames: driverAssignment.car1Passengers, flightInfo: '', contact: contactInfo
+				id: Date.now() + Math.random(),
+				date: eventDateStr,
+				type: 'Post-SC',
+				driverName: driverAssignment.car1Driver,
+				pickupTime: soundcheckInfo.end_time,
+				pickupLocation: 'NCG',
+				dropoffTime: minutesToTime(timeToMinutes(soundcheckInfo.end_time) + 15),
+				dropoffLocation: hotelName,
+				paxNames: driverAssignment.car1Passengers,
+				flightInfo: '',
+				contact: contactInfo
 			});
 
 			// FIXED: Check for both car2Driver and car2Passengers
 			if (driverAssignment.car2Driver && driverAssignment.car2Passengers) {
-				generatedEntries.push({
-					id: Date.now() + Math.random(), date: eventDateStr, type: 'Soundcheck',
-					driverName: driverAssignment.car2Driver, pickupTime: scPickupTime, pickupLocation: hotelName,
-					dropoffTime: soundcheckInfo.start_time, dropoffLocation: 'NCG',
-					paxNames: driverAssignment.car2Passengers, flightInfo: '', contact: contactInfo
-				}, {
-					id: Date.now() + Math.random(), date: eventDateStr, type: 'Post-SC',
-					driverName: driverAssignment.car2Driver, pickupTime: soundcheckInfo.end_time, pickupLocation: 'NCG',
-					dropoffTime: minutesToTime(timeToMinutes(soundcheckInfo.end_time) + 15), dropoffLocation: hotelName,
-					paxNames: driverAssignment.car2Passengers, flightInfo: '', contact: contactInfo
-				});
+				generatedEntries.push(
+					{
+						id: Date.now() + Math.random(),
+						date: eventDateStr,
+						type: 'Soundcheck',
+						driverName: driverAssignment.car2Driver,
+						pickupTime: scPickupTime,
+						pickupLocation: hotelName,
+						dropoffTime: soundcheckInfo.start_time,
+						dropoffLocation: 'NCG',
+						paxNames: driverAssignment.car2Passengers,
+						flightInfo: '',
+						contact: contactInfo
+					},
+					{
+						id: Date.now() + Math.random(),
+						date: eventDateStr,
+						type: 'Post-SC',
+						driverName: driverAssignment.car2Driver,
+						pickupTime: soundcheckInfo.end_time,
+						pickupLocation: 'NCG',
+						dropoffTime: minutesToTime(timeToMinutes(soundcheckInfo.end_time) + 15),
+						dropoffLocation: hotelName,
+						paxNames: driverAssignment.car2Passengers,
+						flightInfo: '',
+						contact: contactInfo
+					}
+				);
 			}
 		}
 	}
 
 	// --- Process Show Schedule ---
 	if (event.timetable) {
-		const timetable: TimetableEntry[] = typeof event.timetable === 'string' ? JSON.parse(event.timetable) : event.timetable;
-		const artistSet = timetable.find(entry => entry.artist.toLowerCase().includes(event.artist_name?.toLowerCase() || '') || entry.notes.toLowerCase().includes('headliner'));
+		const timetable: TimetableEntry[] =
+			typeof event.timetable === 'string' ? JSON.parse(event.timetable) : event.timetable;
+		const artistSet = timetable.find(
+			(entry) =>
+				entry.artist.toLowerCase().includes(event.artist_name?.toLowerCase() || '') ||
+				entry.notes.toLowerCase().includes('headliner')
+		);
 
 		if (artistSet && artistSet.time && artistSet.length) {
 			const showStartTime24 = convertTo24Hour(artistSet.time);
@@ -344,44 +402,79 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 			const postShowDayOffset = Math.floor(showEndTotalMinutes / (24 * 60));
 			const pickupDate = addDays(eventDateStr, pickupDayOffset);
 			const postShowDate = addDays(eventDateStr, postShowDayOffset);
-			
+
 			// Convert minute totals back to "HH:MM" strings
 			const pickupTime = minutesToTime(pickupTotalMinutes);
 			const showDropoffTime = minutesToTime(pickupTotalMinutes + 15);
 			const postShowPickupTime = minutesToTime(showEndTotalMinutes);
 			const postShowDropoffTime = minutesToTime(showEndTotalMinutes + 15);
 
-			const driverAssignment = getDriverAssignments(roleData.totalPeople, roleData.artistAndManager, roleData.crew);
+			const driverAssignment = getDriverAssignments(
+				roleData.totalPeople,
+				roleData.artistAndManager,
+				roleData.crew
+			);
 
 			// Add "Show" entry
 			generatedEntries.push({
-				id: Date.now() + Math.random(), date: pickupDate, type: 'Show',
-				driverName: driverAssignment.car1Driver, pickupTime, pickupLocation: hotelName,
-				dropoffTime: showDropoffTime, dropoffLocation: 'NCG',
-				paxNames: driverAssignment.car1Passengers, flightInfo: '', contact: contactInfo,
+				id: Date.now() + Math.random(),
+				date: pickupDate,
+				type: 'Show',
+				driverName: driverAssignment.car1Driver,
+				pickupTime,
+				pickupLocation: hotelName,
+				dropoffTime: showDropoffTime,
+				dropoffLocation: 'NCG',
+				paxNames: driverAssignment.car1Passengers,
+				flightInfo: '',
+				contact: contactInfo
 			});
 
 			// Add "Post Show" entry
 			generatedEntries.push({
-				id: Date.now() + Math.random(), date: postShowDate, type: 'Post Show',
-				driverName: driverAssignment.car1Driver, pickupTime: postShowPickupTime, pickupLocation: 'NCG',
-				dropoffTime: postShowDropoffTime, dropoffLocation: hotelName,
-				paxNames: driverAssignment.car1Passengers, flightInfo: '', contact: contactInfo,
+				id: Date.now() + Math.random(),
+				date: postShowDate,
+				type: 'Post Show',
+				driverName: driverAssignment.car1Driver,
+				pickupTime: postShowPickupTime,
+				pickupLocation: 'NCG',
+				dropoffTime: postShowDropoffTime,
+				dropoffLocation: hotelName,
+				paxNames: driverAssignment.car1Passengers,
+				flightInfo: '',
+				contact: contactInfo
 			});
 
 			// FIXED: Check for both car2Driver and car2Passengers
 			if (driverAssignment.car2Driver && driverAssignment.car2Passengers) {
-				generatedEntries.push({
-					id: Date.now() + Math.random(), date: pickupDate, type: 'Show',
-					driverName: driverAssignment.car2Driver, pickupTime, pickupLocation: hotelName,
-					dropoffTime: showDropoffTime, dropoffLocation: 'NCG',
-					paxNames: driverAssignment.car2Passengers, flightInfo: '', contact: contactInfo,
-				}, {
-					id: Date.now() + Math.random(), date: postShowDate, type: 'Post Show',
-					driverName: driverAssignment.car2Driver, pickupTime: postShowPickupTime, pickupLocation: 'NCG',
-					dropoffTime: postShowDropoffTime, dropoffLocation: hotelName,
-					paxNames: driverAssignment.car2Passengers, flightInfo: '', contact: contactInfo,
-				});
+				generatedEntries.push(
+					{
+						id: Date.now() + Math.random(),
+						date: pickupDate,
+						type: 'Show',
+						driverName: driverAssignment.car2Driver,
+						pickupTime,
+						pickupLocation: hotelName,
+						dropoffTime: showDropoffTime,
+						dropoffLocation: 'NCG',
+						paxNames: driverAssignment.car2Passengers,
+						flightInfo: '',
+						contact: contactInfo
+					},
+					{
+						id: Date.now() + Math.random(),
+						date: postShowDate,
+						type: 'Post Show',
+						driverName: driverAssignment.car2Driver,
+						pickupTime: postShowPickupTime,
+						pickupLocation: 'NCG',
+						dropoffTime: postShowDropoffTime,
+						dropoffLocation: hotelName,
+						paxNames: driverAssignment.car2Passengers,
+						flightInfo: '',
+						contact: contactInfo
+					}
+				);
 			}
 		}
 	}

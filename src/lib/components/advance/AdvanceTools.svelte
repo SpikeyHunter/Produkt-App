@@ -14,12 +14,11 @@
 	// Props
 	export let event: EventAdvance;
 	const dispatch = createEventDispatcher();
-
 	// Modal state
 	let showRoleModal = false;
 	let showPassportModal = false;
 	let showHotelModal = false;
-	let showCalendarModal = false;
+	let showFlightsModal = false; // Renamed for clarity
 	let showScheduleModal = false;
 	let showImmigrationModal = false;
 
@@ -32,13 +31,10 @@
 	// Filter for people who explicitly have "immigration: true" in their role data.
 	// This is a strict check to prevent ambiguity.
 	$: immigrationPeople = people.filter((p) => p.immigration === true);
-
 	// Calculate passport completion status based *only* on the filtered list of people.
 	$: passportStatus = getPassportCompletionStatus(immigrationPeople, passportInfos);
-
 	// Role button text remains the same, based on the total number of people.
 	$: roleButtonText = people.length === 0 ? 'Add roles' : `Modify (${people.length})`;
-
 	// Update passport button text based on the new logic.
 	$: passportButtonText = (() => {
 		if (people.length === 0) return 'No Team';
@@ -47,7 +43,6 @@
 			return `Add (${passportStatus.completed}/${passportStatus.total})`;
 		return `Modify (${passportStatus.completed}/${passportStatus.total})`;
 	})();
-
 	// Disable Passport and Immigration buttons if no one on the team requires immigration.
 	$: isPassportButtonDisabled = immigrationPeople.length === 0;
 	$: isImmigrationButtonDisabled = immigrationPeople.length === 0;
@@ -156,26 +151,26 @@
 		showHotelModal = false;
 	}
 
-	function openCalendarModal() {
-		showCalendarModal = true;
+	// --- FLIGHTS MODAL LOGIC ---
+	function openFlightsModal() {
+		showFlightsModal = true;
 	}
-	function handleCalendarClose() {
-		showCalendarModal = false;
-	}
-	function handleCalendarSyncSuccess(e: CustomEvent) {
-		// Update the event object with fresh data from the sync
-		if (e.detail.updatedEvent) {
-			event = { ...e.detail.updatedEvent };
-		}
-		handleModalSaveSuccess();
-		// Don't close the modal here - let user see the success message and close manually
+	function handleFlightsClose() {
+		showFlightsModal = false;
 	}
 
+	// --- SCHEDULE MODAL LOGIC ---
 	function openScheduleModal() {
 		showScheduleModal = true;
 	}
 	function handleScheduleClose() {
 		showScheduleModal = false;
+	}
+	function handleCalendarSyncSuccess(e: CustomEvent) {
+		if (e.detail.updatedEvent) {
+			event = { ...e.detail.updatedEvent };
+			dispatch('datachanged', event);
+		}
 	}
 </script>
 
@@ -268,7 +263,7 @@
 			</div>
 			<button
 				class={flightsButtonClasses}
-				on:click={openCalendarModal}
+				on:click={openFlightsModal}
 				disabled={isFlightsButtonDisabled}
 			>
 				Flights
@@ -355,22 +350,25 @@
 		/>
 	</div>
 {/if}
-{#if showCalendarModal}
+
+{#if showFlightsModal}
 	<div use:portal>
-		<CalendarSyncModal
-			bind:isOpen={showCalendarModal}
+		<CalendarInfoSync
+			bind:isOpen={showFlightsModal}
 			{event}
-			on:close={() => (showCalendarModal = false)}
-			on:calendar_sync_success={handleCalendarSyncSuccess}
+			on:close={handleFlightsClose}
+			on:save_success={handleModalSaveSuccess}
 		/>
 	</div>
 {/if}
+
 {#if showScheduleModal}
 	<div use:portal>
 		<CalendarSyncModal
 			bind:isOpen={showScheduleModal}
 			{event}
 			on:close={handleScheduleClose}
+			on:calendar_sync_success={handleCalendarSyncSuccess}
 			on:save_success={handleModalSaveSuccess}
 		/>
 	</div>

@@ -10,7 +10,6 @@
 	// State
 	let mainEvent: any = null;
 	let loading = true;
-
 	// Fetch main event data on mount
 	onMount(async () => {
 		if (event.event_id && event.event_id !== -1) {
@@ -18,17 +17,15 @@
 		}
 		loading = false;
 	});
-
 	// Handles updates from the dropdown to keep the UI reactive
 	function handleFieldUpdate(e: CustomEvent) {
 		const { column, value, eventId, artistName } = e.detail;
-		
 		// Ensure we are updating the correct event in the UI
 		if (event.event_id === eventId && event.artist_name === artistName) {
 			if (column === 'asked') {
 				// Update the local event object to reflect the change immediately
 				// The 'value' from the event is the display value ("Yes" or "No")
-				event.asked = (value === 'Yes');
+				event.asked = value === 'Yes';
 			} else if (column === 'immigration_status') {
 				event.immigration_status = value;
 			}
@@ -57,60 +54,61 @@
 
 	$: advanceAskedStatus = event.asked ? 'Yes' : 'No';
 	$: parsedRoles = parseJson(event.roles);
-	$: rolesListStatus = (Array.isArray(parsedRoles) && parsedRoles.length > 0) ? 'Yes' : 'No';
-	
+	$: rolesListStatus = Array.isArray(parsedRoles) && parsedRoles.length > 0 ? 'Yes' : 'No';
 	$: passportStatus = (() => {
 		// First, check how many people require immigration (passports)
 		const roles = parseJson(event.roles);
 		if (!Array.isArray(roles) || roles.length === 0) return 'No';
-		
+
 		// Count people who have immigration flag set to true
 		const peopleRequiringPassports = roles.filter((person: any) => person.immigration === true);
 		const requiredPassportCount = peopleRequiringPassports.length;
-		
+
 		// If nobody requires passports, return N/A
 		if (requiredPassportCount === 0) return 'N/A';
-		
+
 		// Parse passport info
 		const passportInfo = parseJson(event.passport_info);
 		if (!passportInfo) return 'No';
-		
+
 		const passports = Array.isArray(passportInfo) ? passportInfo : [passportInfo];
-		
+
 		// Count complete passports (with all required fields)
-		const completePassports = passports.filter((passport: any) => 
-			passport.passportNumber && 
-			passport.givenName && 
-			passport.lastName && 
-			passport.dateOfBirth && 
-			passport.country
+		const completePassports = passports.filter(
+			(passport: any) =>
+				passport.passportNumber &&
+				passport.givenName &&
+				passport.lastName &&
+				passport.dateOfBirth &&
+				passport.country
 		);
-		
+
 		const completeCount = completePassports.length;
-		
 		// Determine status based on completion
 		if (completeCount === 0) {
 			return 'No';
 		} else if (completeCount < requiredPassportCount) {
-			return 'Waiting';  // Some passports complete, but not all
+			return 'Waiting';
+			// Some passports complete, but not all
 		} else if (completeCount >= requiredPassportCount) {
-			return 'Yes';  // All required passports are complete
+			return 'Yes';
+			// All required passports are complete
 		}
-		
+
 		return 'No';
 	})();
-	
-	// FIXED: Check event.timetable first (which gets updated immediately), 
+
+	// FIXED: Check event.timetable first (which gets updated immediately),
 	// then fall back to mainEvent.timetable
 	$: rosConfirmedStatus = (() => {
 		// First check if the event itself has a timetable (this gets updated by AdvanceSetTimes)
 		const timetableToCheck = event.timetable || mainEvent?.timetable;
-		
+
 		if (!timetableToCheck || !event.artist_name) return 'No';
-		
+
 		const timetable = parseJson(timetableToCheck);
 		if (!Array.isArray(timetable)) return 'No';
-		
+
 		const isConfirmed = timetable.some((slot: any) => {
 			if (!slot.artist || !slot.status) return false;
 			const slotArtist = slot.artist.trim().toLowerCase();
@@ -119,59 +117,74 @@
 		});
 		return isConfirmed ? 'Yes' : 'No';
 	})();
-		
+
+	// --- MODIFIED FLIGHTS STATUS LOGIC ---
 	$: flightsStatus = (() => {
-		const groundInfo = parseJson(event.ground_info);
-		if (!groundInfo) return 'No';
-		const hasCompleteArrival = groundInfo.arrivals?.some((arrival: any) => 
-			arrival.date && arrival.time && arrival.flightNumber && arrival.from && arrival.to
-		);
-		const hasCompleteDeparture = groundInfo.departures?.some((departure: any) => 
-			departure.date && departure.time && departure.flightNumber && departure.from && departure.to
-		);
-		if (!hasCompleteArrival || !hasCompleteDeparture) {
+		const groundTransport = parseJson(event.ground_transport);
+		if (!Array.isArray(groundTransport) || groundTransport.length === 0) {
 			return 'No';
 		}
-		return event.ground_done === true ? 'Done' : 'Received';
+
+		// Filter for only 'Arrival' and 'Departure' types
+		const flights = groundTransport.filter(
+			(item: any) => item.type === 'Arrival' || item.type === 'Departure'
+		);
+
+		if (flights.length === 0) {
+			return 'No';
+		}
+
+		// Check if they have been synced to the calendar
+		const calendarIds = parseJson(event.calendar_event_ids);
+		if (!calendarIds || typeof calendarIds !== 'object' || Object.keys(calendarIds).length === 0) {
+			return 'Received'; // Flights exist but nothing is synced yet
+		}
+
+		// Check if EVERY flight ID from ground_transport exists in calendar_event_ids
+		const allFlightsSynced = flights.every(
+			(flight: any) => flight.id && calendarIds.hasOwnProperty(flight.id)
+		);
+
+		return allFlightsSynced ? 'Added' : 'Received';
 	})();
-	
+	// --- END MODIFICATION ---
+
 	$: hotelsStatus = (() => {
 		// Parse the hotel info with proper handling
 		const hotelInfo = parseJson(event.hotel_info);
-		
+
 		// Check if no hotels are booked
 		if (!hotelInfo || !Array.isArray(hotelInfo) || hotelInfo.length === 0) {
 			return 'To Do';
 		}
-		
+
 		// Check confirmation status for all bookings
 		const allConfirmed = hotelInfo.every(
 			(booking) => booking.confirmationNumber && booking.confirmationNumber.trim() !== ''
 		);
-		
+
 		if (allConfirmed) {
 			return 'Confirmed';
 		}
-		
+
 		// Some bookings exist but not all are confirmed
 		return 'Waiting';
 	})();
-
 	$: riderStatus = (() => {
 		const riderFiles = parseJson(event.rider_files);
-		
+
 		// If no rider files at all
 		if (!riderFiles) return 'No';
-		
+
 		const techRiderUrl = riderFiles.tech_rider_url;
 		const hospoRiderUrl = riderFiles.hospo_rider_url;
 		const hospitalityIncluded = riderFiles.hospitality_included;
-		
+
 		// If no tech rider uploaded
 		if (!techRiderUrl || techRiderUrl.trim() === '') {
 			return 'No';
 		}
-		
+
 		// If hospitality is not included
 		if (hospitalityIncluded === 'No') {
 			// Check if hospo rider is missing
@@ -181,20 +194,25 @@
 				return 'Yes';
 			}
 		}
-		
+
 		// If hospitality is included and tech rider is present
 		if (hospitalityIncluded === 'Yes' && techRiderUrl && techRiderUrl.trim() !== '') {
 			return 'Yes';
 		}
-		
+
 		return 'No';
 	})();
-
 	$: visualsStatus = event.visual_received === true ? 'Yes' : 'No';
 
 	function getBadgeColor(status: string): string {
 		const normalizedStatus = status ? status.toLowerCase().trim() : 'to do';
-		if (normalizedStatus === 'yes' || normalizedStatus === 'done' || normalizedStatus === 'confirmed' || normalizedStatus === 'sent') {
+		if (
+			normalizedStatus === 'yes' ||
+			normalizedStatus === 'done' ||
+			normalizedStatus === 'confirmed' ||
+			normalizedStatus === 'sent' ||
+			normalizedStatus === 'added' // <-- Added this new status
+		) {
 			return 'bg-confirmed text-black';
 		}
 		if (normalizedStatus === 'no' || normalizedStatus === 'to do' || normalizedStatus === 'todo') {
@@ -207,16 +225,16 @@
 	}
 </script>
 
-<div class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300" 
-     style="width: 280px; height: 365px;">
-	
+<div
+	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300"
+	style="width: 280px; height: 365px;"
+>
 	<div class="flex items-center justify-between px-6 py-3 border-b border-gray1">
 		<h2 class="text-xl font-normal text-gray3 truncate">Progress</h2>
 	</div>
-	
+
 	<div class="px-6 py-2 h-full">
 		<div class="px-2 py-1 flex flex-col gap-2">
-			
 			{#if loading}
 				<div class="text-gray3 text-sm">Loading...</div>
 			{:else}
@@ -294,7 +312,6 @@
 					</div>
 				</div>
 			{/if}
-			
 		</div>
 	</div>
 </div>

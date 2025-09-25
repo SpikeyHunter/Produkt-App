@@ -19,8 +19,19 @@
 	let syncSuccess = '';
 
 	// Check if already synced with calendar
-	$: isCalendarSynced = event?.calendar_synced || false;
-	$: calendarEventIds = event?.calendar_event_ids || {};
+	$: isCalendarSynced = !!event?.calendar_synced;
+	$: calendarEventIds = (() => {
+		if (!event?.calendar_event_ids) return {};
+		// Handle both object and string formats
+		if (typeof event.calendar_event_ids === 'string') {
+			try {
+				return JSON.parse(event.calendar_event_ids);
+			} catch {
+				return {};
+			}
+		}
+		return event.calendar_event_ids;
+	})();
 
 	// --- State for custom dropdowns ---
 	let openDropdownId: string | null = null;
@@ -236,98 +247,239 @@
 		}
 	}
 
-	async function handleSave() {
-		if (!event) return;
-		isSaving = true;
+async function handleSave() {
+    if (!event) return;
+    isSaving = true;
+    try {
+        // Only save rows that have meaningful data, otherwise save an empty array.
+        const hasMeaningfulData = rows.some((row) => row.date && row.pickupTime);
+        const dataToSave = hasMeaningfulData ? rows : [];
+
+        await updateEventAdvance(event.event_id, event.artist_name, {
+            ground_transport: dataToSave
+        });
+        dispatch('save_success');
+        handleClose();
+    } catch (error) {
+        console.error('Failed to save ground transport data:', error);
+    } finally {
+        isSaving = false;
+    }
+}
+	// Determine sync status and button text
+	const SyncStatus = {
+		NO_SYNC: 'no_sync',
+		UPDATE: 'update',
+		UPDATE_AND_SYNC: 'update_and_sync',
+		NO_UPDATES: 'no_updates'
+	};
+
+	// Make sync status reactive to all dependencies
+$: syncStatus = (() => {
+    // First, check if there's any actual data to sync.
+    const hasMeaningfulData = rows.some((row) => row.date && row.pickupTime);
+
+    // If no meaningful data has been entered, there are no updates needed.
+    if (!hasMeaningfulData) {
+        // If there are existing synced events, that means the user deleted everything, which is an update.
+        if (isCalendarSynced && Object.keys(calendarEventIds).length > 0) {
+            return SyncStatus.UPDATE;
+        }
+        return SyncStatus.NO_UPDATES;
+    }
+
+    // If we have meaningful data, then proceed with the original sync checks.
+    if (!isCalendarSynced || !calendarEventIds || Object.keys(calendarEventIds).length === 0) {
+        return SyncStatus.NO_SYNC;
+    }
+
+    // Compare current rows with what was synced
+    let hasNewRows = false;
+    let hasChangedRows = false;
+
+    // Check for new rows (not in calendarEventIds)
+    for (const row of rows) {
+        if (row.type && row.date && row.pickupTime) {
+            if (!calendarEventIds[row.id]) {
+                hasNewRows = true;
+                break;
+            }
+        }
+    }
+
+    // Check for modified rows (comparing with original data)
+    if (event && event.ground_transport && Array.isArray(event.ground_transport)) {
+        const originalRows = event.ground_transport;
+        for (const row of rows) {
+            const originalRow = originalRows.find((r) => r.id === row.id);
+            if (originalRow && calendarEventIds[row.id]) {
+                const rowCopy = { ...row };
+                const originalCopy = { ...originalRow };
+                const fieldsToCompare: (keyof CalendarEntry)[] = [
+                    'type',
+                    'date',
+                    'driverName',
+                    'pickupTime',
+                    'pickupLocation',
+                    'dropoffTime',
+                    'dropoffLocation',
+                    'paxNames',
+                    'flightInfo',
+                    'contact'
+                ];
+                for (const field of fieldsToCompare) {
+                    if (rowCopy[field] !== originalCopy[field]) {
+                        hasChangedRows = true;
+                        break;
+                    }
+                }
+                if (hasChangedRows) break;
+            }
+        }
+    }
+
+    // Check for deleted rows (in calendarEventIds but not in current rows)
+    if (calendarEventIds) {
+        const currentRowIds = rows.map((r) => r.id);
+        for (const syncedId in calendarEventIds) {
+            if (!currentRowIds.includes(parseFloat(syncedId))) {
+                hasChangedRows = true;
+                break;
+            }
+        }
+    }
+
+    if (hasNewRows) {
+        return SyncStatus.UPDATE_AND_SYNC;
+    } else if (hasChangedRows) {
+        return SyncStatus.UPDATE;
+    } else {
+        return SyncStatus.NO_UPDATES;
+    }
+})();
+
+	$: syncButtonText =
+		{
+			[SyncStatus.NO_SYNC]: 'Sync to Calendar',
+			[SyncStatus.UPDATE]: 'Update',
+			[SyncStatus.UPDATE_AND_SYNC]: 'Update and Sync',
+			[SyncStatus.NO_UPDATES]: 'No updates'
+		}[syncStatus] || 'Sync to Calendar';
+
+	$: syncButtonDisabled = syncStatus === SyncStatus.NO_UPDATES || rows.length === 0;
+	$: hasMeaningfulData = rows.some((row) => row.date && row.pickupTime);
+	$: isSaveAndCloseDisabled = isCalendarSynced && syncStatus !== SyncStatus.NO_UPDATES;
+
+	// Debug logging to see what's happening
+	$: console.log('Sync Status Debug:', {
+		syncStatus,
+		isCalendarSynced,
+		calendarEventIds,
+		rowsCount: rows.length,
+		buttonText: syncButtonText
+	});
+
+	// Save ground transport data first, then sync
+	async function saveGroundTransport(): Promise<boolean> {
 		try {
 			await updateEventAdvance(event.event_id, event.artist_name, {
 				ground_transport: rows
 			});
-			dispatch('save_success');
-			handleClose();
+			// Update the event object with the saved data
+			event.ground_transport = rows;
+			return true;
 		} catch (error) {
-			console.error('Failed to save ground transport data:', error);
-		} finally {
-			isSaving = false;
+			console.error('Failed to save ground transport:', error);
+			syncError = 'Failed to save transport data before syncing';
+			return false;
 		}
 	}
 
-	// Google Calendar sync function - FIXED ENDPOINT
-// Fixed handleCalendarSync function in CalendarSyncModal.svelte
-async function handleCalendarSync() {
-	if (!event || !rows || rows.length === 0) return;
-	isSyncing = true;
-	syncError = '';
-	syncSuccess = '';
+	// Updated sync function that saves first
+	async function handleCalendarSync() {
+		if (!event || !rows || rows.length === 0) return;
+		if (syncButtonDisabled) return;
 
-	try {
+		isSyncing = true;
+		syncError = '';
+		syncSuccess = '';
 
-		// Sync to calendar (API will handle saving both transport data AND calendar fields)
-		const response = await fetch('/api/google-calendar', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				rows,
-				artistName,
-				eventId: event.event_id,
-				existingEventIds: isCalendarSynced ? calendarEventIds : undefined
-			})
-		});
-
-		// Better error handling
-		if (!response.ok) {
-			const errorText = await response.text();
-			console.error('Calendar sync failed:', errorText);
-			syncError = `Server error (${response.status}): ${errorText}`;
-			return;
-		}
-
-		const result = await response.json();
-
-		if (result.success) {
-			// Only update database if we actually have event IDs
-			const hasEventIds = Object.keys(result.eventIds).length > 0;
-			
-			if (hasEventIds) {
-				syncSuccess = result.message || 'Successfully synced with Google Calendar!';
-				
-				// Update the local event object with fresh data
-				if (event) {
-					event.calendar_synced = true;
-					event.calendar_event_ids = result.eventIds;
-					event.calendar_sync_time = new Date().toISOString();
-					event.ground_transport = rows; // Update the ground transport data too
-				}
-
-				// Update reactive variables
-				isCalendarSynced = true;
-				calendarEventIds = result.eventIds;
-
-				// Dispatch success event with updated data
-				dispatch('calendar_sync_success', { 
-					...result, 
-					updatedEvent: event 
-				});
-			} else {
-				syncError = 'No events were created or found in calendar';
+		try {
+			// First, save the ground transport data
+			console.log('Saving ground transport data first...');
+			const saved = await saveGroundTransport();
+			if (!saved) {
+				isSyncing = false;
+				return;
 			}
-		} else {
-			syncError = result.error || 'Failed to sync with Google Calendar';
-		}
-	} catch (error) {
-		console.error('Calendar sync error:', error);
-		syncError = 'Network error: Could not connect to calendar service';
-	} finally {
-		isSyncing = false;
-	}
-}
-</script>
 
-// Fixed CalendarSyncModal.svelte // Main fixes: // 1. Corrected API endpoint from
-'/api/calendar-sync' to '/api/google-calendar' // 2. Added better error handling // 3. Moved
-CalendarEntry type to a proper types file
+			// Then sync to calendar
+			const response = await fetch('/api/google-calendar', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					rows,
+					artistName,
+					eventId: event.event_id,
+					existingEventIds: isCalendarSynced ? calendarEventIds : undefined
+				})
+			});
+
+			if (!response.ok) {
+				const errorText = await response.text();
+				console.error('Calendar sync failed:', errorText);
+				syncError = `Server error (${response.status}): ${errorText}`;
+				return;
+			}
+
+			const result = await response.json();
+
+			if (result.success) {
+				const hasEventIds = Object.keys(result.eventIds).length > 0;
+
+				if (hasEventIds) {
+					// Customize success message based on what happened
+					if (syncStatus === SyncStatus.NO_SYNC) {
+						syncSuccess = `Successfully synced ${Object.keys(result.eventIds).length} events to calendar!`;
+					} else if (syncStatus === SyncStatus.UPDATE) {
+						syncSuccess = 'Calendar events updated successfully!';
+					} else if (syncStatus === SyncStatus.UPDATE_AND_SYNC) {
+						syncSuccess = 'Calendar updated with new and modified events!';
+					}
+
+					// Update the local event object
+					if (event) {
+						event.calendar_synced = true;
+						event.calendar_event_ids = result.eventIds;
+						event.calendar_sync_time = new Date().toISOString();
+						event.ground_transport = rows;
+					}
+
+					// Update reactive variables
+					isCalendarSynced = true;
+					calendarEventIds = result.eventIds;
+
+					// Dispatch success event
+					dispatch('calendar_sync_success', {
+						...result,
+						updatedEvent: event
+					});
+				} else {
+					syncError = 'No events were created or found in calendar';
+				}
+			} else {
+				syncError = result.error || 'Failed to sync with Google Calendar';
+			}
+		} catch (error) {
+			console.error('Calendar sync error:', error);
+			syncError = 'Network error: Could not connect to calendar service';
+		} finally {
+			isSyncing = false;
+		}
+	}
+</script>
 
 <!-- Rest of the template remains the same -->
 <Modal
@@ -619,47 +771,64 @@ CalendarEntry type to a proper types file
 			</div>
 		</div>
 	</div>
-
-	<div slot="footer" class="flex justify-between items-center w-full p-4">
-		<button
-			on:click={handleCalendarSync}
-			disabled={isSyncing || rows.length === 0}
-			class="flex items-center gap-2 px-4 py-2 {isCalendarSynced
-				? 'bg-[#93c5fd]'
-				: 'bg-lime'} text-black rounded-xl text-sm font-bold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-		>
-			{#if isSyncing}
-				<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-					<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
-					></circle>
+<div slot="footer" class="flex justify-between items-center w-full p-4">
+	<button
+		on:click={handleCalendarSync}
+		disabled={isSyncing || syncButtonDisabled}
+		class={`flex items-center gap-2 px-4 py-3 rounded-full text-sm font-bold transition-all ${
+			syncStatus === SyncStatus.NO_UPDATES
+				? 'bg-gray2 text-gray-500'
+				: syncStatus === SyncStatus.NO_SYNC
+				? 'bg-lime text-black'
+				: syncStatus === SyncStatus.UPDATE
+				? 'bg-[#93c5fd] text-black'
+				: 'bg-[#c4b5fd] text-black'
+		} ${
+			syncButtonDisabled
+				? 'opacity-50 cursor-not-allowed'
+				: 'hover:opacity-90 cursor-pointer' // <-- This line adds the pointer cursor
+		}`}
+	>
+		{#if isSyncing}
+			<svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+				<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
+				></circle>
+				<path
+					class="opacity-75"
+					fill="currentColor"
+					d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+				></path>
+			</svg>
+			Syncing...
+		{:else}
+			<svg
+				xmlns="http://www.w3.org/2000/svg"
+				class="h-4 w-4"
+				fill="none"
+				viewBox="0 0 24 24"
+				stroke="currentColor"
+				stroke-width="2"
+			>
+				{#if syncStatus === SyncStatus.NO_UPDATES}
 					<path
-						class="opacity-75"
-						fill="currentColor"
-						d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-					></path>
-				</svg>
-				Syncing...
-			{:else}
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					class="h-4 w-4"
-					fill="none"
-					viewBox="0 0 24 24"
-					stroke="currentColor"
-					stroke-width="2"
-				>
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+					/>
+				{:else}
 					<path
 						stroke-linecap="round"
 						stroke-linejoin="round"
 						d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
 					/>
-				</svg>
-				{isCalendarSynced ? 'Update Calendar' : 'Sync to Calendar'}
-			{/if}
-		</button>
+				{/if}
+			</svg>
+			{syncButtonText}
+		{/if}
+	</button>
 
-		<Button on:click={handleSave} variant="filled" disabled={isSaving}>
-			{isSaving ? 'Saving...' : 'Save & Close'}
-		</Button>
-	</div>
+	<Button on:click={handleSave} variant="filled" disabled={isSaving || isSaveAndCloseDisabled}>
+		{isSaving ? 'Saving...' : 'Save & Close'}
+	</Button>
+</div>
 </Modal>
