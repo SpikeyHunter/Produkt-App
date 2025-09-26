@@ -1,15 +1,18 @@
 <script lang="ts">
 	import type { EventAdvance } from '$lib/types/events.js';
-	import { onMount } from 'svelte';
+	import { onMount, createEventDispatcher } from 'svelte';
 	import { fetchMainEvent } from '$lib/services/eventsService.js';
 	import DropdownButton from '$lib/components/buttons/DropdownButton.svelte';
 
 	// Props
 	export let event: EventAdvance;
 
+	const dispatch = createEventDispatcher();
+
 	// State
 	let mainEvent: any = null;
 	let loading = true;
+
 	// Fetch main event data on mount
 	onMount(async () => {
 		if (event.event_id && event.event_id !== -1) {
@@ -17,25 +20,29 @@
 		}
 		loading = false;
 	});
-	// Handles updates from the dropdown to keep the UI reactive
+
+	// Handles updates from the dropdown and updates parent immediately
 	function handleFieldUpdate(e: CustomEvent) {
 		const { column, value, eventId, artistName } = e.detail;
-		// Ensure we are updating the correct event in the UI
+		
+		// Update the local event object immediately
 		if (event.event_id === eventId && event.artist_name === artistName) {
-			if (column === 'asked') {
-				// Update the local event object to reflect the change immediately
-				// The 'value' from the event is the display value ("Yes" or "No")
-				event.asked = value === 'Yes';
-			} else if (column === 'immigration_status') {
-				event.immigration_status = value;
-			}
+			(event as any)[column] = value;
+			event = { ...event }; // Force Svelte reactivity
 		}
+		
+		// Notify parent to update its state and recalculate progress
+		dispatch('columnUpdate', { 
+			columns: [column], 
+			value,
+			event // Pass the entire updated event
+		});
+		
+		console.log(`AdvanceProgress: Updated ${column} to ${value}, triggering parent update`);
 	}
 
 	/**
 	 * Safely parses a value that might be a JSON string, an array, or null.
-	 * @param data The data from the database column.
-	 * @returns The parsed data, or an empty array/object if parsing fails or data is null.
 	 */
 	function parseJson(data: any): any {
 		if (!data) return null;
@@ -51,29 +58,24 @@
 	}
 
 	// --- Reactive Status Computations ---
+	// These will automatically update when event changes
 
-	$: advanceAskedStatus = event.asked ? 'Yes' : 'No';
 	$: parsedRoles = parseJson(event.roles);
 	$: rolesListStatus = Array.isArray(parsedRoles) && parsedRoles.length > 0 ? 'Yes' : 'No';
+
 	$: passportStatus = (() => {
-		// First, check how many people require immigration (passports)
 		const roles = parseJson(event.roles);
 		if (!Array.isArray(roles) || roles.length === 0) return 'No';
 
-		// Count people who have immigration flag set to true
 		const peopleRequiringPassports = roles.filter((person: any) => person.immigration === true);
 		const requiredPassportCount = peopleRequiringPassports.length;
 
-		// If nobody requires passports, return N/A
 		if (requiredPassportCount === 0) return 'N/A';
 
-		// Parse passport info
 		const passportInfo = parseJson(event.passport_info);
 		if (!passportInfo) return 'No';
 
 		const passports = Array.isArray(passportInfo) ? passportInfo : [passportInfo];
-
-		// Count complete passports (with all required fields)
 		const completePassports = passports.filter(
 			(passport: any) =>
 				passport.passportNumber &&
@@ -82,28 +84,17 @@
 				passport.dateOfBirth &&
 				passport.country
 		);
-
 		const completeCount = completePassports.length;
-		// Determine status based on completion
-		if (completeCount === 0) {
-			return 'No';
-		} else if (completeCount < requiredPassportCount) {
-			return 'Waiting';
-			// Some passports complete, but not all
-		} else if (completeCount >= requiredPassportCount) {
-			return 'Yes';
-			// All required passports are complete
-		}
+
+		if (completeCount === 0) return 'No';
+		if (completeCount < requiredPassportCount) return 'Waiting';
+		if (completeCount >= requiredPassportCount) return 'Yes';
 
 		return 'No';
 	})();
 
-	// FIXED: Check event.timetable first (which gets updated immediately),
-	// then fall back to mainEvent.timetable
 	$: rosConfirmedStatus = (() => {
-		// First check if the event itself has a timetable (this gets updated by AdvanceSetTimes)
 		const timetableToCheck = event.timetable || mainEvent?.timetable;
-
 		if (!timetableToCheck || !event.artist_name) return 'No';
 
 		const timetable = parseJson(timetableToCheck);
@@ -118,107 +109,79 @@
 		return isConfirmed ? 'Yes' : 'No';
 	})();
 
-	// --- MODIFIED FLIGHTS STATUS LOGIC ---
 	$: flightsStatus = (() => {
 		const groundTransport = parseJson(event.ground_transport);
-		if (!Array.isArray(groundTransport) || groundTransport.length === 0) {
-			return 'No';
-		}
+		if (!Array.isArray(groundTransport) || groundTransport.length === 0) return 'No';
 
-		// Filter for only 'Arrival' and 'Departure' types
 		const flights = groundTransport.filter(
 			(item: any) => item.type === 'Arrival' || item.type === 'Departure'
 		);
+		if (flights.length === 0) return 'No';
 
-		if (flights.length === 0) {
-			return 'No';
-		}
-
-		// Check if they have been synced to the calendar
 		const calendarIds = parseJson(event.calendar_event_ids);
 		if (!calendarIds || typeof calendarIds !== 'object' || Object.keys(calendarIds).length === 0) {
-			return 'Received'; // Flights exist but nothing is synced yet
+			return 'Received';
 		}
 
-		// Check if EVERY flight ID from ground_transport exists in calendar_event_ids
 		const allFlightsSynced = flights.every(
 			(flight: any) => flight.id && calendarIds.hasOwnProperty(flight.id)
 		);
-
 		return allFlightsSynced ? 'Added' : 'Received';
 	})();
-	// --- END MODIFICATION ---
 
 	$: hotelsStatus = (() => {
-		// Parse the hotel info with proper handling
 		const hotelInfo = parseJson(event.hotel_info);
+		if (!hotelInfo || !Array.isArray(hotelInfo) || hotelInfo.length === 0) return 'To Do';
 
-		// Check if no hotels are booked
-		if (!hotelInfo || !Array.isArray(hotelInfo) || hotelInfo.length === 0) {
-			return 'To Do';
-		}
-
-		// Check confirmation status for all bookings
 		const allConfirmed = hotelInfo.every(
 			(booking) => booking.confirmationNumber && booking.confirmationNumber.trim() !== ''
 		);
-
-		if (allConfirmed) {
-			return 'Confirmed';
-		}
-
-		// Some bookings exist but not all are confirmed
-		return 'Waiting';
+		return allConfirmed ? 'Confirmed' : 'Waiting';
 	})();
+
 	$: riderStatus = (() => {
 		const riderFiles = parseJson(event.rider_files);
-
-		// If no rider files at all
 		if (!riderFiles) return 'No';
 
 		const techRiderUrl = riderFiles.tech_rider_url;
 		const hospoRiderUrl = riderFiles.hospo_rider_url;
 		const hospitalityIncluded = riderFiles.hospitality_included;
 
-		// If no tech rider uploaded
-		if (!techRiderUrl || techRiderUrl.trim() === '') {
-			return 'No';
-		}
+		if (!techRiderUrl || techRiderUrl.trim() === '') return 'No';
 
-		// If hospitality is not included
 		if (hospitalityIncluded === 'No') {
-			// Check if hospo rider is missing
-			if (!hospoRiderUrl || hospoRiderUrl.trim() === '') {
-				return '1/2';
-			} else {
-				return 'Yes';
-			}
+			return !hospoRiderUrl || hospoRiderUrl.trim() === '' ? '1/2' : 'Yes';
 		}
 
-		// If hospitality is included and tech rider is present
-		if (hospitalityIncluded === 'Yes' && techRiderUrl && techRiderUrl.trim() !== '') {
-			return 'Yes';
-		}
+		if (hospitalityIncluded === 'Yes' && techRiderUrl && techRiderUrl.trim() !== '') return 'Yes';
 
 		return 'No';
 	})();
-	$: visualsStatus = event.visual_received === true ? 'Yes' : 'No';
+
+	$: visualsStatus = (() => {
+		if (event.event_venue === 'Bazart') {
+			return 'N/A';
+		}
+		return event.visual_received === true ? 'Yes' : 'No';
+	})();
+
+	$: immigrationNeeded = (() => {
+		const roles = parseJson(event.roles);
+		if (!Array.isArray(roles) || roles.length === 0) return false;
+		return roles.some((person: any) => person.immigration === true);
+	})();
 
 	function getBadgeColor(status: string): string {
 		const normalizedStatus = status ? status.toLowerCase().trim() : 'to do';
 		if (
-			normalizedStatus === 'yes' ||
-			normalizedStatus === 'done' ||
-			normalizedStatus === 'confirmed' ||
-			normalizedStatus === 'sent' ||
-			normalizedStatus === 'added' // <-- Added this new status
+			[ 'yes', 'done', 'confirmed', 'sent', 'added', 'completed' ].includes(normalizedStatus)
 		) {
 			return 'bg-confirmed text-black';
 		}
-		if (normalizedStatus === 'no' || normalizedStatus === 'to do' || normalizedStatus === 'todo') {
+		if ([ 'no', 'to do', 'todo' ].includes(normalizedStatus)) {
 			return 'bg-problem text-black';
 		}
-		if (normalizedStatus === 'waiting' || normalizedStatus === 'received' || normalizedStatus === '1/2') {
+		if ([ 'waiting', 'received', '1/2', 'asked' ].includes(normalizedStatus)) {
 			return 'bg-tentatif text-black';
 		}
 		return 'bg-gray2 text-black';
@@ -239,16 +202,14 @@
 				<div class="text-gray3 text-sm">Loading...</div>
 			{:else}
 				<div class="flex items-center gap-3 text-sm">
-					<span class="font-semibold min-w-[120px] text-gray3">Advance Asked</span>
+					<span class="font-semibold min-w-[120px] text-gray3">Advance Status</span>
 					<DropdownButton
 						{event}
-						options={['Yes', 'No']}
-						value={event.asked ? 'Yes' : 'No'}
-						column="asked"
-						valueType="boolean"
-						trueValues={['Yes']}
-						falseValues={['No']}
-						buttonClass={getBadgeColor(event.asked ? 'Yes' : 'No')}
+						options={['To Do', 'Asked', 'Completed']}
+						value={event.advance_status || 'To Do'}
+						column="advance_status"
+						valueType="text"
+						buttonClass={getBadgeColor(event.advance_status || 'To Do')}
 						on:fieldUpdate={handleFieldUpdate}
 					/>
 				</div>
@@ -260,7 +221,9 @@
 				</div>
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">ROS Confirmed</span>
-					<div class="{getBadgeColor(rosConfirmedStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
+					<div
+						class="{getBadgeColor(rosConfirmedStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs"
+					>
 						<span>{rosConfirmedStatus}</span>
 					</div>
 				</div>
@@ -270,41 +233,42 @@
 						<span>{passportStatus}</span>
 					</div>
 				</div>
-
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Immigration</span>
-					<DropdownButton
-						{event}
-						options={['To Do', 'Waiting', 'Sent']}
-						value={event.immigration_status || 'To Do'}
-						column="immigration_status"
-						valueType="text"
-						buttonClass={getBadgeColor(event.immigration_status || 'To Do')}
-						on:fieldUpdate={handleFieldUpdate}
-					/>
+					{#if immigrationNeeded}
+						<DropdownButton
+							{event}
+							options={['To Do', 'Waiting', 'Sent']}
+							value={event.immigration_status || 'To Do'}
+							column="immigration_status"
+							valueType="text"
+							buttonClass={getBadgeColor(event.immigration_status || 'To Do')}
+							on:fieldUpdate={handleFieldUpdate}
+						/>
+					{:else}
+						<div class="bg-gray2 text-black text-sm rounded-xl px-3 py-1 font-bold text-xs">
+							<span>N/A</span>
+						</div>
+					{/if}
 				</div>
-
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Flights</span>
 					<div class="{getBadgeColor(flightsStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
 						<span>{flightsStatus}</span>
 					</div>
 				</div>
-
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Hotels</span>
 					<div class="{getBadgeColor(hotelsStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
 						<span>{hotelsStatus}</span>
 					</div>
 				</div>
-
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Rider</span>
 					<div class="{getBadgeColor(riderStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
 						<span>{riderStatus}</span>
 					</div>
 				</div>
-
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Visuals</span>
 					<div class="{getBadgeColor(visualsStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">

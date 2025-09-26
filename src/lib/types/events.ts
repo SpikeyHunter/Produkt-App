@@ -159,6 +159,8 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	progress: number;
 	poster: string | null;
 	tags: string[];
+	advance_status?: string | null; // <-- FIXED: Added this property
+	immigration_status?: string | null; // <-- FIXED: Added this property
 	event_flyer?: string | null;
 	event_name?: string;
 	event_date?: string;

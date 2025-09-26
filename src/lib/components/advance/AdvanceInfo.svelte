@@ -4,12 +4,10 @@
 	import InputButton from '$lib/components/buttons/InputButton.svelte';
 	import ProgressBar from '$lib/components/inputs/ProgressBar.svelte';
 	import type { EventAdvance } from '$lib/services/eventsService';
-	import { PROGRESS_FIELDS } from '$lib/utils/progressUtils';
 	import UploadButton from '$lib/components/buttons/UploadButton.svelte';
 
 	export let event: EventAdvance;
 
-	// This allows the component to send messages (events) to its parent
 	const dispatch = createEventDispatcher();
 
 	// Component references
@@ -40,9 +38,8 @@
 			return 'TBD';
 		}
 		try {
-			// Create a date object, ensuring correct parsing for 'YYYY-MM-DD'
 			const date = new Date(dateString.includes('-') ? dateString.replace(/-/g, '/') : dateString);
-			if (isNaN(date.getTime())) return dateString; // Return original if invalid
+			if (isNaN(date.getTime())) return dateString;
 			return date.toLocaleDateString('en-US', {
 				month: 'long',
 				day: 'numeric',
@@ -54,45 +51,65 @@
 		}
 	}
 
-	// This function handles updates from any field
+	// CRITICAL: This function updates the local event and triggers progress recalculation
 	function handleFieldUpdate(updateEvent: CustomEvent) {
 		const { column, value } = updateEvent.detail;
-		// Update the local event object to keep the UI in sync
+		
+		// Update the local event object immediately
 		(event as any)[column] = value;
-		event = { ...event };
-
-		// **CRITICAL**: Send the entire updated event object to the parent component
-		dispatch('update', { event });
-	}
-
-	// This function also handles updates but includes logic for the progress bar
-	function handleProgressFieldUpdate(updateEvent: CustomEvent) {
-		handleFieldUpdate(updateEvent); // Reuse the main update logic
-
-		const { column } = updateEvent.detail;
-		if (PROGRESS_FIELDS.includes(column)) {
-			progressBarRef?.refreshProgress([column]);
+		event = { ...event }; // Force reactivity
+		
+		// Immediately trigger progress bar recalculation WITHOUT waiting for database
+		if (progressBarRef) {
+			progressBarRef.recalculate();
 		}
-	}
-
-	// Functions to handle other component events
-	function handleProgressUpdate(updateEvent: CustomEvent) {
-		const { event: updatedEvent } = updateEvent.detail;
-		event = { ...event, ...updatedEvent };
+		
+		// Send the updated event to parent for database save
+		dispatch('update', { event });
+		
+		console.log(`Field updated: ${column} = ${value}, triggering instant progress update`);
 	}
 
 	function handleUploadComplete(uploadEvent: CustomEvent) {
-		const { statusColumn, urlColumn } = uploadEvent.detail;
-		// Force update of the event to trigger reactivity
-		event = { ...event };
-		progressBarRef?.refreshProgress([statusColumn, urlColumn]);
+		const { statusColumn, urlColumn, value } = uploadEvent.detail;
+		
+		// Update both the status and URL columns
+		if (statusColumn) {
+			(event as any)[statusColumn] = true; // File uploaded = true
+		}
+		if (urlColumn && value) {
+			(event as any)[urlColumn] = value;
+		}
+		event = { ...event }; // Force reactivity
+		
+		// Immediately recalculate progress
+		if (progressBarRef) {
+			progressBarRef.recalculate();
+		}
+		
+		// Send to parent for database save
+		dispatch('update', { event });
 	}
 
 	function handleDeleteComplete(deleteEvent: CustomEvent) {
 		const { statusColumn, urlColumn } = deleteEvent.detail;
-		// Force update of the event to trigger reactivity
-		event = { ...event };
-		progressBarRef?.refreshProgress([statusColumn, urlColumn]);
+		
+		// Clear both columns
+		if (statusColumn) {
+			(event as any)[statusColumn] = false;
+		}
+		if (urlColumn) {
+			(event as any)[urlColumn] = null;
+		}
+		event = { ...event }; // Force reactivity
+		
+		// Immediately recalculate progress
+		if (progressBarRef) {
+			progressBarRef.recalculate();
+		}
+		
+		// Send to parent for database save
+		dispatch('update', { event });
 	}
 </script>
 
@@ -161,7 +178,6 @@
 					labelColor="text-lime"
 					barColor="bg-lime"
 					trackColor="bg-gray2/40"
-					on:progress-updated={handleProgressUpdate}
 				/>
 			</div>
 		</div>
@@ -186,7 +202,7 @@
 					placeholder="Enter phone number"
 					column="main_contact"
 					maxWidth={140}
-					on:fieldUpdate={handleProgressFieldUpdate}
+					on:fieldUpdate={handleFieldUpdate}
 				/>
 			</div>
 			<div class="flex items-center gap-3 text-sm mt-3">
@@ -204,7 +220,6 @@
 					on:fieldUpdate={handleFieldUpdate}
 				/>
 			</div>
-			
 		</div>
 	</div>
 </div>

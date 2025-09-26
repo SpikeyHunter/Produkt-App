@@ -5,11 +5,11 @@
 
 	export let event = {
 		id: '',
-		artist_name: 'Artist Name', // Correct property name
+		artist_name: 'Artist Name',
 		date: 'August 30',
 		progress: 75,
 		poster: null,
-		tags: ['Immigration', 'Flights in calendar', 'Need Rider', 'New tag'],
+		tags: [],
 		artist_type: null
 	};
 
@@ -18,17 +18,29 @@
 	// Component references
 	let progressBarRef;
 
+	// Helper function to parse JSON
+	function parseJson(data) {
+		if (!data) return null;
+		if (typeof data === 'object') return data;
+		if (typeof data === 'string') {
+			try {
+				return JSON.parse(data);
+			} catch (e) {
+				return null;
+			}
+		}
+		return null;
+	}
+
 	// Function to extract date from custom event ID
 	function extractDateFromEventId(eventId) {
 		const eventIdStr = String(eventId);
-		console.log('Checking event ID format:', eventIdStr);
 		
 		let dateStr = null;
 		
 		// Check for new format: 90YYYYMMDD (10 digits starting with 90)
 		if (eventIdStr.startsWith('90') && eventIdStr.length === 10) {
 			dateStr = eventIdStr.substring(2); // Remove '90' prefix
-			console.log('Found new format (90YYYYMMDD):', dateStr);
 		}
 		// Check for old format: 1YMMDDDD (9 digits starting with 1) - try flexible parsing
 		else if (eventIdStr.startsWith('1') && eventIdStr.length === 9) {
@@ -40,13 +52,6 @@
 			
 			// Current year as fallback
 			const currentYear = new Date().getFullYear();
-			
-			console.log('Trying flexible parsing:', {
-				withoutPrefix,
-				possibleMonth,
-				possibleDay,
-				currentYear
-			});
 
 			// Validate month and day
 			const monthNum = parseInt(possibleMonth);
@@ -60,7 +65,6 @@
 							month: 'long', 
 							day: 'numeric'
 						});
-						console.log('Successfully extracted date with flexible parsing:', formattedDate);
 						return formattedDate;
 					}
 				} catch (error) {
@@ -73,14 +77,6 @@
 			const year = dateStr.substring(0, 4);
 			const month = dateStr.substring(4, 6);
 			const day = dateStr.substring(6, 8);
-			
-			console.log('Extracting date from event ID:', {
-				eventId: eventIdStr,
-				dateStr,
-				year,
-				month,
-				day
-			});
 
 			try {
 				// Create date using ISO format (YYYY-MM-DD) to avoid timezone issues
@@ -89,7 +85,6 @@
 				
 				// Check if date is valid
 				if (isNaN(date.getTime())) {
-					console.error('Invalid date created from:', isoDate);
 					return null;
 				}
 				
@@ -98,7 +93,6 @@
 					day: 'numeric'
 				});
 				
-				console.log('Successfully extracted date:', formattedDate);
 				return formattedDate;
 			} catch (error) {
 				console.error('Error parsing date from event ID:', error);
@@ -106,41 +100,151 @@
 			}
 		}
 		
-		console.log('Event ID does not match custom format:', eventIdStr);
 		return null;
 	}
 
-	// Get display date - try event.date first, then extract from event_id, fallback to 'TBD'
-	$: displayDate = (() => {
-		// Debug: Log the full event object to see what we're working with
-		console.log('AdvanceCard: Full event object:', event);
-		console.log('AdvanceCard: event.date:', event.date);
-		console.log('AdvanceCard: event.event_id:', event.event_id);
-		console.log('AdvanceCard: event.id:', event.id);
+	// Generate smart tags based on what needs to be done
+	function generateSmartTags(event) {
+		const tags = [];
 		
+		// If advance status is "To Do", only show "Advance to start"
+		if (!event.advance_status || event.advance_status === 'To Do') {
+			return ['Advance to start'];
+		}
+		
+		// Once advance is "Asked" or "Completed", show specific missing items
+		
+		// Check Contact
+		if (!event.main_contact) {
+			tags.push('DOS');
+		}
+		
+		// Check Contract
+		if (!event.contract || !event.contract_url) {
+			tags.push('Contract');
+		}
+		
+		// Check Role List
+		const roles = parseJson(event.roles);
+		if (!roles || !Array.isArray(roles) || roles.length === 0) {
+			tags.push('Role List');
+		}
+		
+		// Check ROS (Running Order/Set Times)
+		// This would check if artist is confirmed in timetable
+		// For now, checking if role_list is false
+		if (!event.role_list) {
+			tags.push('ROS');
+		}
+		
+		// Check Passports (for roles requiring immigration)
+		if (roles && Array.isArray(roles)) {
+			const rolesNeedingPassports = roles.filter(r => r.immigration === true);
+			if (rolesNeedingPassports.length > 0) {
+				const passportInfo = parseJson(event.passport_info);
+				const passports = passportInfo ? (Array.isArray(passportInfo) ? passportInfo : [passportInfo]) : [];
+				
+				const completePassports = rolesNeedingPassports.filter(role => {
+					return passports.some(p => 
+						p.id === role.id && 
+						p.passportNumber && 
+						p.givenName && 
+						p.lastName
+					);
+				});
+				
+				if (completePassports.length < rolesNeedingPassports.length) {
+					tags.push('Passports');
+				}
+			}
+		}
+		
+		// Check Immigration Status
+		if (event.immigration_status === 'Waiting') {
+			tags.push('Immigration waiting');
+		} else if (!event.immigration_status || event.immigration_status === 'To Do') {
+			// Check if immigration is needed based on roles
+			if (roles && Array.isArray(roles)) {
+				const needsImmigration = roles.some(r => r.immigration === true);
+				if (needsImmigration) {
+					tags.push('Immigration');
+				}
+			}
+		}
+		
+		// Check Flights
+		const groundInfo = parseJson(event.ground_info);
+		const groundTransport = parseJson(event.ground_transport);
+		
+		// Check if flights are enabled (default true)
+		const flightsEnabled = event.flights_enabled !== false;
+		
+		if (flightsEnabled) {
+			const hasArrivals = groundInfo?.arrivals && groundInfo.arrivals.length > 0;
+			const hasDepartures = groundInfo?.departures && groundInfo.departures.length > 0;
+			
+			if (!hasArrivals || !hasDepartures) {
+				tags.push('Flights');
+			}
+		}
+		
+		// Check Hotels
+		const hotelInfo = parseJson(event.hotel_info);
+		if (!hotelInfo || !Array.isArray(hotelInfo) || hotelInfo.length === 0) {
+			tags.push('Hotels');
+		} else {
+			// Check if all hotels have confirmation numbers
+			const allConfirmed = hotelInfo.every(h => h.confirmationNumber && h.confirmationNumber.trim() !== '');
+			if (!allConfirmed) {
+				tags.push('Hotels');
+			}
+		}
+		
+		// Check Rider Files
+		const riderFiles = parseJson(event.rider_files);
+		if (!riderFiles || !riderFiles.tech_rider_url) {
+			tags.push('Rider');
+		} else if (riderFiles.hospitality_included === 'No' && !riderFiles.hospo_rider_url) {
+			tags.push('Rider');
+		}
+		
+		// Check Visuals (skip for Bazart venue)
+		if (event.event_venue !== 'Bazart') {
+			if (!event.visual_received) {
+				tags.push('Visuals');
+			}
+		}
+		
+		// If everything is done but status isn't completed
+		if (tags.length === 0 && event.advance_status !== 'Completed') {
+			tags.push('Mark as completed');
+		}
+		
+		return tags;
+	}
+
+	// Get display date
+	$: displayDate = (() => {
 		// First, try the regular date field
 		if (event.date && event.date !== 'TBD') {
-			console.log('AdvanceCard: Using event.date:', event.date);
 			return event.date;
 		}
 		
 		// If no date, try to extract from event_id (for custom events)
 		if (event.event_id || event.id) {
 			const eventIdToCheck = event.event_id || event.id;
-			console.log('AdvanceCard: Trying to extract from event_id:', eventIdToCheck);
 			const extractedDate = extractDateFromEventId(eventIdToCheck);
 			if (extractedDate) {
-				console.log('AdvanceCard: Successfully extracted:', extractedDate);
 				return extractedDate;
-			} else {
-				console.log('AdvanceCard: Failed to extract date from:', eventIdToCheck);
 			}
 		}
 		
 		// Fallback
-		console.log('AdvanceCard: Using fallback TBD');
 		return 'TBD';
 	})();
+	
+	// Generate smart tags instead of using static tags
+	$: smartTags = generateSmartTags(event);
 
 	function handleEdit() {
 		dispatch('edit', { event });
@@ -257,15 +361,24 @@
 
 			<div class="flex-1 min-h-0 overflow-hidden">
 				<h4 class="text-white text-sm font-bold mb-2">To do:</h4>
-				<div class="tags-container overflow-y-auto pr-1 h-16">
-					<div class="flex flex-wrap gap-2 justify-start">
-						{#each event.tags as tag}
-							<span
-								class="tag-item bg-transparent border border-lime text-lime px-3 py-1 rounded-full text-xs font-bold transition-all duration-200 cursor-pointer flex-shrink-0 min-w-fit"
-							>
-								{tag}
+				<div class="tags-container overflow-y-auto overflow-x-visible pr-1 h-16">
+					<div class="flex flex-wrap gap-2 justify-start pb-1">
+						{#if smartTags.length === 0}
+							<span class="tag-item bg-lime/20 border border-lime text-lime px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap">
+								Advance Completed ✓
 							</span>
-						{/each}
+						{:else}
+							{#each smartTags as tag}
+								<span
+									class="tag-item {tag === 'Advance to start' ? 'bg-problem/20 border-problem text-problem' : 
+									               tag.includes('waiting') ? 'bg-tentatif/20 border-tentatif text-tentatif' :
+									               'bg-transparent border-lime text-lime'} 
+									        border px-3 py-1 rounded-full text-xs font-bold transition-all duration-200 cursor-pointer flex-shrink-0 min-w-fit"
+								>
+									{tag}
+								</span>
+							{/each}
+						{/if}
 					</div>
 				</div>
 			</div>
@@ -275,13 +388,34 @@
 
 <style>
   .tag-item {
-    background-color: transparent;
-    border: 1px solid var(--color-lime);
-    color: var(--color-lime);
+    transition: all 0.2s ease;
   }
 
   .tag-item:hover {
+    /* Removed transform: scale(1.05); to prevent clipping */
+    opacity: 0.9;
+  }
+  
+  .tag-item.border-lime:hover {
     background-color: var(--color-lime) !important;
+    color: var(--color-black) !important;
+  }
+  
+  .tag-item.border-problem {
+    border-color: var(--color-problem);
+  }
+  
+  .tag-item.border-problem:hover {
+    background-color: var(--color-problem) !important;
+    color: var(--color-black) !important;
+  }
+  
+  .tag-item.border-tentatif {
+    border-color: var(--color-tentatif);
+  }
+  
+  .tag-item.border-tentatif:hover {
+    background-color: var(--color-tentatif) !important;
     color: var(--color-black) !important;
   }
 

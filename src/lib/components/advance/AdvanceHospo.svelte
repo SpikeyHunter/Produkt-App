@@ -1,31 +1,38 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { portal } from '$lib/utils/portalUtils.js';
+	import { supabase } from '$lib/supabase.js';
 	import type { EventAdvance, HospoRiderInfo } from '$lib/types/events.js';
 	import HospoRiderModal from '$lib/components/modals/HospoRiderModal.svelte';
-	import CustomRiderModal from '$lib/components/modals/CustomRiderModal.svelte';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
+
 	export let event: EventAdvance & { event_venue?: string; artist_name?: string };
 
 	const dispatch = createEventDispatcher();
+
+	// --- TYPE DEFINITIONS ---
 	// Define a type for rider items to help TypeScript
 	type HospoItem = { qty?: number; selected?: boolean };
 
-	// Create a more complete local type to include the 'juice' property
+	// Create a more complete local type to include new properties
 	type CompleteHospoRiderInfo = HospoRiderInfo & {
 		beers_wine?: {
 			beers?: { [key: string]: HospoItem };
 			wine?: { [key: string]: HospoItem };
 			juice?: { [key: string]: HospoItem };
 		};
+		rider_sent_to_mihir?: boolean; // Added property
 	};
 
+	// --- STATE ---
 	let hospoRider: HospoRiderInfo | null = null;
+	let saving = false;
 	let showHospoModal = false;
-	let showCustomModal = false;
 	let justCopied = false;
 	let showPopup = false;
 	let popupMessage = '';
+
+	// --- LOGIC ---
 
 	// Parse hospo_rider from event
 	function parseHospoRider(eventData: typeof event) {
@@ -34,9 +41,15 @@
 		}
 
 		try {
-			return typeof eventData.hospo_rider === 'string'
-				? JSON.parse(eventData.hospo_rider)
-				: eventData.hospo_rider;
+			const parsed =
+				typeof eventData.hospo_rider === 'string'
+					? JSON.parse(eventData.hospo_rider)
+					: eventData.hospo_rider;
+			// Set default for the new property if it doesn't exist
+			if (typeof parsed.rider_sent_to_mihir === 'undefined') {
+				parsed.rider_sent_to_mihir = false;
+			}
+			return parsed;
 		} catch (e) {
 			console.error('Error parsing hospo_rider:', e);
 			return null;
@@ -45,10 +58,48 @@
 
 	// Initialize and update hospo rider from event
 	$: hospoRider = parseHospoRider(event);
+
 	// Cast to the more complete type for use in the component
 	$: completeHospoRider = hospoRider as CompleteHospoRiderInfo | null;
 
-	// Generate copy text for clipboard
+	// --- DATABASE FUNCTIONS ---
+	async function saveHospoChanges() {
+		if (!event?.event_id || !event.artist_name || !hospoRider) {
+			console.warn('Missing required data for saving');
+			return;
+		}
+		saving = true;
+		try {
+			const { error } = await supabase
+				.from('events_advance')
+				.update({ hospo_rider: hospoRider })
+				.eq('event_id', event.event_id)
+				.eq('artist_name', event.artist_name);
+
+			if (error) {
+				console.error('❌ Failed to save hospitality details:', error);
+			} else {
+				// Dispatch event to notify parent of data change
+				dispatch('datachanged');
+			}
+		} catch (err) {
+			console.error('❌ Unexpected error saving hospitality details:', err);
+		} finally {
+			saving = false;
+		}
+	}
+
+	function toggleRiderSentStatus() {
+		if (completeHospoRider) {
+			completeHospoRider.rider_sent_to_mihir = !completeHospoRider.rider_sent_to_mihir;
+			hospoRider = { ...completeHospoRider }; // Trigger reactivity
+			saveHospoChanges();
+		}
+	}
+
+	// --- CLIPBOARD TEXT GENERATION ---
+
+	// Generate plain text for clipboard
 	$: hospoRiderCopyText = (() => {
 		if (!completeHospoRider) return '';
 
@@ -60,8 +111,7 @@
 		const selectedSpirits = Object.entries(completeHospoRider.spirits || {})
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
-
-		selectedSpirits.forEach(spirit => {
+		selectedSpirits.forEach((spirit) => {
 			text += `- ${spirit}\n`;
 		});
 
@@ -69,8 +119,7 @@
 		const selectedBeers = Object.entries(completeHospoRider.beers_wine?.beers || {})
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
-
-		selectedBeers.forEach(beer => {
+		selectedBeers.forEach((beer) => {
 			text += `- ${beer}\n`;
 		});
 
@@ -79,8 +128,7 @@
 		const selectedWine = Object.entries(wineItems).map(
 			([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`
 		);
-
-		selectedWine.forEach(wine => {
+		selectedWine.forEach((wine) => {
 			text += `- ${wine}\n`;
 		});
 
@@ -88,8 +136,7 @@
 		const selectedJuice = Object.entries(completeHospoRider.beers_wine?.juice || {})
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
-
-		selectedJuice.forEach(juice => {
+		selectedJuice.forEach((juice) => {
 			text += `- ${juice}\n`;
 		});
 
@@ -98,7 +145,7 @@
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
 		if (selectedDrinks.length > 0) {
-			selectedDrinks.forEach(drink => {
+			selectedDrinks.forEach((drink) => {
 				text += `- ${drink}\n`;
 			});
 		}
@@ -113,7 +160,7 @@
 
 		// Custom requests
 		if (completeHospoRider.custom_requests?.length > 0) {
-			completeHospoRider.custom_requests.forEach(req => {
+			completeHospoRider.custom_requests.forEach((req) => {
 				if (req.text.trim()) {
 					text += `- ${req.text}\n`;
 				}
@@ -127,6 +174,7 @@
 
 		return text;
 	})();
+
 	// Generate HTML for clipboard
 	$: hospoRiderHtml = (() => {
 		if (!completeHospoRider) return '';
@@ -139,8 +187,7 @@
 		const selectedSpirits = Object.entries(completeHospoRider.spirits || {})
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
-
-		selectedSpirits.forEach(spirit => {
+		selectedSpirits.forEach((spirit) => {
 			html += `- ${spirit}<br>`;
 		});
 
@@ -148,8 +195,7 @@
 		const selectedBeers = Object.entries(completeHospoRider.beers_wine?.beers || {})
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
-
-		selectedBeers.forEach(beer => {
+		selectedBeers.forEach((beer) => {
 			html += `- ${beer}<br>`;
 		});
 
@@ -158,8 +204,7 @@
 		const selectedWine = Object.entries(wineItems).map(
 			([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`
 		);
-
-		selectedWine.forEach(wine => {
+		selectedWine.forEach((wine) => {
 			html += `- ${wine}<br>`;
 		});
 
@@ -167,8 +212,7 @@
 		const selectedJuice = Object.entries(completeHospoRider.beers_wine?.juice || {})
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
-
-		selectedJuice.forEach(juice => {
+		selectedJuice.forEach((juice) => {
 			html += `- ${juice}<br>`;
 		});
 
@@ -177,7 +221,7 @@
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
 		if (selectedDrinks.length > 0) {
-			selectedDrinks.forEach(drink => {
+			selectedDrinks.forEach((drink) => {
 				html += `- ${drink}<br>`;
 			});
 		}
@@ -192,7 +236,7 @@
 
 		// Custom requests
 		if (completeHospoRider.custom_requests?.length > 0) {
-			completeHospoRider.custom_requests.forEach(req => {
+			completeHospoRider.custom_requests.forEach((req) => {
 				if (req.text.trim()) {
 					html += `- ${req.text}<br>`;
 				}
@@ -206,8 +250,10 @@
 
 		return html;
 	})();
+
 	$: fullCopyHtml = `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9pt;">${hospoRiderHtml}</div>`;
 
+	// --- EVENT HANDLERS ---
 	async function handleCopyClick(e: MouseEvent) {
 		e.stopPropagation();
 		if (justCopied || !navigator.clipboard?.write) return;
@@ -239,15 +285,6 @@
 		dispatch('datachanged');
 	}
 
-	function handleCustomUpdate(e: CustomEvent) {
-		// Update the local event object with the new hospo_rider data
-		if (event && e.detail?.updates?.hospo_rider) {
-			event = { ...event, hospo_rider: e.detail.updates.hospo_rider };
-		}
-		// Refresh event data after custom modal saves
-		dispatch('datachanged');
-	}
-
 	// Count selected items
 	$: selectedCount = (() => {
 		if (!completeHospoRider) return 0;
@@ -259,21 +296,24 @@
 		if (completeHospoRider.base?.regular_snacks) count++;
 
 		// Count selected spirits
-		count += Object.values(completeHospoRider.spirits || {}).filter(item => item.selected).length;
+		count += Object.values(completeHospoRider.spirits || {}).filter((item) => item.selected).length;
 
-		// Count selected beers
-		count += Object.values(completeHospoRider.beers_wine?.beers || {}).filter(item => item.selected)
-			.length;
-		// Count selected juice
-		count += Object.values(completeHospoRider.beers_wine?.juice || {}).filter(item => item.selected)
-			.length;
+		// Count selected beers & juice
+		count += Object.values(completeHospoRider.beers_wine?.beers || {}).filter(
+			(item) => item.selected
+		).length;
+		count += Object.values(completeHospoRider.beers_wine?.juice || {}).filter(
+			(item) => item.selected
+		).length;
 		count += Object.keys(completeHospoRider.beers_wine?.wine || {}).length;
 
 		// Count selected other drinks
-		count += Object.values(completeHospoRider.other_drinks || {}).filter(item => item.selected).length;
+		count += Object.values(completeHospoRider.other_drinks || {}).filter(
+			(item) => item.selected
+		).length;
 
 		// Count custom requests
-		count += (completeHospoRider.custom_requests || []).filter(req => req.text?.trim()).length;
+		count += (completeHospoRider.custom_requests || []).filter((req) => req.text?.trim()).length;
 
 		return count;
 	})();
@@ -288,6 +328,11 @@
 	<div class="flex items-center justify-between px-6 py-3 border-b border-gray1">
 		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Hospitality</h2>
 		<div class="flex items-center gap-2">
+			{#if saving}
+				<div class="flex-shrink-0">
+					<div class="text-xs text-gray3 animate-pulse">Saving...</div>
+				</div>
+			{/if}
 			{#if completeHospoRider}
 				<span class="text-xs text-gray3">{selectedCount} items</span>
 				<button
@@ -333,10 +378,14 @@
 			</button>
 
 			<button
-				on:click={() => (showCustomModal = true)}
-				class="flex-1 text-xs bg-gray1 text-gray3 border border-transparent hover:bg-lime hover:text-black transition-colors py-2 rounded-2xl transition-all cursor-pointer"
+				type="button"
+				on:click={toggleRiderSentStatus}
+				disabled={saving}
+				class="flex-1 text-xs border border-transparent transition-colors py-2 rounded-2xl transition-all cursor-pointer {completeHospoRider?.rider_sent_to_mihir
+					? 'bg-lime text-black font-bold'
+					: 'bg-gray1 text-gray3 hover:text-black hover:bg-lime'}"
 			>
-				Custom Rider
+				{completeHospoRider?.rider_sent_to_mihir ? 'Sent to Mihir' : 'Rider not sent'}
 			</button>
 		</div>
 
@@ -360,14 +409,14 @@
 					</div>
 				{/if}
 
-				{#if Object.values(completeHospoRider.spirits || {}).some(item => item.selected)}
+				{#if Object.values(completeHospoRider.spirits || {}).some((item) => item.selected)}
 					<div>
 						<h3 class="text-xs font-semibold text-gray3 mb-2">Spirits</h3>
 						<div class="flex flex-wrap gap-1">
 							{#each Object.entries(completeHospoRider.spirits || {}) as [name, item]}
 								{#if item.selected}
 									<span class="px-2 py-0.5 bg-gray1 text-gray-300 text-xs rounded-full">
-										{(item.qty || 1)}x {name}
+										{item.qty || 1}x {name}
 									</span>
 								{/if}
 							{/each}
@@ -375,41 +424,41 @@
 					</div>
 				{/if}
 
-				{#if Object.values(completeHospoRider.beers_wine?.beers || {}).some(item => item.selected) || Object.keys(completeHospoRider.beers_wine?.wine || {}).length > 0 || Object.values(completeHospoRider.beers_wine?.juice || {}).some(item => item.selected)}
+				{#if Object.values(completeHospoRider.beers_wine?.beers || {}).some((item) => item.selected) || Object.keys(completeHospoRider.beers_wine?.wine || {}).length > 0 || Object.values(completeHospoRider.beers_wine?.juice || {}).some((item) => item.selected)}
 					<div>
 						<h3 class="text-xs font-semibold text-gray3 mb-2">Beers, Wine & Juice</h3>
 						<div class="flex flex-wrap gap-1">
 							{#each Object.entries(completeHospoRider.beers_wine?.beers || {}) as [name, item]}
 								{#if item.selected}
 									<span class="px-2 py-0.5 bg-gray1 text-gray-300 text-xs rounded-full">
-										{(item.qty || 1)}x {name}
+										{item.qty || 1}x {name}
 									</span>
 								{/if}
 							{/each}
 							{#each Object.entries(completeHospoRider.beers_wine?.juice || {}) as [name, item]}
 								{#if item.selected}
 									<span class="px-2 py-0.5 bg-gray1 text-gray-300 text-xs rounded-full">
-										{(item.qty || 1)}x {name}
+										{item.qty || 1}x {name}
 									</span>
 								{/if}
 							{/each}
-							{#each Object.entries((completeHospoRider.beers_wine?.wine || {}) as {[key: string]: HospoItem}) as [name, item]}
+							{#each Object.entries( (completeHospoRider.beers_wine?.wine || {}) as { [key: string]: HospoItem } ) as [name, item]}
 								<span class="px-2 py-0.5 bg-gray1 text-gray-300 text-xs rounded-full">
-									{(item.qty || 1)}x {name}
+									{item.qty || 1}x {name}
 								</span>
 							{/each}
 						</div>
 					</div>
 				{/if}
 
-				{#if Object.values(completeHospoRider.other_drinks || {}).some(item => item.selected)}
+				{#if Object.values(completeHospoRider.other_drinks || {}).some((item) => item.selected)}
 					<div>
 						<h3 class="text-xs font-semibold text-gray3 mb-2">Other Drinks</h3>
 						<div class="flex flex-wrap gap-1">
 							{#each Object.entries(completeHospoRider.other_drinks || {}) as [name, item]}
 								{#if item.selected}
 									<span class="px-2 py-0.5 bg-gray1 text-gray-300 text-xs rounded-full">
-										{(item.qty || 1)}x {name}
+										{item.qty || 1}x {name}
 									</span>
 								{/if}
 							{/each}
@@ -454,17 +503,6 @@
 			{event}
 			on:save_success={handleHospoUpdate}
 			on:close={() => (showHospoModal = false)}
-		/>
-	</div>
-{/if}
-
-{#if showCustomModal}
-	<div use:portal>
-		<CustomRiderModal
-			bind:isOpen={showCustomModal}
-			{event}
-			on:save_success={handleCustomUpdate}
-			on:close={() => (showCustomModal = false)}
 		/>
 	</div>
 {/if}

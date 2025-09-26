@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { calculateDynamicProgress, refreshEventData, PROGRESS_FIELDS } from '$lib/utils/progressUtils';
+	import { calculateAdvanceProgress } from '$lib/utils/advanceProgressCalculator';
+	import { refreshEventData } from '$lib/utils/progressUtils';
 	import type { EventAdvance } from '$lib/services/eventsService';
 
 	// Props
@@ -24,11 +25,32 @@
 		currentEvent = event;
 	}
 
-	// Watch for changes in any progress-related fields using imported constant
+	// List of all fields that affect progress calculation
+	const PROGRESS_FIELDS = [
+		'advance_status',
+		'dos',
+		'main_contact',
+		'role_list',
+		'roles',
+		'passport_info',
+		'immigration_info',
+		'immigration_status',
+		'hotel_info',
+		'ground_info',
+		'ground_transport',
+		'soundcheck',
+		'rider_files',
+		'visual_received',
+		'calendar_synced',
+		'flights_enabled',
+		'event_venue'
+	];
+
+	// Watch for changes in any progress-related fields
 	$: watchedFields = PROGRESS_FIELDS.map(field => currentEvent?.[field]);
 	
 	// Calculate progress reactively when any watched field changes
-	$: progress = currentEvent ? calculateDynamicProgress(currentEvent) : 0;
+	$: progress = currentEvent ? calculateAdvanceProgress(currentEvent) : 0;
 	$: progressWidth = `${progress}%`;
 
 	/**
@@ -50,15 +72,18 @@
 			// Update current event data
 			currentEvent = freshEventData;
 			
+			// Calculate new progress with the advanced calculator
+			const newProgress = calculateAdvanceProgress(freshEventData);
+			
 			// Dispatch event to notify parent component
 			dispatch('progress-updated', {
 				event: freshEventData,
 				previousProgress: progress,
-				newProgress: calculateDynamicProgress(freshEventData),
+				newProgress: newProgress,
 				updatedColumns: columns || PROGRESS_FIELDS
 			});
 			
-			console.log('✅ ProgressBar: Progress refreshed successfully');
+			console.log('✅ ProgressBar: Progress refreshed successfully, new progress:', newProgress + '%');
 			
 		} catch (error) {
 			console.error('❌ ProgressBar: Error refreshing progress:', error);
@@ -104,10 +129,14 @@
 				console.log('📈 ProgressBar: Changes detected:', changes);
 				currentEvent = freshEventData;
 				
+				// Calculate new progress with the advanced calculator
+				const newProgress = calculateAdvanceProgress(freshEventData);
+				
 				dispatch('progress-updated', {
 					event: freshEventData,
 					changes,
-					updatedColumns: columns
+					updatedColumns: columns,
+					newProgress
 				});
 			} else {
 				console.log('📊 ProgressBar: No changes detected in specified columns');
@@ -120,10 +149,42 @@
 			isRefreshing = false;
 		}
 	}
+
+	/**
+	 * Force recalculation of progress without fetching from database
+	 * Useful when parent component has already updated the event object
+	 */
+	export function recalculate() {
+		if (currentEvent) {
+			const newProgress = calculateAdvanceProgress(currentEvent);
+			console.log('📊 ProgressBar: Recalculated progress:', newProgress + '%');
+			
+			dispatch('progress-updated', {
+				event: currentEvent,
+				previousProgress: progress,
+				newProgress: newProgress,
+				updatedColumns: PROGRESS_FIELDS
+			});
+		}
+	}
 	
 	// Debug logging to track updates
 	$: if (currentEvent) {
-		console.log('🔄 ProgressBar: Progress calculated:', progress + '%', 'for fields:', PROGRESS_FIELDS);
+		console.log('🔄 ProgressBar: Progress calculated:', progress + '%', 'for event:', currentEvent.artist_name);
+		
+		// Log detail breakdown in development
+		if (import.meta.env.DEV) {
+			console.log('📊 Progress breakdown:', {
+				advance_status: currentEvent.advance_status,
+				dos: !!currentEvent.dos,
+				main_contact: !!currentEvent.main_contact,
+				role_list: currentEvent.role_list,
+				immigration_status: currentEvent.immigration_status,
+				visual_received: currentEvent.visual_received,
+				calendar_synced: currentEvent.calendar_synced,
+				venue: currentEvent.event_venue
+			});
+		}
 	}
 </script>
 

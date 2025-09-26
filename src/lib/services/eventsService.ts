@@ -283,6 +283,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				hotel_info: row.hotel_info,
 				immigration_info: row.immigration_info,
 				immigration_status: row.immigration_status,
+				advance_status: row.advance_status, // <-- FIX: This line was missing
 				tech_rider: row.tech_rider,
 				sfx_rider: row.sfx_rider,
 				soundcheck: row.soundcheck,
@@ -604,6 +605,7 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			hotel_info: advanceData.hotel_info,
 			immigration_info: advanceData.immigration_info,
 			immigration_status: advanceData.immigration_status,
+			advance_status: advanceData.advance_status, // <-- FIX: This line was missing
 			tech_rider: advanceData.tech_rider,
 			sfx_rider: advanceData.sfx_rider,
 			soundcheck: advanceData.soundcheck,
