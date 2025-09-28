@@ -42,7 +42,10 @@
 		{ name: 'Other', roomTypes: [] }
 	];
 	let rooms: HotelRoom[] = [];
-	let isSubmitting = false;
+	let isSaving = false;
+
+	$: artistName = event ? event.artist_name : 'Artist Name';
+	$: hotelsEnabled = event?.hotel_enabled !== false;
 
 	$: if (event && isOpen) {
 		loadExistingHotelInfo();
@@ -114,12 +117,33 @@
 
 	function resetForm() {
 		rooms = [];
-		isSubmitting = false;
+		isSaving = false;
+	}
+
+async function toggleHotelsEnabled() {
+		// Add a guard clause to ensure 'event' is not null.
+		if (isSaving || !event) return;
+		
+		isSaving = true;
+		try {
+			const newHotelsEnabled = !hotelsEnabled;
+			await updateEventAdvance(event.event_id, event.artist_name, {
+				hotel_enabled: newHotelsEnabled
+			});
+			
+			// This assignment is now safe because of the null check above.
+			event = { ...event, hotel_enabled: newHotelsEnabled };
+			console.log(`Hotels enabled toggled to: ${newHotelsEnabled}`);
+		} catch (error) {
+			console.error('Failed to toggle hotels enabled:', error);
+		} finally {
+			isSaving = false;
+		}
 	}
 
 	async function handleSave() {
 		if (!event) return;
-		isSubmitting = true;
+		isSaving = true;
 		try {
 			// Save ONLY the hotel_info data as a JSON string
 			const hotelDataJson = JSON.stringify(rooms);
@@ -137,7 +161,7 @@
 		} catch (error) {
 			console.error('Error saving hotel info:', error);
 		} finally {
-			isSubmitting = false;
+			isSaving = false;
 		}
 	}
 
@@ -189,346 +213,368 @@
 
 <Modal
 	bind:isOpen
-	title="Hotel Booking - {event?.artist_name || 'Event'}"
+	title="Hotel Booking - {artistName}"
 	maxWidth="max-w-7xl"
 	hasFooter={true}
 	on:close={closeModal}
 >
-	<div class="p-1 space-y-4">
-		<div class="flex items-center justify-between">
-			<div>
-				<h3 class="text-lg font-bold text-white">Hotel Deals: deal</h3>
+	<div class="relative">
+		<div class="p-1 space-y-4 {!hotelsEnabled ? 'opacity-20 blur-sm' : ''}">
+			<div class="flex items-center justify-between">
+				<div>
+					<h3 class="text-lg font-bold text-white">Hotel Deals: coming soon</h3>
+				</div>
+				<div class="flex gap-2">
+					<Button variant="gray" on:click={clearAllRooms} disabled={rooms.length === 0}>
+						Clear All
+					</Button>
+					<Button variant="gray" on:click={handleAutofill}>Autofill</Button>
+					<Button variant="slim" on:click={addRoom} disabled={rooms.length >= 10}>
+						+ Add Room ({rooms.length}/10)
+					</Button>
+				</div>
 			</div>
-			<div class="flex gap-2">
-				<Button variant="gray" on:click={clearAllRooms} disabled={rooms.length === 0}>
-					Clear All
-				</Button>
-				<Button variant="gray" on:click={handleAutofill}>Autofill</Button>
-				<Button variant="slim" on:click={addRoom} disabled={rooms.length >= 10}>
-					+ Add Room ({rooms.length}/10)
-				</Button>
-			</div>
-		</div>
 
-		{#if rooms.length > 0}
-			<div class="grid grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-2">
-				{#each rooms as room, index (room.id)}
-					<div
-						class="bg-navbar rounded-xl p-3 border border-gray-600 flex flex-col gap-3 relative min-w-0"
-					>
-						<div class="flex justify-between items-center">
-							<div class="flex items-center gap-2">
-								<h4 class="text-white font-bold text-sm">Room #{index + 1}</h4>
-							</div>
-							<div class="flex items-center gap-2">
-								<div class="min-w-0">
-									<input
-										type="text"
-										class="bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs
-focus:outline-none focus:border-lime w-32"
-										placeholder="Confirmation #"
-										bind:value={room.confirmationNumber}
-									/>
+			{#if rooms.length > 0}
+				<div class="grid grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-2">
+					{#each rooms as room, index (room.id)}
+						<div
+							class="bg-navbar rounded-xl p-3 border border-gray-600 flex flex-col gap-3 relative min-w-0"
+						>
+							<div class="flex justify-between items-center">
+								<div class="flex items-center gap-2">
+									<h4 class="text-white font-bold text-sm">Room #{index + 1}</h4>
 								</div>
-								<button
-									type="button"
-									class="flex items-center justify-center w-6 h-6 text-red-500 hover:bg-red-500 hover:text-white rounded-full transition-colors cursor-pointer"
-									aria-label="Remove Room"
-									on:click={() => removeRoom(room.id)}
-								>
-									<svg
-										class="w-3.5 h-3.5"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
+								<div class="flex items-center gap-2">
+									<div class="min-w-0">
+										<input
+											type="text"
+											class="bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs
+focus:outline-none focus:border-lime w-32"
+											placeholder="Confirmation #"
+											bind:value={room.confirmationNumber}
+										/>
+									</div>
+									<button
+										type="button"
+										class="flex items-center justify-center w-6 h-6 text-red-500 hover:bg-red-500 hover:text-white rounded-full transition-colors cursor-pointer"
+										aria-label="Remove Room"
+										on:click={() => removeRoom(room.id)}
 									>
-										<path d="M3 6h18" />
-										<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
-										<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
-										<line x1="10" y1="11" x2="10" y2="17" />
-										<line x1="14" y1="11" x2="14" y2="17" />
-									</svg>
-								</button>
+										<svg
+											class="w-3.5 h-3.5"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+										>
+											<path d="M3 6h18" />
+											<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+											<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+											<line x1="10" y1="11" x2="10" y2="17" />
+											<line x1="14" y1="11" x2="14" y2="17" />
+										</svg>
+									</button>
+								</div>
 							</div>
-						</div>
 
-						<div class="grid grid-cols-2 gap-2">
-							<div class="min-w-0">
-								<label
-									for="res-firstname-{room.id}"
-									class="text-xs text-gray2 font-medium mb-1 block">First Name</label
-								>
-								<input
-									id="res-firstname-{room.id}"
-									type="text"
-									class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime"
-									placeholder="Jane"
-									bind:value={room.reservationFirstName}
-								/>
-							</div>
-							<div class="min-w-0">
-								<label
-									for="res-lastname-{room.id}"
-									class="text-xs text-gray2 font-medium mb-1 block">Last Name</label
-								>
-								<input
-									id="res-lastname-{room.id}"
-									type="text"
-									class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime"
-									placeholder="Doe"
-									bind:value={room.reservationLastName}
-								/>
-							</div>
-						</div>
-
-						<div class="grid grid-cols-2 gap-2">
-							<div class="min-w-0">
-								<label for="hotel-name-{room.id}" class="text-xs text-gray2 font-medium mb-1 block"
-									>Hotel Name</label
-								>
-								<select
-									id="hotel-name-{room.id}"
-									class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime appearance-none"
-									bind:value={room.hotelName}
-								>
-									<option value="" disabled>Select Hotel...</option>
-									{#each PREDEFINED_HOTELS as hotel}
-										<option value={hotel.name}>{hotel.name}</option>
-									{/each}
-								</select>
-							</div>
-							<div class="min-w-0">
-								<label for="room-type-{room.id}" class="text-xs text-gray2 font-medium mb-1 block"
-									>Room Type</label
-								>
-								{#if room.hotelName === 'Other'}
-									<input
-										id="room-type-{room.id}"
-										type="text"
-										class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime"
-										placeholder="Enter custom room type"
-										bind:value={room.roomType}
-									/>
-								{:else}
-									<select
-										id="room-type-{room.id}"
-										class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime appearance-none disabled:cursor-not-allowed disabled:opacity-50"
-										bind:value={room.roomType}
-										disabled={!room.hotelName}
-									>
-										<option value="" disabled>Select Type...</option>
-										{#each getRoomTypesForHotel(room.hotelName) as type}
-											<option value={type}>{type}</option>
-										{/each}
-									</select>
-								{/if}
-							</div>
-						</div>
-
-						{#if room.hotelName === 'Other'}
 							<div class="grid grid-cols-2 gap-2">
 								<div class="min-w-0">
 									<label
-										for="custom-hotel-name-{room.id}"
-										class="text-xs text-gray2 font-medium mb-1 block">Custom Hotel Name</label
+										for="res-firstname-{room.id}"
+										class="text-xs text-gray2 font-medium mb-1 block">First Name</label
 									>
 									<input
-										id="custom-hotel-name-{room.id}"
+										id="res-firstname-{room.id}"
 										type="text"
 										class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime"
-										placeholder="Custom hotel name"
-										bind:value={room.customHotelName}
+										placeholder="Jane"
+										bind:value={room.reservationFirstName}
 									/>
 								</div>
 								<div class="min-w-0">
 									<label
-										for="custom-hotel-address-{room.id}"
-										class="text-xs text-gray2 font-medium mb-1 block">Hotel Address</label
+										for="res-lastname-{room.id}"
+										class="text-xs text-gray2 font-medium mb-1 block">Last Name</label
 									>
 									<input
-										id="custom-hotel-address-{room.id}"
+										id="res-lastname-{room.id}"
 										type="text"
 										class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime"
-										placeholder="Hotel address"
-										bind:value={room.customHotelAddress}
+										placeholder="Doe"
+										bind:value={room.reservationLastName}
 									/>
 								</div>
 							</div>
-						{/if}
 
-						<div class="grid grid-cols-2 gap-2">
-							<div class="min-w-0">
-								<label
-									for="check-in-date-{room.id}"
-									class="text-xs text-gray2 font-medium mb-1 block">Check-in</label
-								>
-								<div class="flex gap-1">
-									<div class="flex-1 min-w-0">
-										<DatePicker
-											bind:value={room.checkInDate}
-											on:change={() => handleCheckInDateChange(room)}
-											variant="slim"
-											height="h-7"
+							<div class="grid grid-cols-2 gap-2">
+								<div class="min-w-0">
+									<label for="hotel-name-{room.id}" class="text-xs text-gray2 font-medium mb-1 block"
+										>Hotel Name</label
+									>
+									<select
+										id="hotel-name-{room.id}"
+										class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime appearance-none"
+										bind:value={room.hotelName}
+									>
+										<option value="" disabled>Select Hotel...</option>
+										{#each PREDEFINED_HOTELS as hotel}
+											<option value={hotel.name}>{hotel.name}</option>
+										{/each}
+									</select>
+								</div>
+								<div class="min-w-0">
+									<label for="room-type-{room.id}" class="text-xs text-gray2 font-medium mb-1 block"
+										>Room Type</label
+									>
+									{#if room.hotelName === 'Other'}
+										<input
+											id="room-type-{room.id}"
+											type="text"
+											class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime"
+											placeholder="Enter custom room type"
+											bind:value={room.roomType}
+										/>
+									{:else}
+										<select
+											id="room-type-{room.id}"
+											class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime appearance-none disabled:cursor-not-allowed disabled:opacity-50"
+											bind:value={room.roomType}
+											disabled={!room.hotelName}
+										>
+											<option value="" disabled>Select Type...</option>
+											{#each getRoomTypesForHotel(room.hotelName) as type}
+												<option value={type}>{type}</option>
+											{/each}
+										</select>
+									{/if}
+								</div>
+							</div>
+
+							{#if room.hotelName === 'Other'}
+								<div class="grid grid-cols-2 gap-2">
+									<div class="min-w-0">
+										<label
+											for="custom-hotel-name-{room.id}"
+											class="text-xs text-gray2 font-medium mb-1 block">Custom Hotel Name</label
+										>
+										<input
+											id="custom-hotel-name-{room.id}"
+											type="text"
+											class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime"
+											placeholder="Custom hotel name"
+											bind:value={room.customHotelName}
 										/>
 									</div>
-									<input
-										type="time"
-										bind:value={room.checkInTime}
-										class="w-16 bg-gray1 border border-gray-600 rounded-md px-1 text-white text-xs"
-									/>
-								</div>
-							</div>
-							<div class="min-w-0">
-								<label
-									for="check-out-date-{room.id}"
-									class="text-xs text-gray2 font-medium mb-1 block">Check-out</label
-								>
-								<div class="flex gap-1">
-									<div class="flex-1 min-w-0">
-										<DatePicker
-											bind:value={room.checkOutDate}
-											variant="slim"
-											height="h-7"
-											disabled={!room.checkInDate}
-											minDate={getNextDay(room.checkInDate)}
+									<div class="min-w-0">
+										<label
+											for="custom-hotel-address-{room.id}"
+											class="text-xs text-gray2 font-medium mb-1 block">Hotel Address</label
+										>
+										<input
+											id="custom-hotel-address-{room.id}"
+											type="text"
+											class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime"
+											placeholder="Hotel address"
+											bind:value={room.customHotelAddress}
 										/>
 									</div>
-									<input
-										type="time"
-										bind:value={room.checkOutTime}
-										class="w-16 bg-gray1 border border-gray-600 rounded-md px-1 text-white text-xs"
-									/>
+								</div>
+							{/if}
+
+							<div class="grid grid-cols-2 gap-2">
+								<div class="min-w-0">
+									<label
+										for="check-in-date-{room.id}"
+										class="text-xs text-gray2 font-medium mb-1 block">Check-in</label
+									>
+									<div class="flex gap-1">
+										<div class="flex-1 min-w-0">
+											<DatePicker
+												bind:value={room.checkInDate}
+												on:change={() => handleCheckInDateChange(room)}
+												variant="slim"
+												height="h-7"
+											/>
+										</div>
+										<input
+											type="time"
+											bind:value={room.checkInTime}
+											class="w-16 bg-gray1 border border-gray-600 rounded-md px-1 text-white text-xs"
+										/>
+									</div>
+								</div>
+								<div class="min-w-0">
+									<label
+										for="check-out-date-{room.id}"
+										class="text-xs text-gray2 font-medium mb-1 block">Check-out</label
+									>
+									<div class="flex gap-1">
+										<div class="flex-1 min-w-0">
+											<DatePicker
+												bind:value={room.checkOutDate}
+												variant="slim"
+												height="h-7"
+												disabled={!room.checkInDate}
+												minDate={getNextDay(room.checkInDate)}
+											/>
+										</div>
+										<input
+											type="time"
+											bind:value={room.checkOutTime}
+											class="w-16 bg-gray1 border border-gray-600 rounded-md px-1 text-white text-xs"
+										/>
+									</div>
 								</div>
 							</div>
-						</div>
 
-						<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-white">
-							<div class="flex items-center gap-2">
-								<label for="early-checkin-{room.id}" class="flex items-center gap-2 cursor-pointer">
-									<input
-										type="checkbox"
-										bind:checked={room.requestEarlyCheckIn}
-										id="early-checkin-{room.id}"
-										class="sr-only peer"
-									/>
-									<span
-										class="flex items-center justify-center w-3.5 h-3.5 rounded bg-gray1 border border-gray-500 transition-colors peer-checked:bg-lime peer-checked:border-lime"
-									>
-										{#if room.requestEarlyCheckIn}
-											<svg
-												class="w-2.5 h-2.5"
-												viewBox="0 0 16 16"
-												fill="none"
-												stroke="black"
-												stroke-width="3"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											>
-												<path d="M2 8 L6 12 L14 4" />
-											</svg>
-										{/if}
-									</span>
-									<span class="text-xs text-white">Early Check-in</span>
-								</label>
-								{#if room.requestEarlyCheckIn}
-									<input
-										type="time"
-										bind:value={room.earlyCheckInTime}
-										class="bg-gray1 border border-gray-500 rounded px-1 py-0.5 text-white text-xs w-16"
-									/>
-								{/if}
+							<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-white">
+								<div class="flex items-center gap-2">
+									<label for="early-checkin-{room.id}" class="flex items-center gap-2 cursor-pointer">
+										<input
+											type="checkbox"
+											bind:checked={room.requestEarlyCheckIn}
+											id="early-checkin-{room.id}"
+											class="sr-only peer"
+										/>
+										<span
+											class="flex items-center justify-center w-3.5 h-3.5 rounded bg-gray1 border border-gray-500 transition-colors peer-checked:bg-lime peer-checked:border-lime"
+										>
+											{#if room.requestEarlyCheckIn}
+												<svg
+													class="w-2.5 h-2.5"
+													viewBox="0 0 16 16"
+													fill="none"
+													stroke="black"
+													stroke-width="3"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												>
+													<path d="M2 8 L6 12 L14 4" />
+												</svg>
+											{/if}
+										</span>
+										<span class="text-xs text-white">Early Check-in</span>
+									</label>
+									{#if room.requestEarlyCheckIn}
+										<input
+											type="time"
+											bind:value={room.earlyCheckInTime}
+											class="bg-gray1 border border-gray-500 rounded px-1 py-0.5 text-white text-xs w-16"
+										/>
+									{/if}
+								</div>
+								<div class="flex items-center gap-2">
+									<label for="late-checkout-{room.id}" class="flex items-center gap-2 cursor-pointer">
+										<input
+											type="checkbox"
+											bind:checked={room.requestLateCheckOut}
+											id="late-checkout-{room.id}"
+											class="sr-only peer"
+										/>
+										<span
+											class="flex items-center justify-center w-3.5 h-3.5 rounded bg-gray1 border border-gray-500 transition-colors peer-checked:bg-lime peer-checked:border-lime"
+										>
+											{#if room.requestLateCheckOut}
+												<svg
+													class="w-2.5 h-2.5"
+													viewBox="0 0 16 16"
+													fill="none"
+													stroke="black"
+													stroke-width="3"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												>
+													<path d="M2 8 L6 12 L14 4" />
+												</svg>
+											{/if}
+										</span>
+										<span class="text-xs text-white">Late Check-out</span>
+									</label>
+									{#if room.requestLateCheckOut}
+										<input
+											type="time"
+											bind:value={room.lateCheckOutTime}
+											class="bg-gray1 border border-gray-500 rounded px-1 py-0.5 text-white text-xs w-16"
+										/>
+									{/if}
+								</div>
+								<div class="flex items-center gap-2">
+									<label for="paid-by-us-{room.id}" class="flex items-center gap-2 cursor-pointer">
+										<input
+											type="checkbox"
+											bind:checked={room.isPaidByUs}
+											id="paid-by-us-{room.id}"
+											class="sr-only peer"
+										/>
+										<span
+											class="flex items-center justify-center w-3.5 h-3.5 rounded bg-gray1 border border-gray-500 transition-colors peer-checked:bg-lime peer-checked:border-lime"
+										>
+											{#if room.isPaidByUs}
+												<svg
+													class="w-2.5 h-2.5"
+													viewBox="0 0 16 16"
+													fill="none"
+													stroke="black"
+													stroke-width="3"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												>
+													<path d="M2 8 L6 12 L14 4" />
+												</svg>
+											{/if}
+										</span>
+										<span class="text-xs text-white">Paid by Us</span>
+									</label>
+								</div>
 							</div>
-							<div class="flex items-center gap-2">
-								<label for="late-checkout-{room.id}" class="flex items-center gap-2 cursor-pointer">
-									<input
-										type="checkbox"
-										bind:checked={room.requestLateCheckOut}
-										id="late-checkout-{room.id}"
-										class="sr-only peer"
-									/>
-									<span
-										class="flex items-center justify-center w-3.5 h-3.5 rounded bg-gray1 border border-gray-500 transition-colors peer-checked:bg-lime peer-checked:border-lime"
-									>
-										{#if room.requestLateCheckOut}
-											<svg
-												class="w-2.5 h-2.5"
-												viewBox="0 0 16 16"
-												fill="none"
-												stroke="black"
-												stroke-width="3"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											>
-												<path d="M2 8 L6 12 L14 4" />
-											</svg>
-										{/if}
-									</span>
-									<span class="text-xs text-white">Late Check-out</span>
-								</label>
-								{#if room.requestLateCheckOut}
-									<input
-										type="time"
-										bind:value={room.lateCheckOutTime}
-										class="bg-gray1 border border-gray-500 rounded px-1 py-0.5 text-white text-xs w-16"
-									/>
-								{/if}
-							</div>
-							<div class="flex items-center gap-2">
-								<label for="paid-by-us-{room.id}" class="flex items-center gap-2 cursor-pointer">
-									<input
-										type="checkbox"
-										bind:checked={room.isPaidByUs}
-										id="paid-by-us-{room.id}"
-										class="sr-only peer"
-									/>
-									<span
-										class="flex items-center justify-center w-3.5 h-3.5 rounded bg-gray1 border border-gray-500 transition-colors peer-checked:bg-lime peer-checked:border-lime"
-									>
-										{#if room.isPaidByUs}
-											<svg
-												class="w-2.5 h-2.5"
-												viewBox="0 0 16 16"
-												fill="none"
-												stroke="black"
-												stroke-width="3"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											>
-												<path d="M2 8 L6 12 L14 4" />
-											</svg>
-										{/if}
-									</span>
-									<span class="text-xs text-white">Paid by Us</span>
-								</label>
-							</div>
-						</div>
 
-						<div class="min-w-0">
-							<label for="notes-{room.id}" class="text-xs text-gray2 font-medium mb-1 block"
-								>Notes</label
-							>
-							<textarea
-								id="notes-{room.id}"
-								class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime resize-none h-12"
-								placeholder="e.g., King bed preferred, away from elevator..."
-								bind:value={room.notes}
-							></textarea>
+							<div class="min-w-0">
+								<label for="notes-{room.id}" class="text-xs text-gray2 font-medium mb-1 block"
+									>Notes</label
+								>
+								<textarea
+									id="notes-{room.id}"
+									class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime resize-none h-12"
+									placeholder="e.g., King bed preferred, away from elevator..."
+									bind:value={room.notes}
+								></textarea>
+							</div>
 						</div>
-					</div>
-				{/each}
-			</div>
-		{:else}
-			<div class="text-center text-gray2 py-16 border-2 border-dashed border-gray-600 rounded-lg">
-				<p class="font-bold text-lg">No Rooms Added</p>
-				<p class="text-sm">Click "+ Add Room" to start building the rooming list.</p>
+					{/each}
+				</div>
+			{:else}
+				<div class="text-center text-gray2 py-16 border-2 border-dashed border-gray-600 rounded-lg">
+					<p class="font-bold text-lg">No Rooms Added</p>
+					<p class="text-sm">Click "+ Add Room" to start building the rooming list.</p>
+				</div>
+			{/if}
+		</div>
+
+		{#if !hotelsEnabled}
+			<div class="absolute inset-0 bg-black/60 backdrop-blur-sm rounded-lg flex items-center justify-center cursor-not-allowed">
+				<div class="text-white text-center pointer-events-none">
+					<p class="text-lg font-semibold">Hotels Disabled</p>
+					<p class="text-sm text-gray2">Enable hotels below to use this feature</p>
+				</div>
 			</div>
 		{/if}
 	</div>
 
-	<div slot="footer" class="flex justify-end gap-2 pt-1">
-		<Button variant="filled" on:click={handleSave} disabled={isSubmitting}>
-			{isSubmitting ? 'Saving...' : 'Save & Close'}
+	<div slot="footer" class="flex justify-end items-center w-full gap-3">
+		<button
+			type="button"
+			on:click={toggleHotelsEnabled}
+			disabled={isSaving}
+			class="px-8 py-3 text-sm border transition-colors rounded-full cursor-pointer {hotelsEnabled
+				? 'bg-lime text-black font-bold border-lime hover:bg-transparent hover:text-lime'
+				: 'bg-navbar border-lime text-lime hover:bg-lime hover:text-black hover:border-lime'}"
+		>
+			{hotelsEnabled ? 'Enabled' : 'Disabled'}
+		</button>
+		
+		<Button on:click={handleSave} variant="filled" disabled={isSaving}>
+			{isSaving ? 'Saving...' : 'Save & Close'}
 		</Button>
 	</div>
 </Modal>

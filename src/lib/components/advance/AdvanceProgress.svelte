@@ -110,6 +110,9 @@
 	})();
 
 	$: flightsStatus = (() => {
+		// If flights are disabled, show N/A
+		if (event.flights_enabled === false) return 'N/A';
+		
 		const groundTransport = parseJson(event.ground_transport);
 		if (!Array.isArray(groundTransport) || groundTransport.length === 0) return 'No';
 
@@ -130,6 +133,9 @@
 	})();
 
 	$: hotelsStatus = (() => {
+		// If hotels are disabled, show N/A
+		if (event.hotel_enabled === false) return 'N/A';
+		
 		const hotelInfo = parseJson(event.hotel_info);
 		if (!hotelInfo || !Array.isArray(hotelInfo) || hotelInfo.length === 0) return 'To Do';
 
@@ -183,6 +189,9 @@
 		}
 		if ([ 'waiting', 'received', '1/2', 'asked' ].includes(normalizedStatus)) {
 			return 'bg-tentatif text-black';
+		}
+		if (normalizedStatus === 'n/a') {
+			return 'bg-gray2 text-black';
 		}
 		return 'bg-gray2 text-black';
 	}

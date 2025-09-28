@@ -281,20 +281,22 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				roles: row.roles,
 				passport_info: row.passport_info,
 				hotel_info: row.hotel_info,
+				hotel_enabled: row.hotel_enabled !== null ? row.hotel_enabled : true,
 				immigration_info: row.immigration_info,
 				immigration_status: row.immigration_status,
-				advance_status: row.advance_status, // <-- FIX: This line was missing
+				advance_status: row.advance_status,
 				tech_rider: row.tech_rider,
 				sfx_rider: row.sfx_rider,
 				soundcheck: row.soundcheck,
 				hospo_rider: row.hospo_rider,
 				ground_transport: row.ground_transport,
 				ground_info: row.ground_info,
+				flights_enabled: row.flights_enabled !== null ? row.flights_enabled : true, // Default to true if null
 				advance_completed: row.advance_completed,
 				asked: row.asked,
 				contract: row.contract,
 				role_list: row.role_list,
-				ground_done: row.ground_done,
+				ground_enabled: row.ground_enabled !== null ? row.ground_enabled : true,
 				created_at: row.created_at,
 				updated_at: row.updated_at,
 				artist_bio: row.artist_bio,
@@ -305,6 +307,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				calendar_synced: row.calendar_synced,
 				calendar_sync_time: row.calendar_sync_time,
 				calendar_event_ids: row.calendar_event_ids,
+				advance_sheet_url: row.advance_sheet_url,
 
 				// Computed fields for UI
 				name: eventName,
@@ -396,7 +399,9 @@ export async function createEventAdvance(
 			.insert({
 				event_id: finalEventId,
 				artist_name: artistName,
-				artist_type: artistType || null
+				artist_type: artistType || null,
+				flights_enabled: true, // Default to enabled
+				ground_enabled: true
 			})
 			.select()
 			.single();
@@ -442,7 +447,8 @@ export async function updateEventAdvance(
 		console.log('Existing record calendar fields:', {
 			calendar_synced: existingRecord.calendar_synced,
 			calendar_sync_time: existingRecord.calendar_sync_time,
-			calendar_event_ids: existingRecord.calendar_event_ids
+			calendar_event_ids: existingRecord.calendar_event_ids,
+			flights_enabled: existingRecord.flights_enabled
 		});
 
 		// Now perform the update with RPC if direct update fails
@@ -464,8 +470,8 @@ export async function updateEventAdvance(
 			
 			// Check if it's a column not found error
 			if (updateError.message?.includes('column') || updateError.code === '42703') {
-				console.error('Database schema issue: The calendar sync columns might not exist in the events_advance table');
-				console.error('Required columns: calendar_synced (boolean), calendar_sync_time (timestamp), calendar_event_ids (jsonb)');
+				console.error('Database schema issue: Required columns might not exist in the events_advance table');
+				console.error('Required columns: calendar_synced (boolean), calendar_sync_time (timestamp), calendar_event_ids (jsonb), flights_enabled (boolean)');
 			}
 			
 			throw updateError;
@@ -477,7 +483,8 @@ export async function updateEventAdvance(
 			console.log('Calendar fields after update:', {
 				calendar_synced: updateData[0].calendar_synced,
 				calendar_sync_time: updateData[0].calendar_sync_time,
-				calendar_event_ids: updateData[0].calendar_event_ids
+				calendar_event_ids: updateData[0].calendar_event_ids,
+				flights_enabled: updateData[0].flights_enabled
 			});
 			return updateData[0];
 		}
@@ -500,7 +507,8 @@ export async function updateEventAdvance(
 		console.log('Final calendar fields:', {
 			calendar_synced: updatedRecord.calendar_synced,
 			calendar_sync_time: updatedRecord.calendar_sync_time,
-			calendar_event_ids: updatedRecord.calendar_event_ids
+			calendar_event_ids: updatedRecord.calendar_event_ids,
+			flights_enabled: updatedRecord.flights_enabled
 		});
 		return updatedRecord;
 	} catch (error) {
@@ -603,20 +611,22 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			roles: advanceData.roles,
 			passport_info: advanceData.passport_info,
 			hotel_info: advanceData.hotel_info,
+			hotel_enabled: advanceData.hotel_enabled !== null ? advanceData.hotel_enabled : true,
 			immigration_info: advanceData.immigration_info,
 			immigration_status: advanceData.immigration_status,
-			advance_status: advanceData.advance_status, // <-- FIX: This line was missing
+			advance_status: advanceData.advance_status,
 			tech_rider: advanceData.tech_rider,
 			sfx_rider: advanceData.sfx_rider,
 			soundcheck: advanceData.soundcheck,
 			hospo_rider: advanceData.hospo_rider,
 			ground_transport: advanceData.ground_transport,
 			ground_info: advanceData.ground_info,
+			flights_enabled: advanceData.flights_enabled !== null ? advanceData.flights_enabled : true,
 			advance_completed: advanceData.advance_completed,
 			asked: advanceData.asked,
 			contract: advanceData.contract,
 			role_list: advanceData.role_list,
-			ground_done: advanceData.ground_done,
+			ground_enabled: advanceData.ground_enabled !== null ? advanceData.ground_enabled : true,
 			created_at: advanceData.created_at,
 			updated_at: advanceData.updated_at,
 			artist_bio: advanceData.artist_bio,
@@ -627,6 +637,7 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			calendar_synced: advanceData.calendar_synced,
 			calendar_sync_time: advanceData.calendar_sync_time,
 			calendar_event_ids: advanceData.calendar_event_ids,
+			advance_sheet_url: advanceData.advance_sheet_url,
 
 			// Computed fields for UI
 			name: finalEventName,

@@ -132,20 +132,23 @@ export interface EventAdvanceBase {
 	roles?: string | null;
 	passport_info?: string | null;
 	hotel_info?: HotelInfo | null;
+	hotel_enabled?: boolean | null;
 	immigration_info?: ImmigrationInfo | string | null;
 	tech_rider?: TechRiderInfo | string | null;
 	sfx_rider?: SfxRiderInfo | string | null;
 	soundcheck?: SoundcheckInfo | string | null;
-	hospo_rider?: HospoRiderInfo | string | null; // Added hospo_rider
+	hospo_rider?: HospoRiderInfo | string | null;
 	ground_transport?: any | null;
 	ground_info?: any | null;
+	flights_enabled?: boolean | null;
+	ground_enabled?: boolean | null;
 	advance_completed: boolean;
 	asked: boolean;
 	contract: boolean;
 	role_list: boolean;
-	ground_done?: boolean;
 	created_at: string;
 	updated_at: string;
+	advance_sheet_url?: string | null;
 }
 
 /**
@@ -159,8 +162,8 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	progress: number;
 	poster: string | null;
 	tags: string[];
-	advance_status?: string | null; // <-- FIXED: Added this property
-	immigration_status?: string | null; // <-- FIXED: Added this property
+	advance_status?: string | null;
+	immigration_status?: string | null;
 	event_flyer?: string | null;
 	event_name?: string;
 	event_date?: string;
@@ -174,6 +177,10 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	calendar_synced?: boolean;
 	calendar_sync_time?: string | null;
 	calendar_event_ids?: { [key: number]: string } | null;
+	flights_enabled?: boolean | null;
+	ground_enabled?: boolean | null;
+	hotel_enabled?: boolean | null;
+	advance_sheet_url?: string | null;
 }
 
 /**

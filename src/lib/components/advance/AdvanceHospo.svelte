@@ -144,6 +144,7 @@
 		const selectedDrinks = Object.entries(completeHospoRider.other_drinks || {})
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
+
 		if (selectedDrinks.length > 0) {
 			selectedDrinks.forEach((drink) => {
 				text += `- ${drink}\n`;
@@ -157,6 +158,9 @@
 		if (completeHospoRider.base.regular_snacks) {
 			text += '- Snacks: Proteins bar, Nuts, Gum, Chips, Granola bar, etc.\n';
 		}
+
+		// **ADDED FOOD BUYOUT LINE**
+		text += '- Food Buyout: 50$CAD cash\n';
 
 		// Custom requests
 		if (completeHospoRider.custom_requests?.length > 0) {
@@ -220,6 +224,7 @@
 		const selectedDrinks = Object.entries(completeHospoRider.other_drinks || {})
 			.filter(([, item]) => item.selected)
 			.map(([name, item]) => `${item.qty && item.qty > 1 ? `${item.qty}x ` : '1x '}${name}`);
+
 		if (selectedDrinks.length > 0) {
 			selectedDrinks.forEach((drink) => {
 				html += `- ${drink}<br>`;
@@ -233,6 +238,9 @@
 		if (completeHospoRider.base.regular_snacks) {
 			html += '- Snacks: Proteins bar, Nuts, Gum, Chips, Granola bar, etc.<br>';
 		}
+
+		// **ADDED FOOD BUYOUT LINE**
+		html += '- Food Buyout: 50$CAD cash<br>';
 
 		// Custom requests
 		if (completeHospoRider.custom_requests?.length > 0) {

@@ -6,6 +6,7 @@
 	import AdvanceEvent from '$lib/components/advance/AdvanceInfo.svelte';
 	import AdvanceProgress from '$lib/components/advance/AdvanceProgress.svelte';
 	import AdvanceTools from '$lib/components/advance/AdvanceTools.svelte';
+	import AdvanceEmail from '$lib/components/advance/AdvanceEmail.svelte';
 	import AdvanceSetTimes from '$lib/components/advance/AdvanceSetTimes.svelte';
 	import AdvanceProduction from '$lib/components/advance/AdvanceProduction.svelte';
 	import AdvanceHospo from '$lib/components/advance/AdvanceHospo.svelte';
@@ -61,7 +62,6 @@
 					};
 					console.log('✅ Event loaded with timetable data');
 				} else {
-					// This is probably where your custom events are getting stuck
 					console.log('⚠️ No timetable data found, using fallback');
 					event = {
 						...eventData,
@@ -119,29 +119,22 @@
 		}
 	}
 
-	// --- FIX: This is the single, unified function to refresh ALL page data ---
 	async function handleDataRefresh() {
 		console.log('ðŸ"„ A child component saved data. Reloading entire event...');
 		if (event) {
 			await loadEvent(event.id, false);
 		} else if (event_id) {
-			// Fallback if the event object isn't available for some reason
 			await loadEvent(event_id, false);
 		}
 	}
 
-	// --- FIX: The timetable handler now ONLY triggers the unified refresh function ---
 	async function handleTimetableUpdate() {
-		// The child component (`AdvanceSetTimes`) is responsible for the actual save.
-		// This handler just needs to trigger the refresh for the whole page.
 		await handleDataRefresh();
-		// We still increment the key to guarantee the child component itself remounts reliably.
 		timetableKey += 1;
 	}
 	async function handleDataChanged(e: CustomEvent) {
 		const updatedEventFromChild = e.detail;
 
-		// Check if the event detail contains our updated event object
 		if (
 			updatedEventFromChild &&
 			typeof updatedEventFromChild === 'object' &&
@@ -150,7 +143,6 @@
 			console.log('🔄 Received updated event object from child. Updating page state directly.');
 			event = updatedEventFromChild;
 		} else {
-			// Fallback for other components that don't pass data up yet.
 			console.log('No event object in payload, falling back to refetch.');
 			await handleDataRefresh();
 		}
@@ -249,12 +241,11 @@
 						{#key timetableKey}
 							<div
 								class="fade-in {mounted ? 'mounted' : ''} card-item"
-								style="transition-delay: 0.45s;"
+								style="transition-delay: 0.5s;"
 							>
 								<AdvanceSetTimes {event} on:timetableUpdate={handleTimetableUpdate} />
 							</div>
 						{/key}
-
 						<div
 							class="fade-in {mounted ? 'mounted' : ''} card-item"
 							style="transition-delay: 0.4s;"
@@ -265,25 +256,32 @@
 								on:datachanged={handleDataChanged}
 							/>
 						</div>
-
 						<div
 							class="fade-in {mounted ? 'mounted' : ''} card-item"
-							style="transition-delay: 0.5s;"
+							style="transition-delay: 0.55s;"
 						>
 							<AdvanceProduction {event} on:datachanged={handleDataChanged} />
 						</div>
 
 						<div
 							class="fade-in {mounted ? 'mounted' : ''} card-item"
-							style="transition-delay: 0.55s;"
+							style="transition-delay: 0.6s;"
 						>
 							<AdvanceHospo {event} on:datachanged={handleDataChanged} />
 						</div>
+
 						<div
 							class="fade-in {mounted ? 'mounted' : ''} card-item"
-							style="transition-delay: 0.6s;"
+							style="transition-delay: 0.65s;"
 						>
 							<AdvanceTech {event} on:datachanged={handleDataChanged} />
+						</div>
+
+						<div
+							class="fade-in {mounted ? 'mounted' : ''} card-item"
+							style="transition-delay: 0.7s;"
+						>
+							<AdvanceEmail {event} />
 						</div>
 					</div>
 				</div>

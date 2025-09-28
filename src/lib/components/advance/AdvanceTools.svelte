@@ -11,43 +11,32 @@
 	import { getPassportCompletionStatus, parsePassportInfo } from '$lib/utils/passportUtils.js';
 	import { createEventDispatcher } from 'svelte';
 
-	// Props
 	export let event: EventAdvance;
 	const dispatch = createEventDispatcher();
-	// Modal state
+
 	let showRoleModal = false;
 	let showPassportModal = false;
 	let showHotelModal = false;
-	let showFlightsModal = false; // Renamed for clarity
+	let showFlightsModal = false;
 	let showScheduleModal = false;
 	let showImmigrationModal = false;
 
-	// --- CORRECTED LOGIC ---
-
-	// Base roles and passport info from event
 	$: people = parseRoles(event.roles);
 	$: passportInfos = parsePassportInfo(event.passport_info);
-
-	// Filter for people who explicitly have "immigration: true" in their role data.
-	// This is a strict check to prevent ambiguity.
 	$: immigrationPeople = people.filter((p) => p.immigration === true);
-	// Calculate passport completion status based *only* on the filtered list of people.
 	$: passportStatus = getPassportCompletionStatus(immigrationPeople, passportInfos);
-	// Role button text remains the same, based on the total number of people.
 	$: roleButtonText = people.length === 0 ? 'Add roles' : `Modify (${people.length})`;
-	// Update passport button text based on the new logic.
 	$: passportButtonText = (() => {
 		if (people.length === 0) return 'No Team';
-		if (immigrationPeople.length === 0) return 'N/A'; // Show N/A if team exists but none require immigration
+		if (immigrationPeople.length === 0) return 'N/A';
 		if (passportStatus.completed === 0)
 			return `Add (${passportStatus.completed}/${passportStatus.total})`;
 		return `Modify (${passportStatus.completed}/${passportStatus.total})`;
 	})();
-	// Disable Passport and Immigration buttons if no one on the team requires immigration.
+
 	$: isPassportButtonDisabled = immigrationPeople.length === 0;
 	$: isImmigrationButtonDisabled = immigrationPeople.length === 0;
 
-	// Dynamic classes for buttons correctly reflect the new disabled logic
 	$: passportButtonClasses = [
 		'bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200 disabled:opacity-50',
 		!isPassportButtonDisabled
@@ -66,41 +55,65 @@
 		.filter(Boolean)
 		.join(' ');
 
-	// Other button disabled states remain based on the total number of people
+	// Hotels button logic - gray out if hotel_enabled is false, but don't disable
 	$: isHotelButtonDisabled = people.length === 0;
 	$: hotelButtonClasses = [
-		'bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200 disabled:opacity-50',
-		!isHotelButtonDisabled ? 'hover:bg-lime hover:text-black cursor-pointer' : 'cursor-not-allowed'
-	]
-		.filter(Boolean)
-		.join(' ');
-	$: isFlightsButtonDisabled = people.length === 0;
-	$: flightsButtonClasses = [
-		'bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200 disabled:opacity-50',
-		!isFlightsButtonDisabled
+		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
+		event.hotel_enabled === false
+			? 'bg-gray2 text-black opacity-50' // Same style as flights when disabled
+			: 'bg-gray2 text-black',
+		!isHotelButtonDisabled && event.hotel_enabled !== false
 			? 'hover:bg-lime hover:text-black cursor-pointer'
-			: 'cursor-not-allowed'
+			: isHotelButtonDisabled
+				? 'cursor-not-allowed opacity-50'
+				: 'cursor-pointer' // Allow clicking even when hotels disabled
 	]
 		.filter(Boolean)
 		.join(' ');
 
-	// Generic handler to notify parent to reload data
+	// Flights button logic - gray out if flights_enabled is false, but don't disable
+	$: isFlightsButtonDisabled = people.length === 0;
+	$: flightsButtonClasses = [
+		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
+		event.flights_enabled === false
+			? 'bg-gray2 text-black opacity-50' // Same style as immigration when disabled
+			: 'bg-gray2 text-black',
+		!isFlightsButtonDisabled && event.flights_enabled !== false
+			? 'hover:bg-lime hover:text-black cursor-pointer'
+			: isFlightsButtonDisabled
+				? 'cursor-not-allowed opacity-50'
+				: 'cursor-pointer' // Allow clicking even when flights disabled
+	]
+		.filter(Boolean)
+		.join(' ');
+
+	$: isScheduleButtonDisabled = people.length === 0;
+	$: scheduleButtonClasses = [
+		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
+		event.ground_enabled === false
+			? 'bg-gray2 text-black opacity-50' // Same style as flights when disabled
+			: 'bg-gray2 text-black',
+		!isScheduleButtonDisabled && event.ground_enabled !== false
+			? 'hover:bg-lime hover:text-black cursor-pointer'
+			: isScheduleButtonDisabled
+				? 'cursor-not-allowed opacity-50'
+				: 'cursor-pointer' // Allow clicking even when ground disabled
+	]
+		.filter(Boolean)
+		.join(' ');
+
 	function handleModalSaveSuccess() {
 		dispatch('datachanged');
 		console.log('✅ Modal saved. Notified parent to refresh data.');
 	}
 
-	// Modal open/close functions
 	function openRoleModal() {
 		showRoleModal = true;
 	}
 	function handleRoleClose() {
 		showRoleModal = false;
 	}
-
-	// FIXED: Update the event object with spread to trigger reactivity
 	function handleRoleSave(e: CustomEvent<{ event: EventAdvance }>) {
-		// Create a new object reference to trigger Svelte reactivity
 		event = { ...e.detail.event };
 		handleModalSaveSuccess();
 		showRoleModal = false;
@@ -112,10 +125,7 @@
 	function handlePassportClose() {
 		showPassportModal = false;
 	}
-
-	// FIXED: Update passport handler to properly update event
 	function handlePassportSave(e: CustomEvent<{ event: EventAdvance }>) {
-		// Create a new object reference to trigger Svelte reactivity
 		event = { ...e.detail.event };
 		handleModalSaveSuccess();
 		showPassportModal = false;
@@ -127,10 +137,7 @@
 	function handleImmigrationClose() {
 		showImmigrationModal = false;
 	}
-
-	// FIXED: Update immigration handler to properly update event
 	function handleImmigrationSave(e: CustomEvent<{ event: EventAdvance }>) {
-		// Create a new object reference to trigger Svelte reactivity
 		event = { ...e.detail.event };
 		handleModalSaveSuccess();
 		showImmigrationModal = false;
@@ -142,16 +149,12 @@
 	function handleHotelClose() {
 		showHotelModal = false;
 	}
-
-	// FIXED: Also update this handler for consistency
 	function handleHotelSave(e: CustomEvent<{ event: EventAdvance }>) {
-		// Create a new object reference to trigger Svelte reactivity
 		event = { ...e.detail.event };
 		handleModalSaveSuccess();
 		showHotelModal = false;
 	}
 
-	// --- FLIGHTS MODAL LOGIC ---
 	function openFlightsModal() {
 		showFlightsModal = true;
 	}
@@ -159,7 +162,6 @@
 		showFlightsModal = false;
 	}
 
-	// --- SCHEDULE MODAL LOGIC ---
 	function openScheduleModal() {
 		showScheduleModal = true;
 	}
@@ -300,9 +302,9 @@
 				>
 			</div>
 			<button
-				class={flightsButtonClasses}
+				class={scheduleButtonClasses}
 				on:click={openScheduleModal}
-				disabled={isFlightsButtonDisabled}
+				disabled={isScheduleButtonDisabled}
 			>
 				Schedule
 			</button>
