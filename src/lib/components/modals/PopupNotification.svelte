@@ -6,17 +6,18 @@
 	export let show: boolean = false;
 	export let duration: number = 3000;
 	export let variant: 'lime' | 'white' | 'navbar' | 'gray1' = 'white';
-	export let iconType: 'success' | 'error' | 'warning' | 'info' | 'question' | 'login' = 'success';
+	// MODIFIED: Added 'confirmed' as a valid option
+	export let iconType: 'success' | 'error' | 'warning' | 'info' | 'question' | 'login' | 'confirmed' = 'success';
 
 	// --- STATE ---
 	let timeoutId: NodeJS.Timeout | undefined;
 	let isLeaving: boolean = false;
 
-	// --- LOGIC ---
-
 	// By defining the full class strings in this object, we ensure Tailwind's JIT compiler
 	// detects and generates them.
 	const typeStyles = {
+		// ADDED: New style definition for 'confirmed'
+		confirmed: { text: 'text-confirmed', bg: 'bg-confirmed', border: 'border-confirmed' },
 		success: { text: 'text-lime', bg: 'bg-lime', border: 'border-lime' },
 		login: { text: 'text-black', bg: 'bg-lime', border: 'border-lime' },
 		error: { text: 'text-problem', bg: 'bg-problem', border: 'border-problem' },
@@ -24,7 +25,6 @@
 		info: { text: 'text-info', bg: 'bg-info', border: 'border-info' },
 		question: { text: 'text-question', bg: 'bg-question', border: 'border-question' }
 	};
-
 	function portal(node: HTMLElement) {
 		document.body.appendChild(node);
 		return {
@@ -39,7 +39,7 @@
 	// Gets styling classes based on the notification variant and icon type
 	function getNotificationClasses(
 		variant: 'lime' | 'white' | 'navbar' | 'gray1',
-		iconType: 'login' | 'success' | 'error' | 'warning' | 'info' | 'question'
+		iconType: 'login' | 'success' | 'error' | 'warning' | 'info' | 'question' | 'confirmed'
 	) {
 		const baseBgClass = {
 			navbar: 'bg-navbar',
@@ -47,7 +47,6 @@
 			white: 'bg-transparent',
 			lime: 'bg-lime'
 		}[variant];
-
 		const styles = typeStyles[iconType];
 
 		return {
@@ -58,7 +57,6 @@
 	}
 
 	$: notificationClasses = getNotificationClasses(variant, iconType);
-
 	$: if (show && duration > 0) {
 		if (timeoutId) clearTimeout(timeoutId);
 		isLeaving = false;
@@ -86,7 +84,17 @@
 			class="{notificationClasses.container} rounded-lg px-3 py-2 shadow-lg flex items-center border"
 		>
 			<div class="{notificationClasses.icon} rounded p-2 mr-3 flex-shrink-0">
-				{#if iconType === 'success'}
+				{#if iconType === 'confirmed'}
+					<svg
+						class="w-3 h-3 text-black"
+						fill="none"
+						stroke="currentColor"
+						viewBox="0 0 24 24"
+						stroke-width="3"
+					>
+						<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+					</svg>
+				{:else if iconType === 'success'}
 					<svg
 						class="w-3 h-3 text-black"
 						fill="none"

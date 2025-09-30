@@ -315,7 +315,7 @@
 		bind:show={showSuccessPopup}
 		message={successMessage}
 		variant="white"
-		iconType="success"
+		iconType="confirmed"
 	/>
 
 	<!-- Header with logo -->
