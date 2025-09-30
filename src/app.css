@@ -1,5 +1,4 @@
 /* Font import MUST be first */
-@import url('https://fonts.googleapis.com/css2?family=Helvetica+Neue:wght@700&display=swap');
 
 /* Then Tailwind */
 @import 'tailwindcss';
