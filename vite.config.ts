@@ -1,3 +1,4 @@
+// vite.config.ts
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
@@ -12,5 +13,15 @@ export default defineConfig({
   },
   server: {
     fs: { strict: false }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'supabase': ['@supabase/supabase-js'],
+          'svelte-vendor': ['svelte', 'svelte/internal']
+        }
+      }
+    }
   }
 });
