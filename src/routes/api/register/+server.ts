@@ -1,8 +1,22 @@
 // src/routes/api/register/+server.ts
 import { json } from '@sveltejs/kit';
 import type { RequestEvent } from '@sveltejs/kit';
+import { createClient } from '@supabase/supabase-js';
 import { supabase } from '$lib/supabase.js';
-import { ADMIN_REGISTRATION_CODE, USER_REGISTRATION_CODE } from '$env/static/private';
+import { ADMIN_REGISTRATION_CODE, USER_REGISTRATION_CODE, SUPABASE_SERVICE_ROLE_KEY } from '$env/static/private';
+import { PUBLIC_SUPABASE_URL } from '$env/static/public';
+
+// Create admin client with service role key for bypassing RLS
+const supabaseAdmin = createClient(
+  PUBLIC_SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  }
+);
 
 const REGISTRATION_CODES = {
   [ADMIN_REGISTRATION_CODE]: 'Admin',
@@ -85,7 +99,7 @@ export async function POST({ request, url }: RequestEvent) {
     
     // Check if user already exists in our profiles table
     console.log('🔍 Checking if user already exists...');
-    const { data: existingProfile } = await supabase
+    const { data: existingProfile } = await supabaseAdmin
       .from('user_profiles')
       .select('id, email')
       .eq('email', email.toLowerCase())
@@ -150,7 +164,7 @@ export async function POST({ request, url }: RequestEvent) {
     
     // Insert user profile data into user_profiles table
     console.log('💾 Inserting user profile data...');
-    const { error: insertError } = await supabase
+    const { error: insertError } = await supabaseAdmin
       .from('user_profiles')
       .insert([
         {
@@ -167,7 +181,7 @@ export async function POST({ request, url }: RequestEvent) {
       
       // If profile creation fails, try to clean up the auth user
       try {
-        await supabase.auth.admin.deleteUser(authData.user.id);
+        await supabaseAdmin.auth.admin.deleteUser(authData.user.id);
       } catch (cleanupError) {
         console.error('Failed to cleanup auth user:', cleanupError);
       }
