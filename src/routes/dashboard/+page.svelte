@@ -239,7 +239,8 @@
 >
 	<div class="space-y-4">
 		<p class="font-normal text-gray2">
-			To join a team, please enter your access code. If you don't have one, reach out to an admin.
+			To join a team, please enter your access code.
+			If you don't have one, reach out to an admin.
 		</p>
 		<p class="font-normal text-lime">Team Access Code</p>
 		<TypebarCredentials

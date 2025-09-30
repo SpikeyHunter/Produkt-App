@@ -41,6 +41,7 @@ declare module '$env/static/private' {
 	export const GOOGLE_REFRESH_TOKEN: string;
 	export const GOOGLE_CALENDAR_ID: string;
 	export const GOOGLE_CREDENTIALS: string;
+	export const GITHUB_TOKEN: string;
 	export const TERM_PROGRAM: string;
 	export const NODE: string;
 	export const INIT_CWD: string;
@@ -151,6 +152,7 @@ declare module '$env/dynamic/private' {
 		GOOGLE_REFRESH_TOKEN: string;
 		GOOGLE_CALENDAR_ID: string;
 		GOOGLE_CREDENTIALS: string;
+		GITHUB_TOKEN: string;
 		TERM_PROGRAM: string;
 		NODE: string;
 		INIT_CWD: string;
