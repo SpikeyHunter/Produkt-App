@@ -1,22 +1,22 @@
 import { google } from 'googleapis';
 import type { CalendarEntry, CalendarSyncResponse } from '$lib/types/GoogleCalendar';
 import {
-  GOOGLE_CALENDAR_ID,
-  GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET,
-  GOOGLE_REFRESH_TOKEN
+	GOOGLE_CALENDAR_ID,
+	GOOGLE_CLIENT_ID,
+	GOOGLE_CLIENT_SECRET,
+	GOOGLE_REFRESH_TOKEN
 } from '$env/static/private';
 
 // Use OAuth2 client (like Google Apps Script) instead of service account
 const oauth2Client = new google.auth.OAuth2(
-  GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET,
-  'http://localhost' // Redirect URI (not used for refresh token flow)
+	GOOGLE_CLIENT_ID,
+	GOOGLE_CLIENT_SECRET,
+	'http://localhost' // Redirect URI (not used for refresh token flow)
 );
 
 // Set the refresh token to get access tokens automatically
 oauth2Client.setCredentials({
-  refresh_token: GOOGLE_REFRESH_TOKEN
+	refresh_token: GOOGLE_REFRESH_TOKEN
 });
 
 const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
@@ -26,115 +26,129 @@ const CALENDAR_ID = GOOGLE_CALENDAR_ID;
 
 // Driver email mapping
 const getGuestEmail = (driver: string): string => {
-  const driverEmails: { [key: string]: string } = {
-    Eddy: 'eddy_baptist@hotmail.ca',
-    Reza: 'rezanarenji@gmail.com',
-    Tarek: 'tarekali2000@hotmail.com',
-    Charles: 'charles@produkt.ca',
-  };
-  return driverEmails[driver] || '';
+	const driverEmails: { [key: string]: string } = {
+		Eddy: 'eddy_baptist@hotmail.ca',
+		Reza: 'rezanarenji@gmail.com',
+		Tarek: 'tarekali2000@hotmail.com',
+		Charles: 'charles@produkt.ca'
+	};
+	return driverEmails[driver] || '';
 };
 
 // Format time like the Google Script (e.g., "3pm" or "3:30pm")
 const formatTime = (date: Date): string => {
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
-  const ampm = hours >= 12 ? 'pm' : 'am';
-  const displayHours = hours % 12 || 12;
+	const hours = date.getHours();
+	const minutes = date.getMinutes();
+	const ampm = hours >= 12 ? 'pm' : 'am';
+	const displayHours = hours % 12 || 12;
 
-  if (minutes === 0) {
-    return `${displayHours}${ampm}`;
-  }
+	if (minutes === 0) {
+		return `${displayHours}${ampm}`;
+	}
 
-  const displayMinutes = minutes < 10 ? `0${minutes}` : minutes;
-  return `${displayHours}:${displayMinutes}${ampm}`;
+	const displayMinutes = minutes < 10 ? `0${minutes}` : minutes;
+	return `${displayHours}:${displayMinutes}${ampm}`;
 };
-
+const roundToNearest15 = (date: Date): Date => {
+	const rounded = new Date(date);
+	const minutes = rounded.getMinutes();
+	const roundedMinutes = Math.round(minutes / 15) * 15;
+	rounded.setMinutes(roundedMinutes, 0, 0); // Set new minutes, reset seconds
+	return rounded;
+};
 // Round time up to nearest 15 minutes
 const roundUp15 = (date: Date): Date => {
-  const rounded = new Date(date);
-  const minutes = rounded.getMinutes();
-  const mod = minutes % 15;
+	const rounded = new Date(date);
+	const minutes = rounded.getMinutes();
+	const mod = minutes % 15;
 
-  if (mod !== 0) {
-    rounded.setTime(rounded.getTime() + (15 - mod) * 60000);
-  }
-  rounded.setSeconds(0);
-  rounded.setMilliseconds(0);
+	if (mod !== 0) {
+		rounded.setTime(rounded.getTime() + (15 - mod) * 60000);
+	}
+	rounded.setSeconds(0);
+	rounded.setMilliseconds(0);
 
-  return rounded;
+	return rounded;
 };
 
 // Combine date and time strings into a Date object
 const combineDateAndTime = (dateStr: string, timeStr: string): Date => {
-  const [year, month, day] = dateStr.split('-').map(Number);
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  return new Date(year, month - 1, day, hours || 0, minutes || 0);
+	const [year, month, day] = dateStr.split('-').map(Number);
+	const [hours, minutes] = timeStr.split(':').map(Number);
+	return new Date(year, month - 1, day, hours || 0, minutes || 0);
 };
 
-// Build event title using same format as Google Script
+// Build event title with the new, improved format for departures
 const buildTitle = (
-  type: string,
-  driver: string,
-  artistName: string,
-  namesInCar: string,
-  flights: string,
-  pickupLoc: string,
-  dropoffLoc: string,
-  startTime: Date
+	type: string,
+	driver: string,
+	artistName: string,
+	namesInCar: string,
+	flights: string,
+	pickupLoc: string,
+	dropoffLoc: string,
+	startTime: Date,
+	flightDepartureTime?: string,
+	dateStr?: string
 ): string => {
-  let title = `*${driver} - ${type} ${artistName} (${namesInCar}) `;
+	let title = `*${driver} - ${type} ${artistName} (${namesInCar}) `;
 
-  if (type === 'Arrival') {
-    title += `${flights} ${dropoffLoc}`;
-  } else if (type === 'Departure') {
-    title += `${flights} Pickup ${formatTime(startTime)} ${pickupLoc}`;
-  } else {
-    title += `${pickupLoc} to ${dropoffLoc} ${formatTime(startTime)}`;
-  }
+	if (type === 'Arrival') {
+		title += `${flights} Arrival ${formatTime(startTime)} ${dropoffLoc}`;
+	} else if (type === 'Departure') {
+		title += flights;
+		title += ` Pickup ${formatTime(startTime)}`;
+		if (flightDepartureTime && dateStr) {
+			const departureDate = combineDateAndTime(dateStr, flightDepartureTime);
+			title += ` Departure ${formatTime(departureDate)}`;
+		}
+		title += ` ${pickupLoc}`;
+	} else {
+		title += `${pickupLoc} to ${dropoffLoc} ${formatTime(startTime)}`;
+	}
 
-  return title;
+	return title;
 };
 
 // Get reminder minutes based on event type
 const getReminderMinutes = (type: string): number => {
-  return type === 'Arrival' || type === 'Departure' ? 30 : 15;
+	return type === 'Arrival' || type === 'Departure' ? 30 : 15;
 };
 
 // Find existing event by ID
 const findEventById = async (eventId: string): Promise<any> => {
-  try {
-    const response = await calendar.events.get({
-      calendarId: CALENDAR_ID,
-      eventId: eventId,
-    });
-    return response.data;
-  } catch {
-    return null;
-  }
+	try {
+		const response = await calendar.events.get({
+			calendarId: CALENDAR_ID,
+			eventId: eventId
+		});
+		return response.data;
+	} catch {
+		return null;
+	}
 };
 
 // Check for existing events with same title and return the event ID if found
 const findDuplicateEventId = async (
-  title: string,
-  startTime: Date,
-  endTime: Date
+	title: string,
+	startTime: Date,
+	endTime: Date
 ): Promise<string | null> => {
-  try {
-    const response = await calendar.events.list({
-      calendarId: CALENDAR_ID,
-      timeMin: startTime.toISOString(),
-      timeMax: endTime.toISOString(),
-      singleEvents: true,
-    });
+	try {
+		const response = await calendar.events.list({
+			calendarId: CALENDAR_ID,
+			timeMin: startTime.toISOString(),
+			timeMax: endTime.toISOString(),
+			singleEvents: true
+		});
 
-    const events = response.data.items || [];
-    const duplicate = events.find((event) => event.summary === title);
-    return duplicate?.id || null;
-  } catch (error) {
-    console.error('Error checking for duplicates:', error);
-    return null;
-  }
+		const events = response.data.items || [];
+		const duplicate = events.find((event) => event.summary === title);
+		return duplicate?.id || null;
+	} catch (error) {
+		console.error('Error checking for duplicates:', error);
+		return null;
+	}
 };
 
 // Create or update calendar events - matches Google Apps Script behavior
@@ -214,14 +228,22 @@ export async function syncToCalendar(
 		}
 
 		try {
-			const startTime = roundUp15(combineDateAndTime(row.date, row.pickupTime));
-			const endTime = new Date(startTime.getTime() + 60 * 60000); // 1 hour duration
+			// --- START OF CHANGES ---
 
-			if (isNaN(startTime.getTime())) {
+			// 1. Create a Date object with the EXACT, non-rounded time first.
+			const exactStartTime = combineDateAndTime(row.date, row.pickupTime);
+
+			// 2. NOW, create a separate variable for the rounded time for the calendar slot.
+			const roundedStartTime =
+				row.type === 'Arrival' ? roundToNearest15(exactStartTime) : roundUp15(exactStartTime);
+			const endTime = new Date(roundedStartTime.getTime() + 60 * 60000); // 1 hour duration
+
+			if (isNaN(exactStartTime.getTime())) {
 				console.warn(`Skipping row with invalid date/time:`, row);
 				continue;
 			}
 
+			// 3. Use the EXACT start time to build the title.
 			const title = buildTitle(
 				row.type,
 				row.driverName,
@@ -230,12 +252,15 @@ export async function syncToCalendar(
 				row.flightInfo,
 				row.pickupLocation,
 				row.dropoffLocation,
-				startTime
+				exactStartTime, // Pass the original, non-rounded time
+				row.flightDepartureTime,
+				row.date
 			);
 
 			const eventData = {
 				summary: title,
-				start: { dateTime: startTime.toISOString(), timeZone: 'America/Toronto' },
+				// 4. Use the ROUNDED time for the event's actual start/end in the calendar.
+				start: { dateTime: roundedStartTime.toISOString(), timeZone: 'America/Toronto' },
 				end: { dateTime: endTime.toISOString(), timeZone: 'America/Toronto' },
 				description: row.contact,
 				attendees:
@@ -247,6 +272,8 @@ export async function syncToCalendar(
 					overrides: [{ method: 'popup', minutes: getReminderMinutes(row.type) }]
 				}
 			};
+
+			// --- END OF CHANGES ---
 
 			const existingEventId = eventIds[row.id];
 
@@ -262,7 +289,7 @@ export async function syncToCalendar(
 				eventsUpdated++;
 			} else {
 				// Check for duplicates before creating a new one
-				const duplicateEventId = await findDuplicateEventId(title, startTime, endTime);
+				const duplicateEventId = await findDuplicateEventId(title, roundedStartTime, endTime); // Use rounded time for duplicate check
 
 				if (duplicateEventId) {
 					eventIds[row.id] = duplicateEventId;
@@ -295,7 +322,7 @@ export async function syncToCalendar(
 	const hasAllEventIds = processedRows.every((row) => eventIds[row.id]);
 
 	const success = !hasErrors && hasAllEventIds;
-	
+
 	// Construct a meaningful success message
 	let messageParts = [];
 	if (newEventsCreated > 0) messageParts.push(`${newEventsCreated} created`);
@@ -305,9 +332,8 @@ export async function syncToCalendar(
 
 	let message = `Synced calendar: ${messageParts.join(', ')}`;
 	if (messageParts.length === 0) {
-		message = "No calendar changes needed.";
+		message = 'No calendar changes needed.';
 	}
-
 
 	return {
 		success,

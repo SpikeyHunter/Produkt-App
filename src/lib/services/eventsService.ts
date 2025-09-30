@@ -308,6 +308,8 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				calendar_sync_time: row.calendar_sync_time,
 				calendar_event_ids: row.calendar_event_ids,
 				advance_sheet_url: row.advance_sheet_url,
+				meetgreet_enabled: row.meetgreet_enabled !== null ? row.meetgreet_enabled : false,
+				meetgreet_info: row.meetgreet_info,
 
 				// Computed fields for UI
 				name: eventName,
@@ -425,98 +427,54 @@ export async function updateEventAdvance(
 	updates: Record<string, any>
 ) {
 	try {
-		console.log(`Updating event advance for ${artistName} on event ${originalEventId} with:`, updates);
-		
-		// First check if the record exists
-		const { data: existingRecord, error: checkError } = await supabase
-			.from('events_advance')
-			.select('*')
-			.eq('event_id', originalEventId)
-			.eq('artist_name', artistName)
-			.single();
+		// Define a list of all valid column names in the 'events_advance' table.
+		// This prevents trying to update the DB with computed UI properties.
+		const validColumns = [
+			'artist_type', 'dos', 'main_contact', 'contract_url', 'roles', 'passport_info',
+			'hotel_info', 'hotel_enabled', 'immigration_info', 'tech_rider', 'sfx_rider',
+			'soundcheck', 'hospo_rider', 'ground_transport', 'ground_info', 'flights_enabled',
+			'ground_enabled', 'advance_completed', 'asked', 'contract', 'role_list',
+			'advance_sheet_url', 'immigration_status', 'advance_status', 'artist_bio',
+			'artist_bio_url', 'rider_files', 'visuals', 'visual_received', 'calendar_synced',
+			'calendar_sync_time', 'calendar_event_ids','meetgreet_enabled', 'meetgreet_info'
+		];
 
-		if (checkError || !existingRecord) {
-			console.error('Record not found for update:', { 
-				event_id: originalEventId, 
-				artist_name: artistName,
-				error: checkError 
-			});
-			throw new Error(`No record found for event_id: ${originalEventId}, artist_name: ${artistName}`);
+		// Create a 'clean' object containing only the keys that are valid columns.
+		const cleanUpdates: Record<string, any> = {};
+		for (const key in updates) {
+			if (validColumns.includes(key)) {
+				cleanUpdates[key] = updates[key];
+			}
 		}
 
-		console.log('Existing record calendar fields:', {
-			calendar_synced: existingRecord.calendar_synced,
-			calendar_sync_time: existingRecord.calendar_sync_time,
-			calendar_event_ids: existingRecord.calendar_event_ids,
-			flights_enabled: existingRecord.flights_enabled
-		});
+		// If there's nothing valid to update, we can exit early.
+		if (Object.keys(cleanUpdates).length === 0) {
+			console.warn('Update called with no valid columns to update.');
+			return;
+		}
+		
+		console.log(`Updating event advance for ${artistName} on event ${originalEventId} with clean data:`, cleanUpdates);
 
-		// Now perform the update with RPC if direct update fails
 		const { data: updateData, error: updateError } = await supabase
 			.from('events_advance')
-			.update(updates)
+			.update(cleanUpdates) // Use the clean, filtered object for the update
 			.eq('event_id', originalEventId)
 			.eq('artist_name', artistName)
-			.select();
+			.select()
+			.single();
 
 		if (updateError) {
 			console.error('Error updating event advance record:', updateError);
-			console.error('Update error details:', {
-				code: updateError.code,
-				message: updateError.message,
-				details: updateError.details,
-				hint: updateError.hint
-			});
-			
-			// Check if it's a column not found error
-			if (updateError.message?.includes('column') || updateError.code === '42703') {
-				console.error('Database schema issue: Required columns might not exist in the events_advance table');
-				console.error('Required columns: calendar_synced (boolean), calendar_sync_time (timestamp), calendar_event_ids (jsonb), flights_enabled (boolean)');
-			}
-			
 			throw updateError;
 		}
 
-		// Log what was actually updated
-		if (updateData && updateData.length > 0) {
-			console.log('Update response data:', updateData[0]);
-			console.log('Calendar fields after update:', {
-				calendar_synced: updateData[0].calendar_synced,
-				calendar_sync_time: updateData[0].calendar_sync_time,
-				calendar_event_ids: updateData[0].calendar_event_ids,
-				flights_enabled: updateData[0].flights_enabled
-			});
-			return updateData[0];
-		}
-
-		// Fallback: fetch the updated record
-		const { data: updatedRecord, error: selectError } = await supabase
-			.from('events_advance')
-			.select('*')
-			.eq('event_id', originalEventId)
-			.eq('artist_name', artistName)
-			.single();
-
-		if (selectError) {
-			console.warn('Could not fetch updated record:', selectError);
-			// Return the existing record merged with updates as fallback
-			return { ...existingRecord, ...updates };
-		}
-
-		console.log('Successfully updated event advance record:', updatedRecord);
-		console.log('Final calendar fields:', {
-			calendar_synced: updatedRecord.calendar_synced,
-			calendar_sync_time: updatedRecord.calendar_sync_time,
-			calendar_event_ids: updatedRecord.calendar_event_ids,
-			flights_enabled: updatedRecord.flights_enabled
-		});
-		return updatedRecord;
+		console.log('Successfully updated event advance record:', updateData);
+		return updateData;
 	} catch (error) {
 		console.error('Fatal error in updateEventAdvance:', error);
 		throw error;
 	}
 }
-
 export async function deleteEventAdvance(
 	eventId: number,
 	artistName: string,
@@ -638,6 +596,8 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			calendar_sync_time: advanceData.calendar_sync_time,
 			calendar_event_ids: advanceData.calendar_event_ids,
 			advance_sheet_url: advanceData.advance_sheet_url,
+			meetgreet_enabled: advanceData.meetgreet_enabled !== null ? advanceData.meetgreet_enabled : false,
+			meetgreet_info: advanceData.meetgreet_info,
 
 			// Computed fields for UI
 			name: finalEventName,

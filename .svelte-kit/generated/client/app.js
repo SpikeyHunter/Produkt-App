@@ -19,31 +19,29 @@ export const nodes = [
 	() => import('./nodes/15'),
 	() => import('./nodes/16'),
 	() => import('./nodes/17'),
-	() => import('./nodes/18'),
-	() => import('./nodes/19')
+	() => import('./nodes/18')
 ];
 
 export const server_loads = [];
 
 export const dictionary = {
 		"/": [2],
-		"/advance-preview": [3],
-		"/advancing/gathered": [4],
-		"/advancing/gathered/[event_param]": [5],
-		"/auth/verify": [6],
-		"/booking/artist": [7],
-		"/booking/settimes": [8],
-		"/calendar": [9],
-		"/dashboard": [10],
-		"/letter": [11],
-		"/login/forgot-password": [12],
-		"/login/register": [13],
-		"/login/reset-confirmed": [14],
-		"/login/reset-password": [15],
-		"/marketing/eventsinfo": [16],
-		"/production": [17],
-		"/settings": [18],
-		"/wifi": [19]
+		"/advancing/gathered": [3],
+		"/advancing/gathered/[event_param]": [4],
+		"/auth/verify": [5],
+		"/booking/artist": [6],
+		"/booking/settimes": [7],
+		"/calendar": [8],
+		"/dashboard": [9],
+		"/letter": [10],
+		"/login/forgot-password": [11],
+		"/login/register": [12],
+		"/login/reset-confirmed": [13],
+		"/login/reset-password": [14],
+		"/marketing/eventsinfo": [15],
+		"/production/backline": [16],
+		"/settings": [17],
+		"/wifi": [18]
 	};
 
 export const hooks = {

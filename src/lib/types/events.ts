@@ -22,6 +22,17 @@ export interface HotelInfo {
 }
 
 /**
+ * Defines the structure for the meetgreet_info JSON object
+ */
+export interface MeetGreetInfo {
+	time: string; // e.g., '22:00'
+	peopleCount: number;
+	contactName: string;
+	contactNumber: string;
+	details?: string;
+}
+
+/**
  * Defines the structure for the immigration_info JSON object
  */
 export interface ImmigrationInfo {
@@ -149,6 +160,8 @@ export interface EventAdvanceBase {
 	created_at: string;
 	updated_at: string;
 	advance_sheet_url?: string | null;
+	meetgreet_enabled?: boolean | null; 
+	meetgreet_info?: MeetGreetInfo | string | null; 
 }
 
 /**
@@ -181,6 +194,8 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	ground_enabled?: boolean | null;
 	hotel_enabled?: boolean | null;
 	advance_sheet_url?: string | null;
+	meetgreet_enabled?: boolean | null;
+	meetgreet_info?: MeetGreetInfo | string | null; 
 }
 
 /**

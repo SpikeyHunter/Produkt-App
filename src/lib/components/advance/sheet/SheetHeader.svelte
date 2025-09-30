@@ -2,6 +2,21 @@
   export let artistName: string;
   export let venueName: string;
   export let eventDate: string;
+
+  // Format date to "3 October 2025" format - parse directly to avoid timezone shifts
+  function formatDate(dateString: string): string {
+    try {
+      const [year, month, day] = dateString.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      const monthName = date.toLocaleDateString('en-US', { month: 'long' });
+      return `${day} ${monthName} ${year}`;
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return dateString;
+    }
+  }
+
+  $: formattedDate = formatDate(eventDate);
 </script>
 
 <div class="relative">
@@ -13,7 +28,7 @@
     <div class="text-left">
       <h1 class="text-lime text-4xl font-bold tracking-tighter" style="color: #E1FF00 !important;">ADVANCE SHEET</h1>
       <div class="text-white text-2xl font-bold tracking-tight mt-1" style="color: #F7F7F7 !important;">{artistName}</div>
-      <div class="text-gray2 text-lg" style="color: #BDBDBB !important;">{venueName} • {eventDate}</div>
+      <div class="text-gray2 text-lg" style="color: #BDBDBB !important;">{venueName} • {formattedDate}</div>
     </div>
 
     <!-- Logo with proper h-17 sizing (68px) -->

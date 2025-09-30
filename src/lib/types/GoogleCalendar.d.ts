@@ -15,6 +15,7 @@ export type CalendarEntry = {
 	paxNames: string;
 	flightInfo: string;
 	contact: string;
+	flightDepartureTime?: string; 
 };
 
 /**

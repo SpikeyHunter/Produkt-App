@@ -8,6 +8,16 @@
 	import MeetGreet from './sections/MeetGreet.svelte';
 	import GroundTransfers from './sections/GroundTransfers.svelte';
 	import HouseRules from './sections/HouseRules.svelte';
+	import type { EventAdvance } from '$lib/types/events';
+
+	interface TimetableEntry {
+		id: string;
+		time: string;
+		artist: string;
+		notes: string;
+		status: string;
+		length: string;
+	}
 	
 	// Section visibility toggles
 	export let showArtistItinerary = true;
@@ -19,10 +29,13 @@
 	export let showGroundTransfers = true;
 	export let showHouseRules = true;
 
-	// Corrected: Template variables are now exported props
-	export let artistName = 'ARTIST NAME';
-	export let venueName = 'VENUE NAME';
-	export let eventDate = 'DATE';
+	// Event data prop (can include timetable)
+	export let event: EventAdvance & { timetable?: TimetableEntry[] | null };
+
+	// Template variables derived from event data
+	$: artistName = event?.artist_name || 'ARTIST NAME';
+	$: venueName = event?.event_venue || 'VENUE NAME';
+	$: eventDate = event?.event_date || 'DATE';
 </script>
 
 <div
@@ -33,21 +46,21 @@
 	<SheetHeader {artistName} {venueName} {eventDate} />
 
 	<div class="px-8 py-6 space-y-5">
-		{#if showArtistItinerary} <Itinerary /> {/if}
-		{#if showContact} <Contact /> {/if}
-		{#if showHotel} <Hotel /> {/if}
+		{#if showArtistItinerary} <Itinerary {event} /> {/if}
+		{#if showContact} <Contact {event} /> {/if}
+		{#if showHotel && event.hotel_enabled} <Hotel {event} /> {/if}
 		{#if showImmigration} <Immigration /> {/if}
 
 		<div class="grid grid-cols-2 gap-5">
 			{#if showRunningOrder}
-				<RunningOrder {artistName} />
+				<RunningOrder {event} />
 			{/if}
 			{#if showMeetGreet}
-				<MeetGreet />
+				<MeetGreet {event} />
 			{/if}
 		</div>
 
-		{#if showGroundTransfers} <GroundTransfers /> {/if}
+		{#if showGroundTransfers} <GroundTransfers {event} /> {/if}
 		{#if showHouseRules} <HouseRules /> {/if}
 	</div>
 </div>

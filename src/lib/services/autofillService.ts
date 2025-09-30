@@ -13,6 +13,7 @@ export type CalendarEntry = {
 	paxNames: string;
 	flightInfo: string;
 	contact: string;
+	flightDepartureTime?: string;
 };
 
 // --- DATA STRUCTURES (Types are unchanged) ---
@@ -150,7 +151,10 @@ function convertTo24Hour(timeStr: string): string {
 
 	if (!isPM && !isAM) return time; // Already 24-hour
 
-	let [hours, minutes] = time.replace(/[ap]m/i, '').split(':').map(s => parseInt(s.trim()));
+	let [hours, minutes] = time
+		.replace(/[ap]m/i, '')
+		.split(':')
+		.map((s) => parseInt(s.trim()));
 
 	if (isPM && hours !== 12) {
 		hours += 12;
@@ -161,36 +165,47 @@ function convertTo24Hour(timeStr: string): string {
 	return `${hours.toString().padStart(2, '0')}:${(minutes || 0).toString().padStart(2, '0')}`;
 }
 
-
 // --- PARSING FUNCTIONS (Largely unchanged) ---
 
-function parseHotelInfo(hotelInfo: string | HotelInfo | HotelInfoArray[] | null | undefined): string {
+function parseHotelInfo(
+	hotelInfo: string | HotelInfo | HotelInfoArray[] | null | undefined
+): string {
 	if (!hotelInfo) return 'Hotel Name';
 	try {
 		let hotels: any[];
 		if (typeof hotelInfo === 'string') hotels = JSON.parse(hotelInfo);
 		else if (Array.isArray(hotelInfo)) hotels = hotelInfo;
 		else hotels = [{ hotelName: (hotelInfo as any).hotel_name || 'Hotel Name', ...hotelInfo }];
-		
+
 		if (hotels.length > 0) {
 			const hotel = hotels[0];
 			return hotel.customHotelName || hotel.hotelName || hotel.hotel_name || 'Hotel Name';
 		}
-	} catch (error) { console.error('Failed to parse hotel info:', error); }
+	} catch (error) {
+		console.error('Failed to parse hotel info:', error);
+	}
 	return 'Hotel Name';
 }
 
-function parseRoles(roles: string | RoleInfo[] | null | undefined): { artistAndManager: string[], crew: string[], totalPeople: number } {
+function parseRoles(roles: string | RoleInfo[] | null | undefined): {
+	artistAndManager: string[];
+	crew: string[];
+	totalPeople: number;
+} {
 	if (!roles) return { artistAndManager: [], crew: [], totalPeople: 0 };
 	try {
 		const roleList: RoleInfo[] = typeof roles === 'string' ? JSON.parse(roles) : roles;
 		const artistAndManager: string[] = [];
 		const crew: string[] = [];
 
-		roleList.forEach(person => {
+		roleList.forEach((person) => {
 			const firstName = person.firstName || '';
 			const role = (person.customRole || person.role || '').toLowerCase();
-			if (['artist', 'manager', 'tour manager', 'video', 'media', 'photographer'].some(r => role.includes(r))) {
+			if (
+				['artist', 'manager', 'tour manager', 'video', 'media', 'photographer'].some((r) =>
+					role.includes(r)
+				)
+			) {
 				artistAndManager.push(firstName);
 			} else {
 				crew.push(firstName);
@@ -203,16 +218,30 @@ function parseRoles(roles: string | RoleInfo[] | null | undefined): { artistAndM
 	}
 }
 
-function getDriverAssignments(totalPeople: number, artistAndManager: string[], crew: string[]): { car1Driver: string, car1Passengers: string, car2Driver?: string, car2Passengers?: string } {
+function getDriverAssignments(
+	totalPeople: number,
+	artistAndManager: string[],
+	crew: string[]
+): { car1Driver: string; car1Passengers: string; car2Driver?: string; car2Passengers?: string } {
 	if (totalPeople <= 4) {
 		return { car1Driver: 'Eddy', car1Passengers: [...artistAndManager, ...crew].join('+') };
 	}
 	if (artistAndManager.length > 0) {
-		return { car1Driver: 'Eddy', car1Passengers: artistAndManager.join('+'), car2Driver: 'Reza', car2Passengers: crew.join('+') };
+		return {
+			car1Driver: 'Eddy',
+			car1Passengers: artistAndManager.join('+'),
+			car2Driver: 'Reza',
+			car2Passengers: crew.join('+')
+		};
 	}
 	const allPeople = [...artistAndManager, ...crew];
 	const halfPoint = Math.ceil(allPeople.length / 2);
-	return { car1Driver: 'Eddy', car1Passengers: allPeople.slice(0, halfPoint).join('+'), car2Driver: 'Reza', car2Passengers: allPeople.slice(halfPoint).join('+') };
+	return {
+		car1Driver: 'Eddy',
+		car1Passengers: allPeople.slice(0, halfPoint).join('+'),
+		car2Driver: 'Reza',
+		car2Passengers: allPeople.slice(halfPoint).join('+')
+	};
 }
 
 // --- REFACTORED AUTO-FILL LOGIC ---
@@ -233,18 +262,23 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 
 		// Process Arrivals
 		(groundInfo.arrivals || []).forEach((flight) => {
-			const flightDate = flight.time.substring(0, 10); // FIX: Extract date from the ISO timestamp
-			const pickupTime = flight.time.substring(11, 16); // Extract "HH:MM"
+			// Correctly parse the full ISO string with timezone
+			const arrivalDate = new Date(flight.time);
+
+			// Get the local date and time from the Date object
+			const flightDate = arrivalDate.toISOString().split('T')[0];
+			const pickupTime = arrivalDate.toTimeString().substring(0, 5); // e.g., "16:33"
+
 			const dropoffTime = minutesToTime(timeToMinutes(pickupTime) + 30);
 			const pax = flight.assignedRoles.map((name) => name.split(' ')[0]);
 			const driverAssignment = getDriverAssignments(pax.length, [], pax);
 
 			const entry: CalendarEntry = {
 				id: Date.now() + Math.random(),
-				date: flightDate, // FIX: Use the correct extracted date
+				date: flightDate,
 				type: 'Arrival',
 				driverName: driverAssignment.car1Driver,
-				pickupTime,
+				pickupTime, // This will now be the correct "16:33"
 				pickupLocation: 'Airport',
 				dropoffTime,
 				dropoffLocation: hotelName,
@@ -257,15 +291,20 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 
 		// Process Departures
 		(groundInfo.departures || []).forEach((flight) => {
-			const flightDate = flight.time.substring(0, 10); // FIX: Extract date from the ISO timestamp for consistency
-			const departureTimeMinutes = timeToMinutes(flight.time.substring(11, 16));
+			// Correctly parse the full ISO string with timezone
+			const departureDate = new Date(flight.time);
+
+			// Get the local date and calculate minutes from the Date object
+			const flightDate = departureDate.toISOString().split('T')[0];
+			const departureTimeMinutes = departureDate.getHours() * 60 + departureDate.getMinutes();
+
 			const hoursBefore = flight.hoursBeforeDeparture || 2;
 			const totalMinutesToSubtract = hoursBefore * 60 + 30; // hours + 30 min drive
 
 			const pickupMinutes = departureTimeMinutes - totalMinutesToSubtract;
 			const roundedPickupMinutes = roundMinutesToNearest15(pickupMinutes);
 
-			const pickupTime = minutesToTime(roundedPickupMinutes);
+			const pickupTime = minutesToTime(roundedPickupMinutes); // This calculation remains correct
 			const dropoffTime = minutesToTime(roundedPickupMinutes + 30);
 
 			const pax = flight.assignedRoles.map((name) => name.split(' ')[0]);
@@ -273,7 +312,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 
 			const entry: CalendarEntry = {
 				id: Date.now() + Math.random(),
-				date: flightDate, // FIX: Use the correct extracted date
+				date: flightDate,
 				type: 'Departure',
 				driverName: driverAssignment.car1Driver,
 				pickupTime,
@@ -282,7 +321,8 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 				dropoffLocation: 'Airport',
 				paxNames: driverAssignment.car1Passengers,
 				flightInfo: `${flight.from}>${flight.to} ${flight.flightNumber}`,
-				contact: contactInfo
+				contact: contactInfo,
+				flightDepartureTime: departureDate.toTimeString().substring(0, 5) // "19:15"
 			};
 			generatedEntries.push(entry);
 		});

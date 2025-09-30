@@ -1,6 +1,5 @@
 {
 	"/": [],
-	"/advance-preview": [],
 	"/advancing/gathered": [],
 	"/advancing/gathered/[event_param]": [
 		"src/routes/advancing/gathered/[event_param]/+page.ts"
@@ -52,7 +51,7 @@
 	"/login/reset-confirmed": [],
 	"/login/reset-password": [],
 	"/marketing/eventsinfo": [],
-	"/production": [],
+	"/production/backline": [],
 	"/settings": [],
 	"/wifi": []
 }

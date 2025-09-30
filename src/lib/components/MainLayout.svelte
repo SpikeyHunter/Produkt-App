@@ -6,8 +6,6 @@
 	import { quintOut } from 'svelte/easing';
 	import { logout } from '$lib/stores/auth';
 
-	// --- PROPS & STATE ---
-	export let pageTitle: string = 'Dashboard';
 
 	// Navigation state
 	let isNavExpanded = true;
@@ -291,6 +289,8 @@
 	</nav>
 
 	<div class="main-content">
+		<!-- Header temporarily disabled - keeping for future use -->
+		<!-- {#if false}
 		<header class="p-6 flex items-center justify-between flex-shrink-0 border-b border-gray2">
 			{#if isMounted}
 				<div in:fly={playAnimations ? { y: -20, duration: 500, easing: quintOut } : { duration: 0 }}>
@@ -298,11 +298,14 @@
 				</div>
 			{/if}
 		</header>
-		<main class="flex-1 overflow-y-auto overflow-x-hidden px-6 pb-6">
+		{/if} -->
+		
+		<main class="flex-1 overflow-y-auto overflow-x-hidden px-6 pb-4 pt-2">
 			<slot />
 		</main>
 	</div>
 </div>
+
 <style>
 	:root {
 		--nav-width-expanded: 256px;
