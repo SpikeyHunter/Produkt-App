@@ -105,7 +105,6 @@ export async function POST({ request, url }: RequestEvent) {
       email: email.toLowerCase(),
       password: password,
       options: {
-        // Fixed: Point to the correct verification endpoint
         emailRedirectTo: `${url.origin}/auth/verify`,
         data: {
           first_name: firstName,
@@ -126,10 +125,18 @@ export async function POST({ request, url }: RequestEvent) {
         }, { status: 400 });
       }
       
-      return json({ 
-        success: false, 
-        errors: [`Registration failed: ${authError.message}`] 
-      }, { status: 500 });
+      // Check if it's an email configuration error
+      if (authError.message.includes('confirmation email') || 
+          authError.message.includes('email') || 
+          authError.message.includes('SMTP')) {
+        console.warn('⚠️ Email sending failed, but continuing with registration');
+        // Don't fail the registration - continue to create the profile
+      } else {
+        return json({ 
+          success: false, 
+          errors: [`Registration failed: ${authError.message}`] 
+        }, { status: 500 });
+      }
     }
     
     if (!authData.user) {
@@ -147,7 +154,7 @@ export async function POST({ request, url }: RequestEvent) {
       .from('user_profiles')
       .insert([
         {
-          id: authData.user.id, // Use the auth user's ID
+          id: authData.user.id,
           email: email.toLowerCase(),
           first_name: firstName,
           last_name: lastName,
@@ -158,9 +165,8 @@ export async function POST({ request, url }: RequestEvent) {
     if (insertError) {
       console.error('💥 Profile insert error:', insertError);
       
-      // If profile creation fails, we should try to clean up the auth user
+      // If profile creation fails, try to clean up the auth user
       try {
-        // Note: This might not work in all cases due to Supabase limitations
         await supabase.auth.admin.deleteUser(authData.user.id);
       } catch (cleanupError) {
         console.error('Failed to cleanup auth user:', cleanupError);
@@ -174,16 +180,18 @@ export async function POST({ request, url }: RequestEvent) {
     
     console.log('✅ User profile created successfully');
     
-    // Check if email confirmation is required
-    if (authData.user && !authData.session) {
-      // Email confirmation required
+    // Check email confirmation requirement
+    const requiresEmailConfirmation = !authData.session;
+    
+    if (requiresEmailConfirmation) {
+      console.log('📧 Email confirmation required');
       return json({ 
         success: true, 
-        message: "Registration successful! Please check your email to verify your account before logging in.",
+        message: "Registration successful! Please check your email to verify your account. If you don't receive an email within a few minutes, contact an administrator.",
         requiresEmailConfirmation: true
       });
     } else {
-      // Email confirmation not required (immediate login)
+      console.log('✅ Auto-confirmed - no email verification needed');
       return json({ 
         success: true, 
         message: "Registration successful! You can now log in.",
