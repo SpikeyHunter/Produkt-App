@@ -126,29 +126,31 @@ export async function updateEventTimetableActive(eventId: string, active: boolea
 	}
 }
 
-export async function fetchLiveEventsWithSetTimes(): Promise<EventWithTimetable[]> {
+
+export async function fetchAllEventsWithSetTimes(): Promise<EventWithTimetable[]> {
 	try {
-		console.log("Fetching 'LIVE' events for Set Times dashboard...");
-		const { data: liveEvents, error: eventsError } = await supabase
+		console.log("Fetching all events for Set Times dashboard...");
+		const { data: allEvents, error: eventsError } = await supabase
 			.from('events')
-			.select('event_id, event_name, event_date, event_flyer, timetable_active, timetable')
-			.eq('event_status', 'LIVE')
+			.select(
+				'event_id, event_name, event_date, event_flyer, event_status, timetable_active, timetable'
+			)
 			.order('event_date', { ascending: true });
 
 		if (eventsError) {
-			console.error('Error fetching live events:', eventsError);
+			console.error('Error fetching events:', eventsError);
 			throw eventsError;
 		}
 
-		if (!liveEvents || liveEvents.length === 0) {
-			console.log('No live events found.');
+		if (!allEvents || allEvents.length === 0) {
+			console.log('No events found.');
 			return [];
 		}
 
-		console.log(`Successfully fetched ${liveEvents.length} live events with their timetables.`);
-		return liveEvents as EventWithTimetable[];
+		console.log(`Successfully fetched ${allEvents.length} total events with their timetables.`);
+		return allEvents as EventWithTimetable[];
 	} catch (error) {
-		console.error('Fatal error in fetchLiveEventsWithSetTimes:', error);
+		console.error('Fatal error in fetchAllEventsWithSetTimes:', error);
 		return [];
 	}
 }

@@ -16,6 +16,9 @@
 	"/api/guests": [
 		"src/routes/api/guests/+server.ts"
 	],
+	"/api/latest-commit": [
+		"src/routes/api/latest-commit/+server.ts"
+	],
 	"/api/passport-ocr": [
 		"src/routes/api/passport-ocr/+server.ts"
 	],

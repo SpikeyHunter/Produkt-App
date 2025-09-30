@@ -5,29 +5,39 @@
 	import SetTimesCard from '$lib/components/booking/settimes/setTimesCard.svelte';
 	import FilterButton, { type FilterType } from '$lib/components/buttons/FilterButton.svelte';
 	import {
-		fetchLiveEventsWithSetTimes,
+		fetchAllEventsWithSetTimes,
 		updateEventTimetableActive,
-		updateEventTimetable, // <-- Import new function
-		type EventWithTimetable
+		updateEventTimetable,
+		type EventWithTimetable // Keep importing the base type
 	} from '$lib/services/eventsService';
 	import Button from '$lib/components/buttons/Button.svelte';
-	import SetTimesModal from '$lib/components/modals/SetTimesModal.svelte'; // <-- Import new modal
+	import SetTimesModal from '$lib/components/modals/SetTimesModal.svelte';
+
+	// 1. Define a new local type that correctly includes event_status
+	type EventWithStatus = EventWithTimetable & {
+		event_status: 'LIVE' | 'PAST';
+	};
 
 	let mounted = false;
 	let searchValue = '';
 	let currentFilter: FilterType = 'none';
 	let loading = true;
 	let error: string | null = null;
+
 	// --- MODAL STATE ---
 	let showSetTimesModal = false;
-	let selectedEventForModal: EventWithTimetable | null = null;
+	let selectedEventForModal: EventWithStatus | null = null;
+
 	const EXCLUDE_WORDS = ['TEST', 'TESTING', 'PASS', 'RÉSERVATIONS', 'RÉSERVATION', 'TEMPLATE'];
 
-	// Master list of all events fetched from the server
-	let allEvents: EventWithTimetable[] = [];
-	// Toggle state. Default to FALSE, which will show active events first.
+	// 2. Use the new, corrected type for your events array
+	let allEvents: EventWithStatus[] = [];
+
+	// --- TOGGLE STATES ---
 	let showHiddenEvents = false;
-	// `events` is a reactive statement that filters based on the toggle's state and exclusion words.
+	let showLiveEvents = true;
+
+	// This filtering logic will now work without errors
 	$: events = allEvents
 		.filter((event) => {
 			const eventNameUpper = event.event_name.toUpperCase();
@@ -35,30 +45,38 @@
 		})
 		.filter((event) => {
 			if (showHiddenEvents) {
-				// State is TRUE: view is INACTIVE events
 				return event.timetable_active === false;
 			} else {
-				// State is FALSE: view is ACTIVE events
 				return event.timetable_active !== false;
 			}
+		})
+		.filter((event) => {
+			if (showLiveEvents) {
+				return event.event_status === 'LIVE';
+			} else {
+				return event.event_status === 'PAST';
+			}
 		});
-	// `filteredEvents` reacts to changes in the `events` array above.
+
 	$: filteredEvents = sortEvents(
 		events.filter((event) => event.event_name.toLowerCase().includes(searchValue.toLowerCase())),
 		currentFilter
 	);
+
 	onMount(async () => {
-		// Delay for fade-in animation
 		setTimeout(() => (mounted = true), 150);
 		await loadEvents();
 	});
+
 	async function loadEvents() {
 		try {
 			loading = true;
 			error = null;
-			console.log('🔄 Loading live events for set times...');
-			// Just fetch the data. The reactive statements will handle filtering.
-			allEvents = await fetchLiveEventsWithSetTimes();
+			console.log('🔄 Loading all events for set times...');
+
+			// 3. Cast the fetched data to your new, corrected type
+			const fetchedData = await fetchAllEventsWithSetTimes();
+			allEvents = fetchedData as EventWithStatus[];
 
 			console.log(`✅ Loaded ${allEvents.length} total events.`);
 		} catch (err) {
@@ -81,11 +99,10 @@
 		} catch (e) {
 			// If that fails, try the original format
 		}
-
 		return new Date(`${dateString}, ${currentYear}`);
 	}
 
-	function sortEvents(events: EventWithTimetable[], filter: FilterType): EventWithTimetable[] {
+	function sortEvents(events: EventWithStatus[], filter: FilterType): EventWithStatus[] {
 		const sorted = [...events];
 		switch (filter) {
 			case 'a-z':
@@ -102,15 +119,24 @@
 				);
 			case 'none':
 			default:
-				return sorted.sort(
-					(a, b) => parseEventDate(a.event_date).getTime() - parseEventDate(b.event_date).getTime()
-				);
+				if (showLiveEvents) {
+					return sorted.sort(
+						(a, b) => parseEventDate(a.event_date).getTime() - parseEventDate(b.event_date).getTime()
+					);
+				} else {
+					return sorted.sort(
+						(a, b) => parseEventDate(b.event_date).getTime() - parseEventDate(a.event_date).getTime()
+					);
+				}
 		}
 	}
 
 	function toggleHiddenEvents() {
-		// Just change the boolean. The reactive statements will do the rest.
 		showHiddenEvents = !showHiddenEvents;
+	}
+
+	function toggleLivePast() {
+		showLiveEvents = !showLiveEvents;
 	}
 
 	function handleSearch(event: CustomEvent<{ value: string }>) {
@@ -125,8 +151,7 @@
 		loadEvents();
 	}
 
-	// --- MODAL AND CARD HANDLERS ---
-	function handleAddSetTimes(event: CustomEvent<{ event: EventWithTimetable }>) {
+	function handleAddSetTimes(event: CustomEvent<{ event: EventWithStatus }>) {
 		selectedEventForModal = event.detail.event;
 		showSetTimesModal = true;
 	}
@@ -134,7 +159,7 @@
 	async function handleResetSetTimes(event: CustomEvent<{ eventId: number }>) {
 		try {
 			await updateEventTimetable(event.detail.eventId, null);
-			await loadEvents(); // Refresh data
+			await loadEvents();
 		} catch (error) {
 			console.error('Failed to reset timetable', error);
 			alert('Could not reset the timetable.');
@@ -150,7 +175,7 @@
 			console.error('❌ Failed to hide event:', err);
 		}
 	}
-	
+
 	async function handleShowEvent(event: CustomEvent<{ eventId: number }>) {
 		try {
 			await updateEventTimetableActive(String(event.detail.eventId), true);
@@ -163,7 +188,6 @@
 
 	function handleModalSave() {
 		loadEvents();
-		// Refresh data after saving in modal
 	}
 </script>
 
@@ -183,6 +207,15 @@
 					<div class="buttons-container">
 						<div class="buttons-left">
 							<FilterButton bind:currentFilter on:filterChange={handleFilterChange} />
+
+							<button
+								class="toggle-live-past-btn {showLiveEvents ? 'live' : 'past'}"
+								on:click={toggleLivePast}
+								disabled={loading}
+								title={showLiveEvents ? 'Showing Live Events' : 'Showing Past Events'}
+							>
+								{showLiveEvents ? 'Live' : 'Past'}
+							</button>
 
 							<button
 								class="refresh-btn"
@@ -241,7 +274,7 @@
 										</svg>
 									{/if}
 								</button>
-								<span class="custom-tooltip"> {!showHiddenEvents ? 'Active' : 'Hidden'} </span>
+								<span class="custom-tooltip">{!showHiddenEvents ? 'Active' : 'Hidden'}</span>
 							</div>
 						</div>
 					</div>
@@ -261,7 +294,7 @@
 							<path d="M21 12a9 9 0 11-6.219-8.56" />
 						</svg>
 					</div>
-					<p class="text-gray2 text-base">Loading Live Events...</p>
+					<p class="text-gray2 text-base">Loading Events...</p>
 				</div>
 			{:else if error}
 				<div class="flex flex-col items-center justify-center py-16 text-center">
@@ -287,9 +320,9 @@
 								stroke-width="2"
 								><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path
 									d="M21 3v5h-5"
-								/><path
-									d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
-								/><path d="M3 21v-5h5" /></svg
+								/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path
+									d="M3 21v-5h5"
+								/></svg
 							>
 							Retry
 						</span>
@@ -355,14 +388,12 @@
 		opacity: 1;
 		transform: translateY(0);
 	}
-
 	.page-container {
 		padding: 24px;
 		max-width: none;
 		height: 100%;
 		transition: all 0.3s ease;
 	}
-
 	.controls-container {
 		display: flex;
 		justify-content: space-between;
@@ -372,41 +403,68 @@
 		max-width: 400px;
 		margin: 0 auto;
 	}
-
 	.search-container {
 		flex: 1;
 	}
-
 	.buttons-container {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		width: 100%;
 	}
-
 	.buttons-left {
 		display: flex;
 		align-items: center;
 		gap: 12px;
 	}
-
 	.buttons-right {
 		display: flex;
 		align-items: center;
 	}
-
 	.events-grid {
 		display: grid;
 		gap: 24px;
 		justify-content: center;
 		grid-template-columns: repeat(1, 400px);
 	}
-
 	.event-card-wrapper {
 		width: 400px;
 		height: 240px;
 	}
-
+	.toggle-live-past-btn {
+		height: 28px;
+		padding: 0 16px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 14px;
+		cursor: pointer;
+		transition: all 0.2s ease-in-out;
+		font-weight: 700;
+		font-size: 14px;
+		border: 1px solid;
+		background-color: transparent;
+	}
+	.toggle-live-past-btn.live {
+		border-color: var(--color-lime);
+		color: var(--color-lime);
+	}
+	.toggle-live-past-btn.live:hover:not(:disabled) {
+		background-color: var(--color-lime);
+		color: var(--color-black);
+	}
+	.toggle-live-past-btn.past {
+		border-color: var(--color-gray3, #888888);
+		color: var(--color-gray3, #888888);
+	}
+	.toggle-live-past-btn.past:hover:not(:disabled) {
+		background-color: var(--color-gray3, #888888);
+		color: var(--color-black);
+	}
+	.toggle-live-past-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
 	.refresh-btn {
 		height: 28px;
 		width: 28px;
@@ -420,16 +478,13 @@
 		cursor: pointer;
 		transition: all 0.2s ease;
 	}
-
 	.refresh-btn:hover:not(:disabled) {
 		background: var(--color-gray2);
 	}
-
 	.refresh-btn:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
 	}
-
 	.eye-toggle-btn {
 		height: 28px;
 		width: 28px;
@@ -443,27 +498,22 @@
 		cursor: pointer;
 		transition: all 0.2s ease;
 	}
-
 	.eye-toggle-btn:hover {
 		background: var(--color-gray2);
 	}
-
 	.eye-toggle-btn.active {
 		background: var(--color-lime);
 		color: var(--color-black);
 	}
-
 	.eye-toggle-btn.active:hover {
 		background: var(--color-lime);
 		opacity: 0.9;
 	}
-
 	.tooltip-container {
 		position: relative;
 		display: flex;
 		align-items: center;
 	}
-
 	.custom-tooltip {
 		position: absolute;
 		right: 100%;
@@ -480,12 +530,10 @@
 		pointer-events: none;
 		transition: opacity 0.2s ease;
 	}
-
 	.tooltip-container:hover .custom-tooltip {
 		opacity: 1;
 		pointer-events: auto;
 	}
-
 	@media (min-width: 900px) {
 		.events-grid {
 			grid-template-columns: repeat(2, 400px);
@@ -494,7 +542,6 @@
 			max-width: 824px;
 		}
 	}
-
 	@media (min-width: 1350px) {
 		.events-grid {
 			grid-template-columns: repeat(3, 400px);
@@ -503,7 +550,6 @@
 			max-width: 1248px;
 		}
 	}
-
 	@media (min-width: 1800px) {
 		.events-grid {
 			grid-template-columns: repeat(4, 400px);
@@ -512,7 +558,6 @@
 			max-width: 1672px;
 		}
 	}
-
 	@media (max-width: 899px) {
 		.controls-container {
 			flex-direction: column;
@@ -531,7 +576,6 @@
 			justify-content: flex-start;
 		}
 	}
-
 	@keyframes spin {
 		from {
 			transform: rotate(0deg);
