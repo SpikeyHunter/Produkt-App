@@ -250,7 +250,7 @@
 										<div class="text-white text-sm">
 											<span class="text-white font-bold">Changes:</span>
 										</div>
-										<pre class="text-gray2 text-sm space-y-1 ml-4 whitespace-pre-wrap font-sans">• {latestCommit.body}</pre>
+										<pre class="text-gray2 text-sm space-y-1 ml-4 whitespace-pre-wrap font-sans">{latestCommit.body}</pre>
 									{/if}
 								{:else}
 									<p class="text-gray2 text-sm">Could not load latest commit information.</p>

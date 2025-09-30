@@ -120,17 +120,17 @@
 		isSaving = false;
 	}
 
-async function toggleHotelsEnabled() {
+	async function toggleHotelsEnabled() {
 		// Add a guard clause to ensure 'event' is not null.
 		if (isSaving || !event) return;
-		
+
 		isSaving = true;
 		try {
 			const newHotelsEnabled = !hotelsEnabled;
 			await updateEventAdvance(event.event_id, event.artist_name, {
 				hotel_enabled: newHotelsEnabled
 			});
-			
+
 			// This assignment is now safe because of the null check above.
 			event = { ...event, hotel_enabled: newHotelsEnabled };
 			console.log(`Hotels enabled toggled to: ${newHotelsEnabled}`);
@@ -140,7 +140,19 @@ async function toggleHotelsEnabled() {
 			isSaving = false;
 		}
 	}
+	function handleHotelChange(room: HotelRoom) {
+		// List of predefined hotels that are not 'Other'
+		const predefined = ['Monville', 'W Hotel', 'Alt Hotel'];
 
+		// If the selected hotel is in the predefined list, clear custom fields
+		if (predefined.includes(room.hotelName)) {
+			room.customHotelName = '';
+			room.customHotelAddress = '';
+		}
+
+		// Always reset the room type when the hotel selection changes
+		room.roomType = '';
+	}
 	async function handleSave() {
 		if (!event) return;
 		isSaving = true;
@@ -309,13 +321,15 @@ focus:outline-none focus:border-lime w-32"
 
 							<div class="grid grid-cols-2 gap-2">
 								<div class="min-w-0">
-									<label for="hotel-name-{room.id}" class="text-xs text-gray2 font-medium mb-1 block"
-										>Hotel Name</label
+									<label
+										for="hotel-name-{room.id}"
+										class="text-xs text-gray2 font-medium mb-1 block">Hotel Name</label
 									>
 									<select
 										id="hotel-name-{room.id}"
 										class="w-full bg-gray1 border border-gray-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-lime appearance-none"
 										bind:value={room.hotelName}
+										on:change={() => handleHotelChange(room)}
 									>
 										<option value="" disabled>Select Hotel...</option>
 										{#each PREDEFINED_HOTELS as hotel}
@@ -430,7 +444,10 @@ focus:outline-none focus:border-lime w-32"
 
 							<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-white">
 								<div class="flex items-center gap-2">
-									<label for="early-checkin-{room.id}" class="flex items-center gap-2 cursor-pointer">
+									<label
+										for="early-checkin-{room.id}"
+										class="flex items-center gap-2 cursor-pointer"
+									>
 										<input
 											type="checkbox"
 											bind:checked={room.requestEarlyCheckIn}
@@ -465,7 +482,10 @@ focus:outline-none focus:border-lime w-32"
 									{/if}
 								</div>
 								<div class="flex items-center gap-2">
-									<label for="late-checkout-{room.id}" class="flex items-center gap-2 cursor-pointer">
+									<label
+										for="late-checkout-{room.id}"
+										class="flex items-center gap-2 cursor-pointer"
+									>
 										<input
 											type="checkbox"
 											bind:checked={room.requestLateCheckOut}
@@ -552,7 +572,9 @@ focus:outline-none focus:border-lime w-32"
 		</div>
 
 		{#if !hotelsEnabled}
-			<div class="absolute inset-0 bg-black/60 backdrop-blur-sm rounded-lg flex items-center justify-center cursor-not-allowed">
+			<div
+				class="absolute inset-0 bg-black/60 backdrop-blur-sm rounded-lg flex items-center justify-center cursor-not-allowed"
+			>
 				<div class="text-white text-center pointer-events-none">
 					<p class="text-lg font-semibold">Hotels Disabled</p>
 					<p class="text-sm text-gray2">Enable hotels below to use this feature</p>
@@ -572,7 +594,7 @@ focus:outline-none focus:border-lime w-32"
 		>
 			{hotelsEnabled ? 'Enabled' : 'Disabled'}
 		</button>
-		
+
 		<Button on:click={handleSave} variant="filled" disabled={isSaving}>
 			{isSaving ? 'Saving...' : 'Save & Close'}
 		</Button>

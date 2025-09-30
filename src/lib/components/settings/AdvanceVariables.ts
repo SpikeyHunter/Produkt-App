@@ -4,7 +4,7 @@
 export interface VenueSettings {
   city: string;
   venueAddress: string;
-  artistEntrance: string;
+  artistEntrance:string;
 }
 
 export interface ContactPerson {
@@ -79,7 +79,14 @@ export const driverContactMap: { [key: string]: string } = {
 };
 
 // Vehicle information for ground transfers
-export const vehicleInfo = 'Chevrolet Tahoe, Black SUV';
+export const vehicleInfo = 'Chevrolet Tahoe, Black SUV, FSN4714';
+
+// **NEW**: Hotel address mapping
+export const hotelAddressMap: { [key: string]: string } = {
+  'W Hotel': '901 Rue du Square-Victoria, Montréal, QC H2Z 1J1',
+  'Alt Hotel': '120 Peel St, Montreal, Quebec H3C 0L8',
+  'Monville': '1041 Rue de Bleury, Montréal, QC H2Z 1M7'
+};
 
 // You can add more settings here as needed
 export const advanceSettings = {
@@ -87,7 +94,8 @@ export const advanceSettings = {
   contacts: contactSettings,
   dosContacts: dosContactMap,
   drivers: driverContactMap,
-  vehicle: vehicleInfo
+  vehicle: vehicleInfo,
+  hotels: hotelAddressMap // **NEW**: Added hotels to settings
 };
 
 // Helper function to format date to "3 October 2025" format
