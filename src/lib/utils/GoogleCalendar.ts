@@ -7,24 +7,23 @@ import {
 	GOOGLE_REFRESH_TOKEN
 } from '$env/static/private';
 
-// Use OAuth2 client (like Google Apps Script) instead of service account
+// Use OAuth2 client instead of a service account
 const oauth2Client = new google.auth.OAuth2(
 	GOOGLE_CLIENT_ID,
 	GOOGLE_CLIENT_SECRET,
-	'http://localhost' // Redirect URI (not used for refresh token flow)
+	'http://localhost' // Redirect URI is not used in the refresh token flow
 );
 
-// Set the refresh token to get access tokens automatically
+// Set the refresh token to automatically manage access tokens
 oauth2Client.setCredentials({
 	refresh_token: GOOGLE_REFRESH_TOKEN
 });
 
 const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-
-// Use the imported Calendar ID
 const CALENDAR_ID = GOOGLE_CALENDAR_ID;
 
-// Driver email mapping
+// --- Helper Functions ---
+
 const getGuestEmail = (driver: string): string => {
 	const driverEmails: { [key: string]: string } = {
 		Eddy: 'eddy_baptist@hotmail.ca',
@@ -35,7 +34,6 @@ const getGuestEmail = (driver: string): string => {
 	return driverEmails[driver] || '';
 };
 
-// Format time like the Google Script (e.g., "3pm" or "3:30pm")
 const formatTime = (date: Date): string => {
 	const hours = date.getHours();
 	const minutes = date.getMinutes();
@@ -45,40 +43,30 @@ const formatTime = (date: Date): string => {
 	if (minutes === 0) {
 		return `${displayHours}${ampm}`;
 	}
-
-	const displayMinutes = minutes < 10 ? `0${minutes}` : minutes;
-	return `${displayHours}:${displayMinutes}${ampm}`;
+	return `${displayHours}:${minutes < 10 ? `0${minutes}` : minutes}${ampm}`;
 };
+
 const roundToNearest15 = (date: Date): Date => {
 	const rounded = new Date(date);
 	const minutes = rounded.getMinutes();
-	const roundedMinutes = Math.round(minutes / 15) * 15;
-	rounded.setMinutes(roundedMinutes, 0, 0); // Set new minutes, reset seconds
+	rounded.setMinutes(Math.round(minutes / 15) * 15, 0, 0);
 	return rounded;
 };
-// Round time up to nearest 15 minutes
+
 const roundUp15 = (date: Date): Date => {
 	const rounded = new Date(date);
 	const minutes = rounded.getMinutes();
-	const mod = minutes % 15;
-
-	if (mod !== 0) {
-		rounded.setTime(rounded.getTime() + (15 - mod) * 60000);
+	if (minutes % 15 !== 0) {
+		rounded.setTime(rounded.getTime() + (15 - (minutes % 15)) * 60000);
 	}
-	rounded.setSeconds(0);
-	rounded.setMilliseconds(0);
-
+	rounded.setSeconds(0, 0);
 	return rounded;
 };
 
-// Combine date and time strings into a Date object
 const combineDateAndTime = (dateStr: string, timeStr: string): Date => {
-	const [year, month, day] = dateStr.split('-').map(Number);
-	const [hours, minutes] = timeStr.split(':').map(Number);
-	return new Date(year, month - 1, day, hours || 0, minutes || 0);
+	return new Date(`${dateStr}T${timeStr}`);
 };
 
-// Build event title with the new, improved format for departures
 const buildTitle = (
 	type: string,
 	driver: string,
@@ -92,43 +80,32 @@ const buildTitle = (
 	dateStr?: string
 ): string => {
 	let title = `*${driver} - ${type} ${artistName} (${namesInCar}) `;
-
 	if (type === 'Arrival') {
 		title += `${flights} Arrival ${formatTime(startTime)} ${dropoffLoc}`;
-	} else if (type === 'Departure') {
-		title += flights;
-		title += ` Pickup ${formatTime(startTime)}`;
-		if (flightDepartureTime && dateStr) {
-			const departureDate = combineDateAndTime(dateStr, flightDepartureTime);
-			title += ` Departure ${formatTime(departureDate)}`;
-		}
-		title += ` ${pickupLoc}`;
+	} else if (type === 'Departure' && flightDepartureTime && dateStr) {
+		const departureDate = combineDateAndTime(dateStr, flightDepartureTime);
+		title += `${flights} Pickup ${formatTime(startTime)} Departure ${formatTime(
+			departureDate
+		)} ${pickupLoc}`;
 	} else {
 		title += `${pickupLoc} to ${dropoffLoc} ${formatTime(startTime)}`;
 	}
-
 	return title;
 };
 
-// Get reminder minutes based on event type
 const getReminderMinutes = (type: string): number => {
 	return type === 'Arrival' || type === 'Departure' ? 30 : 15;
 };
 
-// Find existing event by ID
 const findEventById = async (eventId: string): Promise<any> => {
 	try {
-		const response = await calendar.events.get({
-			calendarId: CALENDAR_ID,
-			eventId: eventId
-		});
+		const response = await calendar.events.get({ calendarId: CALENDAR_ID, eventId });
 		return response.data;
 	} catch {
 		return null;
 	}
 };
 
-// Check for existing events with same title and return the event ID if found
 const findDuplicateEventId = async (
 	title: string,
 	startTime: Date,
@@ -141,9 +118,7 @@ const findDuplicateEventId = async (
 			timeMax: endTime.toISOString(),
 			singleEvents: true
 		});
-
-		const events = response.data.items || [];
-		const duplicate = events.find((event) => event.summary === title);
+		const duplicate = (response.data.items || []).find((event) => event.summary === title);
 		return duplicate?.id || null;
 	} catch (error) {
 		console.error('Error checking for duplicates:', error);
@@ -151,8 +126,7 @@ const findDuplicateEventId = async (
 	}
 };
 
-// Create or update calendar events - matches Google Apps Script behavior
-// src/lib/services/GoogleCalendar.ts
+// --- Main Sync Function ---
 
 export async function syncToCalendar(
 	rows: CalendarEntry[],
@@ -162,14 +136,12 @@ export async function syncToCalendar(
 	const eventIds: { [key: number]: string } = existingEventIds ? { ...existingEventIds } : {};
 	let hasErrors = false;
 	let errorMessage = '';
-	let newEventsCreated = 0;
-	let eventsUpdated = 0;
-	let duplicatesFound = 0;
-	let eventsDeleted = 0;
+	let newEventsCreated = 0,
+		eventsUpdated = 0,
+		duplicatesFound = 0,
+		eventsDeleted = 0;
 
-	// Validate environment variables
 	if (!GOOGLE_CALENDAR_ID || !GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
-		console.error('Missing Google Calendar OAuth environment variables');
 		return {
 			success: false,
 			eventIds: {},
@@ -177,13 +149,9 @@ export async function syncToCalendar(
 		};
 	}
 
-	console.log('Starting calendar sync for', rows.length, 'rows');
-
-	// Test authentication first
 	try {
 		await calendar.calendarList.list({ maxResults: 1 });
 	} catch (authError: any) {
-		console.error('❌ Authentication failed:', authError.message);
 		return {
 			success: false,
 			eventIds: {},
@@ -191,28 +159,19 @@ export async function syncToCalendar(
 		};
 	}
 
-	// FIX: Correctly handle deleted rows using parseFloat
 	if (existingEventIds) {
 		const currentRowIds = new Set(rows.map((row) => row.id));
-		const existingRowIdStrings = Object.keys(existingEventIds);
-
-		for (const rowIdString of existingRowIdStrings) {
-			const rowIdNumber = parseFloat(rowIdString); // Use parseFloat
+		for (const rowIdString of Object.keys(existingEventIds)) {
+			const rowIdNumber = parseFloat(rowIdString);
 			if (!currentRowIds.has(rowIdNumber)) {
 				const eventIdToDelete = existingEventIds[rowIdNumber];
 				if (eventIdToDelete) {
 					try {
-						await calendar.events.delete({
-							calendarId: CALENDAR_ID,
-							eventId: eventIdToDelete
-						});
-						console.log(`Deleted calendar event: ${eventIdToDelete}`);
-						delete eventIds[rowIdNumber]; // Remove from the map to be returned
+						await calendar.events.delete({ calendarId: CALENDAR_ID, eventId: eventIdToDelete });
+						delete eventIds[rowIdNumber];
 						eventsDeleted++;
 					} catch (deleteError: any) {
 						console.warn(`Could not delete event ${eventIdToDelete}:`, deleteError.message);
-						// If an event is already deleted from Google Calendar manually, this might error.
-						// We still remove it from our list.
 						delete eventIds[rowIdNumber];
 					}
 				}
@@ -220,30 +179,26 @@ export async function syncToCalendar(
 		}
 	}
 
-	// Process current rows (create/update)
 	for (const row of rows) {
-		if (!row.type || !row.date || !row.pickupTime) {
-			console.log('Skipping incomplete row:', row.id);
-			continue;
-		}
+		if (!row.type || !row.date || !row.pickupTime) continue;
 
 		try {
-			// --- START OF CHANGES ---
+			// --- START OF MODIFICATIONS ---
 
-			// 1. Create a Date object with the EXACT, non-rounded time first.
+			// 1. Create a Date object with the exact, non-rounded time.
 			const exactStartTime = combineDateAndTime(row.date, row.pickupTime);
 
-			// 2. NOW, create a separate variable for the rounded time for the calendar slot.
+			// 2. Create a separate variable for the rounded time for the calendar slot.
 			const roundedStartTime =
 				row.type === 'Arrival' ? roundToNearest15(exactStartTime) : roundUp15(exactStartTime);
-			const endTime = new Date(roundedStartTime.getTime() + 60 * 60000); // 1 hour duration
+			const endTime = new Date(roundedStartTime.getTime() + 60 * 60000); // 1-hour duration
 
 			if (isNaN(exactStartTime.getTime())) {
 				console.warn(`Skipping row with invalid date/time:`, row);
 				continue;
 			}
 
-			// 3. Use the EXACT start time to build the title.
+			// 3. Build the title using the exact start time.
 			const title = buildTitle(
 				row.type,
 				row.driverName,
@@ -252,14 +207,14 @@ export async function syncToCalendar(
 				row.flightInfo,
 				row.pickupLocation,
 				row.dropoffLocation,
-				exactStartTime, // Pass the original, non-rounded time
+				exactStartTime, // Pass the original, non-rounded time here
 				row.flightDepartureTime,
 				row.date
 			);
 
 			const eventData = {
 				summary: title,
-				// 4. Use the ROUNDED time for the event's actual start/end in the calendar.
+				// 4. Use the rounded time for the event's actual start/end in the calendar.
 				start: { dateTime: roundedStartTime.toISOString(), timeZone: 'America/Toronto' },
 				end: { dateTime: endTime.toISOString(), timeZone: 'America/Toronto' },
 				description: row.contact,
@@ -273,30 +228,25 @@ export async function syncToCalendar(
 				}
 			};
 
-			// --- END OF CHANGES ---
+			// --- END OF MODIFICATIONS ---
 
 			const existingEventId = eventIds[row.id];
 
 			if (existingEventId && (await findEventById(existingEventId))) {
-				// Update existing event
 				await calendar.events.update({
 					calendarId: CALENDAR_ID,
 					eventId: existingEventId,
 					requestBody: eventData,
 					sendUpdates: 'all'
 				});
-				console.log(`Updated event: ${title}`);
 				eventsUpdated++;
 			} else {
-				// Check for duplicates before creating a new one
-				const duplicateEventId = await findDuplicateEventId(title, roundedStartTime, endTime); // Use rounded time for duplicate check
+				const duplicateEventId = await findDuplicateEventId(title, roundedStartTime, endTime);
 
 				if (duplicateEventId) {
 					eventIds[row.id] = duplicateEventId;
-					console.log(`Found existing event ID for: ${title}`);
 					duplicatesFound++;
 				} else {
-					// Create new event
 					const response = await calendar.events.insert({
 						calendarId: CALENDAR_ID,
 						requestBody: eventData,
@@ -305,7 +255,6 @@ export async function syncToCalendar(
 
 					if (response.data.id) {
 						eventIds[row.id] = response.data.id;
-						console.log(`Created event: ${title}`);
 						newEventsCreated++;
 					}
 				}
@@ -313,32 +262,28 @@ export async function syncToCalendar(
 		} catch (rowError: any) {
 			console.error(`Error processing row ${row.id}:`, rowError);
 			hasErrors = true;
-			const errorDetail = rowError.message || rowError.toString();
-			errorMessage += `Failed to sync ${row.type || 'event'}: ${errorDetail}. `;
+			errorMessage += `Failed to sync ${row.type || 'event'}: ${
+				rowError.message || rowError.toString()
+			}. `;
 		}
 	}
 
 	const processedRows = rows.filter((row) => row.type && row.date && row.pickupTime);
-	const hasAllEventIds = processedRows.every((row) => eventIds[row.id]);
+	const success = !hasErrors && processedRows.every((row) => eventIds[row.id]);
 
-	const success = !hasErrors && hasAllEventIds;
-
-	// Construct a meaningful success message
 	let messageParts = [];
 	if (newEventsCreated > 0) messageParts.push(`${newEventsCreated} created`);
 	if (eventsUpdated > 0) messageParts.push(`${eventsUpdated} updated`);
 	if (eventsDeleted > 0) messageParts.push(`${eventsDeleted} deleted`);
 	if (duplicatesFound > 0) messageParts.push(`${duplicatesFound} existing`);
 
-	let message = `Synced calendar: ${messageParts.join(', ')}`;
-	if (messageParts.length === 0) {
-		message = 'No calendar changes needed.';
-	}
-
 	return {
 		success,
 		eventIds,
 		error: hasErrors ? errorMessage.trim() : undefined,
-		message: hasErrors ? 'Some events synced with errors' : message
+		message:
+			messageParts.length > 0
+				? `Synced calendar: ${messageParts.join(', ')}`
+				: 'No calendar changes needed.'
 	};
 }
