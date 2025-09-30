@@ -9,6 +9,7 @@ const DISABLE_AUTH_IN_DEV = false;
 // Pages that don't require authentication
 const PUBLIC_ROUTES = [
   '/',
+  '/login',
   '/login/register',
   '/login/forgot-password',
   '/auth/verify',
@@ -34,14 +35,10 @@ export const handle: Handle = async ({ event, resolve }) => {
   // The real auth checking happens on the client with Supabase
   
   // Check if route requires authentication
-  const isPublicRoute = PUBLIC_ROUTES.includes(pathname);
+  const isPublicRoute = PUBLIC_ROUTES.some(route => pathname === route || pathname.startsWith(route));
   
-  // For protected routes, redirect to login if needed
-  // The client will handle the actual auth check
-  if (!isPublicRoute && pathname !== '/') {
-    // Let the client-side auth handle this
-    // We'll redirect in the layout if not authenticated
-  }
+  // For protected routes, let the client-side handle the detailed permission checks
+  // This server hook is just for basic authentication, not authorization
 
   return resolve(event);
 };

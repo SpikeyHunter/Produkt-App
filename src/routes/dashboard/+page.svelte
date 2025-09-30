@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { user } from '$lib/stores/userStore.js';
-	import { supabase } from '$lib/supabase.js';
+	import { authStore } from '$lib/stores/authStore';
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import TypebarCredentials from '$lib/components/inputs/TypebarCredentials.svelte';
 	import Button from '$lib/components/buttons/Button.svelte';
@@ -11,16 +10,6 @@
 
 	let mounted = false;
 	let currentMotd = '';
-	
-	// Updated the type to include name properties
-	let userProfile: {
-		first_name?: string;
-		last_name?: string;
-		main_permission?: string;
-		secondary_permission?: string | string[];
-	} | null = null;
-	
-	let isLoading = true;
 	let showModal = false;
 
 	// Team code form state
@@ -39,33 +28,6 @@
 		}
 		const randomIndex = Math.floor(Math.random() * motdList.length);
 		currentMotd = motdList[randomIndex];
-	}
-
-	// Fetch user profile with permissions and name
-	async function fetchUserProfile() {
-		if (!$user) {
-			isLoading = false;
-			return;
-		}
-		isLoading = true;
-		try {
-			// Added first_name and last_name to the query
-			const { data, error } = await supabase
-				.from('user_profiles')
-				.select('first_name, last_name, main_permission, secondary_permission')
-				.eq('id', $user.id)
-				.single();
-
-			if (error) {
-				console.error('Error fetching user profile:', error.message);
-				return;
-			}
-			userProfile = data;
-		} catch (error) {
-			console.error('Caught error fetching user profile:', error);
-		} finally {
-			isLoading = false;
-		}
 	}
 
 	// Format permissions for display
@@ -98,7 +60,7 @@
 		if (isValidating) {
 			return { isValid: false, message: 'Validation in progress...' };
 		}
-		if (!$user) {
+		if (!$authStore.user) {
 			return { isValid: false, message: 'You must be logged in to join a team' };
 		}
 		isValidating = true;
@@ -106,7 +68,7 @@
 			const response = await fetch('/api/validate-team-code', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ code: code.trim(), userId: $user.id })
+				body: JSON.stringify({ code: code.trim(), userId: $authStore.user.id })
 			});
 			return await response.json();
 		} catch (error) {
@@ -123,7 +85,7 @@
 			showPopupMessage('Please enter a team access code');
 			return;
 		}
-		if (!$user) {
+		if (!$authStore.user) {
 			showPopupMessage('You must be logged in to join a team');
 			return;
 		}
@@ -144,7 +106,7 @@
 			setTimeout(() => {
 				closeModal();
 				setTimeout(async () => {
-					await fetchUserProfile();
+					await authStore.refreshProfile();
 				}, 300);
 			}, 2000);
 		} catch (error) {
@@ -170,14 +132,10 @@
 			mounted = true;
 		}, 150);
 	});
-
-	$: if ($user && !userProfile) {
-		fetchUserProfile();
-	}
 </script>
 
 <svelte:head>
-	<title>Dashboard — Produkt App</title>
+	<title>Dashboard – Produkt App</title>
 </svelte:head>
 
 <MainLayout pageTitle="Dashboard">
@@ -189,39 +147,48 @@
 					<div class="fade-in {mounted ? 'mounted' : ''}" style="transition-delay: 0.1s;">
 						<div class="bg-navbar rounded-2xl p-6">
 							<div class="space-y-4">
-								{#if $user}
+								{#if $authStore.user}
 									<p class="text-white text-xl font-bold">
-										{#if userProfile?.first_name}
-											Welcome back, <span class="text-lime">{userProfile.first_name}</span>
-										{:else if !isLoading}
+										{#if $authStore.profile?.first_name}
+											Welcome back, <span class="text-lime">{$authStore.profile.first_name}</span>
+										{:else if !$authStore.isLoading}
 											Welcome back
 										{/if}
 									</p>
-									{#if !userProfile?.first_name && !isLoading}
+									{#if !$authStore.profile?.first_name && !$authStore.isLoading}
 									<p class="text-white text-base pl-6 font-bold">
-										You're signed in as, <span class="text-gray3">{$user.email}</span>
+										You're signed in as, <span class="text-gray3">{$authStore.user.email}</span>
 									</p>
 									{/if}
 								{/if}
 								<div class="pl-7">
-									{#if isLoading}
+									{#if $authStore.isLoading}
 										<p class="text-gray2 text-sm">Loading your profile...</p>
-									{:else if userProfile}
-										{#if !userProfile.main_permission}
+									{:else if $authStore.profile}
+										{#if !$authStore.profile.main_permission}
 											<div class="flex items-center gap-2">
 												<span class="text-white text-sm">You don't have a team yet?</span>
 												<Button variant="slim" width="w-auto" on:click={openModal}>Join a team</Button>
 											</div>
 										{:else}
 											<div class="text-white text-sm mb-2">
-												<p class="mb-2">You're in the following team:</p>
-												<ul class="list-disc list-inside text-lime space-y-1 ml-4">
-													{#each formatPermissions(userProfile.main_permission, userProfile.secondary_permission)?.split(', ') || [] as permission}
-														<li>{permission}</li>
-													{/each}
-												</ul>
+												<p class="mb-2">
+													{#if $authStore.profile.role === 'Admin'}
+														<span class="text-lime font-bold">👑 Admin</span> - You have access to everything
+													{:else}
+														{@const permissionCount = formatPermissions($authStore.profile.main_permission, $authStore.profile.secondary_permission)?.split(', ').length ?? 0}
+														You're in the following team{permissionCount > 1 ? 's' : ''}:
+													{/if}
+												</p>
+												{#if $authStore.profile.role !== 'Admin'}
+													<ul class="list-disc list-inside text-lime space-y-1 ml-4">
+														{#each formatPermissions($authStore.profile.main_permission, $authStore.profile.secondary_permission)?.split(', ') ?? [] as permission}
+															<li>{permission}</li>
+														{/each}
+													</ul>
+												{/if}
 											</div>
-											{#if !userProfile.secondary_permission || (Array.isArray(userProfile.secondary_permission) ? userProfile.secondary_permission.length < 3 : userProfile.secondary_permission.split(',').length < 2)}
+											{#if $authStore.profile.role !== 'Admin' && (!$authStore.profile.secondary_permission || (Array.isArray($authStore.profile.secondary_permission) ? $authStore.profile.secondary_permission.length < 3 : $authStore.profile.secondary_permission.split(',').length < 2))}
 												<div class="flex items-center gap-2">
 													<span class="text-white text-sm">Wanna join another team?</span>
 													<Button variant="slim" width="w-auto" on:click={openModal}>Join a new team</Button>
@@ -242,13 +209,14 @@
 							</div>
 							<div class="pl-7 space-y-2">
 								<div class="text-white text-sm">
-									<span class="text-white">Version:</span> <span class="text-lime">v1.2.3</span>
+									<span class="text-white">Version:</span> <span class="text-lime">v1.3.0</span>
 								</div>
 								<div class="text-white text-sm"><span class="text-white">Changes:</span></div>
 								<ul class="text-gray2 text-sm space-y-1 ml-4">
-									<li>• Improved dashboard performance</li>
-									<li>• Added new team collaboration features</li>
-									<li>• Fixed notification system bugs</li>
+									<li>• Role-based access control implemented</li>
+									<li>• Admin role with full access</li>
+									<li>• Permission-based page restrictions</li>
+									<li>• Enhanced security and navigation</li>
 								</ul>
 							</div>
 						</div>

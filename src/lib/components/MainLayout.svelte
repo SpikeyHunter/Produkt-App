@@ -5,7 +5,7 @@
 	import { fly } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import { logout } from '$lib/stores/auth';
-
+	import { authStore, permissions } from '$lib/stores/authStore';
 
 	// Navigation state
 	let isNavExpanded = true;
@@ -29,6 +29,7 @@
 		icon: string;
 		subItems: SubMenuItem[];
 		route?: string;
+		requiredPermission?: string;
 	}
 
 	// --- LIFECYCLE ---
@@ -62,6 +63,9 @@
 		activeSubMenu = null;
 	}
 
+	// Show all menu items but track which ones are accessible
+	$: visibleMenuItems = menuItems;
+
 	// --- DATA ---
 	const icons = {
 		dashboard: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
@@ -71,7 +75,7 @@
 		advancing: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>`,
 		production: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>`,
 		dataEditor: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14,2 14,8 20,8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10,9 9,9 8,9"></polyline></svg>`,
-		settings: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1 1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
+		settings: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
 		arrow: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`,
 		logout: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>`,
 		toggle: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>`
@@ -84,6 +88,7 @@
 			id: 'marketing',
 			label: 'Marketing',
 			icon: icons.marketing,
+			requiredPermission: 'Marketing',
 			subItems: [
 				{ label: 'Events Info', route: '/marketing/eventsinfo' }
 			]
@@ -92,6 +97,7 @@
 			id: 'booking',
 			label: 'Booking',
 			icon: icons.booking,
+			requiredPermission: 'Booking',
 			subItems: [
 				{ label: 'Set Times', route: '/booking/settimes' }
 			]
@@ -100,6 +106,7 @@
 			id: 'advancing',
 			label: 'Advancing',
 			icon: icons.advancing,
+			requiredPermission: 'Advance',
 			subItems: [
 				{ label: 'Advance Gathered', route: '/advancing/gathered' }
 			]
@@ -108,6 +115,7 @@
 			id: 'production',
 			label: 'Production',
 			icon: icons.production,
+			requiredPermission: 'Production',
 			subItems: [
 				{ label: 'Backline', route: '/production/backline' }
 			]
@@ -115,12 +123,32 @@
 	];
 
 	// --- FUNCTIONS ---
+	function hasMenuItemAccess(item: MenuItem): boolean {
+		// Admin can see everything
+		if ($permissions.isAdmin) return true;
+		
+		// Dashboard and Calendar are always visible
+		if (item.id === 'dashboard' || item.id === 'calendar') return true;
+		
+		// Check permission for other items
+		if (item.requiredPermission) {
+			return $permissions.hasPermission(item.requiredPermission);
+		}
+		
+		return true;
+	}
+
 	function toggleNav() {
 		isNavExpanded = !isNavExpanded;
 		localStorage.setItem('isNavExpanded', String(isNavExpanded));
 	}
 
 	function handleMenuClick(item: MenuItem) {
+		// Check if user has access
+		if (!hasMenuItemAccess(item)) {
+			return; // Blocked
+		}
+
 		if (item.route) {
 			navigateToRoute(item.route);
 			return;
@@ -153,9 +181,9 @@
 	}
 
 	function setActiveSubMenuFromRoute(pathname: string) {
-		if (!isNavExpanded) return;
-		const activeParent = menuItems.find((item) =>
-			item.subItems.some((sub) => pathname.startsWith(sub.route))
+		if (!isNavExpanded || !visibleMenuItems || visibleMenuItems.length === 0) return;
+		const activeParent = visibleMenuItems.find((item) =>
+			item.subItems.some((sub) => pathname.startsWith(sub.route)) && hasMenuItemAccess(item)
 		);
 		activeSubMenu = activeParent ? activeParent.id : null;
 	}
@@ -171,139 +199,141 @@
 </script>
 
 <div class="flex h-screen bg-gray1 text-white font-sans">
-	<nav bind:this={navElement} class="navbar" class:collapsed={!isNavExpanded}>
-		<div class="flex flex-col h-full">
-			<div class="nav-header" class:animate-in={playAnimations}>
-				<div class="header-content-expanded">
-					<img src="/images/ProduktXX_LOGO1.png" alt="ProduktXX Logo" class="logo mb-2" />
-					<div class="welcome-text">
-						<span class="text-sm text-gray2">Welcome back!</span>
-					</div>
-				</div>
-				<button
-					type="button"
-					class="toggle-button-collapsed"
-					on:click={toggleNav}
-					aria-label="Expand navigation"
-				>
-					{@html icons.toggle}
-				</button>
+	{#if !$authStore.isInitialized}
+		<!-- Loading state while auth initializes -->
+		<div class="flex-1 flex items-center justify-center">
+			<div class="text-center">
+				<div class="w-16 h-16 border-4 border-lime border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+				<p class="text-gray2">Loading...</p>
 			</div>
-			<div class="flex-1 nav-scroll-area flex flex-col">
-				<div class="flex-grow">
-					{#each menuItems as item, i (item.id)}
+		</div>
+	{:else}
+		<nav bind:this={navElement} class="navbar" class:collapsed={!isNavExpanded}>
+			<div class="flex flex-col h-full">
+				<div class="nav-header" class:animate-in={playAnimations}>
+					<div class="header-content-expanded">
+						<img src="/images/ProduktXX_LOGO1.png" alt="ProduktXX Logo" class="logo mb-2" />
+						<div class="welcome-text">
+							<span class="text-sm text-gray2">Welcome back!</span>
+						</div>
+					</div>
+					<button
+						type="button"
+						class="toggle-button-collapsed"
+						on:click={toggleNav}
+						aria-label="Expand navigation"
+					>
+						{@html icons.toggle}
+					</button>
+				</div>
+				<div class="flex-1 nav-scroll-area flex flex-col">
+					<div class="flex-grow">
+						{#each visibleMenuItems as item, i (item.id)}
+							{@const hasAccess = hasMenuItemAccess(item)}
+							<div
+								class="nav-item-container"
+								in:fly={playAnimations
+									? { y: 20, duration: 400, delay: i * 50 + 200, easing: quintOut }
+									: { duration: 0 }}
+							>
+								<button
+									type="button"
+									class="nav-button"
+									class:active={isActive(item) && hasAccess}
+									class:blocked={!hasAccess}
+									on:click={() => handleMenuClick(item)}
+									aria-haspopup={item.subItems.length > 0}
+									aria-expanded={activeSubMenu === item.id && hasAccess}
+									disabled={!hasAccess}
+								>
+									<span class="icon">{@html item.icon}</span>
+									<span class="label">{item.label}</span>
+									{#if item.subItems.length > 0}
+										<span class="arrow" class:rotated={activeSubMenu === item.id && hasAccess} class:blocked={!hasAccess}>
+											{@html icons.arrow}
+										</span>
+									{/if}
+								</button>
+
+								{#if item.subItems.length > 0 && hasAccess}
+									<div class="submenu-container" class:expanded={activeSubMenu === item.id}>
+										<div class="submenu-content">
+											{#each item.subItems as subItem (subItem.route)}
+												<button
+													type="button"
+													class="submenu-button"
+													class:active={isActive(subItem)}
+													on:click={() => navigateToRoute(subItem.route)}
+												>
+													{subItem.label}
+												</button>
+											{/each}
+										</div>
+									</div>
+								{/if}
+							</div>
+						{/each}
+
 						<div
 							class="nav-item-container"
 							in:fly={playAnimations
-								? { y: 20, duration: 400, delay: i * 50 + 200, easing: quintOut }
+								? { y: 20, duration: 400, delay: visibleMenuItems.length * 50 + 200, easing: quintOut }
+								: { duration: 0 }}
+						>
+							<button type="button" class="nav-button disabled">
+								<span class="icon">{@html icons.dataEditor}</span>
+								<span class="label">Coming Soon</span>
+							</button>
+						</div>
+					</div>
+					<div class="mt-auto">
+						<div class="nav-separator"></div>
+						<div
+							class="nav-item-container"
+							in:fly={playAnimations
+								? { y: 20, duration: 400, delay: (visibleMenuItems.length + 1) * 50 + 200, easing: quintOut }
 								: { duration: 0 }}
 						>
 							<button
 								type="button"
 								class="nav-button"
-								class:active={isActive(item)}
-								on:click={() => handleMenuClick(item)}
-								aria-haspopup={item.subItems.length > 0}
-								aria-expanded={activeSubMenu === item.id}
+								class:active={$page.url.pathname.startsWith('/settings')}
+								on:click={() => navigateToRoute('/settings')}
 							>
-								<span class="icon">{@html item.icon}</span>
-								<span class="label">{item.label}</span>
-								{#if item.subItems.length > 0}
-									<span class="arrow" class:rotated={activeSubMenu === item.id}>
-										{@html icons.arrow}
-									</span>
-								{/if}
+								<span class="icon">{@html icons.settings}</span>
+								<span class="label">Settings</span>
 							</button>
-
-							{#if item.subItems.length > 0}
-								<div class="submenu-container" class:expanded={activeSubMenu === item.id}>
-									<div class="submenu-content">
-										{#each item.subItems as subItem (subItem.route)}
-											<button
-												type="button"
-												class="submenu-button"
-												class:active={isActive(subItem)}
-												on:click={() => navigateToRoute(subItem.route)}
-											>
-												{subItem.label}
-											</button>
-										{/each}
-									</div>
-								</div>
-							{/if}
 						</div>
-					{/each}
-
-					<div
-						class="nav-item-container"
-						in:fly={playAnimations
-							? { y: 20, duration: 400, delay: menuItems.length * 50 + 200, easing: quintOut }
-							: { duration: 0 }}
-					>
-						<button type="button" class="nav-button disabled">
-							<span class="icon">{@html icons.dataEditor}</span>
-							<span class="label">Coming Soon</span>
-						</button>
-					</div>
-				</div>
-				<div class="mt-auto">
-					<div class="nav-separator"></div>
-					<div
-						class="nav-item-container"
-						in:fly={playAnimations
-							? { y: 20, duration: 400, delay: (menuItems.length + 1) * 50 + 200, easing: quintOut }
-							: { duration: 0 }}
-					>
-						<button
-							type="button"
-							class="nav-button"
-							class:active={$page.url.pathname.startsWith('/settings')}
-							on:click={() => navigateToRoute('/settings')}
+						<div
+							class="nav-item-container"
+							in:fly={playAnimations
+								? { y: 20, duration: 400, delay: (visibleMenuItems.length + 2) * 50 + 200, easing: quintOut }
+								: { duration: 0 }}
 						>
-							<span class="icon">{@html icons.settings}</span>
-							<span class="label">Settings</span>
-						</button>
-					</div>
-					<div
-						class="nav-item-container"
-						in:fly={playAnimations
-							? { y: 20, duration: 400, delay: (menuItems.length + 2) * 50 + 200, easing: quintOut }
-							: { duration: 0 }}
-					>
-						<button type="button" class="nav-button" on:click={handleLogout} disabled={isLoading}>
-							<span class="icon">
-								{#if isLoading}
-									<div
-										class="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"
-									></div>
-								{:else}
-									{@html icons.logout}
-								{/if}
-							</span>
-							<span class="label">{isLoading ? 'Logging out...' : 'Logout'}</span>
-						</button>
+							<button type="button" class="nav-button" on:click={handleLogout} disabled={isLoading}>
+								<span class="icon">
+									{#if isLoading}
+										<div
+											class="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"
+										></div>
+									{:else}
+										{@html icons.logout}
+									{/if}
+								</span>
+								<span class="label">{isLoading ? 'Logging out...' : 'Logout'}</span>
+							</button>
+						</div>
 					</div>
 				</div>
 			</div>
-		</div>
-	</nav>
+		</nav>
 
-	<div class="main-content">
-		<!-- Header temporarily disabled - keeping for future use -->
-		<!-- {#if false}
-		<header class="p-6 flex items-center justify-between flex-shrink-0 border-b border-gray2">
-			{#if isMounted}
-				<div in:fly={playAnimations ? { y: -20, duration: 500, easing: quintOut } : { duration: 0 }}>
-					<h1 class="text-4xl font-bold text-white">{pageTitle}</h1>
-				</div>
-			{/if}
-		</header>
-		{/if} -->
-		
-		<main class="flex-1 overflow-y-auto overflow-x-hidden px-6 pb-4 pt-2">
-			<slot />
-		</main>
-	</div>
+		<div class="main-content">
+			<main class="flex-1 overflow-y-auto overflow-x-hidden px-6 pb-4 pt-2">
+				<slot />
+			</main>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -432,7 +462,7 @@
 	.navbar.collapsed .nav-button {
 		justify-content: center;
 	}
-	.nav-button:hover:not(.active):not(.disabled) {
+	.nav-button:hover:not(.active):not(.disabled):not(.blocked) {
 		background-color: var(--hover-bg);
 		color: var(--text-primary);
 	}
@@ -440,9 +470,19 @@
 		background-color: var(--accent-color);
 		color: var(--color-black);
 	}
-	.nav-button.disabled {
+	.nav-button.disabled,
+	.nav-button.blocked {
 		color: var(--text-tertiary);
 		cursor: not-allowed;
+		opacity: 0.4;
+		background-color: transparent;
+	}
+	.nav-button.blocked:hover {
+		background-color: transparent;
+		color: var(--text-tertiary);
+	}
+	.arrow.blocked {
+		opacity: 0.4;
 	}
 	.icon {
 		flex-shrink: 0;
