@@ -6,7 +6,6 @@ import { supabase } from '$lib/supabase.js';
 
 // Helper function to remove quotes from environment variables if they exist
 function cleanTeamCode(code: string): string {
-	// Remove both single and double quotes from start and end
 	return code.replace(/^['"]|['"]$/g, '');
 }
 
@@ -19,18 +18,8 @@ const VALID_TEAM_CODES = [
 	cleanTeamCode(TEAM_ADVANCE),
 	cleanTeamCode(TEAM_MARKETING), 
 	cleanTeamCode(TEAM_PRODUCTION),
-  cleanTeamCode(TEAM_BOOKING)
+	cleanTeamCode(TEAM_BOOKING)
 ];
-
-// Debug logging
-console.log('🔧 DEBUG: Raw environment variables:', {
-	TEAM_ADVANCE,
-	TEAM_MARKETING,
-	TEAM_PRODUCTION,
-  TEAM_BOOKING
-});
-
-console.log('🔧 DEBUG: Cleaned team codes:', VALID_TEAM_CODES);
 
 export async function POST({ request }: RequestEvent) {
 	console.log('🔍 Team code validation called');
@@ -39,19 +28,18 @@ export async function POST({ request }: RequestEvent) {
 		const body = await request.json();
 		console.log('📝 Team validation request:', { 
 			code: body.code ? 'provided' : 'missing',
-			userId: body.userId ? 'provided' : 'missing',
-			hasUserId: !!body.userId,
-			actualUserId: body.userId
+			userId: body.userId ? 'provided' : 'missing'
 		});
 		
 		const { code, userId } = body;
 		
+		// Validate inputs
 		if (!code || typeof code !== 'string') {
 			console.log('❌ Invalid team code format');
 			return json({
 				isValid: false,
 				message: 'Invalid team code format'
-			});
+			}, { status: 400 });
 		}
 
 		if (!userId || typeof userId !== 'string') {
@@ -59,26 +47,22 @@ export async function POST({ request }: RequestEvent) {
 			return json({
 				isValid: false,
 				message: 'User ID is required'
-			});
+			}, { status: 400 });
 		}
 		
+		// Validate team code
 		const isValid = VALID_TEAM_CODES.includes(code.trim());
-		console.log('🔧 DEBUG: Code validation:', {
-			inputCode: code.trim(),
-			validCodes: VALID_TEAM_CODES,
-			isValid
-		});
 		console.log('✅ Team code validation result:', { code: code.trim(), isValid });
 		
 		if (!isValid) {
 			return json({
 				isValid: false,
 				message: 'Invalid team code'
-			});
+			}, { status: 400 });
 		}
 
 		// Determine team name
-		let teamName = null;
+		let teamName: string | null = null;
 		switch (code.trim()) {
 			case cleanTeamCode(TEAM_ADVANCE):
 				teamName = 'advance';
@@ -98,13 +82,12 @@ export async function POST({ request }: RequestEvent) {
 			return json({
 				isValid: false,
 				message: 'Unable to determine team name'
-			});
+			}, { status: 400 });
 		}
 
-		// Capitalize first letter of team name
 		const capitalizedTeamName = capitalizeFirstLetter(teamName);
 
-		// Get current user profile
+		// Fetch user profile with better error handling
 		const { data: userProfile, error: fetchError } = await supabase
 			.from('user_profiles')
 			.select('id, main_permission, secondary_permission')
@@ -113,6 +96,15 @@ export async function POST({ request }: RequestEvent) {
 
 		if (fetchError) {
 			console.error('❌ Error fetching user profile:', fetchError);
+			
+			// Check if it's a "not found" error vs actual server error
+			if (fetchError.code === 'PGRST116') {
+				return json({
+					isValid: false,
+					message: 'User profile not found'
+				}, { status: 404 });
+			}
+			
 			return json({
 				isValid: false,
 				message: 'Error fetching user profile'
@@ -137,14 +129,13 @@ export async function POST({ request }: RequestEvent) {
 			if (Array.isArray(currentSecondaryPermission)) {
 				secondaryPermissions = currentSecondaryPermission;
 			} else if (typeof currentSecondaryPermission === 'string') {
-				// If it's a string, split by comma or treat as single item
 				secondaryPermissions = currentSecondaryPermission.includes(',') 
 					? currentSecondaryPermission.split(',').map(p => p.trim())
 					: [currentSecondaryPermission];
 			}
 		}
 
-		// Check if user already has THIS SPECIFIC team permission
+		// Check if user already has this specific team permission
 		if (currentMainPermission === capitalizedTeamName || secondaryPermissions.includes(capitalizedTeamName)) {
 			console.log('⚠️ User already has this team permission:', capitalizedTeamName);
 			return json({
@@ -155,18 +146,16 @@ export async function POST({ request }: RequestEvent) {
 		}
 
 		// Determine where to add the team permission
-		let updateData: { main_permission?: string; secondary_permission?: string[] } = {};
+		let updateData: { main_permission?: string; secondary_permission?: string } = {};
 
 		if (!currentMainPermission || currentMainPermission === '') {
-			// Add to main_permission if it's empty
 			updateData.main_permission = capitalizedTeamName;
 			console.log('📝 Adding team to main_permission:', capitalizedTeamName);
 		} else {
-			// Add to secondary_permission array if main_permission is already filled
-			// Don't check if it's the same as main - just add to secondary array
 			const newSecondaryPermissions = [...secondaryPermissions, capitalizedTeamName];
-			updateData.secondary_permission = newSecondaryPermissions;
-			console.log('📝 Adding team to secondary_permission array:', newSecondaryPermissions);
+			// ✨ FIX: Join the array into a comma-separated string before updating
+			updateData.secondary_permission = newSecondaryPermissions.join(', ');
+			console.log('📝 Adding team to secondary_permission string:', updateData.secondary_permission);
 		}
 
 		// Update user profile
@@ -189,7 +178,7 @@ export async function POST({ request }: RequestEvent) {
 			isValid: true,
 			teamName: capitalizedTeamName,
 			message: `Successfully joined the ${capitalizedTeamName} team!`,
-			permissionAdded: Object.keys(updateData)[0] // 'main_permission' or 'secondary_permission'
+			permissionAdded: Object.keys(updateData)[0]
 		});
 		
 	} catch (error) {
