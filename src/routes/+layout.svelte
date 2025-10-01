@@ -1,138 +1,142 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
-  import { supabase } from '$lib/supabase';
-  import { user } from '$lib/stores/userStore';
-  import { authStore, canAccessRoute } from '$lib/stores/authStore';
-  import '../app.css';
+	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { supabase } from '$lib/supabase';
+	import { user } from '$lib/stores/userStore';
+	import { authStore } from '$lib/stores/authStore';
+	import '../app.css';
 
-  const PROTECTED_ROUTES = [
-    '/dashboard',
-    '/advancing',
-    '/booking',
-    '/production',
-    '/marketing',
-    '/settings',
-    '/calendar'
-  ];
-  const PUBLIC_ONLY_ROUTES = ['/', '/login', '/login/register', '/login/forgot-password'];
+	const PROTECTED_ROUTES = [
+		'/dashboard',
+		'/advancing',
+		'/booking',
+		'/production',
+		'/marketing',
+		'/settings',
+		'/calendar'
+	];
+	const PUBLIC_ONLY_ROUTES = ['/', '/login', '/login/register', '/login/forgot-password'];
 
-  let isAuthInitialized = false;
-  let authSubscription: any;
-  let isProcessingAuthChange = false;
-  let lastAuthEvent: string | null = null;
+	// --- PERMISSION CONFIGURATION ---
+	const PERMISSION_MAP = {
+		'/advancing': 'Advance',
+		'/booking': 'Booking',
+		'/production': 'Production',
+		'/marketing': 'Marketing'
+	};
+	const ADMIN_ROUTES = ['/settings', '/calendar'];
 
-  onMount(() => {
-    // Initialize the auth store
-    const initializeAuth = async () => {
-      await authStore.initialize();
-      isAuthInitialized = true;
-    };
-    
-    initializeAuth();
+	let isAuthInitialized = false;
+	let authSubscription: any;
 
-    // Handle visibility change to prevent re-authentication issues
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        // When tab becomes visible, check if we have a valid session
-        // but don't trigger a full re-authentication
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session?.user) {
-            // Session is still valid, just update the user store
-            user.set(session.user);
-          }
-        });
-      }
-    };
+	/**
+	 * Checks if the current user has access to a given route based on their profile.
+	 * This function is called only AFTER the user is authenticated and their profile is loaded.
+	 * @param {string} path - The route path to check (e.g., '/production/backline').
+	 * @param {any} profile - The user's profile from the database.
+	 * @returns {boolean} - True if access is allowed, false otherwise.
+	 */
+	function hasAccessToRoute(path: string, profile: any): boolean {
+		if (!profile) return false;
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+		// 1. Admin role has universal access.
+		if (profile.role === 'Admin') {
+			return true;
+		}
 
-    const setupAuthSubscription = async () => {
-      const {
-        data: { subscription }
-      } = supabase.auth.onAuthStateChange(async (event, session) => {
-        // Prevent duplicate processing of auth events
-        if (isProcessingAuthChange) {
-          console.log('Already processing auth change, skipping...');
-          return;
-        }
+		// 2. Dashboard is accessible to all authenticated users.
+		if (path.startsWith('/dashboard')) {
+			return true;
+		}
 
-        // Ignore certain events that don't need processing
-        if (event === 'TOKEN_REFRESHED' && session?.user) {
-          // Token refresh doesn't need full processing
-          user.set(session.user);
-          return;
-        }
+		// 3. Check if the user is trying to access an admin-only route without being an admin.
+		if (ADMIN_ROUTES.some((adminRoute) => path.startsWith(adminRoute))) {
+			return false; // Denied if not an admin (already checked above).
+		}
 
-        // Check if this is the same event we just processed
-        const currentAuthEvent = `${event}-${session?.user?.id || 'no-user'}`;
-        if (currentAuthEvent === lastAuthEvent) {
-          console.log('Duplicate auth event, skipping...');
-          return;
-        }
+		// 4. Check permission-based routes.
+		for (const route in PERMISSION_MAP) {
+			if (path.startsWith(route)) {
+				const requiredPermission = PERMISSION_MAP[route as keyof typeof PERMISSION_MAP];
+				const permissions = [profile.main_permission, ...(profile.secondary_permission || [])];
+				return permissions.includes(requiredPermission);
+			}
+		}
 
-        isProcessingAuthChange = true;
-        lastAuthEvent = currentAuthEvent;
+		// 5. Fallback: If the route is protected but has no specific rule, deny access.
+		return false;
+	}
 
-        try {
-          user.set(session?.user ?? null);
-          console.log(`Supabase auth event: ${event}`);
+	// --- REACTIVE PERMISSION GUARD ---
+	// This block runs automatically whenever the auth store or the page URL changes.
+	// It's the core of the permission logic for navigation.
+	$: if ($authStore.isInitialized && $authStore.profile) {
+		const currentPath = $page.url.pathname;
+		const isProtectedRoute = PROTECTED_ROUTES.some((route) => currentPath.startsWith(route));
 
-          const currentPath = $page.url.pathname;
-          const userIsLoggedIn = !!session?.user;
+		// If the user is on a protected route, check their permissions.
+		if (isProtectedRoute) {
+			const hasAccess = hasAccessToRoute(currentPath, $authStore.profile);
+			if (!hasAccess) {
+				console.warn(
+					`[Permission Guard] Access denied to "${currentPath}" for user with role "${$authStore.profile.role}". Redirecting to dashboard.`
+				);
+				goto('/dashboard');
+			}
+		}
+	}
 
-          // Only handle navigation for significant auth changes
-          if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'INITIAL_SESSION') {
-            if (!userIsLoggedIn && PROTECTED_ROUTES.some((route) => currentPath.startsWith(route))) {
-              await goto('/');
-              return;
-            }
+	onMount(() => {
+		// Initialize the auth store to fetch user and profile data.
+		authStore.initialize().then(() => {
+			isAuthInitialized = true;
+		});
 
-            if (userIsLoggedIn && PUBLIC_ONLY_ROUTES.includes(currentPath)) {
-              await goto('/dashboard');
-              return;
-            }
+		const {
+			data: { subscription }
+		} = supabase.auth.onAuthStateChange(async (event, session) => {
+			console.log(`Supabase auth event: ${event}`);
+			const currentPath = $page.url.pathname;
+			const userIsLoggedIn = !!session?.user;
 
-            if (userIsLoggedIn && $authStore.profile && PROTECTED_ROUTES.some((route) => currentPath.startsWith(route))) {
-              const hasAccess = $canAccessRoute(currentPath);
-              
-              if (!hasAccess) {
-                console.warn(`Access denied to ${currentPath}. Redirecting to dashboard.`);
-                await goto('/dashboard');
-              }
-            }
-          }
-        } finally {
-          // Reset the processing flag after a short delay
-          setTimeout(() => {
-            isProcessingAuthChange = false;
-          }, 100);
-        }
-      });
+			// --- PRIMARY AUTHENTICATION GUARD ---
+			// This handles the basic login/logout state.
 
-      authSubscription = subscription;
-    };
+			// 1. If user is NOT logged in, redirect them from any protected page to the homepage.
+			if (!userIsLoggedIn && PROTECTED_ROUTES.some((route) => currentPath.startsWith(route))) {
+				console.log('[Auth Guard] User not logged in. Redirecting to home.');
+				await goto('/');
+				return;
+			}
 
-    setupAuthSubscription();
+			// 2. If user IS logged in, redirect them from public-only pages to the dashboard.
+			if (userIsLoggedIn && PUBLIC_ONLY_ROUTES.includes(currentPath)) {
+				console.log('[Auth Guard] User is logged in. Redirecting to dashboard.');
+				await goto('/dashboard');
+				return;
+			}
+		});
 
-    // Cleanup - return synchronous function
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (authSubscription) {
-        authSubscription.unsubscribe();
-      }
-    };
-  });
+		authSubscription = subscription;
+
+		return () => {
+			if (authSubscription) {
+				authSubscription.unsubscribe();
+			}
+		};
+	});
 </script>
 
 {#if !isAuthInitialized}
-  <div class="flex h-screen bg-gray1 items-center justify-center">
-    <div class="text-center">
-      <div class="w-16 h-16 border-4 border-lime border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-      <p class="text-gray2">Initializing...</p>
-    </div>
-  </div>
+	<div class="flex h-screen bg-gray1 items-center justify-center">
+		<div class="text-center">
+			<div
+				class="w-16 h-16 border-4 border-lime border-t-transparent rounded-full animate-spin mx-auto mb-4"
+			></div>
+			<p class="text-gray2">Initializing...</p>
+		</div>
+	</div>
 {:else}
-  <slot />
+	<slot />
 {/if}

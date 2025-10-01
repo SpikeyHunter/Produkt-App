@@ -2,7 +2,6 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { EventWithTimetable, TimetableEntry } from '$lib/services/eventsService';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
-
 	export let event: EventWithTimetable;
 
 	// --- Component State ---
@@ -25,7 +24,6 @@
 		const allHaveSameStatus = artistEntries.every((entry) => entry.status === firstStatus);
 		return allHaveSameStatus ? firstStatus : null;
 	})();
-
 	// Generate plain text for clipboard
 	$: clipboardText = (() => {
 		if (!event.timetable || event.timetable.length === 0) return '';
@@ -45,7 +43,6 @@
 			.join('\n');
 		return [formattedHeader, ...formattedRows].join('\n');
 	})();
-
 	// Generate HTML for clipboard
 	$: clipboardHtml = (() => {
 		if (!event.timetable || event.timetable.length === 0) return '';
@@ -66,7 +63,6 @@
 		html += `<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 40px;">Length</th>`;
 		html += `<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 225px;">Artist</th>`;
 		html += `</tr></thead><tbody>`;
-
 		event.timetable.forEach((entry) => {
 			const isSpecialEntry = entry.artist === 'DOORS' || entry.artist === 'CURFEW';
 			const colors = isSpecialEntry ? { bg: '#ffffff', text: '#000000' } : getStatusColors(entry.status);
@@ -91,13 +87,11 @@
 			const htmlBlob = new Blob([clipboardHtml], { type: 'text/html' });
 			const textBlob = new Blob([clipboardText], { type: 'text/plain' });
 			const clipboardItem = new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': textBlob });
-			
 			await navigator.clipboard.write([clipboardItem]);
 
 			justCopied = true;
 			popupMessage = 'Set Times copied to clipboard';
 			showPopup = true;
-
 			setTimeout(() => {
 				justCopied = false;
 			}, 2000);
@@ -213,7 +207,7 @@
 
 <PopupNotification bind:show={showPopup} message={popupMessage} variant="navbar" iconType="success" />
 
-<div class="bg-navbar rounded-2xl p-4 transition-all duration-200 group h-60 w-full">
+<div class="bg-navbar rounded-2xl p-4 transition-all duration-200 group h-60 w-full hover:shadow-lg hover:-translate-y-0.5">
 	<div class="flex gap-4 h-full">
 		<div class="w-2/5 flex flex-col flex-shrink-0">
 			<div

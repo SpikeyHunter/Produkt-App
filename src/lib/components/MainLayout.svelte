@@ -5,18 +5,16 @@
 	import { fly } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 	import { logout } from '$lib/stores/auth';
-	import { authStore, permissions } from '$lib/stores/authStore';
+	import { authStore } from '$lib/stores/authStore';
 
 	// Navigation state
 	let isNavExpanded = true;
 	let activeSubMenu: string | null = null;
-
 	// UI state
 	let isLoading = false;
 	let isMounted = false;
 	let playAnimations = false;
 	let navElement: HTMLElement;
-
 	// --- TYPES ---
 	interface SubMenuItem {
 		label: string;
@@ -56,7 +54,6 @@
 			document.removeEventListener('click', handleDocumentClick);
 		};
 	});
-
 	// --- REACTIVITY ---
 	$: ($page.url.pathname, setActiveSubMenuFromRoute($page.url.pathname));
 	$: if (!isNavExpanded) {
@@ -65,77 +62,97 @@
 
 	// Show all menu items but track which ones are accessible
 	$: visibleMenuItems = menuItems;
-
 	// --- DATA ---
 	const icons = {
 		dashboard: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
 		calendar: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`,
 		marketing: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>`,
-		booking: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>`,
+		booking: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 
+1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>`,
 		advancing: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>`,
 		production: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>`,
-		dataEditor: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14,2 14,8 20,8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10,9 9,9 8,9"></polyline></svg>`,
-		settings: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
+		dataEditor: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 
+2-2V8z"></path><polyline points="14,2 14,8 20,8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10,9 9,9 8,9"></polyline></svg>`,
+		settings: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 
+0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 
+0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
 		arrow: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`,
 		logout: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>`,
 		toggle: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>`
 	};
-
 	const menuItems: MenuItem[] = [
 		{ id: 'dashboard', label: 'Dashboard', icon: icons.dashboard, route: '/dashboard', subItems: [] },
-		{ id: 'calendar', label: 'Calendar', icon: icons.calendar, route: '/calendar', subItems: [] },
+		{
+			id: 'calendar',
+			label: 'Calendar',
+			icon: icons.calendar,
+			route: '/calendar',
+			subItems: [],
+			requiredPermission: 'Admin'
+		},
 		{
 			id: 'marketing',
 			label: 'Marketing',
 			icon: icons.marketing,
 			requiredPermission: 'Marketing',
-			subItems: [
-				{ label: 'Events Info', route: '/marketing/eventsinfo' }
-			]
+			subItems: [{ label: 'Events Info', route: '/marketing/eventsinfo' }]
 		},
 		{
 			id: 'booking',
 			label: 'Booking',
 			icon: icons.booking,
 			requiredPermission: 'Booking',
-			subItems: [
-				{ label: 'Set Times', route: '/booking/settimes' }
-			]
+			subItems: [{ label: 'Set Times', route: '/booking/settimes' }]
 		},
 		{
 			id: 'advancing',
 			label: 'Advancing',
 			icon: icons.advancing,
 			requiredPermission: 'Advance',
-			subItems: [
-				{ label: 'Advance Gathered', route: '/advancing/gathered' }
-			]
+			subItems: [{ label: 'Advance Gathered', route: '/advancing/gathered' }]
 		},
 		{
 			id: 'production',
 			label: 'Production',
 			icon: icons.production,
 			requiredPermission: 'Production',
-			subItems: [
-				{ label: 'Backline', route: '/production/backline' }
-			]
+			subItems: [{ label: 'Backline', route: '/production/backline' }]
 		}
 	];
-
 	// --- FUNCTIONS ---
-	function hasMenuItemAccess(item: MenuItem): boolean {
-		// Admin can see everything
-		if ($permissions.isAdmin) return true;
-		
-		// Dashboard and Calendar are always visible
-		if (item.id === 'dashboard' || item.id === 'calendar') return true;
-		
-		// Check permission for other items
-		if (item.requiredPermission) {
-			return $permissions.hasPermission(item.requiredPermission);
+	/**
+	 * NEW: Checks menu item access directly against the user profile.
+	 * This makes the check reactive to the profile loading.
+	 */
+	function hasMenuItemAccess(item: MenuItem, profile: any): boolean {
+		// If the profile is not yet loaded, only allow dashboard access.
+		if (!profile) {
+			return item.id === 'dashboard';
 		}
-		
-		return true;
+
+		// Admins can access everything.
+		if (profile.role === 'Admin') {
+			return true;
+		}
+
+		// Dashboard is always visible for any logged-in user.
+		if (item.id === 'dashboard') {
+			return true;
+		}
+
+		// Check for a required permission on the menu item.
+		if (item.requiredPermission) {
+			// Special case for 'Admin' permission
+			if (item.requiredPermission === 'Admin') {
+				return profile.role === 'Admin';
+			}
+			// Check against the user's permissions array.
+			const userPermissions = [profile.main_permission, ...(profile.secondary_permission || [])];
+			return userPermissions.includes(item.requiredPermission);
+		}
+
+		// If an item has no requiredPermission, deny access by default for security.
+		return false;
 	}
 
 	function toggleNav() {
@@ -144,9 +161,10 @@
 	}
 
 	function handleMenuClick(item: MenuItem) {
-		// Check if user has access
-		if (!hasMenuItemAccess(item)) {
-			return; // Blocked
+		// The `disabled` attribute on the button already prevents clicks,
+		// but this is an extra layer of safety.
+		if (!hasMenuItemAccess(item, $authStore.profile)) {
+			return;
 		}
 
 		if (item.route) {
@@ -182,8 +200,10 @@
 
 	function setActiveSubMenuFromRoute(pathname: string) {
 		if (!isNavExpanded || !visibleMenuItems || visibleMenuItems.length === 0) return;
-		const activeParent = visibleMenuItems.find((item) =>
-			item.subItems.some((sub) => pathname.startsWith(sub.route)) && hasMenuItemAccess(item)
+		const activeParent = visibleMenuItems.find(
+			(item) =>
+				item.subItems.some((sub) => pathname.startsWith(sub.route)) &&
+				hasMenuItemAccess(item, $authStore.profile)
 		);
 		activeSubMenu = activeParent ? activeParent.id : null;
 	}
@@ -200,10 +220,12 @@
 
 <div class="flex h-screen bg-gray1 text-white font-sans">
 	{#if !$authStore.isInitialized}
-		<!-- Loading state while auth initializes -->
+		<!-- This loading state shows while the session is checked -->
 		<div class="flex-1 flex items-center justify-center">
 			<div class="text-center">
-				<div class="w-16 h-16 border-4 border-lime border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+				<div
+					class="w-16 h-16 border-4 border-lime border-t-transparent rounded-full animate-spin mx-auto mb-4"
+				></div>
 				<p class="text-gray2">Loading...</p>
 			</div>
 		</div>
@@ -228,8 +250,9 @@
 				</div>
 				<div class="flex-1 nav-scroll-area flex flex-col">
 					<div class="flex-grow">
+						<!-- UPDATED: Pass $authStore.profile to the access checker -->
 						{#each visibleMenuItems as item, i (item.id)}
-							{@const hasAccess = hasMenuItemAccess(item)}
+							{@const hasAccess = hasMenuItemAccess(item, $authStore.profile)}
 							<div
 								class="nav-item-container"
 								in:fly={playAnimations
@@ -249,7 +272,11 @@
 									<span class="icon">{@html item.icon}</span>
 									<span class="label">{item.label}</span>
 									{#if item.subItems.length > 0}
-										<span class="arrow" class:rotated={activeSubMenu === item.id && hasAccess} class:blocked={!hasAccess}>
+										<span
+											class="arrow"
+											class:rotated={activeSubMenu === item.id && hasAccess}
+											class:blocked={!hasAccess}
+										>
 											{@html icons.arrow}
 										</span>
 									{/if}
@@ -288,17 +315,26 @@
 					</div>
 					<div class="mt-auto">
 						<div class="nav-separator"></div>
+						<!-- UPDATED: Settings button logic now directly uses the profile -->
 						<div
 							class="nav-item-container"
 							in:fly={playAnimations
-								? { y: 20, duration: 400, delay: (visibleMenuItems.length + 1) * 50 + 200, easing: quintOut }
+								? {
+										y: 20,
+										duration: 400,
+										delay: (visibleMenuItems.length + 1) * 50 + 200,
+										easing: quintOut
+									}
 								: { duration: 0 }}
 						>
 							<button
 								type="button"
 								class="nav-button"
-								class:active={$page.url.pathname.startsWith('/settings')}
+								class:active={$page.url.pathname.startsWith('/settings') &&
+									$authStore.profile?.role === 'Admin'}
+								class:blocked={!($authStore.profile?.role === 'Admin')}
 								on:click={() => navigateToRoute('/settings')}
+								disabled={!($authStore.profile?.role === 'Admin')}
 							>
 								<span class="icon">{@html icons.settings}</span>
 								<span class="label">Settings</span>
@@ -307,7 +343,12 @@
 						<div
 							class="nav-item-container"
 							in:fly={playAnimations
-								? { y: 20, duration: 400, delay: (visibleMenuItems.length + 2) * 50 + 200, easing: quintOut }
+								? {
+										y: 20,
+										duration: 400,
+										delay: (visibleMenuItems.length + 2) * 50 + 200,
+										easing: quintOut
+									}
 								: { duration: 0 }}
 						>
 							<button type="button" class="nav-button" on:click={handleLogout} disabled={isLoading}>
@@ -573,3 +614,4 @@
 		background: transparent;
 	}
 </style>
+

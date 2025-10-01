@@ -13,7 +13,6 @@
 		event_venue: null,
 		rider_files: null
 	};
-
 	const dispatch = createEventDispatcher();
 
 	// Helper function to parse JSON
@@ -35,7 +34,6 @@
 		const eventIdStr = String(eventId);
 		
 		let dateStr = null;
-		
 		if (eventIdStr.startsWith('90') && eventIdStr.length === 10) {
 			dateStr = eventIdStr.substring(2);
 		} else if (eventIdStr.startsWith('1') && eventIdStr.length === 9) {
@@ -106,13 +104,11 @@
 		
 		return 'TBD';
 	})();
-
 	// Check if tech rider URL exists
 	$: techRiderUrl = (() => {
 		const riderFiles = parseJson(event.rider_files);
 		return riderFiles?.tech_rider_url || null;
 	})();
-
 	// Parse tech rider and create backline list
 	$: backlineItems = (() => {
 		const techRider = parseJson(event.tech_rider);
@@ -148,7 +144,6 @@
 				items.push({ name: display, type: 'mic' });
 			}
 		});
-
 		// Add everything else
 		Object.entries(techRider.equipment).forEach(([key, value]) => {
 			if (value.selected && 
@@ -159,7 +154,6 @@
 				items.push({ name: display, type: 'other' });
 			}
 		});
-
 		return items;
 	})();
 
@@ -207,7 +201,6 @@
 		if (techRiderUrl) {
 			// Generate formatted filename with date, venue, and artist
 			let formattedFileName = '';
-			
 			// Format the date if available
 			if (event.event_date) {
 				try {
@@ -230,10 +223,8 @@
 			
 			// Add artist name
 			formattedFileName += formattedFileName ? ` - ${event.artist_name}` : event.artist_name;
-			
 			// Add Tech Rider suffix
 			formattedFileName += ' - Tech Rider.pdf';
-			
 			// Dispatch event to parent to handle modal (so it renders outside card)
 			dispatch('view-rider', {
 				fileUrl: techRiderUrl,
@@ -252,9 +243,8 @@
 	const randomGradient = limeGradients[Math.floor(Math.random() * limeGradients.length)];
 </script>
 
-<div class="bg-navbar rounded-2xl p-4 transition-all duration-200 hover:shadow-lg group h-[255px]">
+<div class="bg-navbar rounded-2xl p-4 transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 group h-[255px]">
 	<div class="flex gap-4 h-full">
-		<!-- Left Column: Poster + Date -->
 		<div class="w-1/3 flex flex-col flex-shrink-0">
 			<div
 				class="w-full h-46 rounded-xl {event.poster ? 'bg-gray-900' : `bg-gradient-to-br ${randomGradient}`} flex items-center justify-center relative overflow-hidden flex-shrink-0"
@@ -282,9 +272,7 @@
 			</div>
 		</div>
 
-		<!-- Right Column: Artist Info + Backline and SFX -->
 		<div class="w-2/3 flex flex-col min-w-0 overflow-hidden h-full">
-			<!-- Header with Artist Name and Tech Rider Button -->
 			<div class="flex items-start justify-between mb-2">
 				<div class="flex-1 min-w-0 pr-2">
 					<h3 class="text-white text-lg font-bold truncate leading-tight">{event.artist_name}</h3>
@@ -316,9 +304,7 @@
 				{/if}
 			</div>
 
-			<!-- Scrollable Content Area with Lime Scrollbar -->
 			<div class="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 custom-scrollbar">
-				<!-- Backline Confirmed Section -->
 				<div>
 					<h4 class="text-white text-sm font-bold mb-1.5">Backline Confirmed:</h4>
 					{#if backlineItems.length > 0}
@@ -335,7 +321,6 @@
 					{/if}
 				</div>
 
-				<!-- SFX Confirmed Section -->
 				<div>
 					<h4 class="text-white text-sm font-bold mb-1.5">SFX Confirmed:</h4>
 					{#if sfxItems.length > 0}
