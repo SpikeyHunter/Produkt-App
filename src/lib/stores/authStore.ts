@@ -1,5 +1,5 @@
 // src/lib/stores/authStore.ts
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import { supabase } from '$lib/supabase';
 import type { User } from '@supabase/supabase-js';
 
@@ -30,9 +30,26 @@ function createAuthStore() {
 		isInitialized: false
 	});
 
-	// Fetch user profile from database
-	async function fetchProfile(userId: string): Promise<UserProfile | null> {
+	let authChangeSubscription: any = null;
+	let lastProcessedUserId: string | null = null;
+
+	// Cache for user profile to avoid repeated fetches
+	const profileCache = new Map<string, { profile: UserProfile; timestamp: number }>();
+	const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+	// Fetch user profile from database with caching
+	async function fetchProfile(userId: string, forceRefresh = false): Promise<UserProfile | null> {
+		// Check cache first
+		if (!forceRefresh) {
+			const cached = profileCache.get(userId);
+			if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+				console.log('Using cached profile for user:', userId);
+				return cached.profile;
+			}
+		}
+
 		try {
+			console.log('Fetching profile for user:', userId);
 			const { data, error } = await supabase
 				.from('user_profiles')
 				.select('id, email, first_name, last_name, role, main_permission, secondary_permission, created_at, updated_at')
@@ -44,6 +61,11 @@ function createAuthStore() {
 				return null;
 			}
 
+			// Update cache
+			if (data) {
+				profileCache.set(userId, { profile: data, timestamp: Date.now() });
+			}
+
 			return data;
 		} catch (error) {
 			console.error('Error in fetchProfile:', error);
@@ -53,11 +75,19 @@ function createAuthStore() {
 
 	// Initialize auth state
 	async function initialize() {
+		// Prevent re-initialization
+		const currentState = get({ subscribe });
+		if (currentState.isInitialized) {
+			console.log('Auth already initialized, skipping...');
+			return;
+		}
+
 		try {
 			const { data: { session } } = await supabase.auth.getSession();
 			
 			if (session?.user) {
 				const profile = await fetchProfile(session.user.id);
+				lastProcessedUserId = session.user.id;
 				set({
 					user: session.user,
 					profile,
@@ -73,10 +103,36 @@ function createAuthStore() {
 				});
 			}
 
-			// Listen for auth changes
-			supabase.auth.onAuthStateChange(async (event, session) => {
+			// Clean up any existing subscription
+			if (authChangeSubscription) {
+				authChangeSubscription.unsubscribe();
+			}
+
+			// Listen for auth changes with debouncing
+			const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+				console.log('Auth state change event:', event);
+
+				// Skip token refresh events if user hasn't changed
+				if (event === 'TOKEN_REFRESHED' && session?.user?.id === lastProcessedUserId) {
+					console.log('Token refreshed for same user, updating user object only');
+					update(state => ({ ...state, user: session.user }));
+					return;
+				}
+
+				// Skip if we're processing the same user again (except for SIGNED_OUT)
+				if (event !== 'SIGNED_OUT' && session?.user?.id === lastProcessedUserId) {
+					console.log('Same user, skipping profile fetch');
+					return;
+				}
+
 				if (session?.user) {
-					const profile = await fetchProfile(session.user.id);
+					// Only fetch profile if user changed
+					const shouldFetchProfile = session.user.id !== lastProcessedUserId;
+					const profile = shouldFetchProfile 
+						? await fetchProfile(session.user.id)
+						: get({ subscribe }).profile;
+					
+					lastProcessedUserId = session.user.id;
 					set({
 						user: session.user,
 						profile,
@@ -84,6 +140,8 @@ function createAuthStore() {
 						isInitialized: true
 					});
 				} else {
+					lastProcessedUserId = null;
+					profileCache.clear(); // Clear cache on logout
 					set({
 						user: null,
 						profile: null,
@@ -92,6 +150,8 @@ function createAuthStore() {
 					});
 				}
 			});
+
+			authChangeSubscription = subscription;
 		} catch (error) {
 			console.error('Error initializing auth:', error);
 			set({
@@ -103,23 +163,36 @@ function createAuthStore() {
 		}
 	}
 
-	// Refresh profile data
+	// Refresh profile data (forces cache refresh)
 	async function refreshProfile() {
-		update(state => {
-			if (!state.user) return state;
-			
-			fetchProfile(state.user.id).then(profile => {
-				update(s => ({ ...s, profile }));
-			});
-			
-			return state;
-		});
+		const state = get({ subscribe });
+		if (!state.user) return;
+
+		update(s => ({ ...s, isLoading: true }));
+		
+		try {
+			const profile = await fetchProfile(state.user.id, true);
+			update(s => ({ ...s, profile, isLoading: false }));
+		} catch (error) {
+			console.error('Error refreshing profile:', error);
+			update(s => ({ ...s, isLoading: false }));
+		}
+	}
+
+	// Cleanup function
+	function cleanup() {
+		if (authChangeSubscription) {
+			authChangeSubscription.unsubscribe();
+			authChangeSubscription = null;
+		}
+		profileCache.clear();
 	}
 
 	return {
 		subscribe,
 		initialize,
-		refreshProfile
+		refreshProfile,
+		cleanup
 	};
 }
 
