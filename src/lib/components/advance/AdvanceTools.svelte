@@ -199,7 +199,7 @@
 </script>
 
 <div
-	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300 w-40 h-[405px]"
+	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300 w-40 h-[365px]"
 >
 	<div class="flex items-center justify-between px-4 py-3 border-b border-gray1">
 		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Tools</h2>
