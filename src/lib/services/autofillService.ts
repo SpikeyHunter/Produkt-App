@@ -165,6 +165,35 @@ function convertTo24Hour(timeStr: string): string {
 	return `${hours.toString().padStart(2, '0')}:${(minutes || 0).toString().padStart(2, '0')}`;
 }
 
+/**
+ * Parse ISO time string and extract local time components without timezone conversion.
+ * Handles both formats: "2025-10-04T18:09:00.000Z" and "2025-10-04T20:28-04:00"
+ */
+function parseISOToLocalComponents(isoString: string): { date: string; time: string } {
+	// Check if it has timezone offset (like -04:00 or +00:00) or ends with Z
+	const hasTimezone = isoString.includes('-', 10) || isoString.includes('+', 10) || isoString.endsWith('Z');
+	
+	if (hasTimezone) {
+		// Has timezone - parse the literal string components before timezone
+		const parts = isoString.split('T');
+		const date = parts[0]; // "2025-10-04"
+		const timePart = parts[1].split(/[-+Z]/)[0]; // "20:28" from "20:28-04:00" or "18:09:00.000" from "18:09:00.000Z"
+		const [hours, minutes] = timePart.split(':').map(s => parseInt(s));
+		const time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+		
+		return { date, time };
+	} else {
+		// No timezone - treat as local time
+		const parts = isoString.split('T');
+		const date = parts[0];
+		const timePart = parts[1].split('.')[0]; // Remove milliseconds if present
+		const [hours, minutes] = timePart.split(':').map(s => parseInt(s));
+		const time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+		
+		return { date, time };
+	}
+}
+
 // --- PARSING FUNCTIONS (Largely unchanged) ---
 
 function parseHotelInfo(
@@ -244,13 +273,79 @@ function getDriverAssignments(
 	};
 }
 
+// --- CONTACT MATCHING LOGIC ---
+
+/**
+ * Parses contact info and matches phone numbers to passenger names
+ * Format: "Alex - 323 675-4000 Chris - 323 362-3874"
+ */
+function parseContactInfo(contactString: string): Map<string, string> {
+	const contactMap = new Map<string, string>();
+	if (!contactString) return contactMap;
+
+	// Split by pattern: name followed by dash and phone number
+	// This handles formats like "Alex - 323 675-4000 Chris - 323 362-3874‬"
+	const parts = contactString.split(/\s+(?=[A-Z][a-z]+\s*-)/);
+	
+	for (const part of parts) {
+		const trimmed = part.trim();
+		if (!trimmed) continue;
+		
+		// Extract name and phone from "Name - Phone" format
+		const dashIndex = trimmed.indexOf(' -');
+		if (dashIndex > 0) {
+			const name = trimmed.substring(0, dashIndex).trim();
+			const phone = trimmed.substring(dashIndex + 2).trim();
+			contactMap.set(name.toLowerCase(), `${name} - ${phone}`);
+		}
+	}
+	
+	return contactMap;
+}
+
+/**
+ * Gets relevant contact info for specific passengers (first names only)
+ * If only one contact or can't match, returns all contacts
+ */
+function getContactForPassengers(paxFirstNames: string[], mainContact: string): string {
+	if (!mainContact) return '';
+	
+	const contactMap = parseContactInfo(mainContact);
+	
+	// If no contacts parsed or only one contact, return everything
+	if (contactMap.size <= 1) return mainContact;
+	
+	// Try to match passengers to contacts
+	const matchedContacts: string[] = [];
+	
+	for (const firstName of paxFirstNames) {
+		const lowerFirstName = firstName.toLowerCase();
+		
+		// Try exact match first
+		if (contactMap.has(lowerFirstName)) {
+			matchedContacts.push(contactMap.get(lowerFirstName)!);
+		} else {
+			// Try partial match (in case of nicknames)
+			for (const [contactName, contactInfo] of contactMap.entries()) {
+				if (contactName.includes(lowerFirstName) || lowerFirstName.includes(contactName)) {
+					matchedContacts.push(contactInfo);
+					break;
+				}
+			}
+		}
+	}
+	
+	// If we found matches, use them; otherwise return all contacts
+	return matchedContacts.length > 0 ? matchedContacts.join(' ') : mainContact;
+}
+
 // --- REFACTORED AUTO-FILL LOGIC ---
 
 export function autofillData(event: EventForAutofill): CalendarEntry[] {
 	console.log(`Autofilling ground transport data for: ${event.artist_name || 'Unknown Artist'}`);
 
 	const generatedEntries: CalendarEntry[] = [];
-	const contactInfo = event.main_contact || '';
+	const mainContactInfo = event.main_contact || '';
 	const hotelName = parseHotelInfo(event.hotel_info);
 	const roleData = parseRoles(event.roles);
 	const eventDateStr = event.event_date || new Date().toISOString().split('T')[0];
@@ -262,41 +357,38 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 
 		// Process Arrivals
 		(groundInfo.arrivals || []).forEach((flight) => {
-			// Correctly parse the full ISO string with timezone
-			const arrivalDate = new Date(flight.time);
-
-			// Get the local date and time from the Date object
-			const flightDate = arrivalDate.toISOString().split('T')[0];
-			const pickupTime = arrivalDate.toTimeString().substring(0, 5); // e.g., "16:33"
+			// Use new parsing function to get local date/time components
+			const { date: flightDate, time: pickupTime } = parseISOToLocalComponents(flight.time);
 
 			const dropoffTime = minutesToTime(timeToMinutes(pickupTime) + 30);
 			const pax = flight.assignedRoles.map((name) => name.split(' ')[0]);
 			const driverAssignment = getDriverAssignments(pax.length, [], pax);
+
+			// Get smart contact info - extract first names from full names in assignedRoles
+			const firstNames = flight.assignedRoles.map((fullName) => fullName.split(' ')[0]);
+			const contactForFlight = getContactForPassengers(firstNames, mainContactInfo);
 
 			const entry: CalendarEntry = {
 				id: Date.now() + Math.random(),
 				date: flightDate,
 				type: 'Arrival',
 				driverName: driverAssignment.car1Driver,
-				pickupTime, // This will now be the correct "16:33"
+				pickupTime,
 				pickupLocation: 'Airport',
 				dropoffTime,
 				dropoffLocation: hotelName,
 				paxNames: driverAssignment.car1Passengers,
 				flightInfo: `${flight.from}>${flight.to} ${flight.flightNumber}`,
-				contact: contactInfo
+				contact: contactForFlight
 			};
 			generatedEntries.push(entry);
 		});
 
 		// Process Departures
 		(groundInfo.departures || []).forEach((flight) => {
-			// Correctly parse the full ISO string with timezone
-			const departureDate = new Date(flight.time);
-
-			// Get the local date and calculate minutes from the Date object
-			const flightDate = departureDate.toISOString().split('T')[0];
-			const departureTimeMinutes = departureDate.getHours() * 60 + departureDate.getMinutes();
+			// Use new parsing function to get local date/time components
+			const { date: flightDate, time: departureTime } = parseISOToLocalComponents(flight.time);
+			const departureTimeMinutes = timeToMinutes(departureTime);
 
 			const hoursBefore = flight.hoursBeforeDeparture || 2;
 			const totalMinutesToSubtract = hoursBefore * 60 + 30; // hours + 30 min drive
@@ -304,11 +396,15 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 			const pickupMinutes = departureTimeMinutes - totalMinutesToSubtract;
 			const roundedPickupMinutes = roundMinutesToNearest15(pickupMinutes);
 
-			const pickupTime = minutesToTime(roundedPickupMinutes); // This calculation remains correct
+			const pickupTime = minutesToTime(roundedPickupMinutes);
 			const dropoffTime = minutesToTime(roundedPickupMinutes + 30);
 
 			const pax = flight.assignedRoles.map((name) => name.split(' ')[0]);
 			const driverAssignment = getDriverAssignments(pax.length, [], pax);
+
+			// Get smart contact info - extract first names from full names in assignedRoles
+			const firstNames = flight.assignedRoles.map((fullName) => fullName.split(' ')[0]);
+			const contactForFlight = getContactForPassengers(firstNames, mainContactInfo);
 
 			const entry: CalendarEntry = {
 				id: Date.now() + Math.random(),
@@ -321,8 +417,8 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 				dropoffLocation: 'Airport',
 				paxNames: driverAssignment.car1Passengers,
 				flightInfo: `${flight.from}>${flight.to} ${flight.flightNumber}`,
-				contact: contactInfo,
-				flightDepartureTime: departureDate.toTimeString().substring(0, 5) // "19:15"
+				contact: contactForFlight,
+				flightDepartureTime: departureTime
 			};
 			generatedEntries.push(entry);
 		});
@@ -344,6 +440,13 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 			const scPickupMinutes = timeToMinutes(soundcheckInfo.start_time) - 15;
 			const scPickupTime = minutesToTime(roundMinutesToNearest15(scPickupMinutes));
 
+			// Get all passenger names for contact matching
+			const allPaxNames = [...roleData.artistAndManager, ...roleData.crew];
+			const contactForSoundcheck = getContactForPassengers(
+				allPaxNames.map(name => name), // Convert first names to full match attempt
+				mainContactInfo
+			);
+
 			generatedEntries.push({
 				id: Date.now() + Math.random(),
 				date: eventDateStr,
@@ -355,7 +458,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 				dropoffLocation: 'NCG',
 				paxNames: driverAssignment.car1Passengers,
 				flightInfo: '',
-				contact: contactInfo
+				contact: contactForSoundcheck
 			});
 
 			// Post-Soundcheck pickup
@@ -370,7 +473,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 				dropoffLocation: hotelName,
 				paxNames: driverAssignment.car1Passengers,
 				flightInfo: '',
-				contact: contactInfo
+				contact: contactForSoundcheck
 			});
 
 			// FIXED: Check for both car2Driver and car2Passengers
@@ -387,7 +490,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 						dropoffLocation: 'NCG',
 						paxNames: driverAssignment.car2Passengers,
 						flightInfo: '',
-						contact: contactInfo
+						contact: contactForSoundcheck
 					},
 					{
 						id: Date.now() + Math.random(),
@@ -400,7 +503,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 						dropoffLocation: hotelName,
 						paxNames: driverAssignment.car2Passengers,
 						flightInfo: '',
-						contact: contactInfo
+						contact: contactForSoundcheck
 					}
 				);
 			}
@@ -455,6 +558,10 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 				roleData.crew
 			);
 
+			// Get all passenger names for contact matching
+			const allPaxNames = [...roleData.artistAndManager, ...roleData.crew];
+			const contactForShow = getContactForPassengers(allPaxNames, mainContactInfo);
+
 			// Add "Show" entry
 			generatedEntries.push({
 				id: Date.now() + Math.random(),
@@ -467,7 +574,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 				dropoffLocation: 'NCG',
 				paxNames: driverAssignment.car1Passengers,
 				flightInfo: '',
-				contact: contactInfo
+				contact: contactForShow
 			});
 
 			// Add "Post Show" entry
@@ -482,7 +589,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 				dropoffLocation: hotelName,
 				paxNames: driverAssignment.car1Passengers,
 				flightInfo: '',
-				contact: contactInfo
+				contact: contactForShow
 			});
 
 			// FIXED: Check for both car2Driver and car2Passengers
@@ -499,7 +606,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 						dropoffLocation: 'NCG',
 						paxNames: driverAssignment.car2Passengers,
 						flightInfo: '',
-						contact: contactInfo
+						contact: contactForShow
 					},
 					{
 						id: Date.now() + Math.random(),
@@ -512,7 +619,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 						dropoffLocation: hotelName,
 						paxNames: driverAssignment.car2Passengers,
 						flightInfo: '',
-						contact: contactInfo
+						contact: contactForShow
 					}
 				);
 			}

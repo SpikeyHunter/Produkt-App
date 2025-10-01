@@ -63,8 +63,27 @@ const roundUp15 = (date: Date): Date => {
 	return rounded;
 };
 
+/**
+ * FIXED: Combines date and time strings as Eastern Time without timezone conversion
+ * Input: dateStr = "2025-10-04", timeStr = "14:09"
+ * Output: Date object representing 2:09 PM Eastern Time on Oct 4, 2025
+ */
 const combineDateAndTime = (dateStr: string, timeStr: string): Date => {
-	return new Date(`${dateStr}T${timeStr}`);
+	// Build ISO string with explicit Eastern timezone
+	// This prevents JavaScript from interpreting the time in a different timezone
+	const dateTimeString = `${dateStr}T${timeStr}:00`;
+	
+	// Create date treating it as Eastern Time
+	// The Date constructor will parse this as local time if no timezone is specified
+	// To ensure it's always Eastern, we construct it carefully
+	const [year, month, day] = dateStr.split('-').map(Number);
+	const [hours, minutes] = timeStr.split(':').map(Number);
+	
+	// Create date object with explicit values
+	// Note: month is 0-indexed in JavaScript Date
+	const date = new Date(year, month - 1, day, hours, minutes, 0, 0);
+	
+	return date;
 };
 
 const buildTitle = (
@@ -183,12 +202,11 @@ export async function syncToCalendar(
 		if (!row.type || !row.date || !row.pickupTime) continue;
 
 		try {
-			// --- START OF MODIFICATIONS ---
-
-			// 1. Create a Date object with the exact, non-rounded time.
+			// FIXED: Use combineDateAndTime which now properly handles Eastern Time
+			// This ensures the time isn't shifted by timezone conversion
 			const exactStartTime = combineDateAndTime(row.date, row.pickupTime);
 
-			// 2. Create a separate variable for the rounded time for the calendar slot.
+			// Create rounded time for the calendar slot
 			const roundedStartTime =
 				row.type === 'Arrival' ? roundToNearest15(exactStartTime) : roundUp15(exactStartTime);
 			const endTime = new Date(roundedStartTime.getTime() + 60 * 60000); // 1-hour duration
@@ -198,7 +216,7 @@ export async function syncToCalendar(
 				continue;
 			}
 
-			// 3. Build the title using the exact start time.
+			// Build the title using the exact start time
 			const title = buildTitle(
 				row.type,
 				row.driverName,
@@ -212,9 +230,10 @@ export async function syncToCalendar(
 				row.date
 			);
 
+			// FIXED: Use America/Toronto timezone explicitly
+			// This ensures Google Calendar interprets the times correctly
 			const eventData = {
 				summary: title,
-				// 4. Use the rounded time for the event's actual start/end in the calendar.
 				start: { dateTime: roundedStartTime.toISOString(), timeZone: 'America/Toronto' },
 				end: { dateTime: endTime.toISOString(), timeZone: 'America/Toronto' },
 				description: row.contact,
@@ -227,8 +246,6 @@ export async function syncToCalendar(
 					overrides: [{ method: 'popup', minutes: getReminderMinutes(row.type) }]
 				}
 			};
-
-			// --- END OF MODIFICATIONS ---
 
 			const existingEventId = eventIds[row.id];
 

@@ -11,7 +11,7 @@
 
 	export let isOpen = false;
 	export let event: EventAdvance;
-	
+
 	$: artistName = event ? event.artist_name : 'Artist Name';
 	$: roles = event?.roles
 		? typeof event.roles === 'string'
@@ -30,16 +30,16 @@
 
 	async function toggleFlightsEnabled() {
 		if (isSaving) return;
-		
+
 		isSaving = true;
 		try {
 			const newFlightsEnabled = !flightsEnabled;
 			await updateEventAdvance(event.event_id, event.artist_name, {
 				flights_enabled: newFlightsEnabled
 			});
-			
+
 			event = { ...event, flights_enabled: newFlightsEnabled };
-			
+
 			console.log(`Flights enabled toggled to: ${newFlightsEnabled}`);
 		} catch (error) {
 			console.error('Failed to toggle flights enabled:', error);
@@ -90,14 +90,19 @@
 					info = {};
 				}
 			}
-			const loadedArrivals = Array.isArray(info.arrivals) ? JSON.parse(JSON.stringify(info.arrivals)) : [];
-			const loadedDepartures = Array.isArray(info.departures) ? JSON.parse(JSON.stringify(info.departures)) : [];
+			const loadedArrivals = Array.isArray(info.arrivals)
+				? JSON.parse(JSON.stringify(info.arrivals))
+				: [];
+			const loadedDepartures = Array.isArray(info.departures)
+				? JSON.parse(JSON.stringify(info.departures))
+				: [];
 			arrivals = loadedArrivals.map((flight: Flight) => ({
 				...flight,
 				assignedRoles: flight.assignedRoles?.length ? flight.assignedRoles : [...roleNames]
 			}));
 			departures = loadedDepartures.map((flight: Flight) => {
-				const hours = flight.hoursBeforeDeparture || getDefaultHoursBeforeDeparture(flight.from, flight.to);
+				const hours =
+					flight.hoursBeforeDeparture || getDefaultHoursBeforeDeparture(flight.from, flight.to);
 				return {
 					...flight,
 					hoursBeforeDeparture: hours,
@@ -120,14 +125,17 @@
 	}
 
 	function addManualFlight(type: 'arrival' | 'departure') {
-		const defaultDate = event.event_date ? new Date(event.event_date + 'T12:00:00') : new Date();
+		const defaultDate = event.event_date
+			? event.event_date
+			: new Date().toISOString().split('T')[0];
+		const defaultTime = '12:00';
 
 		const newFlightBase = {
 			id: Date.now(),
 			flightNumber: '',
 			from: '',
 			to: '',
-			time: defaultDate.toISOString(),
+			time: toEasternISO(defaultDate, defaultTime),
 			assignedRoles: [...roleNames],
 			isEditable: true
 		};
@@ -135,19 +143,36 @@
 		if (type === 'arrival') {
 			const newArrival: Flight = {
 				...newFlightBase,
-				date: defaultDate.toISOString().split('T')[0]
+				date: defaultDate
 			};
 			arrivals = [newArrival, ...arrivals];
 		} else {
 			const hours = 3;
 			const newDeparture: Flight = {
 				...newFlightBase,
-				date: defaultDate.toISOString().split('T')[0],
+				date: defaultDate,
 				hoursBeforeDeparture: hours,
 				timeAtAirport: calculateTimeAtAirport(newFlightBase.time, hours)
 			};
 			departures = [newDeparture, ...departures];
 		}
+	}
+	function isDaylightSavingTime(date: Date): boolean {
+		const year = date.getFullYear();
+		const marchStart = new Date(year, 2, 1);
+		const daysUntilSunday = (7 - marchStart.getDay()) % 7;
+		const dstStart = new Date(year, 2, 8 + daysUntilSunday, 2, 0, 0);
+		const novStart = new Date(year, 10, 1);
+		const daysUntilSundayNov = (7 - novStart.getDay()) % 7;
+		const dstEnd = new Date(year, 10, 1 + daysUntilSundayNov, 2, 0, 0);
+		return date >= dstStart && date < dstEnd;
+	}
+
+	function toEasternISO(dateStr: string, timeStr: string = '12:00'): string {
+		const dateObj = new Date(dateStr + 'T12:00:00');
+		const isDST = isDaylightSavingTime(dateObj);
+		const offset = isDST ? '-04:00' : '-05:00';
+		return `${dateStr}T${timeStr}:00${offset}`;
 	}
 
 	function getDefaultHoursBeforeDeparture(origin: string, destination: string): number {
@@ -157,10 +182,61 @@
 	}
 
 	function calculateTimeAtAirport(departureTimeISO: string, hoursBeforeDeparture: number): string {
-		const departureDate = new Date(departureTimeISO);
-		const timeAtAirport = subHours(departureDate, hoursBeforeDeparture);
-		const roundedTime = roundToNearestMinutes(timeAtAirport, { nearestTo: 15 });
-		return roundedTime.toISOString();
+		const hasTimezone =
+			departureTimeISO.includes('-', 10) ||
+			departureTimeISO.includes('+', 10) ||
+			departureTimeISO.endsWith('Z');
+
+		let dateStr: string;
+		let timeStr: string;
+
+		if (hasTimezone) {
+			const parts = departureTimeISO.split('T');
+			dateStr = parts[0];
+			const timePart = parts[1].split(/[-+Z]/)[0];
+			const [hours, minutes] = timePart.split(':').map((s) => parseInt(s));
+			timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+		} else {
+			const parts = departureTimeISO.split('T');
+			dateStr = parts[0];
+			const timePart = parts[1].split('.')[0];
+			const [hours, minutes] = timePart.split(':').map((s) => parseInt(s));
+			timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+		}
+
+		const [hours, minutes] = timeStr.split(':').map(Number);
+		const totalMinutes = hours * 60 + minutes;
+		const minutesBeforeDeparture = hoursBeforeDeparture * 60;
+		const airportMinutes = totalMinutes - minutesBeforeDeparture;
+		const roundedMinutes = Math.round(airportMinutes / 15) * 15;
+
+		let finalMinutes = roundedMinutes;
+		let dayOffset = 0;
+
+		if (roundedMinutes < 0) {
+			finalMinutes = roundedMinutes + 24 * 60;
+			dayOffset = -1;
+		} else if (roundedMinutes >= 24 * 60) {
+			finalMinutes = roundedMinutes - 24 * 60;
+			dayOffset = 1;
+		}
+
+		const airportHours = Math.floor(finalMinutes / 60);
+		const airportMins = finalMinutes % 60;
+		const airportTimeStr = `${airportHours.toString().padStart(2, '0')}:${airportMins.toString().padStart(2, '0')}`;
+
+		let finalDate = dateStr;
+		if (dayOffset !== 0) {
+			const date = new Date(dateStr + 'T12:00:00');
+			date.setDate(date.getDate() + dayOffset);
+			finalDate = date.toISOString().split('T')[0];
+		}
+
+		const dateObj = new Date(finalDate + 'T12:00:00');
+		const isDST = isDaylightSavingTime(dateObj);
+		const offset = isDST ? '-04:00' : '-05:00';
+
+		return `${finalDate}T${airportTimeStr}:00${offset}`;
 	}
 
 	function formatHours(hours: number): string {
@@ -345,10 +421,21 @@
 
 	function getISOTimePart(isoString: string) {
 		if (!isoString) return '00:00';
-		const d = new Date(isoString);
-		const hours = String(d.getHours()).padStart(2, '0');
-		const minutes = String(d.getMinutes()).padStart(2, '0');
-		return `${hours}:${minutes}`;
+
+		const hasTimezone =
+			isoString.includes('-', 10) || isoString.includes('+', 10) || isoString.endsWith('Z');
+
+		if (hasTimezone) {
+			const parts = isoString.split('T');
+			const timePart = parts[1].split(/[-+Z]/)[0];
+			const [hours, minutes] = timePart.split(':').map((s) => parseInt(s));
+			return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+		} else {
+			const parts = isoString.split('T');
+			const timePart = parts[1].split('.')[0];
+			const [hours, minutes] = timePart.split(':').map((s) => parseInt(s));
+			return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+		}
 	}
 
 	function updateManualFlightDateTime(
@@ -364,9 +451,10 @@
 		const currentDatePart = getISODatePart(flight.time);
 		const currentTimePart = getISOTimePart(flight.time);
 
-		const newDateTimeString =
-			part === 'date' ? `${value}T${currentTimePart}` : `${currentDatePart}T${value}`;
-		const newIsoTime = new Date(newDateTimeString).toISOString();
+		const newDate = part === 'date' ? value : currentDatePart;
+		const newTime = part === 'time' ? value : currentTimePart;
+
+		const newIsoTime = toEasternISO(newDate, newTime);
 
 		updateFlightInList(flightId, type, (f) => {
 			const updatedFlight = { ...f, time: newIsoTime };
@@ -380,6 +468,7 @@
 		});
 	}
 </script>
+
 <Modal
 	{isOpen}
 	on:close={handleClose}
@@ -415,7 +504,9 @@
 							<DatePicker bind:value={arrivalFlightDate} placeholder="Set Date" />
 						</label>
 						<div>
-							<label for="arrivalFlightNumber" class="text-xs text-gray2 block mt-2 mb-1">Flight Number</label>
+							<label for="arrivalFlightNumber" class="text-xs text-gray2 block mt-2 mb-1"
+								>Flight Number</label
+							>
 							<input
 								type="text"
 								bind:value={arrivalFlightNumber}
@@ -450,8 +541,11 @@
 						<p class="text-gray2 text-sm text-center py-8">No arrival flights detected.</p>
 					{/if}
 					{#each arrivals as flight (flight.id)}
-						{@const availableRoles = roleNames.filter((name: string) => !(flight.assignedRoles || []).includes(name))}
-						{@const inputStyles = 'h-9 w-full bg-navbar border border-gray2/50 text-white text-sm rounded-lg focus:ring-lime focus:border-lime px-3 py-2'}
+						{@const availableRoles = roleNames.filter(
+							(name: string) => !(flight.assignedRoles || []).includes(name)
+						)}
+						{@const inputStyles =
+							'h-9 w-full bg-navbar border border-gray2/50 text-white text-sm rounded-lg focus:ring-lime focus:border-lime px-3 py-2'}
 						<div
 							in:fly={{ y: 10, duration: 200 }}
 							class="p-3 bg-navbar rounded-lg border border-gray2/20 space-y-3"
@@ -467,13 +561,18 @@
 										>
 											<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
 												<polyline points="3 6 5 6 21 6" />
-												<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+												<path
+													d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+												/>
 											</svg>
 										</button>
 									</div>
 									<div class="grid grid-cols-2 gap-2">
 										<div class="col-span-2">
-											<label for="flight-number-arr-{flight.id}" class="text-xs text-gray2 block mb-1">Flight Number</label>
+											<label
+												for="flight-number-arr-{flight.id}"
+												class="text-xs text-gray2 block mb-1">Flight Number</label
+											>
 											<input
 												type="text"
 												bind:value={flight.flightNumber}
@@ -483,7 +582,9 @@
 											/>
 										</div>
 										<div>
-											<label for="from-arr-{flight.id}" class="text-xs text-gray2 block mb-1">From</label>
+											<label for="from-arr-{flight.id}" class="text-xs text-gray2 block mb-1"
+												>From</label
+											>
 											<input
 												type="text"
 												bind:value={flight.from}
@@ -493,7 +594,9 @@
 											/>
 										</div>
 										<div>
-											<label for="to-arr-{flight.id}" class="text-xs text-gray2 block mb-1">To</label>
+											<label for="to-arr-{flight.id}" class="text-xs text-gray2 block mb-1"
+												>To</label
+											>
 											<input
 												type="text"
 												bind:value={flight.to}
@@ -508,17 +611,26 @@
 												<DatePickerCompact
 													height="h-9"
 													value={getISODatePart(flight.time)}
-													on:change={(e) => updateManualFlightDateTime(flight.id, 'date', e.detail, 'arrival')}
+													on:change={(e) =>
+														updateManualFlightDateTime(flight.id, 'date', e.detail, 'arrival')}
 												/>
 											</label>
 										</div>
 										<div>
-											<label for="arr-time-{flight.id}" class="text-xs text-gray2 block mb-1">Arrival Time</label>
+											<label for="arr-time-{flight.id}" class="text-xs text-gray2 block mb-1"
+												>Arrival Time</label
+											>
 											<input
 												type="time"
 												id="arr-time-{flight.id}"
 												value={getISOTimePart(flight.time)}
-												on:input={(e) => updateManualFlightDateTime(flight.id, 'time', e.currentTarget.value, 'arrival')}
+												on:input={(e) =>
+													updateManualFlightDateTime(
+														flight.id,
+														'time',
+														e.currentTarget.value,
+														'arrival'
+													)}
 												class={inputStyles}
 											/>
 										</div>
@@ -529,9 +641,13 @@
 									<div class="flex flex-col gap-1">
 										<div class="font-bold text-white text-lg">{flight.flightNumber}</div>
 										<div class="flex items-center gap-2 text-sm">
-											<span class="font-mono bg-gray2/20 px-2 py-1 rounded text-white">{flight.from}</span>
+											<span class="font-mono bg-gray2/20 px-2 py-1 rounded text-white"
+												>{flight.from}</span
+											>
 											<span class="text-gray2">→</span>
-											<span class="font-mono bg-gray2/20 px-2 py-1 rounded text-white">{flight.to}</span>
+											<span class="font-mono bg-gray2/20 px-2 py-1 rounded text-white"
+												>{flight.to}</span
+											>
 										</div>
 									</div>
 									<button
@@ -541,7 +657,9 @@
 									>
 										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
 											<polyline points="3 6 5 6 21 6" />
-											<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+											<path
+												d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+											/>
 										</svg>
 									</button>
 								</div>
@@ -555,7 +673,9 @@
 								<div class="text-xs text-gray2 mb-2">Assigned People:</div>
 								<div class="flex flex-wrap gap-1 mb-2">
 									{#each flight.assignedRoles || [] as roleName}
-										<span class="inline-flex items-center gap-1.5 px-2 py-1 bg-lime/20 hover:cursor-pointer text-lime text-xs rounded-full">
+										<span
+											class="inline-flex items-center gap-1.5 px-2 py-1 bg-lime/20 hover:cursor-pointer text-lime text-xs rounded-full"
+										>
 											{roleName}
 											{#if (flight.assignedRoles || []).length > 1}
 												<button
@@ -563,8 +683,17 @@
 													class="hover:text-white transition-color hover:cursor-pointer"
 													aria-label="Remove {roleName} from flight"
 												>
-													<svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-														<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+													<svg
+														class="h-3 w-3"
+														fill="none"
+														viewBox="0 0 24 24"
+														stroke="currentColor"
+													>
+														<path
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															d="M6 18L18 6M6 6l12 12"
+														/>
 													</svg>
 												</button>
 											{/if}
@@ -616,7 +745,9 @@
 							<DatePicker bind:value={departureFlightDate} placeholder="Set Date" />
 						</label>
 						<div>
-							<label for="departureFlightNumber" class="text-xs text-gray2 block mt-2 mb-1">Flight Number</label>
+							<label for="departureFlightNumber" class="text-xs text-gray2 block mt-2 mb-1"
+								>Flight Number</label
+							>
 							<input
 								type="text"
 								bind:value={departureFlightNumber}
@@ -651,8 +782,11 @@
 						<p class="text-gray2 text-sm text-center py-8">No departure flights detected.</p>
 					{/if}
 					{#each departures as flight (flight.id)}
-						{@const availableRoles = roleNames.filter((name: string) => !(flight.assignedRoles || []).includes(name))}
-						{@const inputStyles = 'h-9 w-full bg-navbar border border-gray2/50 text-white text-sm rounded-lg focus:ring-lime focus:border-lime px-3 py-2'}
+						{@const availableRoles = roleNames.filter(
+							(name: string) => !(flight.assignedRoles || []).includes(name)
+						)}
+						{@const inputStyles =
+							'h-9 w-full bg-navbar border border-gray2/50 text-white text-sm rounded-lg focus:ring-lime focus:border-lime px-3 py-2'}
 						<div
 							in:fly={{ y: 10, duration: 200 }}
 							class="p-3 bg-navbar rounded-lg border border-gray2/20 space-y-3"
@@ -668,13 +802,18 @@
 										>
 											<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
 												<polyline points="3 6 5 6 21 6" />
-												<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+												<path
+													d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+												/>
 											</svg>
 										</button>
 									</div>
 									<div class="grid grid-cols-2 gap-2">
 										<div class="col-span-2">
-											<label for="flight-number-dep-{flight.id}" class="text-xs text-gray2 block mb-1">Flight Number</label>
+											<label
+												for="flight-number-dep-{flight.id}"
+												class="text-xs text-gray2 block mb-1">Flight Number</label
+											>
 											<input
 												type="text"
 												bind:value={flight.flightNumber}
@@ -684,7 +823,9 @@
 											/>
 										</div>
 										<div>
-											<label for="from-dep-{flight.id}" class="text-xs text-gray2 block mb-1">From</label>
+											<label for="from-dep-{flight.id}" class="text-xs text-gray2 block mb-1"
+												>From</label
+											>
 											<input
 												type="text"
 												bind:value={flight.from}
@@ -694,7 +835,9 @@
 											/>
 										</div>
 										<div>
-											<label for="to-dep-{flight.id}" class="text-xs text-gray2 block mb-1">To</label>
+											<label for="to-dep-{flight.id}" class="text-xs text-gray2 block mb-1"
+												>To</label
+											>
 											<input
 												type="text"
 												bind:value={flight.to}
@@ -709,17 +852,26 @@
 												<DatePickerCompact
 													height="h-9"
 													value={getISODatePart(flight.time)}
-													on:change={(e) => updateManualFlightDateTime(flight.id, 'date', e.detail, 'departure')}
+													on:change={(e) =>
+														updateManualFlightDateTime(flight.id, 'date', e.detail, 'departure')}
 												/>
 											</label>
 										</div>
 										<div>
-											<label for="dep-time-{flight.id}" class="text-xs text-gray2 block mb-1">Departure Time</label>
+											<label for="dep-time-{flight.id}" class="text-xs text-gray2 block mb-1"
+												>Departure Time</label
+											>
 											<input
 												type="time"
 												id="dep-time-{flight.id}"
 												value={getISOTimePart(flight.time)}
-												on:input={(e) => updateManualFlightDateTime(flight.id, 'time', e.currentTarget.value, 'departure')}
+												on:input={(e) =>
+													updateManualFlightDateTime(
+														flight.id,
+														'time',
+														e.currentTarget.value,
+														'departure'
+													)}
 												class={inputStyles}
 											/>
 										</div>
@@ -731,14 +883,16 @@
 											<button
 												on:click={() => updateHoursBeforeDeparture(flight.id, -0.25)}
 												class="w-5 h-5 bg-gray2/20 hover:bg-lime/20 text-gray2 hover:text-lime rounded text-lg flex items-center justify-center transition-colors"
-												aria-label="Decrease time">−</button>
+												aria-label="Decrease time">−</button
+											>
 											<span class="text-xs text-white font-mono px-1.5 w-12 text-center">
 												{formatHours(flight.hoursBeforeDeparture || 2)}
 											</span>
 											<button
 												on:click={() => updateHoursBeforeDeparture(flight.id, 0.25)}
 												class="w-5 h-5 bg-gray2/20 hover:bg-lime/20 text-gray2 hover:text-lime rounded text-lg flex items-center justify-center transition-colors"
-												aria-label="Increase time">+</button>
+												aria-label="Increase time">+</button
+											>
 										</div>
 									</div>
 								</div>
@@ -747,9 +901,13 @@
 									<div class="flex flex-col gap-1">
 										<div class="font-bold text-white text-lg">{flight.flightNumber}</div>
 										<div class="flex items-center gap-2 text-sm">
-											<span class="font-mono bg-gray2/20 px-2 py-1 rounded text-white">{flight.from}</span>
+											<span class="font-mono bg-gray2/20 px-2 py-1 rounded text-white"
+												>{flight.from}</span
+											>
 											<span class="text-gray2">→</span>
-											<span class="font-mono bg-gray2/20 px-2 py-1 rounded text-white">{flight.to}</span>
+											<span class="font-mono bg-gray2/20 px-2 py-1 rounded text-white"
+												>{flight.to}</span
+											>
 										</div>
 									</div>
 									<button
@@ -759,13 +917,16 @@
 									>
 										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
 											<polyline points="3 6 5 6 21 6" />
-											<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+											<path
+												d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+											/>
 										</svg>
 									</button>
 								</div>
 								<div class="text-sm text-white bg-gray1/50 p-2 rounded-md space-y-2">
 									<div>
-										Departs at <span class="font-semibold text-lime">{formatTime(flight.time)}</span>
+										Departs at <span class="font-semibold text-lime">{formatTime(flight.time)}</span
+										>
 										on {formatDate(flight.time)}
 									</div>
 									<div class="flex items-center gap-2 pt-2 border-t border-gray2/10">
@@ -775,14 +936,16 @@
 											<button
 												on:click={() => updateHoursBeforeDeparture(flight.id, -0.25)}
 												class="w-5 h-5 bg-gray2/20 hover:bg-lime/20 text-gray2 hover:text-lime rounded text-lg flex items-center justify-center transition-colors"
-												aria-label="Decrease time">−</button>
+												aria-label="Decrease time">−</button
+											>
 											<span class="text-xs text-white font-mono px-1.5 w-12 text-center">
 												{formatHours(flight.hoursBeforeDeparture || 2)}
 											</span>
 											<button
 												on:click={() => updateHoursBeforeDeparture(flight.id, 0.25)}
 												class="w-5 h-5 bg-gray2/20 hover:bg-lime/20 text-gray2 hover:text-lime rounded text-lg flex items-center justify-center transition-colors"
-												aria-label="Increase time">+</button>
+												aria-label="Increase time">+</button
+											>
 										</div>
 									</div>
 								</div>
@@ -792,7 +955,9 @@
 								<div class="text-xs text-gray2 mb-2">Assigned People:</div>
 								<div class="flex flex-wrap gap-1 mb-2">
 									{#each flight.assignedRoles || [] as roleName}
-										<span class="inline-flex items-center gap-1.5 px-2 py-1 bg-lime/20 text-lime text-xs rounded-full hover:cursor-pointer">
+										<span
+											class="inline-flex items-center gap-1.5 px-2 py-1 bg-lime/20 text-lime text-xs rounded-full hover:cursor-pointer"
+										>
 											{roleName}
 											{#if (flight.assignedRoles || []).length > 1}
 												<button
@@ -800,8 +965,17 @@
 													class="hover:text-white hover:cursor-pointer transition-colors"
 													aria-label="Remove {roleName} from flight"
 												>
-													<svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-														<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+													<svg
+														class="h-3 w-3"
+														fill="none"
+														viewBox="0 0 24 24"
+														stroke="currentColor"
+													>
+														<path
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															d="M6 18L18 6M6 6l12 12"
+														/>
 													</svg>
 												</button>
 											{/if}
@@ -829,7 +1003,9 @@
 		</div>
 
 		{#if !flightsEnabled}
-			<div class="absolute inset-0 bg-black/60 backdrop-blur-sm rounded-lg flex items-center justify-center cursor-not-allowed">
+			<div
+				class="absolute inset-0 bg-black/60 backdrop-blur-sm rounded-lg flex items-center justify-center cursor-not-allowed"
+			>
 				<div class="text-white text-center pointer-events-none">
 					<p class="text-lg font-semibold">Flights Disabled</p>
 					<p class="text-sm text-gray2">Enable flights below to use this feature</p>
@@ -849,7 +1025,7 @@
 		>
 			{flightsEnabled ? 'Enabled' : 'Disabled'}
 		</button>
-		
+
 		<Button on:click={handleSave} variant="filled" disabled={isSaving}>
 			{isSaving ? 'Saving...' : 'Save & Close'}
 		</Button>

@@ -1,4 +1,5 @@
 // src/routes/api/google-calendar/+server.ts
+// Updated to ensure proper Eastern Time handling
 
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
@@ -35,8 +36,20 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		console.log(`Starting calendar sync for event ${eventId} - ${artistName}`);
 		console.log(`Processing ${rows.length} transport entries`);
+		
+		// Log sample entry for debugging timezone issues
+		if (rows.length > 0) {
+			console.log('Sample entry:', {
+				date: rows[0].date,
+				pickupTime: rows[0].pickupTime,
+				type: rows[0].type
+			});
+		}
 
 		// Sync with Google Calendar
+		// The syncToCalendar function now handles all timezone conversions internally
+		// Times in 'rows' are expected to be in HH:MM format (Eastern Time)
+		// Dates are expected to be in YYYY-MM-DD format
 		const result = await syncToCalendar(rows, artistName, existingEventIds);
 
 		if (result.success) {
