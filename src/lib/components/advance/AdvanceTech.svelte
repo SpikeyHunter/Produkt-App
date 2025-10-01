@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { supabase } from '$lib/supabase';
-	import { getAccessToken } from '$lib/stores/auth';
 	import type { EventAdvance } from '$lib/services/eventsService';
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
@@ -42,14 +41,11 @@
 
 	function initializeData() {
 		if (!event) return;
-		// 🔽 START: MODIFIED CODE
 		const parsedData = parseJsonData(event.rider_files) || {};
 		if (!parsedData.hospitality_included) {
-			// Set 'Yes' as the default if the property doesn't exist or is empty
 			parsedData.hospitality_included = 'Yes';
 		}
 		riderFiles = parsedData;
-		// 🔼 END: MODIFIED CODE
 		visuals = parseJsonData(event.visuals) || {};
 		isInitialized = true;
 	}
@@ -120,66 +116,55 @@
 		}
 	}
 
-	async function uploadFileViaAPI(file: File, folder: string, fileName: string) {
-		const token = await getAccessToken();
-		if (!token) {
-			throw new Error('Not authenticated. Please log in and try again.');
-		}
-
+	// Direct Supabase Storage upload
+	async function uploadFileDirectly(file: File, folder: string, fileName: string) {
 		const cleanFileName = fileName.replace(/[<>:"/\\|?*]/g, '_');
-		const filePath = `${folder}/${cleanFileName}`;
+		const fileExtension = file.name.split('.').pop() || 'pdf';
+		const fullFileName = `${cleanFileName}.${fileExtension}`;
+		const filePath = `${folder}/${fullFileName}`;
 
-		const formData = new FormData();
-		formData.append('file', file);
-		formData.append('filePath', filePath);
-		formData.append('bucket', 'documents');
+		// Upload to Supabase Storage
+		const { data, error } = await supabase.storage
+			.from('documents')
+			.upload(filePath, file, {
+				cacheControl: '3600',
+				upsert: true
+			});
 
-		const response = await fetch('/api/upload', {
-			method: 'POST',
-			credentials: 'include',
-			headers: {
-				Authorization: `Bearer ${token}`
-			},
-			body: formData
-		});
-
-		if (!response.ok) {
-			const errorData = await response.json().catch(() => ({ error: 'Upload failed' }));
-			throw new Error(errorData.error || `Upload failed with status ${response.status}`);
+		if (error) {
+			throw new Error(error.message);
 		}
 
-		const result = await response.json();
-		return result.publicUrl;
+		// Get public URL
+		const { data: urlData } = supabase.storage
+			.from('documents')
+			.getPublicUrl(filePath);
+
+		return urlData.publicUrl;
 	}
 
-	async function deleteFileViaAPI(fileUrl: string) {
-		const token = await getAccessToken();
-		if (!token) {
-			throw new Error('Not authenticated. Please log in and try again.');
+	// Direct Supabase Storage delete
+	async function deleteFileDirectly(fileUrl: string) {
+		// Extract file path from URL
+		const urlParts = fileUrl.split('/storage/v1/object/public/documents/');
+		if (urlParts.length < 2) {
+			throw new Error('Invalid file URL');
 		}
+		const filePath = urlParts[1];
 
-		const response = await fetch('/api/upload', {
-			method: 'DELETE',
-			credentials: 'include',
-			headers: {
-				'Content-Type': 'application/json',
-				Authorization: `Bearer ${token}`
-			},
-			body: JSON.stringify({
-				fileUrl: fileUrl,
-				bucket: 'documents'
-			})
-		});
-		if (!response.ok) {
-			const errorData = await response.json().catch(() => ({ error: 'Delete failed' }));
-			throw new Error(errorData.error || `Delete failed with status ${response.status}`);
+		const { error } = await supabase.storage
+			.from('documents')
+			.remove([filePath]);
+
+		if (error) {
+			throw new Error(error.message);
 		}
 	}
 
 	async function handleTechRiderUpload(file: File) {
 		try {
 			uploading = true;
-			const publicUrl = await uploadFileViaAPI(file, 'documents/tech_rider', techRiderFileName);
+			const publicUrl = await uploadFileDirectly(file, 'tech_rider', techRiderFileName);
 			riderFiles.tech_rider_url = publicUrl;
 			riderFiles = { ...riderFiles };
 			await saveChanges();
@@ -195,7 +180,7 @@
 	async function handleHospoRiderUpload(file: File) {
 		try {
 			uploading = true;
-			const publicUrl = await uploadFileViaAPI(file, 'documents/hospo_rider', hospoRiderFileName);
+			const publicUrl = await uploadFileDirectly(file, 'hospo_rider', hospoRiderFileName);
 			riderFiles.hospo_rider_url = publicUrl;
 			riderFiles = { ...riderFiles };
 			await saveChanges();
@@ -212,7 +197,7 @@
 		try {
 			uploading = true;
 			if (riderFiles.tech_rider_url) {
-				await deleteFileViaAPI(riderFiles.tech_rider_url);
+				await deleteFileDirectly(riderFiles.tech_rider_url);
 			}
 			riderFiles.tech_rider_url = null;
 			riderFiles.hospitality_included = '';
@@ -231,7 +216,7 @@
 		try {
 			uploading = true;
 			if (riderFiles.hospo_rider_url) {
-				await deleteFileViaAPI(riderFiles.hospo_rider_url);
+				await deleteFileDirectly(riderFiles.hospo_rider_url);
 			}
 			riderFiles.hospo_rider_url = null;
 			riderFiles = { ...riderFiles };
