@@ -12,7 +12,8 @@ export default defineConfig({
     exclude: ['fsevents', 'lightningcss']
   },
   server: {
-    fs: { strict: false }
+    fs: { strict: false },
+    hmr: {overlay: false}
   },
   build: {
     rollupOptions: {

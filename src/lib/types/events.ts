@@ -130,6 +130,14 @@ export interface HospoRiderInfo {
 }
 
 /**
+ * Defines the structure for a single note item
+ */
+export interface NoteItem {
+	id: string;
+	text: string;
+}
+
+/**
  * Base EventAdvance interface matching database schema
  */
 export interface EventAdvanceBase {
@@ -160,8 +168,9 @@ export interface EventAdvanceBase {
 	created_at: string;
 	updated_at: string;
 	advance_sheet_url?: string | null;
-	meetgreet_enabled?: boolean | null; 
-	meetgreet_info?: MeetGreetInfo | string | null; 
+	meetgreet_enabled?: boolean | null;
+	meetgreet_info?: MeetGreetInfo | string | null;
+	notes?: NoteItem[] | null; // ADDED
 }
 
 /**
@@ -195,7 +204,8 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	hotel_enabled?: boolean | null;
 	advance_sheet_url?: string | null;
 	meetgreet_enabled?: boolean | null;
-	meetgreet_info?: MeetGreetInfo | string | null; 
+	meetgreet_info?: MeetGreetInfo | string | null;
+	notes?: NoteItem[] | null; // ADDED
 }
 
 /**

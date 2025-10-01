@@ -126,10 +126,9 @@ export async function updateEventTimetableActive(eventId: string, active: boolea
 	}
 }
 
-
 export async function fetchAllEventsWithSetTimes(): Promise<EventWithTimetable[]> {
 	try {
-		console.log("Fetching all events for Set Times dashboard...");
+		console.log('Fetching all events for Set Times dashboard...');
 		const { data: allEvents, error: eventsError } = await supabase
 			.from('events')
 			.select(
@@ -312,6 +311,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				advance_sheet_url: row.advance_sheet_url,
 				meetgreet_enabled: row.meetgreet_enabled !== null ? row.meetgreet_enabled : false,
 				meetgreet_info: row.meetgreet_info,
+				notes: row.notes,
 
 				// Computed fields for UI
 				name: eventName,
@@ -432,13 +432,41 @@ export async function updateEventAdvance(
 		// Define a list of all valid column names in the 'events_advance' table.
 		// This prevents trying to update the DB with computed UI properties.
 		const validColumns = [
-			'artist_type', 'dos', 'main_contact', 'contract_url', 'roles', 'passport_info',
-			'hotel_info', 'hotel_enabled', 'immigration_info', 'tech_rider', 'sfx_rider',
-			'soundcheck', 'hospo_rider', 'ground_transport', 'ground_info', 'flights_enabled',
-			'ground_enabled', 'advance_completed', 'asked', 'contract', 'role_list',
-			'advance_sheet_url', 'immigration_status', 'advance_status', 'artist_bio',
-			'artist_bio_url', 'rider_files', 'visuals', 'visual_received', 'calendar_synced',
-			'calendar_sync_time', 'calendar_event_ids','meetgreet_enabled', 'meetgreet_info'
+			'artist_type',
+			'dos',
+			'main_contact',
+			'contract_url',
+			'roles',
+			'passport_info',
+			'hotel_info',
+			'hotel_enabled',
+			'immigration_info',
+			'tech_rider',
+			'sfx_rider',
+			'soundcheck',
+			'hospo_rider',
+			'ground_transport',
+			'ground_info',
+			'flights_enabled',
+			'ground_enabled',
+			'advance_completed',
+			'asked',
+			'contract',
+			'role_list',
+			'advance_sheet_url',
+			'immigration_status',
+			'advance_status',
+			'artist_bio',
+			'artist_bio_url',
+			'rider_files',
+			'visuals',
+			'visual_received',
+			'calendar_synced',
+			'calendar_sync_time',
+			'calendar_event_ids',
+			'meetgreet_enabled',
+			'meetgreet_info',
+			'notes' // ADDED
 		];
 
 		// Create a 'clean' object containing only the keys that are valid columns.
@@ -454,8 +482,11 @@ export async function updateEventAdvance(
 			console.warn('Update called with no valid columns to update.');
 			return;
 		}
-		
-		console.log(`Updating event advance for ${artistName} on event ${originalEventId} with clean data:`, cleanUpdates);
+
+		console.log(
+			`Updating event advance for ${artistName} on event ${originalEventId} with clean data:`,
+			cleanUpdates
+		);
 
 		const { data: updateData, error: updateError } = await supabase
 			.from('events_advance')
@@ -542,10 +573,7 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			eventData = event;
 		}
 
-		let query = supabase
-			.from('events_advance')
-			.select('*')
-			.eq('event_id', numericEventId);
+		let query = supabase.from('events_advance').select('*').eq('event_id', numericEventId);
 		if (artistName) {
 			query = query.eq('artist_name', artistName);
 		}
@@ -598,8 +626,9 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			calendar_sync_time: advanceData.calendar_sync_time,
 			calendar_event_ids: advanceData.calendar_event_ids,
 			advance_sheet_url: advanceData.advance_sheet_url,
-			meetgreet_enabled: advanceData.meetgreet_enabled !== null ? advanceData.meetgreet_enabled : false,
+			meetgreet_enabled:advanceData.meetgreet_enabled !== null ? advanceData.meetgreet_enabled : false,
 			meetgreet_info: advanceData.meetgreet_info,
+			notes: advanceData.notes,
 
 			// Computed fields for UI
 			name: finalEventName,

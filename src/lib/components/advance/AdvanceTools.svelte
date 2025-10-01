@@ -6,6 +6,7 @@
 	import CalendarSyncModal from '$lib/components/modals/CalendarSyncModal.svelte';
 	import ImmigrationModal from '$lib/components/modals/ImmigrationModal.svelte';
 	import AdvanceMeetGreetModal from '$lib/components/modals/MeetGreetModal.svelte';
+	import NotesModal from '$lib/components/modals/NotesModal.svelte'; // IMPORTED
 	import { portal } from '$lib/utils/portalUtils.js';
 	import type { EventAdvance } from '$lib/types/events.js';
 	import { parseRoles } from '$lib/utils/roleUtils.js';
@@ -22,6 +23,7 @@
 	let showScheduleModal = false;
 	let showImmigrationModal = false;
 	let showMeetGreetModal = false;
+	let showNotesModal = false; // ADDED
 
 	$: people = parseRoles(event.roles);
 	$: passportInfos = parsePassportInfo(event.passport_info);
@@ -56,7 +58,8 @@
 	$: isHotelButtonDisabled = people.length === 0;
 	$: hotelButtonClasses = [
 		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
-		event.hotel_enabled === false ? 'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
+		event.hotel_enabled === false ?
+'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
 		!isHotelButtonDisabled && event.hotel_enabled !== false
 			? 'hover:bg-lime hover:text-black cursor-pointer'
 			: isHotelButtonDisabled
@@ -68,7 +71,8 @@
 	$: isFlightsButtonDisabled = people.length === 0;
 	$: flightsButtonClasses = [
 		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
-		event.flights_enabled === false ? 'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
+		event.flights_enabled === false ?
+'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
 		!isFlightsButtonDisabled && event.flights_enabled !== false
 			? 'hover:bg-lime hover:text-black cursor-pointer'
 			: isFlightsButtonDisabled
@@ -77,11 +81,11 @@
 	]
 		.filter(Boolean)
 		.join(' ');
-
 	$: isScheduleButtonDisabled = people.length === 0;
 	$: scheduleButtonClasses = [
 		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
-		event.ground_enabled === false ? 'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
+		event.ground_enabled === false ?
+'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
 		!isScheduleButtonDisabled && event.ground_enabled !== false
 			? 'hover:bg-lime hover:text-black cursor-pointer'
 			: isScheduleButtonDisabled
@@ -90,11 +94,11 @@
 	]
 		.filter(Boolean)
 		.join(' ');
-
 	$: isMeetGreetButtonDisabled = people.length === 0;
 	$: meetGreetButtonClasses = [
 		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
-		event.meetgreet_enabled === false ? 'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
+		event.meetgreet_enabled === false ?
+'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
 		!isMeetGreetButtonDisabled && event.meetgreet_enabled !== false
 			? 'hover:bg-lime hover:text-black cursor-pointer'
 			: isMeetGreetButtonDisabled
@@ -183,10 +187,19 @@
 	function handleMeetGreetClose() {
 		showMeetGreetModal = false;
 	}
+
+	// ADDED START
+	function openNotesModal() {
+		showNotesModal = true;
+	}
+	function handleNotesClose() {
+		showNotesModal = false;
+	}
+	// ADDED END
 </script>
 
 <div
-	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300 w-40 h-[365px]"
+	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300 w-40 h-[405px]"
 >
 	<div class="flex items-center justify-between px-4 py-3 border-b border-gray1">
 		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Tools</h2>
@@ -336,7 +349,30 @@
 				Meet&Greet
 			</button>
 		</div>
-	</div>
+		<div class="flex items-center gap-3 text-sm">
+			<div class="w-6 h-6 text-gray3">
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 24 24"
+					fill="currentColor"
+					class="w-6 h-6"
+				>
+					<path
+						d="M21.731 2.269a2.625 2.625 0 00-3.712 0l-1.157 1.157 3.712 3.712 1.157-1.157a2.625 2.625 0 000-3.712zM19.513 8.199l-3.712-3.712-8.4 8.4a5.25 5.25 0 00-1.32 2.214l-.8 2.685a.75.75 0 00.933.933l2.685-.8a5.25 5.25 0 002.214-1.32l8.4-8.4z"
+					/>
+					<path
+						d="M5.25 5.25a3 3 0 00-3 3v10.5a3 3 0 003 3h10.5a3 3 0 003-3V13.5a.75.75 0 00-1.5 0v5.25a1.5 1.5 0 01-1.5 1.5H5.25a1.5 1.5 0 01-1.5-1.5V8.25a1.5 1.5 0 011.5-1.5h5.25a.75.75 0 000-1.5H5.25z"
+					/>
+				</svg>
+			</div>
+			<button
+				class="bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime hover:text-black transition-all duration-200 cursor-pointer"
+				on:click={openNotesModal}
+			>
+				Notes
+			</button>
+		</div>
+		</div>
 </div>
 
 {#if showRoleModal}
@@ -407,6 +443,20 @@
 			{event}
 			on:close={handleMeetGreetClose}
 			on:save_success={handleModalSaveSuccess}
+		/>
+	</div>
+{/if}
+
+{#if showNotesModal}
+	<div use:portal>
+		<NotesModal
+			bind:isOpen={showNotesModal}
+			{event}
+			on:close={handleNotesClose}
+			on:save_success={() => {
+				handleModalSaveSuccess();
+				handleNotesClose();
+			}}
 		/>
 	</div>
 {/if}

@@ -1,72 +1,38 @@
+<!--
+  Main Dashboard Page
+  Organizes all dashboard components in a responsive, column-wrapping layout.
+-->
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { authStore } from '$lib/stores/authStore';
 	import MainLayout from '$lib/components/MainLayout.svelte';
-	import TypebarCredentials from '$lib/components/inputs/TypebarCredentials.svelte';
-	import Button from '$lib/components/buttons/Button.svelte';
 	import Modal from '$lib/components/modals/Modal.svelte';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
-	import motdList from '$lib/data/motd.json';
+	import TypebarCredentials from '$lib/components/inputs/TypebarCredentials.svelte';
+	import Button from '$lib/components/buttons/Button.svelte';
+	import { authStore } from '$lib/stores/authStore';
 
-	// Define a type for our commit data
-	type CommitInfo = {
-		title: string;
-		body: string;
-	};
+	// Import dashboard components
+	import DashboardWelcome from '$lib/components/dashboard/DashboardWelcome.svelte';
+	import DashboardTeam from '$lib/components/dashboard/DashboardTeam.svelte';
+	import DashboardMOTD from '$lib/components/dashboard/DashboardMOTD.svelte';
+	import DashboardStats from '$lib/components/dashboard/DashboardStats.svelte';
+	import DashboardVersion from '$lib/components/dashboard/DashboardVersion.svelte';
+	import DashboardUpcoming from '$lib/components/dashboard/DashboardUpcoming.svelte';
+	import InteractiveFace from '$lib/components/dashboard/InteractiveFace.svelte';
+	import DashboardCalendar from '$lib/components/dashboard/DashboardCalendar.svelte';
+	import DashboardReminders from '$lib/components/dashboard/DashboardReminders.svelte';
 
 	let mounted = false;
-	let currentMotd = '';
 	let showModal = false;
-
-	// New state for holding commit data
-	let latestCommit: CommitInfo | null = null;
-	let isLoadingCommit = true;
-
-	// Team code form state
 	let teamCode = '';
 	let isSubmitting = false;
 	let isValidating = false;
-
-	// Popup notification state
 	let showPopup = false;
 	let popupMessage = '';
-	function generateMotd() {
-		if (!motdList || motdList.length === 0) {
-			currentMotd = 'Welcome to Produkt App!';
-			return;
-		}
-		const randomIndex = Math.floor(Math.random() * motdList.length);
-		currentMotd = motdList[randomIndex];
-	}
 
-	// Format permissions for display
-	function formatPermissions(
-		main: string | undefined,
-		secondary: string | string[] | undefined
-	): string |
-	null {
-		if (!main) return null;
-		let permissions = [main];
-		if (secondary) {
-			const secondaryPerms = Array.isArray(secondary)
-				? secondary
-				: secondary.split(',').map((p: string) => p.trim());
-			permissions = permissions.concat(secondaryPerms);
-		}
-		return permissions.join(', ');
-	}
-
-	// Show popup message
-	function showPopupMessage(message: string): void {
-		popupMessage = message;
-		showPopup = true;
-	}
-
-	// Team code validation
 	async function validateTeamCode(
 		code: string
-	): Promise<{ isValid: boolean; teamName?: string; alreadyJoined?: boolean;
-	message?: string }> {
+	): Promise<{ isValid: boolean; teamName?: string; alreadyJoined?: boolean; message?: string }> {
 		if (!code.trim()) return { isValid: false };
 		if (isValidating) {
 			return { isValid: false, message: 'Validation in progress...' };
@@ -89,6 +55,11 @@
 				isValidating = false;
 			}, 500);
 		}
+	}
+
+	function showPopupMessage(message: string): void {
+		popupMessage = message;
+		showPopup = true;
 	}
 
 	async function handleJoinTeam() {
@@ -137,29 +108,18 @@
 		teamCode = '';
 	}
 
-	// Function to fetch commit data from our new endpoint
-	async function fetchLatestCommit() {
-		try {
-			const response = await fetch('/api/latest-commit');
-			if (!response.ok) {
-				throw new Error('Failed to fetch commit data');
-			}
-			latestCommit = await response.json();
-		} catch (error) {
-			console.error('Error fetching latest commit:', error);
-			latestCommit = null; // Ensure it's null on error
-		} finally {
-			isLoadingCommit = false;
-		}
+	function handleJoinTeamClick() {
+		openModal();
 	}
 
 	onMount(() => {
-		generateMotd();
-		fetchLatestCommit(); // <-- Call the new function
 		setTimeout(() => {
 			mounted = true;
 		}, 150);
 	});
+
+	// Helper function for animation delays
+	const delay = (index: number) => `transition-delay: ${index * 50}ms;`;
 </script>
 
 <svelte:head>
@@ -168,99 +128,58 @@
 
 <MainLayout pageTitle="Dashboard">
 	<PopupNotification message={popupMessage} bind:show={showPopup} duration={3000} variant="navbar" />
-	<div class="h-full p-6 overflow-auto">
-		<div class="max-w-7xl mx-auto h-full">
-			<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-				<div class="flex flex-col gap-6">
-					<div class="fade-in {mounted ? 'mounted' : ''}" style="transition-delay: 0.1s;">
-						<div class="bg-navbar rounded-2xl p-6">
-							<div class="space-y-4">
-								{#if $authStore.user}
-									<p class="text-white text-xl font-bold">
-										{#if $authStore.profile?.first_name}
-											Welcome back, <span class="text-lime">{$authStore.profile.first_name}</span>
-										{:else if !$authStore.isLoading}
-											Welcome back
-										{/if}
-									</p>
-									{#if !$authStore.profile?.first_name && !$authStore.isLoading}
-									<p class="text-white text-base pl-6 font-bold">
-										You're signed in as, <span class="text-gray3">{$authStore.user.email}</span>
-									</p>
-									{/if}
-								{/if}
-								<div class="pl-7">
-									{#if $authStore.isLoading}
-										<p class="text-gray2 text-sm">Loading your profile...</p>
-									{:else if $authStore.profile}
-										{#if !$authStore.profile.main_permission}
-											<div class="flex items-center gap-2">
-												<span class="text-white text-sm">You don't have a team yet?</span>
-												<Button variant="slim" width="w-auto" on:click={openModal}>Join a team</Button>
-											</div>
-										{:else}
-											<div class="text-white text-sm mb-2">
-												<p class="mb-2">
-													{#if $authStore.profile.role === 'Admin'}
-														<span class="text-lime font-bold">Admin</span> - You have access to everything
-													{:else}
-														{@const permissionCount = formatPermissions($authStore.profile.main_permission, $authStore.profile.secondary_permission)?.split(', ').length ?? 0}
-														You're in the following team{permissionCount > 1 ?
-'s' : ''}:
-													{/if}
-												</p>
-												{#if $authStore.profile.role !== 'Admin'}
-													<ul class="list-disc list-inside text-lime space-y-1 ml-4">
-														{#each formatPermissions($authStore.profile.main_permission, $authStore.profile.secondary_permission)?.split(', ') ??
-[] as permission}
-															<li>{permission}</li>
-														{/each}
-													</ul>
-												{/if}
-											</div>
-											{#if $authStore.profile.role !== 'Admin' && (!$authStore.profile.secondary_permission || (Array.isArray($authStore.profile.secondary_permission) ? $authStore.profile.secondary_permission.length < 3 : $authStore.profile.secondary_permission.split(',').length < 2))}
-												<div class="flex items-center gap-2">
-													<span class="text-white text-sm">Wanna join another team?</span>
-													<Button variant="slim" width="w-auto" on:click={openModal}>Join a new team</Button>
-												</div>
-											{/if}
-										{/if}
-									{:else}
-										<p class="text-gray2 text-sm">Unable to load permissions</p>
-									{/if}
-								</div>
-							</div>
-						</div>
-					</div>
 
-					<div class="fade-in {mounted ? 'mounted' : ''}" style="transition-delay: 0.2s;">
-						<div class="bg-navbar rounded-2xl p-6">
-							<div class="flex items-baseline gap-2 mb-4">
-								<h2 class="text-xl font-bold text-white -translate-y-0.5">Latest Updates</h2>
-							</div>
-							<div class="pl-7 space-y-2">
-								{#if isLoadingCommit}
-									<p class="text-gray2 text-sm">Loading latest commit...</p>
-								{:else if latestCommit}
-									<div class="text-white text-sm">
-										<span class="text-white font-bold">Version:</span> 
-										<span class="text-lime">{latestCommit.title}</span>
-									</div>
-									{#if latestCommit.body}
-										<div class="text-white text-sm">
-											<span class="text-white font-bold">Changes:</span>
-										</div>
-										<pre class="text-gray2 text-sm space-y-1 ml-4 whitespace-pre-wrap font-sans">{latestCommit.body}</pre>
-									{/if}
-								{:else}
-									<p class="text-gray2 text-sm">Could not load latest commit information.</p>
-								{/if}
-							</div>
-						</div>
-					</div>
+	<div class="h-full p-4 md:p4 mt-2overflow-y-auto">
+		<!-- 
+      Dashboard Layout Container
+      - Uses Flexbox to allow columns to wrap.
+      - On smaller screens, columns will stack vertically. As the screen widens,
+        they will form rows (e.g., 3 columns on top, 1 below).
+      - 'justify-center' centers the columns when they don't fill the full width.
+        'lg:justify-start' aligns them to the left on larger screens.
+    -->
+		<div class="flex flex-wrap justify-start lg:justify-center gap-4">
+			<!-- Column 1 -->
+			<div class="flex flex-col gap-4 w-[350px]">
+				<div class="fade-in {mounted ? 'mounted' : ''}" style={delay(0)}>
+					<DashboardWelcome />
 				</div>
-				<div class="lg:col-span-2">
-					</div>
+				<div class="fade-in {mounted ? 'mounted' : ''}" style={delay(1)}>
+					<DashboardTeam on:join-team={handleJoinTeamClick} />
+				</div>
+			</div>
+
+			<!-- Column 2 -->
+			<div class="flex flex-col gap-4 w-[300px]">
+				<div class="fade-in {mounted ? 'mounted' : ''}" style={delay(2)}>
+					<DashboardMOTD />
+				</div>
+				<div class="fade-in {mounted ? 'mounted' : ''}" style={delay(3)}>
+					<DashboardStats />
+				</div>
+				<div class="fade-in {mounted ? 'mounted' : ''}" style={delay(4)}>
+					<DashboardVersion />
+				</div>
+			</div>
+
+			<!-- Column 3 -->
+			<div class="flex flex-col gap-4 w-[300px]">
+				<div class="fade-in {mounted ? 'mounted' : ''}" style={delay(5)}>
+					<DashboardUpcoming />
+				</div>
+				<div class="fade-in {mounted ? 'mounted' : ''}" style={delay(6)}>
+					<DashboardCalendar />
+				</div>
+			</div>
+
+			<!-- Column 4 -->
+			<div class="flex flex-col gap-4 w-[250px]">
+				<div class="fade-in {mounted ? 'mounted' : ''}" style={delay(7)}>
+					<InteractiveFace />
+				</div>
+				<div class="fade-in {mounted ? 'mounted' : ''}" style={delay(8)}>
+					<DashboardReminders />
+				</div>
 			</div>
 		</div>
 	</div>
@@ -275,8 +194,7 @@
 >
 	<div class="space-y-4">
 		<p class="font-normal text-gray2">
-			To join a team, please enter your access code.
-			If you don't have one, reach out to an admin.
+			To join a team, please enter your access code. If you don't have one, reach out to an admin.
 		</p>
 		<p class="font-normal text-lime">Team Access Code</p>
 		<TypebarCredentials
@@ -288,8 +206,7 @@
 	<div slot="footer" class="flex gap-3 justify-end">
 		<Button variant="outline" on:click={closeModal}>Cancel</Button>
 		<Button
-			variant={!teamCode.trim() ? 'blocked' : isSubmitting ?
-'loading' : 'filled'}
+			variant={!teamCode.trim() ? 'blocked' : isSubmitting ? 'loading' : 'filled'}
 			disabled={!teamCode.trim() || isSubmitting}
 			on:click={handleJoinTeam}
 		>
@@ -299,13 +216,18 @@
 </Modal>
 
 <style>
+	/* Styles for the fade-in animation on component load */
 	.fade-in {
 		opacity: 0;
 		transform: translateY(20px);
-		transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+		transition:
+			opacity 0.5s ease-out,
+			transform 0.5s ease-out;
 	}
+
 	.fade-in.mounted {
 		opacity: 1;
 		transform: translateY(0);
 	}
 </style>
+
