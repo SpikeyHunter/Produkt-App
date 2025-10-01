@@ -17,9 +17,18 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'supabase': ['@supabase/supabase-js'],
-          'svelte-vendor': ['svelte', 'svelte/internal']
+        manualChunks: (id) => {
+          // Only chunk client-side code, not SSR/external modules
+          if (id.includes('node_modules')) {
+            // Check if it's Supabase related
+            if (id.includes('@supabase/')) {
+              return 'supabase';
+            }
+            // Check if it's Svelte related
+            if (id.includes('svelte')) {
+              return 'svelte-vendor';
+            }
+          }
         }
       }
     }
