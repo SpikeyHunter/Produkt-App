@@ -117,6 +117,7 @@
 	function handleCheckClick(id: string) {
 		deleteReminder(id);
 	}
+	
 	function handleCheckKeyDown(event: KeyboardEvent, id: string) {
 		if (event.key === 'Enter' || event.key === ' ') {
 			event.preventDefault();
@@ -134,7 +135,6 @@
 		tick().then(() => {
 			for (const r of reminders) {
 				if (r.el) {
-					// Only update if div is empty but reminder has text
 					if (!r.el.textContent && r.text) {
 						r.el.textContent = r.text;
 					}
@@ -142,11 +142,19 @@
 			}
 		});
 	}
+
 </script>
 
-<DashboardTemplate title="Reminders" width={250} height={500}>
+<DashboardTemplate width={250} height={500}>
+	<svelte:fragment slot="title">
+		{#if $authStore.profile?.first_name}
+			<span class="text-lime">{$authStore.profile.first_name}'s</span> Reminders
+		{:else}
+			Reminders
+		{/if}
+	</svelte:fragment>
 	<div class="h-full bg-navbar flex flex-col overflow-hidden">
-		<div class="flex-1 overflow-y-auto overflow-x-hidden px-1 py-3">
+		<div class="flex-1 overflow-y-auto overflow-x-hidden px-1 py-1">
 			{#if !$authStore.isInitialized}
 				<div class="flex items-center justify-center h-full text-gray-400 text-sm">
 					Loading...

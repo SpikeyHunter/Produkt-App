@@ -11,7 +11,9 @@
 	<div class="flex items-center justify-between mb-4">
 		<div class="flex items-center gap-2">
 			<slot name="icon" />
-			<h2 class="text-lg font-bold text-white">{title}</h2>
+			<h2 class="text-lg font-bold text-white">
+				<slot name="title">{title}</slot>
+			</h2>
 		</div>
 		<slot name="header-actions" />
 	</div>
