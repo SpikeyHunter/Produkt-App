@@ -8,6 +8,7 @@
 	import { updateEventAdvance, type EventAdvance } from '../../services/eventsService';
 	import { getAirportCodeSet } from '../../services/constants';
 	import { subHours, roundToNearestMinutes } from 'date-fns';
+	import { isDaylightSavingTime } from '../../utils/timezoneUtils';
 
 	export let isOpen = false;
 	export let event: EventAdvance;
@@ -157,17 +158,6 @@
 			departures = [newDeparture, ...departures];
 		}
 	}
-	function isDaylightSavingTime(date: Date): boolean {
-		const year = date.getFullYear();
-		const marchStart = new Date(year, 2, 1);
-		const daysUntilSunday = (7 - marchStart.getDay()) % 7;
-		const dstStart = new Date(year, 2, 8 + daysUntilSunday, 2, 0, 0);
-		const novStart = new Date(year, 10, 1);
-		const daysUntilSundayNov = (7 - novStart.getDay()) % 7;
-		const dstEnd = new Date(year, 10, 1 + daysUntilSundayNov, 2, 0, 0);
-		return date >= dstStart && date < dstEnd;
-	}
-
 	function toEasternISO(dateStr: string, timeStr: string = '12:00'): string {
 		const dateObj = new Date(dateStr + 'T12:00:00');
 		const isDST = isDaylightSavingTime(dateObj);

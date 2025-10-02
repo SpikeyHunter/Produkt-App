@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import type { CalendarEntry, CalendarSyncResponse } from '$lib/types/GoogleCalendar';
+import { isDaylightSavingTime } from '$lib/utils/timezoneUtils';
 import {
 	GOOGLE_CALENDAR_ID,
 	GOOGLE_CLIENT_ID,
@@ -35,17 +36,16 @@ const getGuestEmail = (driver: string): string => {
 };
 
 const formatTime = (date: Date): string => {
-	const hours = date.getHours();
-	const minutes = date.getMinutes();
-	const ampm = hours >= 12 ? 'pm' : 'am';
-	const displayHours = hours % 12 || 12;
+	const formatted = new Intl.DateTimeFormat('en-US', {
+		hour: 'numeric',
+		minute: '2-digit',
+		hour12: true,
+		timeZone: 'America/Toronto'
+	}).format(date);
 
-	if (minutes === 0) {
-		return `${displayHours}${ampm}`;
-	}
-	return `${displayHours}:${minutes < 10 ? `0${minutes}` : minutes}${ampm}`;
+	// Convert "8:30 PM" to "8:30pm"
+	return formatted.replace(' ', '').toLowerCase();
 };
-
 const roundToNearest15 = (date: Date): Date => {
 	const rounded = new Date(date);
 	const minutes = rounded.getMinutes();
@@ -63,15 +63,13 @@ const roundUp15 = (date: Date): Date => {
 	return rounded;
 };
 
-/**
- * FIXED: Combines date and time strings as Eastern Time without timezone conversion
- * Input: dateStr = "2025-10-04", timeStr = "14:09"
- * Output: Date object representing 2:09 PM Eastern Time on Oct 4, 2025
- */
 const combineDateAndTime = (dateStr: string, timeStr: string): Date => {
-	// Append Eastern Time offset to ensure correct timezone interpretation
-	// -04:00 for EDT (March-November), -05:00 for EST (November-March)
-	const dateTimeString = `${dateStr}T${timeStr}:00-04:00`;
+	// Parse the date to determine if DST is in effect
+	const testDate = new Date(dateStr + 'T12:00:00');
+	const isDST = isDaylightSavingTime(testDate);
+	const offset = isDST ? '-04:00' : '-05:00';
+
+	const dateTimeString = `${dateStr}T${timeStr}:00${offset}`;
 	return new Date(dateTimeString);
 };
 
