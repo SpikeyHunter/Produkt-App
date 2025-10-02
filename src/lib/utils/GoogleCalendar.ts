@@ -69,21 +69,10 @@ const roundUp15 = (date: Date): Date => {
  * Output: Date object representing 2:09 PM Eastern Time on Oct 4, 2025
  */
 const combineDateAndTime = (dateStr: string, timeStr: string): Date => {
-	// Build ISO string with explicit Eastern timezone
-	// This prevents JavaScript from interpreting the time in a different timezone
-	const dateTimeString = `${dateStr}T${timeStr}:00`;
-	
-	// Create date treating it as Eastern Time
-	// The Date constructor will parse this as local time if no timezone is specified
-	// To ensure it's always Eastern, we construct it carefully
-	const [year, month, day] = dateStr.split('-').map(Number);
-	const [hours, minutes] = timeStr.split(':').map(Number);
-	
-	// Create date object with explicit values
-	// Note: month is 0-indexed in JavaScript Date
-	const date = new Date(year, month - 1, day, hours, minutes, 0, 0);
-	
-	return date;
+	// Append Eastern Time offset to ensure correct timezone interpretation
+	// -04:00 for EDT (March-November), -05:00 for EST (November-March)
+	const dateTimeString = `${dateStr}T${timeStr}:00-04:00`;
+	return new Date(dateTimeString);
 };
 
 const buildTitle = (
