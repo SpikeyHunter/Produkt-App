@@ -298,7 +298,7 @@
 			<div class="w-6 h-6 text-gray3 flex items-center justify-center">
 				{#if isGeneratingPdf}
 					<svg
-						class="animate-spin h-5 w-5 text-gray-800"
+						class="animate-spin h-5 w-5 text-lime"
 						xmlns="http://www.w3.org/2000/svg"
 						fill="none"
 						viewBox="0 0 24 24"

@@ -1,9 +1,9 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
 import { PUBLIC_SUPABASE_URL } from '$env/static/public';
 import { SUPABASE_SERVICE_ROLE_KEY } from '$env/static/private';
+import { dev } from '$app/environment';
 
 const supabase = createClient(PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -30,9 +30,23 @@ export const POST: RequestHandler = async ({ request }) => {
 		// Replace the placeholder with the actual data URI
 		htmlContent = htmlContent.replace(/src="LOGO_PLACEHOLDER"/g, `src="${dataUri}"`);
 
-		browser = await chromium.launch({
-			args: ['--no-sandbox', '--disable-setuid-sandbox']
-		});
+		// Use different browser setup for dev vs production
+		if (dev) {
+			// Local development: use regular playwright
+			const { chromium } = await import('playwright');
+			browser = await chromium.launch({
+				headless: true
+			});
+		} else {
+			// Production (Vercel): use serverless chromium
+			const chromiumPkg = (await import('@sparticuz/chromium')).default;
+			const { chromium: playwright } = await import('playwright-core');
+			browser = await playwright.launch({
+				args: chromiumPkg.args,
+				executablePath: await chromiumPkg.executablePath()
+			});
+		}
+
 		const page = await browser.newPage();
 		
 		// Set viewport to match PDF dimensions
@@ -78,15 +92,10 @@ export const POST: RequestHandler = async ({ request }) => {
 						}
 					</script>
 					<style>
-						/* --- FONT EMBEDDING (NOW BOLD) --- */
-						/*
-							IMPORTANT: You must now use the Base64 string from the
-							"Inter-Bold.woff2" font file (weight 700).
-						*/
 						@font-face {
 							font-family: 'Inter';
 							font-style: normal;
-							font-weight: 700; /* Bold weight */
+							font-weight: 700;
 							src: url(data:font/woff2;base64,PASTE_YOUR_BASE64_ENCODED_BOLD_FONT_STRING_HERE) format('woff2');
 						}
 
@@ -102,16 +111,14 @@ export const POST: RequestHandler = async ({ request }) => {
 							width: 8.5in;
 							background-color: #2F2F2F !important;
 							font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif !important;
-							font-weight: 700 !important; /* Set default to Bold weight */
+							font-weight: 700 !important;
 						}
 						
-						/* Force background colors */
 						.bg-navbar { background-color: #212121 !important; }
 						.bg-gray1 { background-color: #2F2F2F !important; }
 						.bg-gray2 { background-color: #BDBDBB !important; }
 						.bg-lime { background-color: #E1FF00 !important; }
 						
-						/* Text colors */
 						.text-lime { color: #E1FF00 !important; }
 						.text-white { color: #F7F7F7 !important; }
 						.text-gray2 { color: #BDBDBB !important; }
@@ -124,7 +131,6 @@ export const POST: RequestHandler = async ({ request }) => {
 						.text-info { color: #c4b5fd !important; }
 						.text-question { color: #93c5fd !important; }
 						
-						/* Border colors */
 						.border-lime { border-color: #E1FF00 !important; }
 						.border-confirmed { border-color: #86EFAC !important; }
 						.border-tentatif { border-color: #FCD34D !important; }
@@ -133,12 +139,10 @@ export const POST: RequestHandler = async ({ request }) => {
 						.border-info { border-color: #c4b5fd !important; }
 						.border-question { border-color: #93c5fd !important; }
 						
-						/* --- FIXED BORDER RULE (NOW 1% OPACITY) --- */
 						.border-r-black {
 							border-right-color: rgba(0, 0, 0, 0.01) !important;
 						}
 
-						/* Border widths */
 						.border-l-3 {
 							border-left-width: 3px !important;
 							border-left-style: solid !important;
@@ -149,12 +153,10 @@ export const POST: RequestHandler = async ({ request }) => {
 							border-right-style: solid !important;
 						}
 						
-						/* Font weights */
 						.font-normal { font-weight: 400 !important; }
 						.font-medium { font-weight: 500 !important; }
 						.font-bold { font-weight: 700 !important; }
 						
-						/* Default text to bold weight */
 						p, div, span, td, th {
 							font-weight: 700;
 						}
