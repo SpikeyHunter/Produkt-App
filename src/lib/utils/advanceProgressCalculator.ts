@@ -67,7 +67,13 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 
 	// 6. Immigration Status
 	const immigrationStatusValue =
-		event.immigration_status === 'Sent' ? 100 : event.immigration_status === 'Waiting' ? 50 : 0; // "To Do" or null
+		event.immigration_status === 'Sent'
+			? 100
+			: event.immigration_status === 'Waiting'
+				? 75
+				: event.immigration_status === 'Received'
+					? 50
+					: 0; 
 	progressItems.push({
 		name: 'immigration_status',
 		value: immigrationStatusValue,

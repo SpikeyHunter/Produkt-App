@@ -66,6 +66,7 @@
 	const icons = {
 		dashboard: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
 		calendar: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`,
+		setTimes: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
 		marketing: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>`,
 		booking: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 
 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>`,
@@ -91,6 +92,13 @@
 			requiredPermission: 'Admin'
 		},
 		{
+			id: 'settimes',
+			label: 'Set Times',
+			icon: icons.setTimes,
+			route: '/settimes',
+			subItems: []
+		},
+		{
 			id: 'marketing',
 			label: 'Marketing',
 			icon: icons.marketing,
@@ -102,7 +110,7 @@
 			label: 'Booking',
 			icon: icons.booking,
 			requiredPermission: 'Booking',
-			subItems: [{ label: 'Set Times', route: '/booking/settimes' }]
+			subItems: [{ label: 'Customers', route: '/booking/customers' }]
 		},
 		{
 			id: 'advancing',
@@ -135,8 +143,8 @@
 			return true;
 		}
 
-		// Dashboard is always visible for any logged-in user.
-		if (item.id === 'dashboard') {
+		// Dashboard and Set Times are always visible for any logged-in user.
+		if (item.id === 'dashboard' || item.id === 'settimes') {
 			return true;
 		}
 
@@ -614,4 +622,3 @@
 		background: transparent;
 	}
 </style>
-

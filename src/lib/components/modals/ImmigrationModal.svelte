@@ -408,9 +408,9 @@
 					currentImmigrationInfo.gender.slice(1),
 				Family_Name: currentPassportInfo.lastName,
 				Given_names: currentPassportInfo.givenName,
-				Citizenship: normalizeCountry(currentPassportInfo.country),
-				Country_of_birth: normalizeCountry(currentPassportInfo.country),
-				Country_of_residence: normalizeCountry(currentPassportInfo.country),
+				Citizenship: normalizeCountry(currentPassportInfo.country), // Uses 'country' for Citizenship
+				Country_of_birth: normalizeCountry(currentPassportInfo.country_birth), // Uses 'country_birth' for Country of Birth
+				Country_of_residence: normalizeCountry(currentPassportInfo.country), // Uses 'country' for Country of Residence
 				Job_Title: getJobTitle(currentRole?.role),
 				From: formattedArrivalDate,
 				To: formattedDepartureDate,
@@ -457,7 +457,6 @@
 			isGeneratingImmForm = false;
 		}
 	}
-
 	function loadEventData() {
 		if (!event) return;
 		const allPeople =
@@ -685,7 +684,7 @@
 						const response = await fetch(passportInfo.passportImageUrl);
 						const blob = await response.blob();
 
-						const { jsPDF } = await import('jspdf');
+						const { default: jsPDF } = await import('jspdf');
 						const pdf = new jsPDF();
 
 						const img = new Image();
@@ -830,7 +829,7 @@
 							});
 						} else {
 							// If it's an image, convert to PDF
-							const { jsPDF } = await import('jspdf');
+							const { default: jsPDF } = await import('jspdf');
 							const pdf = new jsPDF();
 
 							const img = new Image();

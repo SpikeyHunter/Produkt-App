@@ -1,4 +1,4 @@
-// src/lib/utils/passportOcrUtils.ts
+// src/lib/utils/passport/ocrUtils.ts
 import { countryMappings } from './countryMappings';
 import { passportNumberPatterns } from './patterns';
 
@@ -6,7 +6,8 @@ export interface DetectedPassportInfo {
   givenName?: string;
   lastName?: string;
   dateOfBirth?: string;
-  country?: string;
+  country?: string; // This will be used for both citizenship and country of birth
+  country_birth?: string;
   passportNumber?: string;
 }
 
@@ -29,7 +30,7 @@ export function getGoogleCredentials(credentialsString?: string) {
     }
     
     console.log('✅ Google credentials parsed successfully');
-    console.log('📌 Project ID:', credentials.project_id);
+    console.log('🔌 Project ID:', credentials.project_id);
     console.log('📧 Client email:', credentials.client_email);
     
     return credentials;
@@ -150,9 +151,12 @@ export function parsePassportText(text: string, nameHints?: NameHints): Detected
   const passportNumber = extractPassportNumber(text);
   if (passportNumber) detectedInfo.passportNumber = passportNumber;
 
-  // Extract country
+  // Extract country - will be used for both citizenship and country of birth
   const country = extractCountry(text);
-  if (country) detectedInfo.country = country;
+  if (country) {
+    detectedInfo.country = country;
+    detectedInfo.country_birth = country; // Set both to the same value
+  }
 
   // Extract date of birth
   const dateOfBirth = extractDateOfBirth(text);
@@ -166,6 +170,10 @@ export function parsePassportText(text: string, nameHints?: NameHints): Detected
     Object.keys(mrzData).forEach(key => {
       if (!detectedInfo[key as keyof DetectedPassportInfo] && mrzData[key as keyof DetectedPassportInfo]) {
         (detectedInfo as any)[key] = (mrzData as any)[key];
+        // If country is set from MRZ, also set country_birth
+        if (key === 'country' && mrzData.country) {
+          detectedInfo.country_birth = mrzData.country;
+        }
       }
     });
   }
@@ -308,7 +316,6 @@ function findNamesWithPatterns(text: string, lines: string[]): Partial<DetectedP
   return result;
 }
 
-// ** MODIFIED FUNCTION **
 // Extract passport number with enhanced patterns and logic
 function extractPassportNumber(text: string): string | null {
 	for (const pattern of passportNumberPatterns) { 
@@ -336,7 +343,6 @@ function extractPassportNumber(text: string): string | null {
 
 	return null;
 }
-
 
 // Extract country
 function extractCountry(text: string): string | null {

@@ -71,6 +71,7 @@ export interface TechRiderInfo {
 	selected_mixer: string;
 	equipment: EquipmentMap;
 	other: OtherRequest[];
+	confirmed: boolean;
 }
 
 export interface SfxItem {
@@ -90,7 +91,7 @@ export interface SfxRiderInfo {
  * Soundcheck information interface
  */
 export interface SoundcheckInfo {
-	enabled: boolean;
+	status: 'asked' | 'tbd' | 'no' | 'yes';
 	start_time: string;
 	end_time: string;
 }
@@ -170,7 +171,7 @@ export interface EventAdvanceBase {
 	advance_sheet_url?: string | null;
 	meetgreet_enabled?: boolean | null;
 	meetgreet_info?: MeetGreetInfo | string | null;
-	notes?: NoteItem[] | null; // ADDED
+	notes?: NoteItem[] | null;
 }
 
 /**
@@ -205,7 +206,7 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	advance_sheet_url?: string | null;
 	meetgreet_enabled?: boolean | null;
 	meetgreet_info?: MeetGreetInfo | string | null;
-	notes?: NoteItem[] | null; // ADDED
+	notes?: NoteItem[] | null;
 }
 
 /**
@@ -243,11 +244,11 @@ export interface PassportInfo {
 	givenName: string;
 	lastName: string;
 	dateOfBirth: string;
-	country: string;
+	country: string; // Citizenship
+	country_birth: string; // Country of Birth
 	passportNumber: string;
 	passportImageUrl?: string;
 }
-
 /**
  * API response wrapper
  */

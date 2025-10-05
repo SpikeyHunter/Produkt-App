@@ -8,9 +8,15 @@
 	export let currentPassportInfo: PassportInfo | undefined;
 
 	const dispatch = createEventDispatcher();
+	
 	// Country dropdown states
 	let showCountryDropdown = false;
 	let countrySearchValue = currentPassportInfo?.country || '';
+	
+	// Country of Birth dropdown states
+	let showCountryBirthDropdown = false;
+	let countryBirthSearchValue = currentPassportInfo?.country_birth || '';
+	
 	// Validation state
 	let dateOfBirthError: string | null = null;
 
@@ -18,8 +24,13 @@
 		? countries.filter((country) => country.toLowerCase().includes(countrySearchValue.toLowerCase()))
 		: countries;
 
+	$: filteredCountriesBirth = countryBirthSearchValue
+		? countries.filter((country) => country.toLowerCase().includes(countryBirthSearchValue.toLowerCase()))
+		: countries;
+
 	$: if (currentPassportInfo) {
 		countrySearchValue = currentPassportInfo.country || '';
+		countryBirthSearchValue = currentPassportInfo.country_birth || '';
 	}
 
 	function updateField(field: string, value: any) {
@@ -32,10 +43,23 @@
 		countrySearchValue = country;
 	}
 
+	function selectCountryBirth(country: string) {
+		updateField('country_birth', country);
+		showCountryBirthDropdown = false;
+		countryBirthSearchValue = country;
+	}
+
 	function toggleCountryDropdown() {
 		showCountryDropdown = !showCountryDropdown;
 		if (!showCountryDropdown) {
 			countrySearchValue = currentPassportInfo?.country || '';
+		}
+	}
+
+	function toggleCountryBirthDropdown() {
+		showCountryBirthDropdown = !showCountryBirthDropdown;
+		if (!showCountryBirthDropdown) {
+			countryBirthSearchValue = currentPassportInfo?.country_birth || '';
 		}
 	}
 
@@ -70,10 +94,13 @@
 		if (
 			event.target &&
 			(event.target as Element).closest &&
-			!(event.target as Element).closest('.country-dropdown-container')
+			!(event.target as Element).closest('.country-dropdown-container') &&
+			!(event.target as Element).closest('.country-birth-dropdown-container')
 		) {
 			showCountryDropdown = false;
+			showCountryBirthDropdown = false;
 			countrySearchValue = currentPassportInfo?.country || '';
+			countryBirthSearchValue = currentPassportInfo?.country_birth || '';
 		}
 	}
 </script>
@@ -139,7 +166,7 @@
 		</div>
 
 		<div class="country-dropdown-container relative">
-			<label for="country-{currentPerson?.id}" class="block text-xs font-bold text-lime mb-1">Country</label>
+			<label for="country-{currentPerson?.id}" class="block text-xs font-bold text-lime mb-1">Citizenship</label>
 			<div class="relative">
 				<input
 					id="country-{currentPerson?.id}"
@@ -181,6 +208,59 @@
 							type="button"
 							class="w-full px-3 py-2 text-left text-white text-sm hover:bg-lime hover:text-black transition-colors cursor-pointer border-b border-gray1 last:border-b-0"
 							on:click={() => selectCountry(country)}
+						>
+							{country}
+						</button>
+					{:else}
+						<div class="px-3 py-2 text-center text-gray2 text-sm">No countries found</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+
+		<div class="country-birth-dropdown-container relative">
+			<label for="country-birth-{currentPerson?.id}" class="block text-xs font-bold text-lime mb-1">Country of Birth</label>
+			<div class="relative">
+				<input
+					id="country-birth-{currentPerson?.id}"
+					type="text"
+					class="w-full bg-transparent border rounded-full px-3 py-2 pr-8 text-white text-sm placeholder-gray2 focus:outline-none focus:ring-1 cursor-pointer {isFieldVerified(
+						'country_birth'
+					)
+						? 'border-lime focus:border-lime focus:ring-lime'
+						: 'border-red-500 focus:border-red-500 focus:ring-red-500'}"
+					placeholder="Select or search country"
+					bind:value={countryBirthSearchValue}
+					on:focus={() => (showCountryBirthDropdown = true)}
+					on:input={() => (showCountryBirthDropdown = true)}
+				/>
+				<button
+					type="button"
+					class="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer"
+					on:click={toggleCountryBirthDropdown}
+					aria-label="Toggle country of birth dropdown"
+				>
+					<svg
+						class="w-3.5 h-3.5 text-lime transition-transform {showCountryBirthDropdown ? 'rotate-180' : ''}"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
+						<path d="M6 9l6 6 6-6" />
+					</svg>
+				</button>
+			</div>
+
+			{#if showCountryBirthDropdown}
+				<div
+					class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto"
+				>
+					{#each filteredCountriesBirth as country}
+						<button
+							type="button"
+							class="w-full px-3 py-2 text-left text-white text-sm hover:bg-lime hover:text-black transition-colors cursor-pointer border-b border-gray1 last:border-b-0"
+							on:click={() => selectCountryBirth(country)}
 						>
 							{country}
 						</button>

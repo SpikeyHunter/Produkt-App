@@ -20,6 +20,7 @@ export function parsePassportInfo(passportJson: string | null | undefined): Pass
       lastName: passport.lastName || '',
       dateOfBirth: passport.dateOfBirth || '',
       country: passport.country || '',
+      country_birth: passport.country_birth || passport.country || '', // Backwards compatibility
       passportNumber: passport.passportNumber || '',
       passportImageUrl: passport.passportImageUrl || ''
     }));
@@ -65,6 +66,7 @@ export function initializePassportInfo(people: Person[], existingPassports: Pass
         lastName: person.lastName,
         dateOfBirth: '',
         country: '',
+        country_birth: '',
         passportNumber: '',
         passportImageUrl: ''
       });
@@ -83,6 +85,7 @@ export function isPassportComplete(passport: PassportInfo): boolean {
     passport.lastName.trim() &&
     passport.dateOfBirth.trim() &&
     passport.country.trim() &&
+    passport.country_birth.trim() &&
     passport.passportNumber.trim()
   );
 }
@@ -187,7 +190,11 @@ export function validatePassportData(passport: PassportInfo): {
   }
   
   if (!passport.country.trim()) {
-    errors.push('Country is required');
+    errors.push('Citizenship is required');
+  }
+  
+  if (!passport.country_birth.trim()) {
+    errors.push('Country of birth is required');
   }
   
   if (!passport.passportNumber.trim()) {

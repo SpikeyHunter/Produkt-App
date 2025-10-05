@@ -51,7 +51,6 @@
 	$: if (isOpen && event) {
 		setTimeout(() => loadEventData(), 50);
 	}
-
 	function loadEventData() {
 		if (!event || !event.roles) return;
 
@@ -78,6 +77,7 @@
 				lastName: true,
 				dateOfBirth: true,
 				country: true,
+				country_birth: true, // ADDED
 				passportNumber: true
 			}
 		}));
@@ -88,7 +88,6 @@
 		});
 		currentPersonIndex = 0;
 	}
-
 	function updateCurrentPassportInfo(field: string, value: any) {
 		if (!currentPerson) return;
 		passportInfos = passportInfos.map((info) => {
@@ -117,14 +116,14 @@
 	// Add the missing processFile function
 	async function processFile(file: File) {
 		if (!currentPerson) return;
-		
+
 		// Validate file type
 		const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'application/pdf'];
 		if (!allowedTypes.includes(file.type)) {
 			detectionError = 'Invalid file type. Please upload a PDF, JPG, JPEG, or PNG file.';
 			return;
 		}
-		
+
 		// Validate file size (10MB limit)
 		const maxSize = 10 * 1024 * 1024;
 		if (file.size > maxSize) {
@@ -147,9 +146,9 @@
 		const target = e.target as HTMLInputElement;
 		const file = target.files?.[0];
 		if (!file) return;
-		
+
 		await processFile(file);
-		
+
 		if (fileInput) fileInput.value = '';
 	}
 
@@ -256,6 +255,7 @@
 				if (info.id === currentPerson.id) {
 					const updatedInfo = { ...info };
 					const fields = updatedInfo.fieldsVerified || ({} as any);
+
 					if (ocrResult.givenName) {
 						updatedInfo.givenName = ocrResult.givenName;
 						fields.givenName = false;
@@ -268,21 +268,27 @@
 						updatedInfo.dateOfBirth = ocrResult.dateOfBirth;
 						fields.dateOfBirth = false;
 					}
+					// Handle both citizenship (country) and country of birth (country_birth)
 					if (ocrResult.country) {
 						updatedInfo.country = ocrResult.country;
 						fields.country = false;
+					}
+					if (ocrResult.country_birth) {
+						updatedInfo.country_birth = ocrResult.country_birth;
+						fields.country_birth = false;
 					}
 					if (ocrResult.passportNumber) {
 						updatedInfo.passportNumber = ocrResult.passportNumber;
 						fields.passportNumber = false;
 					}
+
 					updatedInfo.fieldsVerified = fields;
 					return updatedInfo;
 				}
 				return info;
 			});
 		} catch (error) {
-			console.error('⚠ Error during auto-detection:', error);
+			console.error('⚠️ Error during auto-detection:', error);
 			detectionError = error instanceof Error ? error.message : 'Failed to detect info.';
 		} finally {
 			isDetecting = false;

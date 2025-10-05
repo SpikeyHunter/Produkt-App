@@ -9,8 +9,6 @@ export interface ReminderItem {
 	text: string;
 }
 
-// The ReminderSection type is no longer needed and has been removed.
-
 // This is the critical change: ReminderData is now a flat array of items.
 export type ReminderData = ReminderItem[];
 // --- End: Modified Reminder Types ---
@@ -26,7 +24,7 @@ export interface UserProfile {
 	secondary_permission?: string | string[];
 	created_at?: string;
 	updated_at?: string;
-	user_reminders?: ReminderData; // This now correctly refers to ReminderItem[]
+	user_reminders?: ReminderData;
 }
 
 interface AuthState {
@@ -83,33 +81,32 @@ function createAuthStore() {
 		}
 	}
     
-    // This function now correctly accepts the updated ReminderData type (ReminderItem[])
-    async function updateReminders(reminders: ReminderData) {
-        const state = get({ subscribe });
-        if (!state.user || !state.profile) {
-            console.error("User not authenticated or profile not loaded.");
-            return;
-        }
+	async function updateReminders(reminders: ReminderData) {
+		const state = get({ subscribe });
+		if (!state.user || !state.profile) {
+			console.error("User not authenticated or profile not loaded.");
+			return;
+		}
 
-        const oldProfile = state.profile;
-        update(s => ({
-            ...s,
-            profile: s.profile ? { ...s.profile, user_reminders: reminders } : null
-        }));
+		const oldProfile = state.profile;
+		update(s => ({
+			...s,
+			profile: s.profile ? { ...s.profile, user_reminders: reminders } : null
+		}));
 
-        const { error } = await supabase
-            .from('user_profiles')
-            .update({ user_reminders: reminders })
-            .eq('id', state.user.id);
+		const { error } = await supabase
+			.from('user_profiles')
+			.update({ user_reminders: reminders })
+			.eq('id', state.user.id);
 
-        if (error) {
-            console.error('Error updating reminders:', error);
-             update(s => ({
-                ...s,
-                profile: oldProfile
-            }));
-        }
-    }
+		if (error) {
+			console.error('Error updating reminders:', error);
+			update(s => ({
+				...s,
+				profile: oldProfile
+			}));
+		}
+	}
 
 	async function initialize() {
 		const currentState = get({ subscribe });
@@ -262,7 +259,9 @@ export const canAccessRoute = derived([authStore, permissions], ([$authStore, $p
 	return (route: string): boolean => {
 		if (!$authStore.user || !$authStore.profile) return false;
 		if ($permissions.isAdmin) return true;
-		if (route.startsWith('/dashboard') || route.startsWith('/calendar')) {
+		
+		// Dashboard, Set Times, and Calendar accessible to all users
+		if (route.startsWith('/dashboard') || route.startsWith('/settimes') || route.startsWith('/calendar')) {
 			return true;
 		}
 		if (route.startsWith('/settings')) {

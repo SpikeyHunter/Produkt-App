@@ -8,14 +8,16 @@ export function createEmptyPassportInfo(personId: string): PassportInfo {
 		lastName: '',
 		dateOfBirth: '',
 		country: '',
+		country_birth: '',
 		passportNumber: '',
 		passportImageUrl: '',
-		exemption: false, // Added back to satisfy the type
+		exemption: false,
 		fieldsVerified: {
 			givenName: true,
 			lastName: true,
 			dateOfBirth: true,
 			country: true,
+			country_birth: true,
 			passportNumber: true
 		}
 	};
@@ -30,6 +32,7 @@ function isPassportEmpty(info: PassportInfo | undefined): boolean {
 		!info.lastName?.trim() &&
 		!info.dateOfBirth?.trim() &&
 		!info.country?.trim() &&
+		!info.country_birth?.trim() &&
 		!info.passportNumber?.trim()
 	);
 }
@@ -43,6 +46,7 @@ function isPassportFullyComplete(info: PassportInfo | undefined): boolean {
 		info.lastName?.trim() &&
 		info.dateOfBirth?.trim() &&
 		info.country?.trim() &&
+		info.country_birth?.trim() &&
 		info.passportNumber?.trim()
 	);
 }
@@ -71,7 +75,11 @@ export function parsePassportData(data: any): PassportInfo[] {
 			if (!info.id || seenIds.has(info.id)) return false;
 			seenIds.add(info.id);
 			return true;
-		});
+		}).map((info) => ({
+			...info,
+			// Ensure country_birth exists, default to country if not present (for backwards compatibility)
+			country_birth: info.country_birth || info.country || ''
+		}));
 	} catch (error) {
 		console.error('Error parsing passport info:', error);
 		return [];

@@ -27,7 +27,7 @@ export {};
 
 declare module "$app/types" {
 	export interface AppTypes {
-		RouteId(): "/" | "/advancing" | "/advancing/gathered" | "/advancing/gathered/[event_param]" | "/api" | "/api/flight-lookup" | "/api/generate-advance-pdf" | "/api/google-calendar" | "/api/guests" | "/api/latest-commit" | "/api/passport-ocr" | "/api/register" | "/api/update-event" | "/api/upload" | "/api/validate-registration-code" | "/api/validate-team-code" | "/auth" | "/auth/callback" | "/auth/forgot-password" | "/auth/reset-password" | "/auth/verify" | "/booking" | "/booking/artist" | "/booking/settimes" | "/calendar" | "/dashboard" | "/letter" | "/login" | "/login/forgot-password" | "/login/register" | "/login/reset-confirmed" | "/login/reset-password" | "/marketing" | "/marketing/eventsinfo" | "/production" | "/production/backline" | "/settings" | "/wifi";
+		RouteId(): "/" | "/advancing" | "/advancing/gathered" | "/advancing/gathered/[event_param]" | "/api" | "/api/flight-lookup" | "/api/generate-advance-pdf" | "/api/google-calendar" | "/api/guests" | "/api/latest-commit" | "/api/passport-ocr" | "/api/register" | "/api/update-event" | "/api/upload" | "/api/validate-registration-code" | "/api/validate-team-code" | "/auth" | "/auth/callback" | "/auth/forgot-password" | "/auth/reset-password" | "/auth/verify" | "/booking" | "/booking/artist" | "/booking/customers" | "/calendar" | "/dashboard" | "/letter" | "/login" | "/login/forgot-password" | "/login/register" | "/login/reset-confirmed" | "/login/reset-password" | "/marketing" | "/marketing/eventsinfo" | "/production" | "/production/backline" | "/settimes" | "/settings" | "/wifi";
 		RouteParams(): {
 			"/advancing/gathered/[event_param]": { event_param: string }
 		};
@@ -55,7 +55,7 @@ declare module "$app/types" {
 			"/auth/verify": Record<string, never>;
 			"/booking": Record<string, never>;
 			"/booking/artist": Record<string, never>;
-			"/booking/settimes": Record<string, never>;
+			"/booking/customers": Record<string, never>;
 			"/calendar": Record<string, never>;
 			"/dashboard": Record<string, never>;
 			"/letter": Record<string, never>;
@@ -68,10 +68,11 @@ declare module "$app/types" {
 			"/marketing/eventsinfo": Record<string, never>;
 			"/production": Record<string, never>;
 			"/production/backline": Record<string, never>;
+			"/settimes": Record<string, never>;
 			"/settings": Record<string, never>;
 			"/wifi": Record<string, never>
 		};
-		Pathname(): "/" | "/advancing" | "/advancing/" | "/advancing/gathered" | "/advancing/gathered/" | `/advancing/gathered/${string}` & {} | `/advancing/gathered/${string}/` & {} | "/api" | "/api/" | "/api/flight-lookup" | "/api/flight-lookup/" | "/api/generate-advance-pdf" | "/api/generate-advance-pdf/" | "/api/google-calendar" | "/api/google-calendar/" | "/api/guests" | "/api/guests/" | "/api/latest-commit" | "/api/latest-commit/" | "/api/passport-ocr" | "/api/passport-ocr/" | "/api/register" | "/api/register/" | "/api/update-event" | "/api/update-event/" | "/api/upload" | "/api/upload/" | "/api/validate-registration-code" | "/api/validate-registration-code/" | "/api/validate-team-code" | "/api/validate-team-code/" | "/auth" | "/auth/" | "/auth/callback" | "/auth/callback/" | "/auth/forgot-password" | "/auth/forgot-password/" | "/auth/reset-password" | "/auth/reset-password/" | "/auth/verify" | "/auth/verify/" | "/booking" | "/booking/" | "/booking/artist" | "/booking/artist/" | "/booking/settimes" | "/booking/settimes/" | "/calendar" | "/calendar/" | "/dashboard" | "/dashboard/" | "/letter" | "/letter/" | "/login" | "/login/" | "/login/forgot-password" | "/login/forgot-password/" | "/login/register" | "/login/register/" | "/login/reset-confirmed" | "/login/reset-confirmed/" | "/login/reset-password" | "/login/reset-password/" | "/marketing" | "/marketing/" | "/marketing/eventsinfo" | "/marketing/eventsinfo/" | "/production" | "/production/" | "/production/backline" | "/production/backline/" | "/settings" | "/settings/" | "/wifi" | "/wifi/";
+		Pathname(): "/" | "/advancing" | "/advancing/" | "/advancing/gathered" | "/advancing/gathered/" | `/advancing/gathered/${string}` & {} | `/advancing/gathered/${string}/` & {} | "/api" | "/api/" | "/api/flight-lookup" | "/api/flight-lookup/" | "/api/generate-advance-pdf" | "/api/generate-advance-pdf/" | "/api/google-calendar" | "/api/google-calendar/" | "/api/guests" | "/api/guests/" | "/api/latest-commit" | "/api/latest-commit/" | "/api/passport-ocr" | "/api/passport-ocr/" | "/api/register" | "/api/register/" | "/api/update-event" | "/api/update-event/" | "/api/upload" | "/api/upload/" | "/api/validate-registration-code" | "/api/validate-registration-code/" | "/api/validate-team-code" | "/api/validate-team-code/" | "/auth" | "/auth/" | "/auth/callback" | "/auth/callback/" | "/auth/forgot-password" | "/auth/forgot-password/" | "/auth/reset-password" | "/auth/reset-password/" | "/auth/verify" | "/auth/verify/" | "/booking" | "/booking/" | "/booking/artist" | "/booking/artist/" | "/booking/customers" | "/booking/customers/" | "/calendar" | "/calendar/" | "/dashboard" | "/dashboard/" | "/letter" | "/letter/" | "/login" | "/login/" | "/login/forgot-password" | "/login/forgot-password/" | "/login/register" | "/login/register/" | "/login/reset-confirmed" | "/login/reset-confirmed/" | "/login/reset-password" | "/login/reset-password/" | "/marketing" | "/marketing/" | "/marketing/eventsinfo" | "/marketing/eventsinfo/" | "/production" | "/production/" | "/production/backline" | "/production/backline/" | "/settimes" | "/settimes/" | "/settings" | "/settings/" | "/wifi" | "/wifi/";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): "/.DS_Store" | "/favicon-v2.png" | "/images/.DS_Store" | "/images/NCG_LOGO2_BLANC.png" | "/images/ProduktXX_LOGO1.png" | "/images/ProduktXX_LOGO2.png" | "/images/ProduktXX_LOGO_lockup.png" | "/pdf/.DS_Store" | "/pdf/IMM5686E_Template_Empty.pdf" | "/pdf/Invitation Letter.pdf" | string & {};
 	}

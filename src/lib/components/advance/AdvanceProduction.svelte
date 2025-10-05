@@ -21,10 +21,11 @@
 		selected_mixer: string;
 		equipment: EquipmentMap;
 		other: OtherRequest[];
+		confirmed: boolean;
 	}
 
 	interface SoundcheckInfo {
-		enabled: boolean;
+		status: 'asked' | 'tbd' | 'no' | 'yes';
 		start_time: string;
 		end_time: string;
 	}
@@ -57,18 +58,19 @@
 	let showPopup = false;
 	let popupMessage = '';
 	const defaultTechRider: TechRider = {
-		selected_mixer: 'DJM-A9',
+		selected_mixer: '',
 		equipment: {
-			'CDJ-3000': { selected: true, qty: 4, editableQty: true },
+			'CDJ-3000': { selected: false, qty: 4, editableQty: true },
 			'RMX-1000': { selected: false, qty: 1, editableQty: false },
 			'Wireless Mic': { selected: false, qty: 1, editableQty: true },
 			'Wired Mic': { selected: false, qty: 1, editableQty: true },
 			'Laptop Stand': { selected: false, qty: 1, editableQty: false }
 		},
-		other: []
+		other: [],
+		confirmed: false
 	};
 	const defaultSoundcheck: SoundcheckInfo = {
-		enabled: false,
+		status: 'asked',
 		start_time: '20:30',
 		end_time: '21:00'
 	};
@@ -105,10 +107,22 @@
 			};
 			return acc;
 		}, {} as EquipmentMap);
+		
+		// Migrate old soundcheck format (enabled: boolean) to new format (status: string)
+		let migratedSoundcheck = dbSoundcheck;
+		if (dbSoundcheck && typeof dbSoundcheck.enabled === 'boolean') {
+			migratedSoundcheck = {
+				status: dbSoundcheck.enabled ? 'yes' : 'no',
+				start_time: dbSoundcheck.start_time || defaultSoundcheck.start_time,
+				end_time: dbSoundcheck.end_time || defaultSoundcheck.end_time
+			};
+		}
+		
 		techRider = {
 			selected_mixer: dbTechRider?.selected_mixer || defaultTechRider.selected_mixer,
 			equipment: mergedEquipment,
-			other: Array.isArray(dbTechRider?.other) ? dbTechRider.other : []
+			other: Array.isArray(dbTechRider?.other) ? dbTechRider.other : [],
+			confirmed: dbTechRider?.confirmed || false
 		};
 		// Properly type and merge SFX rider
 		sfxRider = {
@@ -121,7 +135,7 @@
 		// Properly type and merge Soundcheck
 		soundcheck = {
 			...defaultSoundcheck,
-			...(dbSoundcheck || {})
+			...(migratedSoundcheck || {})
 		};
 		// Store initial state to compare for changes
 		lastSavedData = JSON.stringify({ techRider, sfxRider, soundcheck });
@@ -354,10 +368,21 @@
 		}
 	}
 
-	function toggleSoundcheck() {
+	function cycleSoundcheckStatus() {
 		if (soundcheck) {
-			soundcheck.enabled = !soundcheck.enabled;
+			const statuses: Array<'asked' | 'tbd' | 'no' | 'yes'> = ['asked', 'tbd', 'no', 'yes'];
+			const currentIndex = statuses.indexOf(soundcheck.status);
+			const nextIndex = (currentIndex + 1) % statuses.length;
+			soundcheck.status = statuses[nextIndex];
 			soundcheck = { ...soundcheck };
+			scheduleAutoSave();
+		}
+	}
+
+	function toggleTechRiderConfirmed() {
+		if (techRider) {
+			techRider.confirmed = !techRider.confirmed;
+			techRider = { ...techRider };
 			scheduleAutoSave();
 		}
 	}
@@ -389,7 +414,12 @@
 
 	function selectMixer(mixer: string) {
 		if (techRider) {
-			techRider.selected_mixer = mixer;
+			// Allow deselecting if clicking the same mixer
+			if (techRider.selected_mixer === mixer) {
+				techRider.selected_mixer = '';
+			} else {
+				techRider.selected_mixer = mixer;
+			}
 			techRider = { ...techRider };
 			scheduleAutoSave();
 		}
@@ -517,18 +547,23 @@
 						<button
 							type="button"
 							class="rounded-xl px-3 py-1 text-xs transition-colors duration-200 cursor-pointer flex items-center justify-center gap-2"
-							class:bg-lime={soundcheck.enabled}
-							class:text-black={soundcheck.enabled}
-							class:font-bold={soundcheck.enabled}
-							class:bg-gray1={!soundcheck.enabled}
-							class:text-gray3={!soundcheck.enabled}
-							on:click={toggleSoundcheck}
+							class:font-bold={soundcheck.status !== 'asked'}
+							style="background-color: {soundcheck.status === 'asked' ? '#FDBA74' : soundcheck.status === 'tbd' ? '#c4b5fd' : soundcheck.status === 'no' ? '#FCA5A5' : soundcheck.status === 'yes' ? '#86EFAC' : ''}; color: {soundcheck.status !== 'asked' ? '#000000' : '#000000'}"
+							on:click={cycleSoundcheckStatus}
 							disabled={saving}
 						>
-							{soundcheck.enabled ? 'Yes' : 'No'}
+							{#if soundcheck.status === 'asked'}
+								Asked
+							{:else if soundcheck.status === 'tbd'}
+								TBD
+							{:else if soundcheck.status === 'no'}
+								No
+							{:else}
+								Yes
+							{/if}
 						</button>
 					</div>
-					{#if soundcheck.enabled}
+					{#if soundcheck.status === 'yes'}
 						<div class="flex items-center gap-1 text-xs">
 							<input
 								type="time"
@@ -547,7 +582,24 @@
 					{/if}
 				</div>
 
-				<h3 class="font-semibold text-gray-200 text-sm">Tech Rider</h3>
+				<div class="flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<h3 class="font-semibold text-gray-200 text-sm">Tech Rider</h3>
+						<button
+							type="button"
+							class="rounded-xl px-3 py-1 text-xs transition-colors duration-200 cursor-pointer"
+							class:bg-lime={techRider.confirmed}
+							class:text-black={techRider.confirmed}
+							class:font-bold={techRider.confirmed}
+							class:bg-gray1={!techRider.confirmed}
+							class:text-gray3={!techRider.confirmed}
+							on:click={toggleTechRiderConfirmed}
+							disabled={saving}
+						>
+							{techRider.confirmed ? 'Confirmed' : 'Not Confirmed'}
+						</button>
+					</div>
+				</div>
 
 				<div class="grid grid-cols-3 gap-2">
 					{#each ['DJM-A9', 'DJM-V10', 'DJM-900-NXS2'] as mixer}
@@ -667,9 +719,7 @@
 										<span>{name}</span>
 									</button>
 									{#if item.enabled && item.duration !== undefined}
-										<div
-											class="flex items-center justify-center gap-1 text-xs bg-gray1 rounded-lg p-1"
-										>
+										<div class="flex items-center justify-center gap-1 text-xs bg-gray1 rounded-lg p-1">
 											<button
 												type="button"
 												on:click={() => adjustDuration(key, -30)}
@@ -736,7 +786,7 @@
 					</button>
 				{:else}
 					<div class="flex items-center justify-center py-4 text-gray3 text-sm">
-						No SFX possible for this show
+						No SFX available for this show
 					</div>
 				{/if}
 			</div>

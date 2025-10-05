@@ -45,7 +45,7 @@
 	],
 	"/auth/verify": [],
 	"/booking/artist": [],
-	"/booking/settimes": [],
+	"/booking/customers": [],
 	"/calendar": [],
 	"/dashboard": [],
 	"/letter": [],
@@ -55,6 +55,7 @@
 	"/login/reset-password": [],
 	"/marketing/eventsinfo": [],
 	"/production/backline": [],
+	"/settimes": [],
 	"/settings": [],
 	"/wifi": []
 }

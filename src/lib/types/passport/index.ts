@@ -22,7 +22,8 @@ export interface PassportInfo {
   givenName: string;
   lastName: string;
   dateOfBirth: string;
-  country: string;
+  country: string; // Citizenship
+  country_birth: string; // Country of Birth
   passportNumber: string;
   passportImageUrl: string;
   exemption: boolean;
@@ -31,6 +32,7 @@ export interface PassportInfo {
     lastName: boolean;
     dateOfBirth: boolean;
     country: boolean;
+    country_birth: boolean;
     passportNumber: boolean;
   };
 }

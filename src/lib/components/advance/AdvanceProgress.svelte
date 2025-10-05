@@ -24,20 +24,20 @@
 	// Handles updates from the dropdown and updates parent immediately
 	function handleFieldUpdate(e: CustomEvent) {
 		const { column, value, eventId, artistName } = e.detail;
-		
+
 		// Update the local event object immediately
 		if (event.event_id === eventId && event.artist_name === artistName) {
 			(event as any)[column] = value;
 			event = { ...event }; // Force Svelte reactivity
 		}
-		
+
 		// Notify parent to update its state and recalculate progress
-		dispatch('columnUpdate', { 
-			columns: [column], 
+		dispatch('columnUpdate', {
+			columns: [column],
 			value,
 			event // Pass the entire updated event
 		});
-		
+
 		console.log(`AdvanceProgress: Updated ${column} to ${value}, triggering parent update`);
 	}
 
@@ -112,7 +112,7 @@
 	$: flightsStatus = (() => {
 		// If flights are disabled, show N/A
 		if (event.flights_enabled === false) return 'N/A';
-		
+
 		const groundTransport = parseJson(event.ground_transport);
 		if (!Array.isArray(groundTransport) || groundTransport.length === 0) return 'No';
 
@@ -135,7 +135,7 @@
 	$: hotelsStatus = (() => {
 		// If hotels are disabled, show N/A
 		if (event.hotel_enabled === false) return 'N/A';
-		
+
 		const hotelInfo = parseJson(event.hotel_info);
 		if (!hotelInfo || !Array.isArray(hotelInfo) || hotelInfo.length === 0) return 'To Do';
 
@@ -179,15 +179,13 @@
 
 	function getBadgeColor(status: string): string {
 		const normalizedStatus = status ? status.toLowerCase().trim() : 'to do';
-		if (
-			[ 'yes', 'done', 'confirmed', 'sent', 'added', 'completed' ].includes(normalizedStatus)
-		) {
+		if (['yes', 'done', 'confirmed', 'sent', 'added', 'completed'].includes(normalizedStatus)) {
 			return 'bg-confirmed text-black';
 		}
-		if ([ 'no', 'to do', 'todo' ].includes(normalizedStatus)) {
+		if (['no', 'to do', 'todo'].includes(normalizedStatus)) {
 			return 'bg-problem text-black';
 		}
-		if ([ 'waiting', 'received', '1/2', 'asked' ].includes(normalizedStatus)) {
+		if (['waiting', 'received', '1/2', 'asked'].includes(normalizedStatus)) {
 			return 'bg-tentatif text-black';
 		}
 		if (normalizedStatus === 'n/a') {
@@ -224,21 +222,27 @@
 				</div>
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Role List</span>
-					<div class="{getBadgeColor(rolesListStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
+					<div
+						class="{getBadgeColor(rolesListStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs"
+					>
 						<span>{rolesListStatus}</span>
 					</div>
 				</div>
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">ROS Confirmed</span>
 					<div
-						class="{getBadgeColor(rosConfirmedStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs"
+						class="{getBadgeColor(
+							rosConfirmedStatus
+						)} text-sm rounded-xl px-3 py-1 font-bold text-xs"
 					>
 						<span>{rosConfirmedStatus}</span>
 					</div>
 				</div>
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Passports</span>
-					<div class="{getBadgeColor(passportStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
+					<div
+						class="{getBadgeColor(passportStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs"
+					>
 						<span>{passportStatus}</span>
 					</div>
 				</div>
@@ -247,7 +251,7 @@
 					{#if immigrationNeeded}
 						<DropdownButton
 							{event}
-							options={['To Do', 'Waiting', 'Sent']}
+							options={['To Do', 'Waiting', 'Received', 'Sent']}
 							value={event.immigration_status || 'To Do'}
 							column="immigration_status"
 							valueType="text"
@@ -262,7 +266,9 @@
 				</div>
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Flights</span>
-					<div class="{getBadgeColor(flightsStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
+					<div
+						class="{getBadgeColor(flightsStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs"
+					>
 						<span>{flightsStatus}</span>
 					</div>
 				</div>
@@ -280,7 +286,9 @@
 				</div>
 				<div class="flex items-center gap-3 text-sm">
 					<span class="font-semibold min-w-[120px] text-gray3">Visuals</span>
-					<div class="{getBadgeColor(visualsStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs">
+					<div
+						class="{getBadgeColor(visualsStatus)} text-sm rounded-xl px-3 py-1 font-bold text-xs"
+					>
 						<span>{visualsStatus}</span>
 					</div>
 				</div>

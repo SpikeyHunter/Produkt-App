@@ -58,7 +58,7 @@ type HotelInfoArray = {
 import type { HotelInfo } from '../types/events';
 
 type SoundcheckInfo = {
-	enabled: boolean;
+	status: 'asked' | 'tbd' | 'no' | 'yes';
 	end_time: string;
 	start_time: string;
 };
@@ -429,7 +429,7 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 		const soundcheckInfo: SoundcheckInfo =
 			typeof event.soundcheck === 'string' ? JSON.parse(event.soundcheck) : event.soundcheck;
 
-		if (soundcheckInfo.enabled && soundcheckInfo.start_time) {
+		if (soundcheckInfo.status === 'yes' && soundcheckInfo.start_time) {
 			const driverAssignment = getDriverAssignments(
 				roleData.totalPeople,
 				roleData.artistAndManager,
