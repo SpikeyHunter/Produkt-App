@@ -89,14 +89,6 @@
 
 	onMount(() => {
 		// Initialize the auth store to fetch user and profile data.
-		const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
-		if (link) {
-			console.log('Favicon in use:', link.href);
-			alert('Favicon in use: ' + link.href);
-		} else {
-			console.log('No favicon found!');
-			alert('No favicon found!');
-		}
 		authStore.initialize().then(() => {
 			isAuthInitialized = true;
 		});
