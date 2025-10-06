@@ -2,6 +2,8 @@
 	import { createEventDispatcher } from 'svelte';
 	import type { EventWithTimetable, TimetableEntry } from '$lib/services/eventsService';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
+	import { permissions } from '$lib/stores/authStore';
+	
 	export let event: EventWithTimetable;
 
 	// --- Component State ---
@@ -11,6 +13,13 @@
 	let popupMessage = '';
 
 	// --- Reactive Logic ---
+
+	// Check if user has permission to edit set times
+	$: canEditSetTimes = $permissions.isAdmin || 
+		$permissions.hasPermission('Advance') || 
+		$permissions.hasPermission('Booking') || 
+		$permissions.hasPermission('Marketing') || 
+		$permissions.hasPermission('Production');
 
 	// Find the shared status of all artist entries.
 	$: sharedArtistStatus = (() => {
@@ -24,6 +33,7 @@
 		const allHaveSameStatus = artistEntries.every((entry) => entry.status === firstStatus);
 		return allHaveSameStatus ? firstStatus : null;
 	})();
+	
 	// Generate plain text for clipboard
 	$: clipboardText = (() => {
 		if (!event.timetable || event.timetable.length === 0) return '';
@@ -43,6 +53,7 @@
 			.join('\n');
 		return [formattedHeader, ...formattedRows].join('\n');
 	})();
+	
 	// Generate HTML for clipboard
 	$: clipboardHtml = (() => {
 		if (!event.timetable || event.timetable.length === 0) return '';
@@ -81,6 +92,12 @@
 	// Handles the copy action and UI feedback
 	async function handleCopyClick(e: MouseEvent) {
 		e.stopPropagation();
+		if (!canEditSetTimes) {
+			popupMessage = 'You do not have permission to copy set times';
+			showPopup = true;
+			return;
+		}
+		
 		if (justCopied || !navigator.clipboard?.write) return;
 
 		try {
@@ -141,14 +158,29 @@
 	}
 
 	function handleAddClick() {
+		if (!canEditSetTimes) {
+			popupMessage = 'You do not have permission to add or edit set times';
+			showPopup = true;
+			return;
+		}
 		dispatch('add', { event });
 	}
 
 	function handleHideClick() {
+		if (!canEditSetTimes) {
+			popupMessage = 'You do not have permission to hide events';
+			showPopup = true;
+			return;
+		}
 		dispatch('hide', { eventId: event.event_id });
 	}
 
 	function handleShowClick() {
+		if (!canEditSetTimes) {
+			popupMessage = 'You do not have permission to show events';
+			showPopup = true;
+			return;
+		}
 		dispatch('show', { eventId: event.event_id });
 	}
 
@@ -244,12 +276,18 @@
 					<div class="flex items-center">
 						<button
 							on:click={handleCopyClick}
-							class="p-2 text-gray2 hover:text-black rounded-lg transition-all duration-200 cursor-pointer flex-shrink-0"
-							class:hover:bg-lime={!justCopied}
-							class:bg-lime={justCopied}
-							class:text-black={justCopied}
+							class="p-2 rounded-lg transition-all duration-200 flex-shrink-0"
+							class:text-gray2={!justCopied && canEditSetTimes}
+							class:hover:text-black={canEditSetTimes}
+							class:hover:bg-lime={!justCopied && canEditSetTimes}
+							class:bg-lime={justCopied && canEditSetTimes}
+							class:text-black={justCopied && canEditSetTimes}
+							class:opacity-50={!canEditSetTimes}
+							class:cursor-not-allowed={!canEditSetTimes}
+							class:cursor-pointer={canEditSetTimes}
+							disabled={!canEditSetTimes}
 							aria-label="Copy set times"
-							title={justCopied ? 'Copied!' : 'Copy timetable'}
+							title={!canEditSetTimes ? 'No permission' : justCopied ? 'Copied!' : 'Copy timetable'}
 						>
 							{#if justCopied}
 								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
@@ -263,9 +301,16 @@
 						</button>
 						<button
 							on:click|stopPropagation={handleAddClick}
-							class="p-2 text-gray2 hover:text-black hover:bg-lime rounded-lg transition-all duration-200 cursor-pointer flex-shrink-0"
+							class="p-2 rounded-lg transition-all duration-200 flex-shrink-0"
+							class:text-gray2={canEditSetTimes}
+							class:hover:text-black={canEditSetTimes}
+							class:hover:bg-lime={canEditSetTimes}
+							class:opacity-50={!canEditSetTimes}
+							class:cursor-not-allowed={!canEditSetTimes}
+							class:cursor-pointer={canEditSetTimes}
+							disabled={!canEditSetTimes}
 							aria-label="Edit set times"
-							title="Edit set times"
+							title={!canEditSetTimes ? 'No permission' : 'Edit set times'}
 						>
 							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 								<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
@@ -276,9 +321,16 @@
 				{:else}
 					<button
 						on:click|stopPropagation={event.timetable_active === false ? handleShowClick : handleHideClick}
-						class="p-2 text-gray2 hover:text-black hover:bg-lime rounded-lg transition-all duration-200 cursor-pointer flex-shrink-0"
+						class="p-2 rounded-lg transition-all duration-200 flex-shrink-0"
+						class:text-gray2={canEditSetTimes}
+						class:hover:text-black={canEditSetTimes}
+						class:hover:bg-lime={canEditSetTimes}
+						class:opacity-50={!canEditSetTimes}
+						class:cursor-not-allowed={!canEditSetTimes}
+						class:cursor-pointer={canEditSetTimes}
+						disabled={!canEditSetTimes}
 						aria-label={event.timetable_active === false ? 'Show event in timetable' : 'Hide event from timetable'}
-						title={event.timetable_active === false ? 'Show in timetable' : 'Hide from timetable'}
+						title={!canEditSetTimes ? 'No permission' : event.timetable_active === false ? 'Show in timetable' : 'Hide from timetable'}
 					>
 						{#if event.timetable_active === false}
 							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -309,8 +361,19 @@
 				{:else}
 					<button
 						on:click={handleAddClick}
-						class="w-full h-full flex flex-col items-center justify-center bg-gray1 rounded-lg text-gray2 hover:cursor-pointer hover:bg-opacity-75 hover:text-white transition-all duration-200 border-2 border-dashed border-gray-600 hover:border-lime"
+						class="w-full h-full flex flex-col items-center justify-center bg-gray1 rounded-lg transition-all duration-200 border-2 border-dashed"
+						class:text-gray2={canEditSetTimes}
+						class:hover:cursor-pointer={canEditSetTimes}
+						class:hover:bg-opacity-75={canEditSetTimes}
+						class:hover:text-white={canEditSetTimes}
+						class:border-gray-600={canEditSetTimes}
+						class:hover:border-lime={canEditSetTimes}
+						class:opacity-50={!canEditSetTimes}
+						class:cursor-not-allowed={!canEditSetTimes}
+						class:border-gray-700={!canEditSetTimes}
+						disabled={!canEditSetTimes}
 						aria-label="Add set times for {event.event_name}"
+						title={!canEditSetTimes ? 'No permission to add set times' : 'Add set times'}
 					>
 						<svg class="w-8 h-8 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
 							<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />

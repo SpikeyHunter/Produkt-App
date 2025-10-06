@@ -113,22 +113,26 @@
 		// If flights are disabled, show N/A
 		if (event.flights_enabled === false) return 'N/A';
 
-		const groundTransport = parseJson(event.ground_transport);
-		if (!Array.isArray(groundTransport) || groundTransport.length === 0) return 'No';
+		const groundInfo = parseJson(event.ground_info);
+		if (!groundInfo) return 'No';
 
-		const flights = groundTransport.filter(
-			(item: any) => item.type === 'Arrival' || item.type === 'Departure'
-		);
-		if (flights.length === 0) return 'No';
+		const arrivals = groundInfo.arrivals || [];
+		const departures = groundInfo.departures || [];
+
+		// Check if we have at least one arrival and one departure
+		if (arrivals.length === 0 || departures.length === 0) return 'No';
 
 		const calendarIds = parseJson(event.calendar_event_ids);
 		if (!calendarIds || typeof calendarIds !== 'object' || Object.keys(calendarIds).length === 0) {
 			return 'Received';
 		}
 
-		const allFlightsSynced = flights.every(
+		// Check if all flights (arrivals + departures) are synced to calendar
+		const allFlights = [...arrivals, ...departures];
+		const allFlightsSynced = allFlights.every(
 			(flight: any) => flight.id && calendarIds.hasOwnProperty(flight.id)
 		);
+
 		return allFlightsSynced ? 'Added' : 'Received';
 	})();
 
