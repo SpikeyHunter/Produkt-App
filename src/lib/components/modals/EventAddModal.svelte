@@ -14,6 +14,7 @@
 	let selectedEvent: any = null;
 	let availableEvents: any[] = [];
 	let filteredEvents: any[] = [];
+	let addedEventIds: Set<number> = new Set();
 
 	// Artists management
 	let artists: Array<{
@@ -56,12 +57,27 @@
 
 	async function loadEvents() {
 		try {
-			// Ensure event_venue is selected when fetching events.
+			// First, get all unique event_ids from the events_advance table
+			const { data: advances, error: advanceError } = await supabase
+				.from('events_advance')
+				.select('event_id');
+
+			if (advanceError) {
+				console.error('Error loading event advances:', advanceError);
+				// We can proceed without this data; the "Added" tag just won't show
+			}
+
+			if (advances) {
+				addedEventIds = new Set(advances.map((a) => a.event_id));
+			}
+
+			// Fetch all LIVE events (existing logic)
 			const { data, error } = await supabase
 				.from('events')
 				.select('event_id, event_name, event_date, event_flyer, event_venue')
 				.eq('event_status', 'LIVE')
 				.order('event_date', { ascending: true });
+
 			if (error) {
 				console.error('Error loading events:', error);
 				return;
@@ -83,7 +99,11 @@
 					!excludeKeywords.some((keyword) => event.event_name.toLowerCase().includes(keyword))
 			);
 
-			availableEvents = filteredData;
+			// Map events to include an 'isAdded' flag
+			availableEvents = filteredData.map((event) => ({
+				...event,
+				isAdded: addedEventIds.has(event.event_id)
+			}));
 		} catch (error) {
 			console.error('Error loading events:', error);
 		}
@@ -433,7 +453,14 @@
 										{/if}
 									</div>
 									<div class="flex-1 min-w-0">
-										<p class="font-medium truncate">{event.event_name}</p>
+										<div class="flex items-center gap-2">
+											<p class="font-medium truncate">{event.event_name}</p>
+											<span
+												class="px-2 py-0.5 text-xs font-bold text-black bg-lime rounded-full flex-shrink-0"
+											>
+												Advanced
+											</span>
+										</div>
 										<p class="text-sm opacity-70">
 											{formatEventDate(event.event_date)} • ID: {event.event_id}
 										</p>
@@ -535,9 +562,18 @@
 				<div class="w-2/3 space-y-6">
 					<!-- Event Info -->
 					<div>
-						<h3 class="text-xl font-bold text-white mb-2">
-							{isCustomEvent ? searchValue || 'Custom Event' : selectedEvent?.event_name}
-						</h3>
+						<div class="flex items-center gap-3 mb-2">
+							<h3 class="text-xl font-bold text-white">
+								{isCustomEvent ? searchValue || 'Custom Event' : selectedEvent?.event_name}
+							</h3>
+							{#if selectedEvent}
+								<span
+									class="px-2.5 py-1 text-xs font-bold text-black bg-lime rounded-full"
+								>
+									Advanced
+								</span>
+							{/if}
+						</div>
 						{#if selectedEvent}
 							<p class="text-gray2">
 								{formatEventDate(selectedEvent.event_date)} • ID: {selectedEvent.event_id}

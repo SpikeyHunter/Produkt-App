@@ -168,6 +168,11 @@
 	})();
 
 	$: visualsStatus = (() => {
+		const roles = parseJson(event.roles);
+		const hasVJ = Array.isArray(roles) && roles.some((person: any) => person.role === 'VJ');
+		if (hasVJ) {
+			return 'N/A';
+		}
 		if (event.event_venue === 'Bazart') {
 			return 'N/A';
 		}

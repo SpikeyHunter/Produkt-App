@@ -35,6 +35,9 @@
 	let showUploadModal: 'tech' | 'hospo' | null = null;
 	let showPreviewModal: 'tech' | 'hospo' | null = null;
 
+	$: parsedRoles = parseJsonData(event.roles);
+	$: hasVJ = Array.isArray(parsedRoles) && parsedRoles.some((role: any) => role.role === 'VJ');
+
 	$: if (event) {
 		initializeData();
 	}
@@ -355,10 +358,10 @@
 
 			<div class="w-full h-0 border-t border-gray1"></div>
 
-			{#if event.event_venue !== 'Bazart'}
-				<div class="space-y-3">
-					<div class="flex items-center justify-between">
-						<h3 class="font-semibold text-gray2 text-sm">Visuals</h3>
+			<div class="space-y-3">
+				<div class="flex items-center justify-between">
+					<h3 class="font-semibold text-gray2 text-sm">Visuals</h3>
+					{#if !hasVJ && event.event_venue !== 'Bazart'}
 						<button
 							on:click={addNewVisualField}
 							class="flex items-center justify-center w-6 h-6 text-lime hover:bg-lime hover:text-black rounded-full transition-colors"
@@ -374,8 +377,18 @@
 								<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
 							</svg>
 						</button>
-					</div>
+					{/if}
+				</div>
 
+				{#if hasVJ}
+					<div class="text-gray3 opacity-60 text-xs italic text-center py-4">
+						Artist has their own VJ for the show.
+					</div>
+				{:else if event.event_venue === 'Bazart'}
+					<div class="text-gray3 opacity-60 text-xs italic text-center py-4">
+						No visuals needed for this show.
+					</div>
+				{:else}
 					<div class="space-y-2">
 						{#each Object.keys(visuals) as key (key)}
 							<div class="flex items-center gap-2 animate-fade-in">
@@ -414,15 +427,8 @@
 							</div>
 						{/if}
 					</div>
-				</div>
-			{:else}
-				<div class="space-y-3">
-					<h3 class="font-semibold text-gray2 text-sm">Visuals</h3>
-					<div class="text-gray3 opacity-60 text-xs italic text-center py-4">
-						No visuals needed for this show.
-					</div>
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</div>
 	{:else}
 		<div class="flex items-center justify-center h-full text-gray3">Loading...</div>

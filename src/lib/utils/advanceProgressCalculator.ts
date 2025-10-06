@@ -18,6 +18,10 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 
 	const progressItems: ProgressItem[] = [];
 
+	// Parse roles once to check for VJ
+	const roles = parseJson(event.roles);
+	const hasVJ = Array.isArray(roles) && roles.some((r: any) => r.role === 'VJ');
+
 	// 1. Advance Status
 	const advanceStatusValue =
 		event.advance_status === 'Completed' ? 100 : event.advance_status === 'Asked' ? 50 : 0; // "To Do" or null
@@ -73,7 +77,7 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 				? 75
 				: event.immigration_status === 'Received'
 					? 50
-					: 0; 
+					: 0;
 	progressItems.push({
 		name: 'immigration_status',
 		value: immigrationStatusValue,
@@ -149,8 +153,8 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 		included: true
 	});
 
-	// 12. Visual Received (skip for Bazart venue)
-	if (event.event_venue !== 'Bazart') {
+	// 12. Visual Received (skip for Bazart venue OR if VJ is assigned)
+	if (event.event_venue !== 'Bazart' && !hasVJ) {
 		progressItems.push({
 			name: 'visual_received',
 			value: event.visual_received === true ? 100 : 0,

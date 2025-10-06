@@ -100,9 +100,6 @@
 
 		return null;
 	}
-
-	// Generate smart tags based on what needs to be done
-	// Generate smart tags based on what needs to be done
 	function generateSmartTags(event) {
 		const tags = [];
 		// If advance status is "To Do", only show "Advance to start"
@@ -129,8 +126,6 @@
 		}
 
 		// Check ROS (Running Order/Set Times)
-		// This would check if artist is confirmed in timetable
-		// For now, checking if role_list is false
 		if (!event.role_list) {
 			tags.push('ROS');
 		}
@@ -171,8 +166,6 @@
 
 		// Check Flights
 		const groundInfo = parseJson(event.ground_info);
-		const groundTransport = parseJson(event.ground_transport);
-		// Check if flights are enabled (default true)
 		const flightsEnabled = event.flights_enabled !== false;
 		if (flightsEnabled) {
 			const hasArrivals = groundInfo?.arrivals && groundInfo.arrivals.length > 0;
@@ -210,8 +203,11 @@
 			tags.push('Rider to Mihir');
 		}
 
-		// Check Visuals (skip for Bazart venue)
-		if (event.event_venue !== 'Bazart') {
+		// Check for VJ to determine if visuals are needed
+		const hasVJ = roles && Array.isArray(roles) && roles.some((r) => r.role === 'VJ');
+
+		// Check Visuals (skip for Bazart venue or if a VJ is assigned)
+		if (event.event_venue !== 'Bazart' && !hasVJ) {
 			if (!event.visual_received) {
 				tags.push('Visuals');
 			}
