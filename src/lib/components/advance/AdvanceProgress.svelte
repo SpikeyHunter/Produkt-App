@@ -113,27 +113,26 @@
 		// If flights are disabled, show N/A
 		if (event.flights_enabled === false) return 'N/A';
 
-		const groundInfo = parseJson(event.ground_info);
-		if (!groundInfo) return 'No';
-
-		const arrivals = groundInfo.arrivals || [];
-		const departures = groundInfo.departures || [];
-
-		// Check if we have at least one arrival and one departure
-		if (arrivals.length === 0 || departures.length === 0) return 'No';
-
-		const calendarIds = parseJson(event.calendar_event_ids);
-		if (!calendarIds || typeof calendarIds !== 'object' || Object.keys(calendarIds).length === 0) {
-			return 'Received';
+		// 1. Check ground_transport: If flights are present, status is 'Added'
+		const groundTransport = parseJson(event.ground_transport);
+		if (Array.isArray(groundTransport) && groundTransport.length > 0) {
+			return 'Added';
 		}
 
-		// Check if all flights (arrivals + departures) are synced to calendar
-		const allFlights = [...arrivals, ...departures];
-		const allFlightsSynced = allFlights.every(
-			(flight: any) => flight.id && calendarIds.hasOwnProperty(flight.id)
-		);
+		// 2. Check ground_info: If flight info exists, status is 'Received'
+		const groundInfo = parseJson(event.ground_info);
+		if (groundInfo) {
+			const arrivals = groundInfo.arrivals || [];
+			const departures = groundInfo.departures || [];
 
-		return allFlightsSynced ? 'Added' : 'Received';
+			// If there's at least one arrival or departure, we've received the info
+			if (arrivals.length > 0 || departures.length > 0) {
+				return 'Received';
+			}
+		}
+
+		// 3. Otherwise, the status is 'No'
+		return 'No';
 	})();
 
 	$: hotelsStatus = (() => {
