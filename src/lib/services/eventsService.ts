@@ -252,7 +252,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 			const { data: eventsData, error: eventsError } = await supabase
 				.from('events')
 				.select(
-					'event_id, event_name, event_date, event_artist, event_status, event_genre, event_flyer, event_tags, event_venue'
+					'event_id, event_name, event_date, event_artist, event_status, event_genre, event_flyer, event_tags, event_venue, timetable'
 				)
 				.in('event_id', eventIds);
 
@@ -292,7 +292,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				hospo_rider: row.hospo_rider,
 				ground_transport: row.ground_transport,
 				ground_info: row.ground_info,
-				flights_enabled: row.flights_enabled !== null ? row.flights_enabled : true, // Default to true if null
+				flights_enabled: row.flights_enabled !== null ? row.flights_enabled : true,
 				advance_completed: row.advance_completed,
 				asked: row.asked,
 				contract: row.contract,
@@ -333,7 +333,8 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				event_artist: eventData?.event_artist,
 				event_status: eventData?.event_status,
 				event_genre: eventData?.event_genre,
-				event_tags: eventData?.event_tags || []
+				event_tags: eventData?.event_tags || [],
+				timetable: eventData?.timetable || null // ADD THIS LINE
 			};
 		});
 
@@ -626,7 +627,8 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			calendar_sync_time: advanceData.calendar_sync_time,
 			calendar_event_ids: advanceData.calendar_event_ids,
 			advance_sheet_url: advanceData.advance_sheet_url,
-			meetgreet_enabled:advanceData.meetgreet_enabled !== null ? advanceData.meetgreet_enabled : false,
+			meetgreet_enabled:
+				advanceData.meetgreet_enabled !== null ? advanceData.meetgreet_enabled : false,
 			meetgreet_info: advanceData.meetgreet_info,
 			notes: advanceData.notes,
 
