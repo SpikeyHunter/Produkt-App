@@ -447,7 +447,11 @@
 		const newIsoTime = toEasternISO(newDate, newTime);
 
 		updateFlightInList(flightId, type, (f) => {
-			const updatedFlight = { ...f, time: newIsoTime };
+			const updatedFlight = {
+				...f,
+				time: newIsoTime,
+				date: newDate // ADD THIS LINE - update the date field too
+			};
 			if (type === 'departure') {
 				updatedFlight.timeAtAirport = calculateTimeAtAirport(
 					newIsoTime,
