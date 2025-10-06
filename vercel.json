@@ -1,11 +1,11 @@
 {
   "headers": [
     {
-      "source": "/favicon-v2.png",
+      "source": "/favicon-512.png",
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "no-cache"
+          "value": "no-cache, no-store, must-revalidate"
         }
       ]
     }
