@@ -1,42 +1,32 @@
-<!-- src/lib/components/booking/customers/CustomerFilterPresets.svelte -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import Button from '$lib/components/buttons/Button.svelte';
   
   export let activePreset: string = '';
   
   const dispatch = createEventDispatcher();
-  
-  interface FilterPreset {
+
+  type FilterPreset = {
     id: string;
     name: string;
     description: string;
     filters: any;
-  }
+  };
   
   const presets: FilterPreset[] = [
     {
-      id: 'high-value',
-      name: 'High Value',
-      description: 'Customers who spent $500+',
+      id: 'high-spenders',
+      name: 'High Spenders',
+      description: 'Customers who spent +$500',
       filters: {
-        spendRange: { min: 500, max: 10000 }
+        spendRange: { min: 500, max: 2000 }
       }
     },
     {
-      id: 'frequent',
+      id: 'frequent-buyers',
       name: 'Frequent Buyers',
       description: '10+ tickets purchased',
       filters: {
-        ticketsRange: { min: 10, max: 1000 }
-      }
-    },
-    {
-      id: 'ncg-regulars',
-      name: 'NCG Regulars',
-      description: 'New City Gas attendees',
-      filters: {
-        venues: ['New City Gas']
+        ticketsRange: { min: 10, max: 101 } // Use 101 for 100+
       }
     },
     {
@@ -48,18 +38,46 @@
       }
     },
     {
+      id: 'older-adults',
+      name: 'Older Adults',
+      description: 'Ages 40+',
+      filters: {
+        ageRange: { min: 40, max: 80 }
+      }
+    },
+    {
       id: 'recent-active',
       name: 'Recently Active',
       description: 'Purchased in last 30 days',
       filters: {
-        recentDays: 30
+        dateRange: {
+          start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          end: new Date().toISOString().split('T')[0]
+        }
       }
     }
   ];
-  
+
   function selectPreset(preset: FilterPreset) {
-    activePreset = preset.id;
-    dispatch('selectPreset', preset.filters);
+    if (activePreset === preset.id) {
+      clearPreset();
+    } else {
+      activePreset = preset.id;
+      // Create a complete filter object with all defaults, then override with preset values
+      const completeFilters = {
+        venues: [],
+        genres: [],
+        genders: [],
+        selectedEvents: [],
+        ageRange: { min: 18, max: 80 },
+        spendRange: { min: 0, max: 2000 },
+        // FIX: Default ticketsRange max is now 101
+        ticketsRange: { min: 0, max: 101 },
+        dateRange: { start: '', end: '' },
+        ...preset.filters
+      };
+      dispatch('selectPreset', completeFilters);
+    }
   }
   
   function clearPreset() {
@@ -74,7 +92,7 @@
     {#if activePreset}
       <button
         on:click={clearPreset}
-        class="text-gray2 hover:text-lime transition-colors text-xs"
+        class="text-gray2 hover:text-lime transition-colors text-xs cursor-pointer"
       >
         Clear
       </button>
@@ -85,7 +103,8 @@
     {#each presets as preset}
       <button
         on:click={() => selectPreset(preset)}
-        class="group relative"
+        class="group relative cursor-pointer"
+        aria-label="Apply preset: {preset.name}"
       >
         <div
           class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all duration-200
@@ -96,10 +115,9 @@
           {preset.name}
         </div>
         
-        <!-- Tooltip -->
-        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 pointer-events-none
-                    opacity-0 group-hover:opacity-100 transition-opacity z-10">
-          <div class="bg-black text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max max-w-xs
+                    pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50">
+          <div class="bg-black text-white text-xs px-2 py-1 rounded shadow-lg">
             {preset.description}
           </div>
         </div>
@@ -107,7 +125,3 @@
     {/each}
   </div>
 </div>
-
-<style>
-  /* Add any custom styles here */
-</style>

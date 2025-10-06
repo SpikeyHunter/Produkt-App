@@ -6,6 +6,7 @@
   import CustomerList from '$lib/components/booking/customers/CustomerList.svelte';
   import CustomerFilters from '$lib/components/booking/customers/CustomerFilters.svelte';
   import { fetchFilteredCustomers, exportCustomers } from '$lib/services/customersService';
+  import { exportCustomersToCSV } from '$lib/utils/csvExport';
   import { DEFAULT_PAGE_SIZE } from '$lib/components/settings/CustomersSettings';
   import type { Customer, CustomerFilters as FilterType } from '$lib/services/customersService';
   
@@ -14,6 +15,7 @@
   let totalPages = 1;
   let currentPage = 1;
   let isLoading = false;
+  let isExporting = false;
   let mounted = false;
   
   let filters: FilterType = {
@@ -25,11 +27,14 @@
     selectedEvents: [],
     searchTerm: '',
     page: 1,
-    pageSize: DEFAULT_PAGE_SIZE
+    pageSize: DEFAULT_PAGE_SIZE,
+    sortField: null,
+    sortDirection: null
   };
   
   let searchTimeout: NodeJS.Timeout;
   let searchTerm = '';
+  let activeFiltersString = 'All_Customers';
   
   onMount(() => {
     setTimeout(() => {
@@ -38,12 +43,45 @@
     // Don't load all customers on mount - wait for filters
   });
   
+  // Generate a descriptive string for the active filters
+  function generateFiltersString(): string {
+    const parts: string[] = [];
+    
+    if (filters.venues?.length) {
+      parts.push(`Venues_${filters.venues.join('_')}`);
+    }
+    if (filters.genres?.length) {
+      parts.push(`Genres_${filters.genres.join('_')}`);
+    }
+    if (filters.selectedEvents?.length) {
+      parts.push(`Events_${filters.selectedEvents.length}`);
+    }
+    if (filters.genders?.length) {
+      parts.push(`Genders_${filters.genders.join('_')}`);
+    }
+    if (filters.ageRange) {
+      parts.push(`Age_${filters.ageRange.min}-${filters.ageRange.max}`);
+    }
+    if (filters.spendRange) {
+      parts.push(`Spend_${filters.spendRange.min}-${filters.spendRange.max}`);
+    }
+    if (filters.ticketsRange) {
+      parts.push(`Tickets_${filters.ticketsRange.min}-${filters.ticketsRange.max}`);
+    }
+    if (searchTerm.trim()) {
+      parts.push(`Search_${searchTerm.trim().replace(/\s+/g, '_')}`);
+    }
+    
+    return parts.length > 0 ? parts.join('_') : 'All_Customers';
+  }
+  
   async function loadCustomers() {
     // Only load if we have some filters applied
     const hasFilters = 
-      filters.venues.length > 0 ||
-      filters.genders.length > 0 ||
-      filters.selectedEvents.length > 0 ||
+      (filters.venues && filters.venues.length > 0) ||
+      (filters.genres && filters.genres.length > 0) ||
+      (filters.genders && filters.genders.length > 0) ||
+      (filters.selectedEvents && filters.selectedEvents.length > 0) ||
       filters.ageRange ||
       filters.spendRange ||
       filters.ticketsRange ||
@@ -53,6 +91,7 @@
       customers = [];
       totalCount = 0;
       totalPages = 1;
+      activeFiltersString = 'All_Customers';
       return;
     }
     
@@ -67,6 +106,7 @@
       customers = result.customers;
       totalCount = result.totalCount;
       totalPages = result.totalPages;
+      activeFiltersString = generateFiltersString();
     } catch (error) {
       console.error('Error loading customers:', error);
       customers = [];
@@ -107,7 +147,9 @@
       selectedEvents: [],
       searchTerm: '',
       page: 1,
-      pageSize: DEFAULT_PAGE_SIZE
+      pageSize: DEFAULT_PAGE_SIZE,
+      sortField: null,
+      sortDirection: null
     };
     currentPage = 1;
     searchTerm = '';
@@ -120,6 +162,18 @@
     loadCustomers();
   }
   
+  function handleSortChange(event: CustomEvent) {
+    const { sortField, sortDirection } = event.detail;
+    filters = {
+      ...filters,
+      sortField,
+      sortDirection,
+      page: 1
+    };
+    currentPage = 1;
+    loadCustomers();
+  }
+  
   function handleSearchInput() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
@@ -129,9 +183,37 @@
     }, 300);
   }
   
-  async function handleExport() {
-    // This is disabled for now as per requirements
-    console.log('Export functionality is not yet implemented');
+  async function handleExport(event: CustomEvent) {
+    const { ticketCount, activeFiltersString: filtersString } = event.detail;
+    
+    isExporting = true;
+    
+    try {
+      // Fetch ALL customers with current filters (no pagination)
+      const allCustomers = await exportCustomers({
+        venues: filters.venues,
+        genres: filters.genres,
+        ageRange: filters.ageRange,
+        dateRange: filters.dateRange,
+        spendRange: filters.spendRange,
+        ticketsRange: filters.ticketsRange,
+        genders: filters.genders,
+        selectedEvents: filters.selectedEvents,
+        searchTerm: searchTerm,
+        sortField: filters.sortField,
+        sortDirection: filters.sortDirection
+      });
+      
+      // Export to CSV
+      exportCustomersToCSV(allCustomers, ticketCount, filtersString || activeFiltersString);
+      
+      console.log(`Exported ${allCustomers.length} customers`);
+    } catch (error) {
+      console.error('Export failed:', error);
+      // Optionally show an error toast/notification here
+    } finally {
+      isExporting = false;
+    }
   }
 </script>
 
@@ -200,7 +282,10 @@
             {totalPages}
             pageSize={filters.pageSize}
             {isLoading}
+            {isExporting}
+            {activeFiltersString}
             on:pageChange={handlePageChange}
+            on:sortChange={handleSortChange}
             on:export={handleExport}
           />
         </div>

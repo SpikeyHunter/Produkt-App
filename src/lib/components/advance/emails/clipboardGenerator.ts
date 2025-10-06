@@ -32,8 +32,8 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 		const techText: string[] = [];
 		const techHtml: string[] = [];
 
-		techText.push('Tech Rider confirmed:');
-		techHtml.push('<strong><u>Tech Rider confirmed:</u></strong>');
+		techText.push('Backline confirmed:');
+		techHtml.push('<strong><u>Backline confirmed:</u></strong>');
 
 		if (techRider.selected_mixer) {
 			techText.push(`- 1x ${techRider.selected_mixer}`);

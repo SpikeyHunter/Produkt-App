@@ -8,21 +8,16 @@ export const GENRE_OPTIONS: string[] = [
     'Latin House',
     'Progressive House',
     'Deep House',
-    // Techno Subgenres
     'Techno',
     'Hard Techno',
     'Melodic Techno',
-    // Trance & Psytrance
     'Trance',
-    // Bass Music
     'Dubstep',
-    'DnB', // Drum and Bass
+    'DnB',
     'Trap',
-    // Other Electronic Styles
     'Electronic',
     'Tribal',
     'Instrumental',
-    // Non-Electronic / Open Format
     'Pop',
     'Rap/Hip-Hop',
 ];

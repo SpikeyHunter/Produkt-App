@@ -110,7 +110,7 @@
 			label: 'Booking',
 			icon: icons.booking,
 			requiredPermission: 'Booking',
-			subItems: [{ label: 'Customers', route: '/booking/customers' }]
+			subItems: [{ label: 'Customers Database', route: '/booking/customers' }]
 		},
 		{
 			id: 'advancing',

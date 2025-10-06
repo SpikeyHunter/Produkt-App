@@ -156,7 +156,7 @@
 	$: techRiderCopyText = (() => {
 		if (!techRider) return '';
 
-		let text = 'Tech Rider Confirmed:\n';
+		let text = 'Backline Confirmed:\n';
 
 		// Mixer
 		if (techRider.selected_mixer) {
@@ -225,7 +225,7 @@
 	$: techRiderHtml = (() => {
 		if (!techRider) return '';
 
-		let html = '<strong><u>Tech Rider Confirmed:</u></strong><br>';
+		let html = '<strong><u>Backline Confirmed:</u></strong><br>';
 
 		if (techRider.selected_mixer) {
 			html += `- 1x ${techRider.selected_mixer}<br>`;
