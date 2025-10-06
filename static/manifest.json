@@ -3,13 +3,13 @@
   "short_name": "Produkt",
   "icons": [
     {
-      "src": "/favicon-512.png",
+      "src": "/favicon-512.png?v=5",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/favicon-512.png",
+      "src": "/favicon-512.png?v=5",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
