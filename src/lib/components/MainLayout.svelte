@@ -124,7 +124,11 @@
 			label: 'Production',
 			icon: icons.production,
 			requiredPermission: 'Production',
-			subItems: [{ label: 'Backline', route: '/production/backline' }]
+			subItems: [
+           { label: 'Email Tech', route: '/production/emailtech' },
+			{ label: 'Backline', route: '/production/backline' }
+            
+        ]
 		}
 	];
 	// --- FUNCTIONS ---
