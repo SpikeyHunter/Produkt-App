@@ -1,7 +1,7 @@
 <!-- src/lib/components/production/emailtech/DataPanel.svelte -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import type { EmailTechEvent, CrewAssignments } from '$lib/types/emailtech';
+  import type { EmailTechEvent } from '$lib/types/emailtech';
   import { techTemplateSections } from '$lib/services/techTemplateService';
   import { updateEventEmailData } from '$lib/services/emailtechService';
 
@@ -16,6 +16,8 @@
     label: s.label,
     included: false
   }));
+
+  let resettingSection: string | null = null;
 
   $: if (eventId !== null && templateType === 'tech') {
     loadSavedSections();
@@ -73,8 +75,20 @@
     sections = sections.map(s => 
       s.id === sectionId ? { ...s, included: !s.included } : s
     );
+    
     dispatch('sectionsChange', sections);
     saveSectionsToDatabase();
+  }
+
+  function resetSection(sectionId: string, event: Event) {
+    event.stopPropagation();
+    
+    resettingSection = sectionId;
+    dispatch('resetSection', { sectionId });
+    
+    setTimeout(() => {
+      resettingSection = null;
+    }, 600);
   }
 
   function selectAllSections() {
@@ -179,18 +193,18 @@
   <div class="p-3 border-b border-gray1 flex-shrink-0">
     <div class="flex items-center justify-between mb-2">
       <h3 class="text-white text-sm font-bold">Template Sections</h3>
-      <div class="flex gap-2">
+      <div class="flex gap-3">
         <button 
           type="button" 
-          on:click={selectAllSections} 
-          class="text-xs text-lime hover:text-white hover:cursor-pointer transition-colors cursor-pointer"
+          onclick={selectAllSections} 
+          class="text-xs text-lime hover:text-white transition-colors cursor-pointer"
         >
           Auto-Fill
         </button>
         <button 
           type="button" 
-          on:click={clearAllSections} 
-          class="text-xs text-gray2 hover:text-problem hover:cursor-pointer transition-colors cursor-pointer"
+          onclick={clearAllSections} 
+          class="text-xs text-gray2 hover:text-problem transition-colors cursor-pointer"
         >
           Clear
         </button>
@@ -207,32 +221,46 @@
 
   <div class="flex-1 overflow-y-auto p-3">
     {#if events.length > 0}
-      <div class="space-y-0">
+      <div class="space-y-2">
         {#each sections as section (section.id)}
-          <button
-            type="button"
-            on:click={() => toggleSection(section.id)}
-            class="w-full text-left px-2.5 py-1.5 rounded-lg transition-all duration-200 cursor-pointer mb-1.5
-                   {section.included ? 'bg-lime text-black' : 'bg-gray1 text-white hover:bg-gray2 hover:text-black'}"
-          >
-            <div class="flex items-start justify-between gap-2">
-              <div class="flex-1 min-w-0">
-                <div class="font-bold text-xs">{section.label}</div>
+          <div class="bg-gray1 rounded-lg overflow-hidden">
+            <div class="flex items-center gap-2 p-2.5">
+              <!-- Reset Button -->
+              <button
+                type="button"
+                onclick={(e) => resetSection(section.id, e)}
+                class="flex-shrink-0 text-gray3 hover:text-lime transition-colors cursor-pointer {resettingSection === section.id ? 'reset-spin' : ''}"
+                aria-label="Reset {section.label} to template"
+                title="Reset to template"
+              >
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                  <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                  <path d="M3 21v-5h5" />
+                </svg>
+              </button>
+
+              <!-- Section Name (non-clickable) -->
+              <div class="flex-1 text-left font-bold text-xs {section.included ? 'text-white' : 'text-gray3'}">
+                {section.label}
               </div>
-              <div class="flex-shrink-0 mt-0.5">
-                {#if section.included}
-                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                {:else}
-                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                {/if}
-              </div>
+
+              <!-- Toggle Switch -->
+              <button
+                type="button"
+                onclick={() => toggleSection(section.id)}
+                class="relative w-9 h-5 rounded-full transition-colors cursor-pointer
+                       {section.included ? 'bg-lime' : 'bg-gray2'}"
+                aria-label="Toggle {section.label} section {section.included ? 'off' : 'on'}"
+              >
+                <div
+                  class="absolute top-0.5 w-4 h-4 rounded-full transition-transform duration-200
+                         {section.included ? 'bg-gray1 left-4' : 'bg-white left-0.5'}"
+                ></div>
+              </button>
             </div>
-          </button>
+          </div>
         {/each}
       </div>
     {:else}
@@ -263,4 +291,13 @@
   ::-webkit-scrollbar-track { background: var(--color-navbar); }
   ::-webkit-scrollbar-thumb { background: var(--color-gray1); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--color-gray2); }
+
+  @keyframes reset-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  .reset-spin {
+    animation: reset-spin 0.6s ease-in-out;
+  }
 </style>

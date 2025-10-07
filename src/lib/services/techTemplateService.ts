@@ -117,7 +117,7 @@ export function buildProjects(events: EmailTechEvent[]): string {
     content += `<p>@${videoCrewName}</p>`;
   }
   
-  content += '<p>Projecteur extérieur:</p>';
+  content += '<p>Projecteur extÃ©rieur:</p>';
   content += '<p>9:30pm: Logo NCG<br>https://drive.google.com/open?id=1RnDCHdyL0f6ClkOtpgUnRZNIUiZeYHMG&amp;usp=drive_fs</p>';
   content += '<p>Visuals for TVS and Interior Projector:<br>TVS Main room: https://link.produkt.ca/ncg-tv</p>';
   content += '<p>NCG: Folder #1 + Show artwork #3<br>Please remove show artworks at 12am</p>';

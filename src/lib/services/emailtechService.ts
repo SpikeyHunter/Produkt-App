@@ -129,7 +129,10 @@ export async function updateEventEmailData(
 export async function getEventSections(
   eventId: number,
   templateType: 'tech' | 'vj'
-): Promise<{ sections: string[], customSections: Record<string, string> }> {
+): Promise<{ 
+  sections: string[], 
+  customSections: Record<string, string>
+}> {
   try {
     const { data, error } = await supabase
       .from('events')
