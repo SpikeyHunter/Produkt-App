@@ -11,7 +11,8 @@
 		updateEventEmail,
 		joinEventChannel,
 		getAuthenticatedUser,
-		updateEventEmailData
+		updateEventEmailData,
+		getEventSections
 	} from '$lib/services/emailtechService';
 	import {
 		fetchCrewMembers,
@@ -20,6 +21,7 @@
 		updateEventCrew
 	} from '$lib/services/crewService';
 	import { techTemplateSections } from '$lib/services/techTemplateService';
+	import { extractSectionsFromContent, mergeSectionContent } from '$lib/utils/sectionParser';
 	import type {
 		EmailTechEvent,
 		CrewMember,
@@ -49,6 +51,8 @@
 	let remoteBroadcasts: Writable<any> = writable(null);
 
 	let activeSections: Array<{ id: string; label: string; included: boolean }> = [];
+	let customSections: Record<string, string> = {};
+	let isLoadingContent = false;
 
 	onMount(async () => {
 		currentUser = await getAuthenticatedUser();
@@ -71,10 +75,10 @@
 		}
 	}
 
-	function handleEventSelect(event: CustomEvent<EmailTechEvent[]>) {
+	async function handleEventSelect(event: CustomEvent<EmailTechEvent[]>) {
 		selectedEvents = event.detail;
 		loadCrewAssignments();
-		loadEmailTemplate();
+		await loadEmailTemplate();
 		setupRealtimeChannel();
 	}
 
@@ -102,55 +106,123 @@
 		});
 	}
 
-	function loadEmailTemplate() {
+	async function loadEmailTemplate() {
 		if (selectedEvents.length === 0) {
 			emailContent = '';
+			customSections = {};
 			return;
 		}
+
+		isLoadingContent = true;
 		const mainEvent = selectedEvents[0];
+
+		// Load saved sections and custom content from database
+		const { sections: savedSections, customSections: savedCustom } = await getEventSections(
+			mainEvent.event_id,
+			templateType
+		);
+
+		customSections = savedCustom;
+
+		// Load the stored email content
 		const storedContent = templateType === 'tech' ? mainEvent.tech_mail : mainEvent.vj_mail;
 
-		if (storedContent) {
+		if (storedContent && storedContent.trim() !== '' && storedContent !== '<p></p>' && storedContent !== '<p style="font-weight: 400;"></p>') {
+			// Use the stored content as-is (it has priority)
 			emailContent = storedContent;
+		} else if (savedSections.length > 0) {
+			// If no stored content but sections are saved, rebuild with custom modifications
+			emailContent = rebuildEmailContent(savedSections);
 		} else {
-			emailContent = rebuildEmailContent();
+			// No content and no sections, start fresh
+			emailContent = '';
 		}
+
+		isLoadingContent = false;
 	}
 
-	function rebuildEmailContent(): string {
+	function rebuildEmailContent(sectionsToInclude?: string[]): string {
 		if (selectedEvents.length === 0) return '';
 
 		if (templateType === 'vj') {
-			return `<h2>Visual Information - ${selectedEvents.map((e) => e.event_name).join(' & ')}</h2>`;
+			return customSections['vj_header'] || `<h2>Visual Information - ${selectedEvents.map((e) => e.event_name).join(' & ')}</h2>`;
 		}
 
-		let finalContent = '';
+		const sectionsToUse = sectionsToInclude || activeSections.filter(s => s.included).map(s => s.id);
+		let contentParts: string[] = [];
 
 		techTemplateSections.forEach((section) => {
-			const activeSection = activeSections.find((s) => s.id === section.id);
-			if (activeSection?.included) {
-				const sectionHtml = section.generator(selectedEvents, crewAssignments);
-				if (sectionHtml) {
-					finalContent += sectionHtml + '<br/>';
+			if (sectionsToUse.includes(section.id)) {
+				// Generate fresh template content
+				const templateContent = section.generator(selectedEvents, crewAssignments);
+				
+				// Use custom content if it exists, otherwise use template
+				const sectionHtml = mergeSectionContent(templateContent, customSections[section.id]);
+				
+				if (sectionHtml && sectionHtml.trim()) {
+					contentParts.push(sectionHtml.trim());
 				}
 			}
 		});
 
-		return finalContent;
+		// Join sections with single <br/> separator, no trailing breaks
+		return contentParts.join('<br/>');
+	}
+
+	function extractSectionContent(fullContent: string): Record<string, string> {
+		// Use the utility to extract sections based on active sections
+		const activeSectionIds = activeSections.filter(s => s.included).map(s => s.id);
+		return extractSectionsFromContent(fullContent, activeSectionIds);
 	}
 
 	function handleSectionsChange(event: CustomEvent<any[]>) {
 		activeSections = event.detail;
-		emailContent = rebuildEmailContent();
+		
+		// Don't rebuild if we're just loading
+		if (isLoadingContent) return;
+		
+		// Extract current custom content before rebuilding
+		if (emailContent && emailContent.trim()) {
+			const currentCustom = extractSectionContent(emailContent);
+			// Merge with existing custom sections (keep user modifications)
+			customSections = { ...customSections, ...currentCustom };
+		}
+		
+		// Rebuild immediately to show/hide sections
+		const newContent = rebuildEmailContent();
+		
+		// Force update the content
+		emailContent = newContent;
+		
+		// Force the editor to update its content
+		setTimeout(() => {
+			const editor = emailEditor?.getEditor();
+			if (editor && !editor.isFocused) {
+				editor.commands.setContent(newContent || '<p></p>');
+			}
+		}, 0);
+		
+		// Save to database
+		saveCustomSections();
 	}
 
-	function handleContentChange(event: CustomEvent<{ content: string }>) {
+	async function handleContentChange(event: CustomEvent<{ content: string }>) {
 		emailContent = event.detail.content;
+		
+		// Broadcast to other users
 		eventChannel?.send({
 			type: 'broadcast',
 			event: 'content',
 			payload: { content: emailContent }
 		});
+		
+		// Extract and save custom modifications
+		if (emailContent && emailContent.trim()) {
+			const currentCustom = extractSectionContent(emailContent);
+			customSections = { ...customSections, ...currentCustom };
+		}
+		
+		// Auto-save with debounce
 		clearTimeout(autoSaveTimeout);
 		autoSaveTimeout = setTimeout(handleSaveTemplate, 1500);
 	}
@@ -166,7 +238,7 @@
 	async function handleTemplateToggle() {
 		await handleSaveTemplate();
 		templateType = templateType === 'tech' ? 'vj' : 'tech';
-		loadEmailTemplate();
+		await loadEmailTemplate();
 		setupRealtimeChannel();
 	}
 
@@ -176,11 +248,13 @@
 
 		isSaving = true;
 		try {
+			// Save the email content
 			const success = await updateEventEmail(
 				firstSelected.event_id,
 				templateType,
 				emailContent || ''
 			);
+			
 			if (success) {
 				if (templateType === 'tech') {
 					firstSelected.tech_mail = emailContent;
@@ -188,10 +262,45 @@
 					firstSelected.vj_mail = emailContent;
 				}
 			}
+			
+			// Also save custom sections
+			await saveCustomSections();
 		} catch (error) {
 			console.error('Failed to save template:', error);
 		} finally {
 			setTimeout(() => (isSaving = false), 1000);
+		}
+	}
+
+	async function saveCustomSections() {
+		const firstSelected = selectedEvents[0];
+		if (!firstSelected) return;
+
+		const includedIds = activeSections.filter(s => s.included).map(s => s.id);
+		await updateEventEmailData(
+			firstSelected.event_id,
+			templateType,
+			includedIds,
+			customSections
+		);
+	}
+
+	async function handleClearAll() {
+		// Clear custom sections memory
+		customSections = {};
+		emailContent = '';
+		
+		const firstSelected = selectedEvents[0];
+		if (firstSelected) {
+			// Clear from database
+			await updateEventEmailData(firstSelected.event_id, templateType, [], {});
+			await updateEventEmail(firstSelected.event_id, templateType, '');
+			
+			if (templateType === 'tech') {
+				firstSelected.tech_mail = '';
+			} else {
+				firstSelected.vj_mail = '';
+			}
 		}
 	}
 
@@ -215,12 +324,23 @@
 			mainEvent.crew = crewAssignments;
 		}
 
-		// Rebuild template if sections using crew are active
-		if (
-			activeSections.some(
-				(s) => s.included && ['crew_call', 'vj_schedule', 'lights'].includes(s.id)
-			)
-		) {
+		// Update sections that depend on crew if they have custom content
+		const crewDependentSections = ['crew_call', 'vj_schedule', 'lights'];
+		const needsUpdate = activeSections.some(
+			(s) => s.included && crewDependentSections.includes(s.id)
+		);
+
+		if (needsUpdate) {
+			// Regenerate only crew-dependent sections that don't have custom modifications
+			crewDependentSections.forEach(sectionId => {
+				if (!customSections[sectionId]) {
+					const section = techTemplateSections.find(s => s.id === sectionId);
+					if (section && activeSections.find(s => s.id === sectionId)?.included) {
+						customSections[sectionId] = section.generator(selectedEvents, crewAssignments);
+					}
+				}
+			});
+			
 			emailContent = rebuildEmailContent();
 		}
 	}
@@ -278,11 +398,11 @@
 							<EventSelector {events} bind:selectedEvents {loading} on:select={handleEventSelect} />
 						</div>
 						<DataPanel
-							events={selectedEvents}
-							{crewAssignments}
+							events={selectedEvents}	
 							{templateType}
 							eventId={selectedEvents[0]?.event_id || null}
 							on:sectionsChange={handleSectionsChange}
+							on:clearAll={handleClearAll}
 						/>
 					</div>
 				</div>

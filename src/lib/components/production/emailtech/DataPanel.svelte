@@ -3,10 +3,9 @@
   import { createEventDispatcher } from 'svelte';
   import type { EmailTechEvent, CrewAssignments } from '$lib/types/emailtech';
   import { techTemplateSections } from '$lib/services/techTemplateService';
-  import { updateEventEmailData } from '$lib/services/emailtechService'; // CHANGE: Added import
+  import { updateEventEmailData } from '$lib/services/emailtechService';
 
   export let events: EmailTechEvent[] = [];
-  export let crewAssignments: CrewAssignments = {};
   export let templateType: 'tech' | 'vj' = 'tech';
   export let eventId: number | null = null;
 
@@ -18,15 +17,12 @@
     included: false
   }));
 
-  // CHANGE: Load saved sections from database when event or template type changes
   $: if (eventId !== null && templateType === 'tech') {
     loadSavedSections();
   }
 
-  // VJ template doesn't use sections, so hide them
   $: showSections = templateType === 'tech';
 
-  // CHANGE: Now loads from events[0].email_data instead of localStorage
   function loadSavedSections() {
     if (!eventId || events.length === 0) return;
     
@@ -42,14 +38,12 @@
     dispatch('sectionsChange', sections);
   }
 
-  // NEW FUNCTION: Saves sections to database instead of localStorage
   async function saveSectionsToDatabase() {
     if (!eventId) return;
     
     const includedIds = sections.filter(s => s.included).map(s => s.id);
     await updateEventEmailData(eventId, templateType, includedIds);
     
-    // Update local event data
     if (events.length > 0) {
       const mainEvent = events[0];
       const emailData = mainEvent.email_data || {};
@@ -75,7 +69,6 @@
     }
   }
 
-  // CHANGE: Now calls saveSectionsToDatabase() instead of saveSectionsToStorage()
   function toggleSection(sectionId: string) {
     sections = sections.map(s => 
       s.id === sectionId ? { ...s, included: !s.included } : s
@@ -93,6 +86,7 @@
   function clearAllSections() {
     sections = sections.map(s => ({ ...s, included: false }));
     dispatch('sectionsChange', sections);
+    dispatch('clearAll');
     saveSectionsToDatabase();
   }
 </script>
@@ -177,21 +171,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Crew Assignments Display -->
-  {#if Object.keys(crewAssignments).length > 0}
-    <div class="p-3 border-b border-gray1">
-      <h4 class="text-white text-xs font-bold mb-2">Crew Assignments</h4>
-      <div class="space-y-1">
-        {#each Object.entries(crewAssignments) as [role, name]}
-          <div class="flex items-center gap-2 text-[11px]">
-            <span class="text-gray3 w-20">{role}:</span>
-            <span class="text-white">{name}</span>
-          </div>
-        {/each}
-      </div>
-    </div>
-  {/if}
 
   <div class="border-t border-gray1 mx-4"></div>
 {/if}

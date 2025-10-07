@@ -22,6 +22,12 @@
 	const dispatch = createEventDispatcher();
 	let editorElement: HTMLDivElement;
 	let editor: Editor;
+	
+	// Expose editor instance for parent component
+	export function getEditor() {
+		return editor;
+	}
+	
 	let remoteCursors: Array<{ user: CurrentUser; top: number; left: number }> = [];
 	const highlightColors = {
 		confirmed: '#86EFAC',

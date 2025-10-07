@@ -71,7 +71,7 @@ export function buildHeader(events: EmailTechEvent[]): string {
   
   dosLine += '.';
   
-  return `<p>Hello everyone,<br/>Here are the info for ${eventNames}, ${eventDate}</p><p>${dosLine}</p>`;
+  return `<p>Hello everyone,<br>Here are the info for ${eventNames}, ${eventDate}</p><p>${dosLine}</p>`;
 }
 
 export function buildCrewCall(events: EmailTechEvent[], crewAssignments: CrewAssignments): string {
@@ -118,9 +118,9 @@ export function buildProjects(events: EmailTechEvent[]): string {
   }
   
   content += '<p>Projecteur extérieur:</p>';
-  content += '<p>9:30pm: Logo NCG<br/>https://drive.google.com/open?id=1RnDCHdyL0f6ClkOtpgUnRZNIUiZeYHMG&usp=drive_fs</p>';
-  content += '<p>Visuals for TVS and Interior Projector:<br/>TVS Main room: https://link.produkt.ca/ncg-tv</p>';
-  content += '<p>NCG: Folder #1 + Show artwork #3<br/>Please remove show artworks at 12am</p>';
+  content += '<p>9:30pm: Logo NCG<br>https://drive.google.com/open?id=1RnDCHdyL0f6ClkOtpgUnRZNIUiZeYHMG&amp;usp=drive_fs</p>';
+  content += '<p>Visuals for TVS and Interior Projector:<br>TVS Main room: https://link.produkt.ca/ncg-tv</p>';
+  content += '<p>NCG: Folder #1 + Show artwork #3<br>Please remove show artworks at 12am</p>';
   
   return content;
 }
@@ -370,15 +370,7 @@ export function buildSFX(events: EmailTechEvent[]): string {
 }
 
 export function buildFooter(): string {
-  return `
-    <p><strong>Sponsors and/or branding:</strong></p>
-    <p>${highlight('SPONSOR HERE')}</p>
-    <p><strong>After the show projects:</strong></p>
-    <p>${highlight('Project TBD')}</p>
-    <p>Please make sure your work space is clean THANK YOU! :)</p>
-    <p>Please confirm and let me know if you have any questions !</p>
-    <p>Thanks a lot,<br/>Charles</p>
-  `;
+  return `<p><strong>Sponsors and/or branding:</strong></p><p>${highlight('SPONSOR HERE')}</p><p><strong>After the show projects:</strong></p><p>${highlight('Project TBD')}</p><p>Please make sure your work space is clean THANK YOU! :)</p><p>Please confirm and let me know if you have any questions !</p><p>Thanks a lot,<br>Charles</p>`;
 }
 
 export const techTemplateSections = [

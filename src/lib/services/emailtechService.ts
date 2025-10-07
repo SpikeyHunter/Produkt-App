@@ -18,7 +18,6 @@ export async function fetchEmailTechEvents(): Promise<EmailTechEvent[]> {
 
     const eventIds = [...new Set(advanceData.map(item => item.event_id))];
     
-    // CHANGE: Added email_data to the select query
     const { data: eventsData, error: eventsError } = await supabase
       .from('events')
       .select('event_id, event_name, event_date, event_venue, timetable, event_flyer, event_status, tech_mail, vj_mail, crew, email_data')
@@ -52,7 +51,7 @@ export async function fetchEmailTechEvents(): Promise<EmailTechEvent[]> {
         tech_mail: eventData?.tech_mail || null,
         vj_mail: eventData?.vj_mail || null,
         crew: eventData?.crew || null,
-        email_data: eventData?.email_data || null, // CHANGE: Added email_data
+        email_data: eventData?.email_data || null,
         dos: row.dos,
         roles: row.roles,
       };
@@ -86,14 +85,16 @@ export async function updateEventEmail(
   }
 }
 
-// NEW FUNCTION: Update email_data (section selections) for an event
+/**
+ * Update email_data (section selections and custom content) for an event
+ */
 export async function updateEventEmailData(
   eventId: number,
   templateType: 'tech' | 'vj',
-  sectionIds: string[]
+  sectionIds: string[],
+  customSections?: Record<string, string>
 ): Promise<boolean> {
   try {
-    // First fetch current email_data
     const { data: currentData, error: fetchError } = await supabase
       .from('events')
       .select('email_data')
@@ -102,14 +103,13 @@ export async function updateEventEmailData(
 
     if (fetchError) throw fetchError;
 
-    // Merge with existing data
     const emailData = currentData?.email_data || {};
     const updatedEmailData = {
       ...emailData,
-      [`${templateType}_sections`]: sectionIds
+      [`${templateType}_sections`]: sectionIds,
+      ...(customSections && { [`${templateType}_custom_sections`]: customSections })
     };
 
-    // Update the database
     const { error: updateError } = await supabase
       .from('events')
       .update({ email_data: updatedEmailData })
@@ -123,11 +123,13 @@ export async function updateEventEmailData(
   }
 }
 
-// NEW FUNCTION: Get saved sections for an event and template type
+/**
+ * Get saved sections for an event and template type
+ */
 export async function getEventSections(
   eventId: number,
   templateType: 'tech' | 'vj'
-): Promise<string[]> {
+): Promise<{ sections: string[], customSections: Record<string, string> }> {
   try {
     const { data, error } = await supabase
       .from('events')
@@ -138,10 +140,13 @@ export async function getEventSections(
     if (error) throw error;
 
     const emailData = data?.email_data || {};
-    return emailData[`${templateType}_sections`] || [];
+    return {
+      sections: emailData[`${templateType}_sections`] || [],
+      customSections: emailData[`${templateType}_custom_sections`] || {}
+    };
   } catch (error) {
     console.error('Error fetching email_data:', error);
-    return [];
+    return { sections: [], customSections: {} };
   }
 }
 
