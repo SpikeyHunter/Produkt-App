@@ -184,25 +184,27 @@
 			sectionsToInclude || activeSections.filter((s) => s.included).map((s) => s.id);
 		let contentParts: string[] = [];
 
-		// CHANGED: Loop through ALL sections, not just included ones
+		// Loop through ALL sections in order
 		techTemplateSections.forEach((section) => {
 			const isVisible = sectionsToUse.includes(section.id);
-			const templateContent = section.generator(selectedEvents, crewAssignments);
 
-			// CHANGED: Pass isVisible parameter
-			const sectionHtml = mergeSectionContent(
-				templateContent,
-				customSections[section.id],
-				section.id,
-				isVisible // NEW
-			);
+			if (isVisible) {
+				const templateContent = section.generator(selectedEvents, crewAssignments);
+				const sectionHtml = mergeSectionContent(
+					templateContent,
+					customSections[section.id],
+					section.id,
+					true
+				);
 
-			if (sectionHtml && sectionHtml.trim()) {
-				contentParts.push(sectionHtml.trim());
+				if (sectionHtml && sectionHtml.trim()) {
+					contentParts.push(sectionHtml.trim());
+				}
 			}
 		});
 
-		return contentParts.join('<br/>');
+		// Join WITHOUT any separator - sections already have their own spacing
+		return contentParts.join('');
 	}
 	function extractSectionContent(fullContent: string): Record<string, string> {
 		const activeSectionIds = activeSections.filter((s) => s.included).map((s) => s.id);
@@ -212,70 +214,51 @@
 	function hideSection(sectionId: string) {
 		if (!emailContent) return;
 
-		console.log(`Attempting to hide section: ${sectionId}`);
-		console.log('Current emailContent:', emailContent.substring(0, 200));
-
-		// More flexible regex that handles various div structures
 		const regex = new RegExp(`<div[^>]*data-section="${sectionId}"[^>]*>([\\s\\S]*?)<\\/div>`, 'i');
 		const match = emailContent.match(regex);
 
 		if (match && match[0]) {
-			console.log(`✓ Found section to hide: ${sectionId}`);
-			console.log('Matched content:', match[0].substring(0, 100));
-
-			// Store the ENTIRE div including wrapper in hiddenSections
 			hiddenSections[sectionId] = match[0];
 
-			// Remove from emailContent
+			// Remove the section and clean up ANY whitespace/breaks around it
 			let newContent = emailContent.replace(match[0], '');
 
-			// Clean up breaks
+			// Remove any stray breaks or whitespace that might have been between sections
 			newContent = newContent
-				.replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '<br/>') // Clean up double breaks
-				.replace(/^<br\s*\/?>|<br\s*\/?>$/gi, '') // Remove leading/trailing breaks
+				.replace(/(<\/div>)\s*(<div)/g, '$1$2') // Remove whitespace between divs
+				.replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '') // Remove double breaks
+				.replace(/^\s+|\s+$/g, '') // Trim start and end
 				.trim();
 
 			emailContent = newContent;
-			console.log('New emailContent length:', emailContent.length);
-		} else {
-			console.log(`✗ Could not find section: ${sectionId} in emailContent`);
-			console.log('Tried regex:', regex.toString());
-
-			// Try to find ANY data-section attribute to see structure
-			const anySection = emailContent.match(/<div[^>]*data-section="[^"]*"[^>]*>/i);
-			if (anySection) {
-				console.log('Example section div found:', anySection[0]);
-			} else {
-				console.log('No data-section divs found at all in emailContent');
-			}
 		}
 
-		// Force update hiddenSections
 		hiddenSections = { ...hiddenSections };
 	}
 	function restoreSection(sectionId: string) {
 		let contentToInsert = '';
 
-		// Check if we have it hidden - if so, use that
 		if (hiddenSections[sectionId]) {
 			contentToInsert = hiddenSections[sectionId];
-			delete hiddenSections[sectionId]; // Remove from hidden storage
+			delete hiddenSections[sectionId];
 		} else {
-			// Only generate from template if we DON'T have it hidden
 			const section = techTemplateSections.find((s) => s.id === sectionId);
 			if (!section) return;
 
 			const templateContent = section.generator(selectedEvents, crewAssignments);
-			contentToInsert = mergeSectionContent(templateContent, customSections[sectionId], sectionId);
+			contentToInsert = mergeSectionContent(
+				templateContent,
+				customSections[sectionId],
+				sectionId,
+				true
+			);
 		}
 
 		if (!contentToInsert) return;
 
-		// Find the correct position based on section order
 		const sectionOrder = techTemplateSections.map((s) => s.id);
 		const targetIndex = sectionOrder.indexOf(sectionId);
 
-		// Find where to insert (after the last visible section that comes before it)
 		let insertAfterSectionId = '';
 		for (let i = targetIndex - 1; i >= 0; i--) {
 			const prevSectionId = sectionOrder[i];
@@ -286,16 +269,16 @@
 		}
 
 		if (insertAfterSectionId) {
-			// Insert after the previous section
+			// Insert after the previous section WITHOUT <br/>
 			const regex = new RegExp(
 				`(<div[^>]*data-section="${insertAfterSectionId}"[^>]*>[\\s\\S]*?<\\/div>)`,
 				'i'
 			);
-			emailContent = emailContent.replace(regex, `$1<br/>${contentToInsert}`);
+			emailContent = emailContent.replace(regex, `$1${contentToInsert}`);
 		} else {
-			// Insert at beginning
+			// Insert at beginning WITHOUT <br/>
 			if (emailContent && emailContent.trim()) {
-				emailContent = `${contentToInsert}<br/>${emailContent}`;
+				emailContent = `${contentToInsert}${emailContent}`;
 			} else {
 				emailContent = contentToInsert;
 			}
