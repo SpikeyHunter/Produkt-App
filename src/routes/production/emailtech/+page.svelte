@@ -52,7 +52,10 @@
 
 	let activeSections: Array<{ id: string; label: string; included: boolean }> = [];
 	let customSections: Record<string, string> = {};
+	let hiddenSections: Record<string, string> = {};
 	let isLoadingContent = false;
+
+	$: isNCGEventSelected = selectedEvents.some((e) => e.event_venue === 'New City Gas');
 
 	onMount(async () => {
 		currentUser = await getAuthenticatedUser();
@@ -77,6 +80,10 @@
 
 	async function handleEventSelect(event: CustomEvent<EmailTechEvent[]>) {
 		selectedEvents = event.detail;
+		if (templateType === 'vj' && !isNCGEventSelected) {
+			templateType = 'tech';
+		}
+
 		loadCrewAssignments();
 		await loadEmailTemplate();
 		setupRealtimeChannel();
@@ -110,6 +117,7 @@
 		if (selectedEvents.length === 0) {
 			emailContent = '';
 			customSections = {};
+			hiddenSections = {}; // NEW - reset hidden sections
 			return;
 		}
 
@@ -122,11 +130,38 @@
 		);
 
 		customSections = savedCustom;
+		hiddenSections = {}; // Reset on new event load
 
 		const storedContent = templateType === 'tech' ? mainEvent.tech_mail : mainEvent.vj_mail;
 
-		if (storedContent && storedContent.trim() !== '' && storedContent !== '<p></p>' && storedContent !== '<p style="font-weight: 400;"></p>') {
+		if (
+			storedContent &&
+			storedContent.trim() !== '' &&
+			storedContent !== '<p></p>' &&
+			storedContent !== '<p style="font-weight: 400;"></p>'
+		) {
+			// Load stored content and extract hidden sections based on savedSections
 			emailContent = storedContent;
+
+			// Extract any sections that should be hidden
+			const allSectionIds = techTemplateSections.map((s) => s.id);
+			allSectionIds.forEach((sectionId) => {
+				if (!savedSections.includes(sectionId)) {
+					// This section should be hidden
+					const regex = new RegExp(
+						`<div[^>]*data-section="${sectionId}"[^>]*>([\\s\\S]*?)<\\/div>`,
+						'i'
+					);
+					const match = emailContent.match(regex);
+					if (match && match[0]) {
+						hiddenSections[sectionId] = match[0];
+						emailContent = emailContent
+							.replace(match[0], '')
+							.replace(/<br\/>\s*<br\/>/g, '<br/>')
+							.trim();
+					}
+				}
+			});
 		} else if (savedSections.length > 0) {
 			emailContent = rebuildEmailContent(savedSections);
 		} else {
@@ -135,108 +170,267 @@
 
 		isLoadingContent = false;
 	}
-
 	function rebuildEmailContent(sectionsToInclude?: string[]): string {
 		if (selectedEvents.length === 0) return '';
 
 		if (templateType === 'vj') {
-			return customSections['vj_header'] || `<h2>Visual Information - ${selectedEvents.map((e) => e.event_name).join(' & ')}</h2>`;
+			return (
+				customSections['vj_header'] ||
+				`<h2>Visual Information - ${selectedEvents.map((e) => e.event_name).join(' & ')}</h2>`
+			);
 		}
 
-		const sectionsToUse = sectionsToInclude || activeSections.filter(s => s.included).map(s => s.id);
+		const sectionsToUse =
+			sectionsToInclude || activeSections.filter((s) => s.included).map((s) => s.id);
 		let contentParts: string[] = [];
 
+		// CHANGED: Loop through ALL sections, not just included ones
 		techTemplateSections.forEach((section) => {
-			if (sectionsToUse.includes(section.id)) {
-				const templateContent = section.generator(selectedEvents, crewAssignments);
-				const sectionHtml = mergeSectionContent(templateContent, customSections[section.id], section.id);
-				
-				if (sectionHtml && sectionHtml.trim()) {
-					contentParts.push(sectionHtml.trim());
-				}
+			const isVisible = sectionsToUse.includes(section.id);
+			const templateContent = section.generator(selectedEvents, crewAssignments);
+
+			// CHANGED: Pass isVisible parameter
+			const sectionHtml = mergeSectionContent(
+				templateContent,
+				customSections[section.id],
+				section.id,
+				isVisible // NEW
+			);
+
+			if (sectionHtml && sectionHtml.trim()) {
+				contentParts.push(sectionHtml.trim());
 			}
 		});
 
 		return contentParts.join('<br/>');
 	}
-
 	function extractSectionContent(fullContent: string): Record<string, string> {
-		const activeSectionIds = activeSections.filter(s => s.included).map(s => s.id);
+		const activeSectionIds = activeSections.filter((s) => s.included).map((s) => s.id);
 		return extractSectionsFromContent(fullContent, activeSectionIds);
 	}
 
-	function handleSectionsChange(event: CustomEvent<any[]>) {
-		activeSections = event.detail;
-		
-		if (isLoadingContent) return;
-		
-		// CRITICAL: Extract and save current edits BEFORE rebuilding
-		if (emailContent && emailContent.trim()) {
-			const currentCustom = extractSectionContent(emailContent);
-			// Merge with existing, prioritizing current edits
-			Object.keys(currentCustom).forEach(key => {
-				if (currentCustom[key] && currentCustom[key].trim()) {
-					customSections[key] = currentCustom[key];
-				}
-			});
+	function hideSection(sectionId: string) {
+		if (!emailContent) return;
+
+		console.log(`Attempting to hide section: ${sectionId}`);
+		console.log('Current emailContent:', emailContent.substring(0, 200));
+
+		// More flexible regex that handles various div structures
+		const regex = new RegExp(`<div[^>]*data-section="${sectionId}"[^>]*>([\\s\\S]*?)<\\/div>`, 'i');
+		const match = emailContent.match(regex);
+
+		if (match && match[0]) {
+			console.log(`✓ Found section to hide: ${sectionId}`);
+			console.log('Matched content:', match[0].substring(0, 100));
+
+			// Store the ENTIRE div including wrapper in hiddenSections
+			hiddenSections[sectionId] = match[0];
+
+			// Remove from emailContent
+			let newContent = emailContent.replace(match[0], '');
+
+			// Clean up breaks
+			newContent = newContent
+				.replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '<br/>') // Clean up double breaks
+				.replace(/^<br\s*\/?>|<br\s*\/?>$/gi, '') // Remove leading/trailing breaks
+				.trim();
+
+			emailContent = newContent;
+			console.log('New emailContent length:', emailContent.length);
+		} else {
+			console.log(`✗ Could not find section: ${sectionId} in emailContent`);
+			console.log('Tried regex:', regex.toString());
+
+			// Try to find ANY data-section attribute to see structure
+			const anySection = emailContent.match(/<div[^>]*data-section="[^"]*"[^>]*>/i);
+			if (anySection) {
+				console.log('Example section div found:', anySection[0]);
+			} else {
+				console.log('No data-section divs found at all in emailContent');
+			}
 		}
-		
-		const newContent = rebuildEmailContent();
-		emailContent = newContent;
-		
+
+		// Force update hiddenSections
+		hiddenSections = { ...hiddenSections };
+	}
+	function restoreSection(sectionId: string) {
+		let contentToInsert = '';
+
+		// Check if we have it hidden - if so, use that
+		if (hiddenSections[sectionId]) {
+			contentToInsert = hiddenSections[sectionId];
+			delete hiddenSections[sectionId]; // Remove from hidden storage
+		} else {
+			// Only generate from template if we DON'T have it hidden
+			const section = techTemplateSections.find((s) => s.id === sectionId);
+			if (!section) return;
+
+			const templateContent = section.generator(selectedEvents, crewAssignments);
+			contentToInsert = mergeSectionContent(templateContent, customSections[sectionId], sectionId);
+		}
+
+		if (!contentToInsert) return;
+
+		// Find the correct position based on section order
+		const sectionOrder = techTemplateSections.map((s) => s.id);
+		const targetIndex = sectionOrder.indexOf(sectionId);
+
+		// Find where to insert (after the last visible section that comes before it)
+		let insertAfterSectionId = '';
+		for (let i = targetIndex - 1; i >= 0; i--) {
+			const prevSectionId = sectionOrder[i];
+			if (emailContent.includes(`data-section="${prevSectionId}"`)) {
+				insertAfterSectionId = prevSectionId;
+				break;
+			}
+		}
+
+		if (insertAfterSectionId) {
+			// Insert after the previous section
+			const regex = new RegExp(
+				`(<div[^>]*data-section="${insertAfterSectionId}"[^>]*>[\\s\\S]*?<\\/div>)`,
+				'i'
+			);
+			emailContent = emailContent.replace(regex, `$1<br/>${contentToInsert}`);
+		} else {
+			// Insert at beginning
+			if (emailContent && emailContent.trim()) {
+				emailContent = `${contentToInsert}<br/>${emailContent}`;
+			} else {
+				emailContent = contentToInsert;
+			}
+		}
+	}
+
+	function debugState() {
+		console.log('=== DEBUG STATE ===');
+		console.log(
+			'Active sections:',
+			activeSections.filter((s) => s.included).map((s) => s.id)
+		);
+		console.log('Hidden sections:', Object.keys(hiddenSections));
+		console.log('Custom sections:', Object.keys(customSections));
+		console.log('Email content length:', emailContent.length);
+		console.log(
+			'Email content sections:',
+			[...emailContent.matchAll(/data-section="([^"]+)"/g)].map((m) => m[1])
+		);
+		console.log('First 500 chars of emailContent:', emailContent.substring(0, 500));
+		console.log('---');
+	}
+
+	function handleSectionsChange(event: CustomEvent<any[]>) {
+		const previousSections = [...activeSections];
+		activeSections = event.detail;
+
+		if (isLoadingContent) return;
+
+		// Find what changed
+		const changedSections = activeSections.filter((curr, idx) => {
+			const prev = previousSections[idx];
+			return prev && curr.included !== prev.included;
+		});
+
+		if (changedSections.length === 0) return; // Nothing changed
+
+		changedSections.forEach((section) => {
+			if (section.included) {
+				// TOGGLING ON: Restore from hiddenSections
+				restoreSection(section.id);
+			} else {
+				// TOGGLING OFF: Extract and hide
+				hideSection(section.id);
+			}
+		});
+
+		// Update editor content
 		setTimeout(() => {
 			const editor = emailEditor?.getEditor();
 			if (editor && !editor.isFocused) {
-				editor.commands.setContent(newContent || '<p></p>');
+				editor.commands.setContent(emailContent || '<p></p>');
 			}
 		}, 0);
-		
-		// Save immediately with custom sections
+
 		saveCustomSections();
+		debugState();
 	}
 
 	function handleResetSection(event: CustomEvent<{ sectionId: string }>) {
 		const { sectionId } = event.detail;
-		
+
+		// Find the section definition
+		const section = techTemplateSections.find((s) => s.id === sectionId);
+		if (!section) return;
+
+		// Generate fresh template content for this section only
+		const templateContent = section.generator(selectedEvents, crewAssignments);
+		const freshSectionHtml = `<div data-section="${sectionId}">${templateContent}</div>`;
+
+		// Check if section is currently visible in emailContent
+		const sectionRegex = new RegExp(
+			`<div[^>]*data-section="${sectionId}"[^>]*>([\\s\\S]*?)<\\/div>`,
+			'i'
+		);
+		const match = emailContent.match(sectionRegex);
+
+		if (match && match[0]) {
+			// Section is visible - replace it in place
+			emailContent = emailContent.replace(match[0], freshSectionHtml);
+		} else if (hiddenSections[sectionId]) {
+			// Section is hidden - update the hidden version
+			hiddenSections[sectionId] = freshSectionHtml;
+			hiddenSections = { ...hiddenSections }; // Trigger reactivity
+		} else {
+			// Section doesn't exist anywhere (shouldn't happen, but handle it)
+			console.warn(`Section ${sectionId} not found in visible or hidden content`);
+			return;
+		}
+
 		// Remove custom content for this section
 		const newCustomSections = { ...customSections };
 		delete newCustomSections[sectionId];
 		customSections = newCustomSections;
-		
-		// Rebuild content with template default
-		const newContent = rebuildEmailContent();
-		emailContent = newContent;
-		
-		setTimeout(() => {
-			const editor = emailEditor?.getEditor();
-			if (editor && !editor.isFocused) {
-				editor.commands.setContent(newContent || '<p></p>');
-			}
-		}, 0);
-		
+
+		// Update editor only if section was visible
+		if (match) {
+			setTimeout(() => {
+				const editor = emailEditor?.getEditor();
+				if (editor && !editor.isFocused) {
+					editor.commands.setContent(emailContent || '<p></p>');
+				}
+			}, 0);
+		}
+
+		// Save to database
 		saveCustomSections();
 	}
-
 	async function handleContentChange(event: CustomEvent<{ content: string }>) {
 		emailContent = event.detail.content;
-		
+
+		// DEBUG: Check if data-section attributes survive
+		const sections = [...emailContent.matchAll(/data-section="([^"]+)"/g)].map((m) => m[1]);
+		if (sections.length === 0 && emailContent.length > 0) {
+			console.warn('⚠️ TipTap stripped data-section attributes!');
+			console.log('Content sample:', emailContent.substring(0, 200));
+		}
+
 		eventChannel?.send({
 			type: 'broadcast',
 			event: 'content',
 			payload: { content: emailContent }
 		});
-		
-		// CRITICAL: Extract and save custom modifications immediately
-		if (emailContent && emailContent.trim()) {
-			const currentCustom = extractSectionContent(emailContent);
-			// Update customSections with current edits
-			Object.keys(currentCustom).forEach(key => {
-				if (currentCustom[key] && currentCustom[key].trim()) {
-					customSections[key] = currentCustom[key];
-				}
-			});
-		}
-		
+
+		// Extract visible sections (don't touch hidden ones)
+		const visibleSectionIds = activeSections.filter((s) => s.included).map((s) => s.id);
+		const currentCustom = extractSectionsFromContent(emailContent, visibleSectionIds);
+
+		// Update customSections only for visible sections
+		Object.keys(currentCustom).forEach((key) => {
+			if (currentCustom[key] && currentCustom[key].trim()) {
+				customSections[key] = currentCustom[key];
+			}
+		});
+
 		clearTimeout(autoSaveTimeout);
 		autoSaveTimeout = setTimeout(handleSaveTemplate, 1500);
 	}
@@ -267,7 +461,7 @@
 				templateType,
 				emailContent || ''
 			);
-			
+
 			if (success) {
 				if (templateType === 'tech') {
 					firstSelected.tech_mail = emailContent;
@@ -275,7 +469,7 @@
 					firstSelected.vj_mail = emailContent;
 				}
 			}
-			
+
 			await saveCustomSections();
 		} catch (error) {
 			console.error('Failed to save template:', error);
@@ -288,16 +482,11 @@
 		const firstSelected = selectedEvents[0];
 		if (!firstSelected) return;
 
-		const includedIds = activeSections.filter(s => s.included).map(s => s.id);
-		
+		const includedIds = activeSections.filter((s) => s.included).map((s) => s.id);
+
 		// Save with custom sections
-		await updateEventEmailData(
-			firstSelected.event_id,
-			templateType,
-			includedIds,
-			customSections
-		);
-		
+		await updateEventEmailData(firstSelected.event_id, templateType, includedIds, customSections);
+
 		// Update local cache
 		if (firstSelected.email_data) {
 			firstSelected.email_data[`${templateType}_custom_sections`] = customSections;
@@ -307,12 +496,12 @@
 	async function handleClearAll() {
 		customSections = {};
 		emailContent = '';
-		
+
 		const firstSelected = selectedEvents[0];
 		if (firstSelected) {
 			await updateEventEmailData(firstSelected.event_id, templateType, [], {});
 			await updateEventEmail(firstSelected.event_id, templateType, '');
-			
+
 			if (templateType === 'tech') {
 				firstSelected.tech_mail = '';
 			} else {
@@ -347,17 +536,17 @@
 
 		if (needsUpdate) {
 			// Only regenerate sections that don't have custom content
-			crewDependentSections.forEach(sectionId => {
+			crewDependentSections.forEach((sectionId) => {
 				if (!customSections[sectionId]) {
-					const section = techTemplateSections.find(s => s.id === sectionId);
-					if (section && activeSections.find(s => s.id === sectionId)?.included) {
+					const section = techTemplateSections.find((s) => s.id === sectionId);
+					if (section && activeSections.find((s) => s.id === sectionId)?.included) {
 						customSections[sectionId] = section.generator(selectedEvents, crewAssignments);
 					}
 				}
 			});
-			
+
 			emailContent = rebuildEmailContent();
-			
+
 			setTimeout(() => {
 				const editor = emailEditor?.getEditor();
 				if (editor && !editor.isFocused) {
@@ -419,7 +608,7 @@
 							<EventSelector {events} bind:selectedEvents {loading} on:select={handleEventSelect} />
 						</div>
 						<DataPanel
-							events={selectedEvents}	
+							events={selectedEvents}
 							{templateType}
 							eventId={selectedEvents[0]?.event_id || null}
 							on:sectionsChange={handleSectionsChange}
@@ -436,7 +625,7 @@
 					<button
 						type="button"
 						on:click={handleTemplateToggle}
-						disabled={selectedEvents.length === 0}
+						disabled={selectedEvents.length === 0 || !isNCGEventSelected}
 						class="flex items-center gap-2.5 bg-transparent text-lime border-2 border-lime rounded-lg px-4 py-2.5 text-sm font-bold transition-colors whitespace-nowrap cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-navbar disabled:text-gray2 disabled:border-gray2 hover:bg-lime hover:text-black"
 					>
 						{#if templateType === 'tech'}

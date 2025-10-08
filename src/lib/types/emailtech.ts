@@ -22,7 +22,7 @@ export interface EmailTechEvent {
   tech_mail: string | null;
   vj_mail: string | null;
   crew: CrewAssignments | null;
-  email_data: any; // CHANGE: Added this field
+  email_data: any; 
   dos: string | null;
   roles: string | null;
 }

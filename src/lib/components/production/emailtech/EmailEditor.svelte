@@ -1,5 +1,6 @@
 <!-- src/lib/components/production/emailtech/EmailEditor.svelte -->
 <script lang="ts">
+	import { Node } from '@tiptap/core';
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import { Editor } from '@tiptap/core';
 	import StarterKit from '@tiptap/starter-kit';
@@ -22,12 +23,12 @@
 	const dispatch = createEventDispatcher();
 	let editorElement: HTMLDivElement;
 	let editor: Editor;
-	
+
 	// Expose editor instance for parent component
 	export function getEditor() {
 		return editor;
 	}
-	
+
 	let remoteCursors: Array<{ user: CurrentUser; top: number; left: number }> = [];
 	const highlightColors = {
 		confirmed: '#86EFAC',
@@ -60,7 +61,42 @@
 		templateType === 'tech'
 			? `${eventName || 'Event'} | Set times + tech riders > ${formattedDate}`
 			: `Undefined VJ > | ${eventName || 'Event'} > ${formattedDate}`;
-	
+
+	const SectionDiv = Node.create({
+		name: 'sectionDiv',
+		group: 'block',
+		content: 'block+',
+
+		addAttributes() {
+			return {
+				'data-section': {
+					default: null,
+					parseHTML: (element) => element.getAttribute('data-section'),
+					renderHTML: (attributes) => {
+						if (!attributes['data-section']) {
+							return {};
+						}
+						return {
+							'data-section': attributes['data-section']
+						};
+					}
+				}
+			};
+		},
+
+		parseHTML() {
+			return [
+				{
+					tag: 'div[data-section]'
+				}
+			];
+		},
+
+		renderHTML({ HTMLAttributes }) {
+			return ['div', HTMLAttributes, 0];
+		}
+	});
+
 	onMount(() => {
 		editor = new Editor({
 			element: editorElement,
@@ -87,6 +123,7 @@
 						}
 					}
 				}),
+				SectionDiv, // ← ADD THIS LINE
 				Underline.configure({
 					HTMLAttributes: {
 						style: 'text-decoration: underline;'
@@ -140,7 +177,7 @@
 		editor?.destroy();
 		document.removeEventListener('keydown', handleKeyboardShortcuts);
 	});
-	
+
 	$: if (editor && editor.isEditable !== editable) {
 		editor.setEditable(editable);
 	}
@@ -418,10 +455,7 @@
 				class="absolute pointer-events-none"
 				style="top: {cursor.top}px; left: {cursor.left}px; z-index: 10;"
 			>
-				<div
-					class="absolute w-0.5 h-4"
-					style="background-color: {cursor.user.color};"
-				></div>
+				<div class="absolute w-0.5 h-4" style="background-color: {cursor.user.color};"></div>
 				<div
 					class="absolute top-0 left-0 -mt-6 px-2 py-0.5 rounded text-xs text-black whitespace-nowrap"
 					style="background-color: {cursor.user.color};"
