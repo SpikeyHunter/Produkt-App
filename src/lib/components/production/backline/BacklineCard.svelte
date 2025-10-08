@@ -11,23 +11,48 @@
 		tech_rider: null,
 		sfx_rider: null,
 		event_venue: null,
-		rider_files: null
+		rider_files: null,
+		events_advance: null,
+		soundcheck: null // Added for soundcheck
 	};
 	const dispatch = createEventDispatcher();
 
-	// Helper function to parse JSON
+	// Helper function to parse JSON, robustly handling potential double-encoding
 	function parseJson(data) {
 		if (!data) return null;
-		if (typeof data === 'object') return data;
-		if (typeof data === 'string') {
-			try {
-				return JSON.parse(data);
-			} catch (e) {
-				return null;
+
+		let currentData = data;
+		// Repeatedly parse if the result is still a string (handles double-encoding)
+		// Safety break after 5 attempts to prevent infinite loops.
+		for (let i = 0; i < 5; i++) {
+			if (typeof currentData === 'string') {
+				try {
+					currentData = JSON.parse(currentData);
+				} catch (e) {
+					// If parsing fails at any point, it's malformed.
+					return null;
+				}
+			} else {
+				// It's not a string anymore (hopefully an object), so we're done.
+				break;
 			}
 		}
-		return null;
+
+		// Return the result only if it's a non-null object
+		return typeof currentData === 'object' && currentData !== null ? currentData : null;
 	}
+
+	// Helper function to format time from 24h to 12h am/pm
+	function formatTime(timeStr) {
+		if (!timeStr) return '';
+		const [hours, minutes] = timeStr.split(':');
+		let h = parseInt(hours, 10);
+		const ampm = h >= 12 ? 'pm' : 'am';
+		h = h % 12;
+		h = h ? h : 12; // the hour '0' should be '12'
+		return `${h}:${minutes}${ampm}`;
+	}
+
 
 	// Function to extract date from custom event ID
 	function extractDateFromEventId(eventId) {
@@ -159,11 +184,6 @@
 
 	// Parse SFX rider and create SFX list
 	$: sfxItems = (() => {
-		// Check if venue is Bazart
-		if (event.event_venue === 'Bazart') {
-			return [{ name: 'No SFX available for this event', type: 'none' }];
-		}
-
 		const sfxRider = parseJson(event.sfx_rider);
 		if (!sfxRider) return [];
 
@@ -195,6 +215,40 @@
 
 		return items;
 	})();
+	
+	// Parse advance info for soundcheck details
+	$: soundcheckInfo = (() => {
+		const soundcheck = parseJson(event.soundcheck);
+
+		if (!soundcheck || !soundcheck.status || soundcheck.status === 'no') {
+			return { display: 'none' };
+		}
+		
+		if (soundcheck.status === 'yes') {
+			if (soundcheck.start_time && soundcheck.end_time) {
+				const startTime = formatTime(soundcheck.start_time);
+				const endTime = formatTime(soundcheck.end_time);
+				return {
+					display: 'details',
+					time: `${startTime}-${endTime}`
+				};
+			} else {
+				// If status is 'yes' but no times, treat as TBD
+				return { display: 'status', statusText: 'TBD' };
+			}
+		}
+
+		if (soundcheck.status === 'asked') {
+			return { display: 'status', statusText: 'Asked' };
+		}
+
+		if (soundcheck.status === 'tbd') {
+			return { display: 'status', statusText: 'TBD' };
+		}
+
+		return { display: 'none' };
+	})();
+
 
 	function handleViewRider(e) {
 		e.stopPropagation();
@@ -260,7 +314,7 @@
 								/>
 							</svg>
 						</div>
-						<div class="text-xs opacity-60 font-bold">Poster</div>
+						<div class="text-xs opacity-60 font-bold">No Flyer</div>
 					</div>
 				{/if}
 			</div>
@@ -304,11 +358,11 @@
 				{/if}
 			</div>
 
-			<div class="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 custom-scrollbar">
+			<div class="flex-1 min-h-0 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
 				<div>
-					<h4 class="text-white text-sm font-bold mb-1.5">Backline Confirmed:</h4>
+					<h4 class="text-lime text-sm font-bold mb-0.5">Backline Confirmed:</h4>
 					{#if backlineItems.length > 0}
-						<ul class="space-y-0.5">
+						<ul class="space-y-0.15">
 							{#each backlineItems as item}
 								<li class="text-gray2 text-xs flex items-start">
 									<span class="text-lime mr-2">•</span>
@@ -321,10 +375,10 @@
 					{/if}
 				</div>
 
-				<div>
-					<h4 class="text-white text-sm font-bold mb-1.5">SFX Confirmed:</h4>
-					{#if sfxItems.length > 0}
-						<ul class="space-y-0.5">
+				{#if sfxItems.length > 0}
+					<div>
+						<h4 class="text-lime text-sm font-bold ">SFX Confirmed:</h4>
+						<ul class="space-y-0.15">
 							{#each sfxItems as item}
 								<li class="text-gray2 text-xs flex items-start">
 									<span class="text-lime mr-2">•</span>
@@ -332,10 +386,25 @@
 								</li>
 							{/each}
 						</ul>
+					</div>
+				{/if}
+
+				<div>
+					{#if soundcheckInfo.display === 'details'}
+						<h4 class="text-lime text-sm font-bold">
+							Soundcheck:
+							<span class="font-normal text-gray2 text-xs">
+								<span class="text-lime mx-0.5"></span>
+								{soundcheckInfo.time}
+							</span>
+						</h4>
+					{:else if soundcheckInfo.display === 'status'}
+						<h4 class="text-lime text-sm font-bold">Soundcheck: <span class="text-gray2 font-normal ml-0.5">{soundcheckInfo.statusText}</span></h4>
 					{:else}
-						<p class="text-gray2 text-xs">No SFX confirmed</p>
+						<h4 class="text-problem text-sm font-bold">No Soundcheck</h4>
 					{/if}
 				</div>
+
 			</div>
 		</div>
 	</div>
@@ -366,3 +435,4 @@
 		opacity: 0.8;
 	}
 </style>
+
