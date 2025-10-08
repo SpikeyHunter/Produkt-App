@@ -6,6 +6,7 @@ module.exports = {
 	theme: {
 		extend: {
 			colors: {
+				// Static colors (never change)
 				lime: '#E1FF00',
 				gray1: '#2F2F2F',
 				gray2: '#BDBDBB',
@@ -18,7 +19,19 @@ module.exports = {
 				info: '#c4b5fd', 
 				question: '#93c5fd', 
 				black: '#000000',
-				white: '#F7F7F7'
+				white: '#F7F7F7',
+				
+				// Semantic theme colors (dynamic via CSS variables)
+				primary: 'var(--color-primary)',
+				'bg-primary': 'var(--color-bg-primary)',
+				'bg-secondary': 'var(--color-bg-secondary)',
+				'bg-tertiary': 'var(--color-bg-tertiary)',
+				'text-primary': 'var(--color-text-primary)',
+				'text-secondary': 'var(--color-text-secondary)',
+				'text-muted': 'var(--color-text-muted)',
+				border: 'var(--color-border)',
+				accent: 'var(--color-accent)',
+				hover: 'var(--color-hover)'
 			},
 			fontFamily: {
 				helvetica: ['Helvetica Neue', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],

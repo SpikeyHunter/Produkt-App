@@ -3,8 +3,8 @@
 /* Then Tailwind */
 @import 'tailwindcss';
 
-
 @theme {
+	/* Base colors that will be overridden by theme */
 	--color-lime: #E1FF00;
 	--color-lime-rgb: 225, 255, 0; 
 	--color-gray1: #2F2F2F;
@@ -20,10 +20,61 @@
 	--color-info: #c4b5fd;
 	--color-question: #93c5fd;
 
+	/* Semantic theme colors */
+	--color-primary: var(--color-lime);
+	--color-bg-primary: var(--color-gray1);
+	--color-bg-secondary: var(--color-navbar);
+	--color-text-primary: var(--color-white);
+	--color-text-secondary: var(--color-gray2);
+	--color-border: var(--color-gray2);
+	--color-accent: var(--color-lime);
+
 	/* Add font to theme */
 	--font-helvetica: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+/* Dark theme (default) */
+@theme {
+	/* Font */
+	--font-helvetica: 'Helvetica Neue', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Dark theme (default) */
+:root,
+[data-theme='dark'] {
+	--color-lime: #E1FF00;
+	--color-lime-rgb: 225, 255, 0; 
+	--color-gray1: #2F2F2F;
+	--color-gray2: #BDBDBB;
+	--color-gray3: #E4E4E4;
+	--color-black: #000000;
+	--color-white: #F7F7F7;
+	--color-navbar: #212121;
+	--color-confirmed: #86EFAC;
+	--color-tentatif: #FCD34D;
+	--color-proposed: #FDBA74;
+	--color-problem: #FCA5A5;
+	--color-info: #c4b5fd;
+	--color-question: #93c5fd;
+}
+
+/* Light theme - just redefine the colors you want to change */
+[data-theme='light'] {
+	--color-lime: #000000ce;           /* Lime becomes blue in light mode */
+	--color-gray1: #f5f5f5;          /* Dark bg becomes white */
+	--color-gray2: #a7a7a7;          /* Light text becomes dark gray */
+	--color-gray3: #838383;          /* Stay similar */
+	--color-black: #FFFFFF;          /* Black becomes white */
+	--color-white: #000000;          /* White becomes dark */
+	--color-navbar: #ffffff;         /* Navbar becomes white */
+	/* Status colors can stay the same or adjust as needed */
+	--color-confirmed: #4ee083;
+	--color-tentatif: #f0bd15;
+	--color-proposed: #ffa443;
+	--color-problem: #fe5959;
+	--color-info: #c4b5fd;
+	--color-question: #93c5fd;
+}
 /* Global font styling */
 * {
 	font-family: var(--font-helvetica);
@@ -35,18 +86,21 @@
 html,
 body {
 	overflow-x: hidden;
+	background-color: var(--color-bg-primary);
+	color: var(--color-text-primary);
 }
 
 /* Custom checkbox styling */
 .custom-checkbox {
 	appearance: none;
-	background-color: #ffffff;
+	background-color: var(--color-bg-primary);
+	border: 2px solid var(--color-border);
 	position: relative;
 }
 
 .custom-checkbox:checked {
-	background-color: var(--color-lime);
-	border-color: var(--color-lime);
+	background-color: var(--color-accent);
+	border-color: var(--color-accent);
 }
 
 .custom-checkbox:checked::after {
@@ -55,7 +109,7 @@ body {
 	top: 50%;
 	left: 50%;
 	transform: translate(-50%, -50%);
-	color: black;
+	color: var(--color-text-primary);
 	font-size: 10px;
 	font-weight: bold;
 	line-height: 1;
@@ -63,8 +117,8 @@ body {
 
 /* Modal close button styling */
 .modal-close-btn {
-	color: var(--color-lime);
-	border: 2px solid var(--color-lime);
+	color: var(--color-accent);
+	border: 2px solid var(--color-accent);
 	background: transparent;
 	padding: 0;
 	border-radius: 50%;
@@ -79,8 +133,8 @@ body {
 }
 
 .modal-close-btn:hover {
-	background-color: var(--color-lime);
-	color: var(--color-black);
+	background-color: var(--color-accent);
+	color: var(--color-bg-primary);
 }
 
 .modal-close-btn svg {

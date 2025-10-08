@@ -13,6 +13,16 @@ export interface ReminderItem {
 export type ReminderData = ReminderItem[];
 // --- End: Modified Reminder Types ---
 
+// --- Start: User Settings Types ---
+export type Theme = 'light' | 'dark';
+
+export interface UserSettings {
+	theme: Theme;
+	// Add other settings here as you expand
+	// notifications?: boolean;
+	// language?: string;
+}
+// --- End: User Settings Types ---
 
 export interface UserProfile {
 	id: string;
@@ -25,6 +35,7 @@ export interface UserProfile {
 	created_at?: string;
 	updated_at?: string;
 	user_reminders?: ReminderData;
+	user_settings?: UserSettings;  // ✅ ADD THIS LINE
 }
 
 interface AuthState {
@@ -61,7 +72,7 @@ function createAuthStore() {
 			console.log('Fetching profile for user:', userId);
 			const { data, error } = await supabase
 				.from('user_profiles')
-				.select('id, email, first_name, last_name, role, main_permission, secondary_permission, created_at, updated_at, user_reminders')
+				.select('id, email, first_name, last_name, role, main_permission, secondary_permission, created_at, updated_at, user_reminders, user_settings')  // ✅ ADD user_settings HERE
 				.eq('id', userId)
 				.single();
 
@@ -71,7 +82,13 @@ function createAuthStore() {
 			}
 
 			if (data) {
-				profileCache.set(userId, { profile: data, timestamp: Date.now() });
+				// ✅ Ensure user_settings has a default value if not present
+				const profileWithDefaults: UserProfile = {
+					...data,
+					user_settings: data.user_settings || { theme: 'dark' }
+				};
+				profileCache.set(userId, { profile: profileWithDefaults, timestamp: Date.now() });
+				return profileWithDefaults;
 			}
 
 			return data;
@@ -101,6 +118,34 @@ function createAuthStore() {
 
 		if (error) {
 			console.error('Error updating reminders:', error);
+			update(s => ({
+				...s,
+				profile: oldProfile
+			}));
+		}
+	}
+
+	// ✅ ADD THIS NEW FUNCTION for updating user settings
+	async function updateSettings(settings: UserSettings) {
+		const state = get({ subscribe });
+		if (!state.user || !state.profile) {
+			console.error("User not authenticated or profile not loaded.");
+			return;
+		}
+
+		const oldProfile = state.profile;
+		update(s => ({
+			...s,
+			profile: s.profile ? { ...s.profile, user_settings: settings } : null
+		}));
+
+		const { error } = await supabase
+			.from('user_profiles')
+			.update({ user_settings: settings })
+			.eq('id', state.user.id);
+
+		if (error) {
+			console.error('Error updating settings:', error);
 			update(s => ({
 				...s,
 				profile: oldProfile
@@ -217,7 +262,8 @@ function createAuthStore() {
 		initialize,
 		refreshProfile,
 		cleanup,
-		updateReminders
+		updateReminders,
+		updateSettings  // ✅ ADD THIS to the return object
 	};
 }
 
