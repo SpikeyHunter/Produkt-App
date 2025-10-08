@@ -311,6 +311,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				advance_sheet_url: row.advance_sheet_url,
 				meetgreet_enabled: row.meetgreet_enabled !== null ? row.meetgreet_enabled : false,
 				meetgreet_info: row.meetgreet_info,
+				guestlist: row.guestlist,
 				notes: row.notes,
 
 				// Computed fields for UI
@@ -467,7 +468,8 @@ export async function updateEventAdvance(
 			'calendar_event_ids',
 			'meetgreet_enabled',
 			'meetgreet_info',
-			'notes' // ADDED
+			'notes',
+			'guestlist'
 		];
 
 		// Create a 'clean' object containing only the keys that are valid columns.
@@ -631,6 +633,7 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 				advanceData.meetgreet_enabled !== null ? advanceData.meetgreet_enabled : false,
 			meetgreet_info: advanceData.meetgreet_info,
 			notes: advanceData.notes,
+			guestlist: advanceData.guestlist,
 
 			// Computed fields for UI
 			name: finalEventName,

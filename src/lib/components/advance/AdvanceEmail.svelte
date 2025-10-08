@@ -1,20 +1,24 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 	import { env } from '$env/dynamic/public';
 	import { getAccessToken } from '$lib/stores/auth';
-	import { type EventAdvance, type TimetableEntry, updateEventColumn } from '$lib/services/eventsService';
+	import {
+		type EventAdvance,
+		type TimetableEntry,
+		updateEventColumn
+	} from '$lib/services/eventsService';
 	import { generateAdvanceEmail } from './emails/emailGenerator';
 	import { generateProductionClipboardMessage } from './emails/clipboardGenerator';
 	import { generateMihirRider, downloadEmlFile } from './emails/mihirRiderGenerator';
+	import { guestlistSettings } from '$lib/components/settings/AdvanceVariables';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
 	import AdvanceSheetTemplate from './sheet/AdvanceSheetTemplate.svelte';
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
+	import AdvanceSettingsModal from '$lib/components/modals/AdvanceSettings.svelte';
 
 	export let event: EventAdvance & { timetable?: TimetableEntry[] | null };
-
 	const dispatch = createEventDispatcher();
 
-	// --- Portal for Modals ---
 	function portal(node: HTMLElement) {
 		document.body.appendChild(node);
 		return {
@@ -32,10 +36,68 @@
 	let isGeneratingPdf = false;
 	let sheetContainer: HTMLDivElement;
 	let isPreviewOpen = false;
+	let isSettingsModalOpen = false;
 	let isDeletingPdf = false;
 	let isGeneratingMihirRider = false;
+	let gaCount: number = 0;
+	let vipCount: number = 0;
+	let updateTimeout: ReturnType<typeof setTimeout>;
 
-	// Generate the standardized filename
+	onMount(async () => {
+		// @ts-ignore
+		if (event.guestlist && typeof event.guestlist.ga === 'number') {
+			// @ts-ignore
+			gaCount = event.guestlist.ga;
+			// @ts-ignore
+			vipCount = event.guestlist.vip;
+		} else {
+			const venue = event.event_venue || '';
+			const artistType = event.artist_type || '';
+			const defaults = guestlistSettings[venue]?.[artistType];
+
+			if (defaults) {
+				gaCount = defaults.ga;
+				vipCount = defaults.vip;
+				const newGuestlist = { ga: gaCount, vip: vipCount };
+				try {
+					await updateEventColumn(event.id, 'guestlist', newGuestlist);
+					if (event) {
+						// @ts-ignore
+						event.guestlist = newGuestlist;
+					}
+					console.log('Initial guestlist defaults saved successfully.');
+				} catch (error) {
+					console.error('Failed to save initial guestlist defaults:', error);
+				}
+			}
+		}
+	});
+
+	function updateGuestlistCount(type: 'ga' | 'vip', delta: 1 | -1) {
+		if (type === 'ga') {
+			gaCount = Math.max(0, gaCount + delta);
+		} else {
+			vipCount = Math.max(0, vipCount + delta);
+		}
+		saveGuestlist();
+	}
+
+	function saveGuestlist() {
+		clearTimeout(updateTimeout);
+		updateTimeout = setTimeout(async () => {
+			const newGuestlist = { ga: gaCount, vip: vipCount };
+			try {
+				await updateEventColumn(event.id, 'guestlist', newGuestlist);
+				if (event) {
+					// @ts-ignore
+					event.guestlist = newGuestlist;
+				}
+			} catch (error) {
+				console.error('Failed to save guestlist:', error);
+			}
+		}, 500);
+	}
+	
 	$: fileName = generateFileName();
 
 	function generateFileName(): string {
@@ -97,16 +159,15 @@
 
 	async function handleGenerateMihirRider() {
 		if (!event) return;
-		
+
 		isGeneratingMihirRider = true;
 		popupMessage = 'Generating Hospo Rider...';
 		showPopup = true;
-
 		try {
 			const emailBody = await generateMihirRider(event);
 			const fileName = generateMihirFileName();
 			downloadEmlFile(emailBody, fileName);
-			
+
 			popupMessage = 'Hospo Rider downloaded successfully!';
 		} catch (error: any) {
 			console.error('Failed to generate Hospo Rider:', error);
@@ -138,11 +199,9 @@
 		isGeneratingPdf = true;
 		popupMessage = 'Generating PDF...';
 		showPopup = true;
-
 		const artistName = event.artist_name;
 		const eventDate = new Date(event.event_date.replace(/-/g, '/')).toISOString().split('T')[0];
 		const htmlContent = sheetElement.outerHTML;
-
 		try {
 			const response = await fetch('/api/generate-advance-pdf', {
 				method: 'POST',
@@ -154,12 +213,13 @@
 					fileName: fileName
 				})
 			});
-
 			if (!response.ok) {
-				const errorResult = await response.json().catch(() => ({ error: 'Failed to generate PDF.' }));
+				const errorResult = await response
+					.json()
+					.catch(() => ({ error: 'Failed to generate PDF.' }));
 				throw new Error(errorResult.error || `Server responded with status ${response.status}`);
 			}
-			
+
 			const result = await response.json();
 			if (result.path) {
 				const storageUrl = `${env.PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${result.path}`;
@@ -205,7 +265,6 @@
 					bucket: 'documents'
 				})
 			});
-
 			if (!response.ok) {
 				const errorData = await response.json().catch(() => ({ error: 'Delete failed' }));
 				throw new Error(errorData.error || `Delete failed with status ${response.status}`);
@@ -227,13 +286,25 @@
 			setTimeout(() => (showPopup = false), 4000);
 		}
 	}
+
+	function handleSettingsChange(e: CustomEvent) {
+		if (event) {
+			event.custom_settings = e.detail;
+			event = { ...event };
+		}
+	}
 </script>
 
 <div class="hidden" aria-hidden="true" bind:this={sheetContainer}>
 	<AdvanceSheetTemplate {event} />
 </div>
 
-<PopupNotification bind:show={showPopup} message={popupMessage} variant="navbar" iconType="success" />
+<PopupNotification
+	bind:show={showPopup}
+	message={popupMessage}
+	variant="navbar"
+	iconType="success"
+/>
 
 <div
 	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300 w-40 h-[420px]"
@@ -242,7 +313,6 @@
 		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Emails</h2>
 	</div>
 	<div class="flex-1 flex flex-col gap-3 px-4 py-2">
-		<!-- New Advance -->
 		<div class="flex items-center gap-3 text-sm">
 			<div class="w-6 h-6 text-gray3">
 				<svg
@@ -263,11 +333,9 @@
 				class="bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
 				on:click={handleGenerateAdvanceEmail}
 			>
-				New Advance
+				Start Thread
 			</button>
 		</div>
-
-		<!-- Tech/Hospo -->
 		<div class="flex items-center gap-3 text-sm">
 			<div class="w-6 h-6 text-gray3">
 				<svg
@@ -285,15 +353,55 @@
 				</svg>
 			</div>
 			<button
-				class="bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
+				class="bg-gray2 text-black rounded-xl px-3.5 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
 				on:click={handleCopyProductionMessage}
 				disabled={justCopied}
 			>
 				Tech/Hospo
 			</button>
 		</div>
-
-		<!-- View Advance / Final Advance -->
+		<div class="flex items-center gap-3 text-sm">
+			<div class="w-6 h-6 text-gray3 flex items-center justify-center">
+				{#if isGeneratingMihirRider}
+					<svg
+						class="animate-spin h-5 w-5 text-gray-800"
+						xmlns="http://www.w3.org/2000/svg"
+						fill="none"
+						viewBox="0 0 24 24"
+					>
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
+						></circle>
+						<path
+							class="opacity-75"
+							fill="currentColor"
+							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+						></path>
+					</svg>
+				{:else}
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 24 24"
+						fill="currentColor"
+						class="w-6 h-6"
+					>
+						<path
+							d="M6 3v6c0 2.97 2.16 5.43 5 5.91V19H8v2h8v-2h-3v-4.09c2.84-.48 5-2.94 5-5.91V3H6zm6 10c-1.86 0-3.41-1.28-3.86-3h7.72c-.45 1.72-2 3-3.86 3zm4-5H8V5h8v3z"
+						/>
+					</svg>
+				{/if}
+			</div>
+			<button
+				class="bg-gray2 text-black rounded-xl px-4 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
+				on:click={handleGenerateMihirRider}
+				disabled={isGeneratingMihirRider}
+			>
+				{#if isGeneratingMihirRider}
+					Generating...
+				{:else}
+					Mihir Email
+				{/if}
+			</button>
+		</div>
 		<div class="flex items-center gap-3 text-sm">
 			<div class="w-6 h-6 text-gray3 flex items-center justify-center">
 				{#if isGeneratingPdf}
@@ -303,13 +411,7 @@
 						fill="none"
 						viewBox="0 0 24 24"
 					>
-						<circle
-							class="opacity-25"
-							cx="12"
-							cy="12"
-							r="10"
-							stroke="currentColor"
-							stroke-width="4"
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
 						></circle>
 						<path
 							class="opacity-75"
@@ -346,77 +448,89 @@
 					</svg>
 				{/if}
 			</div>
-
 			{#if event.advance_sheet_url}
 				<button
-					class="bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
+					class="bg-gray2 text-black rounded-xl px-4 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
 					on:click={() => (isPreviewOpen = true)}
 				>
-					View Advance
+					Final Sheet
 				</button>
 			{:else}
 				<button
-					class="bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
+					class="bg-gray2 text-black rounded-xl px-4 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
 					on:click={handleGeneratePdf}
 					disabled={isGeneratingPdf}
 				>
 					{#if isGeneratingPdf}
 						Generating...
 					{:else}
-						Final Advance
+						Final Sheet
 					{/if}
 				</button>
 			{/if}
 		</div>
-
-		<!-- Hospo Rider -->
 		<div class="flex items-center gap-3 text-sm">
 			<div class="w-6 h-6 text-gray3 flex items-center justify-center">
-				{#if isGeneratingMihirRider}
-					<svg
-						class="animate-spin h-5 w-5 text-gray-800"
-						xmlns="http://www.w3.org/2000/svg"
-						fill="none"
-						viewBox="0 0 24 24"
-					>
-						<circle
-							class="opacity-25"
-							cx="12"
-							cy="12"
-							r="10"
-							stroke="currentColor"
-							stroke-width="4"
-						></circle>
-						<path
-							class="opacity-75"
-							fill="currentColor"
-							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-						></path>
-					</svg>
-				{:else}
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 24 24"
-						fill="currentColor"
-						class="w-6 h-6"
-					>
-						<path
-							d="M6 3v6c0 2.97 2.16 5.43 5 5.91V19H8v2h8v-2h-3v-4.09c2.84-.48 5-2.94 5-5.91V3H6zm6 10c-1.86 0-3.41-1.28-3.86-3h7.72c-.45 1.72-2 3-3.86 3zm4-5H8V5h8v3z"
-						/>
-					</svg>
-				{/if}
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					class="w-6 h-6"
+					fill="none"
+					viewBox="0 0 24 24"
+					stroke="currentColor"
+					stroke-width="2"
+				>
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+					/>
+					<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+				</svg>
 			</div>
 			<button
-				class="bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
-				on:click={handleGenerateMihirRider}
-				disabled={isGeneratingMihirRider}
+				class="bg-gray2 text-black rounded-xl px-4 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
+				on:click={() => (isSettingsModalOpen = true)}
 			>
-				{#if isGeneratingMihirRider}
-					Generating...
-				{:else}
-					Hospo Rider
-				{/if}
+				Settings
 			</button>
+		</div>
+	</div>
+	<div class="mt-auto pt-2">
+		<h3 class="text-xl font-normal text-gray3 px-4">Guestlist</h3>
+		<div class="border-b border-gray1 mt-2"></div>
+		<div class="px-4 pt-3 pb-5">
+			<div class="flex items-center justify-between text-sm mb-2">
+				<span class="text-gray3 font-semibold">GA</span>
+				<div class="flex items-center gap-2">
+					<button
+						on:click={() => updateGuestlistCount('ga', -1)}
+						class="flex items-center justify-center w-5 h-5 bg-gray2 text-black rounded-md font-bold hover:bg-lime hover:text-black transition-colors cursor-pointer leading-none"
+						>−</button
+					>
+					<span class="font-mono w-4 text-center">{gaCount}</span>
+					<button
+						on:click={() => updateGuestlistCount('ga', 1)}
+						class="flex items-center justify-center w-5 h-5 bg-gray2 text-black rounded-md font-bold hover:bg-lime hover:text-black transition-colors cursor-pointer leading-none"
+						>+</button
+					>
+				</div>
+			</div>
+			<div class="flex items-center justify-between text-sm">
+				<span class="text-gray3 font-semibold">VIP</span>
+				<div class="flex items-center gap-2">
+					<button
+						on:click={() => updateGuestlistCount('vip', -1)}
+						class="flex items-center justify-center w-5 h-5 bg-gray2 text-black rounded-md font-bold hover:bg-lime hover:text-black transition-colors cursor-pointer leading-none"
+						>−</button
+					>
+					<span class="font-mono w-4 text-center">{vipCount}</span>
+					<button
+						on:click={() => updateGuestlistCount('vip', 1)}
+						class="flex items-center justify-center w-5 h-5 bg-gray2 text-black rounded-md font-bold hover:bg-lime hover:text-black transition-colors cursor-pointer leading-none"
+						>+</button
+					>
+				</div>
+			</div>
 		</div>
 	</div>
 </div>
@@ -426,7 +540,7 @@
 		<PreviewModal
 			isOpen={isPreviewOpen}
 			fileUrl={event.advance_sheet_url || ''}
-			fileName={fileName}
+			{fileName}
 			isDeleting={isDeletingPdf}
 			on:close={() => (isPreviewOpen = false)}
 			on:delete={handleDeletePdf}
@@ -434,3 +548,13 @@
 	</div>
 {/if}
 
+{#if isSettingsModalOpen}
+	<div use:portal>
+		<AdvanceSettingsModal
+			bind:isOpen={isSettingsModalOpen}
+			{event}
+			on:close={() => (isSettingsModalOpen = false)}
+			on:change={handleSettingsChange}
+		/>
+	</div>
+{/if}

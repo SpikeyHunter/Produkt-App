@@ -106,30 +106,36 @@
 			<ContentBox class="!bg-black/15 {index > 0 ? 'mt-4' : ''}">
 				<div class="space-y-4">
 					<div>
-						<div class="text-gray2 text-xs uppercase tracking-wider mb-1">Hotel Name</div>
-						<div class="text-white text-xl font-bold">{hotelName}</div>
+						<div class="mb-1 text-xs uppercase tracking-wider text-gray2">Hotel Name</div>
+						<div class="text-xl font-bold text-white">{hotelName}</div>
 						{#if address}
-							<div class="text-gray2 text-sm mt-1">{address}</div>
+							<div class="mt-1 text-sm text-gray2">{address}</div>
 						{/if}
 					</div>
 
-					<div class="pt-4 border-t border-gray2/20 overflow-x-auto">
-						<table class="w-full text-left text-sm whitespace-nowrap">
+					<div class="overflow-x-auto border-t border-gray2/20 pt-4">
+						<table class="w-full whitespace-nowrap text-left text-sm">
 							<thead>
 								<tr class="border-b border-gray2/20">
-									<th class="py-2 pr-4 font-medium text-gray2 text-xs uppercase tracking-wider">
+									<th
+										class="py-2 pr-4 text-xs font-medium uppercase tracking-wider text-gray2"
+									>
 										{reservations.length > 1 ? 'Names' : 'Name'}
 									</th>
-									<th class="py-2 px-3 font-medium text-gray2 text-xs uppercase tracking-wider"
+									<th
+										class="px-3 py-2 text-xs font-medium uppercase tracking-wider text-gray2"
 										>Confirmation #</th
 									>
-									<th class="py-2 px-4 font-medium text-gray2 text-xs uppercase tracking-wider"
+									<th
+										class="px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray2"
 										>Room Type</th
 									>
-									<th class="py-2 px-4 font-medium text-gray2 text-xs uppercase tracking-wider"
+									<th
+										class="px-4 py-2 text-xs font-medium uppercase tracking-wider text-gray2"
 										>Check-in</th
 									>
-									<th class="py-2 pl-4 font-medium text-gray2 text-xs uppercase tracking-wider"
+									<th
+										class="py-2 pl-4 text-xs font-medium uppercase tracking-wider text-gray2"
 										>Check-out</th
 									>
 								</tr>
@@ -140,9 +146,9 @@
 										<td class="py-2 pr-4 text-white"
 											>{res.reservationFirstName} {res.reservationLastName}</td
 										>
-										<td class="py-2 px-3 text-white">{res.confirmationNumber || 'N/A'}</td>
-										<td class="py-2 px-4 text-white">{res.roomType}</td>
-										<td class="py-2 px-4 text-white">{formatDate(res.checkInDate)}</td>
+										<td class="px-3 py-2 text-white">{res.confirmationNumber || 'N/A'}</td>
+										<td class="px-4 py-2 text-white">{res.roomType}</td>
+										<td class="px-4 py-2 text-white">{formatDate(res.checkInDate)}</td>
 										<td class="py-2 pl-4 text-white">{formatDate(res.checkOutDate)}</td>
 									</tr>
 								{/each}
@@ -151,11 +157,14 @@
 					</div>
 
 					<div class="border-t border-gray2/20 pt-3">
-						<div class="text-lime text-xs uppercase tracking-wider mb-2">Notes</div>
+						<div class="mb-2 text-xs uppercase tracking-wider text-lime">Notes</div>
 						<div class="space-y-1 text-sm text-gray2">
 							{#each getHotelNotes(reservations) as note}
 								<div>• {note}</div>
 							{/each}
+							<div>
+								• {reservations.length > 1 ? 'Rooms' : 'Room'} and taxes are covered by New City Gas
+							</div>
 							<div>• Credit card must be provided for incidentals</div>
 						</div>
 					</div>

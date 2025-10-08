@@ -18,6 +18,27 @@ export interface ContactSettings {
   production: ContactPerson;
   emergency: ContactPerson;
 }
+export interface GuestlistDefaults {
+	ga: number;
+	vip: number;
+}
+
+export const guestlistSettings: {
+	[venue: string]: {
+		[artistType: string]: GuestlistDefaults;
+	};
+} = {
+	'Bazart': {
+		'Local': { ga: 10, vip: 0 },
+		'Support': { ga: 5, vip: 5 },
+		'Headliner': { ga: 10, vip: 10 }
+	},
+	'New City Gas': {
+		'Local': { ga: 5, vip: 0 },
+		'Support': { ga: 5, vip: 5 },
+		'Headliner': { ga: 10, vip: 10 }
+	}
+};
 
 // Default venue settings
 export const defaultVenueSettings: VenueSettings = {
@@ -88,6 +109,20 @@ export const hotelAddressMap: { [key: string]: string } = {
   'Monville': '1041 Rue de Bleury, Montréal, QC H2Z 1M7'
 };
 
+// **NEW**: Production Contact mapping for custom settings
+export const productionContactMap: { [key: string]: ContactPerson } = {
+	'Janie': {
+		name: 'Janie Latendresse',
+		phone: '514-889-6386',
+		email: 'janie@produkt.ca'
+	},
+	'Danny': {
+		name: 'Danny Fréchette',
+		phone: '514-207-6971',
+		email: 'danny@produkt.ca'
+	}
+};
+
 // You can add more settings here as needed
 export const advanceSettings = {
   venue: defaultVenueSettings,
@@ -95,7 +130,9 @@ export const advanceSettings = {
   dosContacts: dosContactMap,
   drivers: driverContactMap,
   vehicle: vehicleInfo,
-  hotels: hotelAddressMap // **NEW**: Added hotels to settings
+  hotels: hotelAddressMap,
+  guestlist: guestlistSettings,
+  productionContacts: productionContactMap
 };
 
 // Helper function to format date to "3 October 2025" format

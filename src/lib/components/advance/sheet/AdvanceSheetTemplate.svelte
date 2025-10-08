@@ -8,6 +8,7 @@
 	import MeetGreet from './sections/MeetGreet.svelte';
 	import GroundTransfers from './sections/GroundTransfers.svelte';
 	import HouseRules from './sections/HouseRules.svelte';
+	import TechHospitality from './sections/TechHospitality.svelte';
 	import type { EventAdvance } from '$lib/types/events';
 
 	interface TimetableEntry {
@@ -28,6 +29,7 @@
 	export let showMeetGreet = true;
 	export let showGroundTransfers = true;
 	export let showHouseRules = true;
+	export let showTechHospitality = true;
 
 	// Event data prop (can include timetable)
 	export let event: EventAdvance & { timetable?: TimetableEntry[] | null };
@@ -61,7 +63,8 @@
 		</div>
 
 		{#if showGroundTransfers} <GroundTransfers {event} /> {/if}
-		{#if showHouseRules} <HouseRules /> {/if}
+		{#if showTechHospitality} <TechHospitality {event} /> {/if}
+		{#if showHouseRules} <HouseRules event_venue={event.event_venue} /> {/if}
 	</div>
 </div>
 

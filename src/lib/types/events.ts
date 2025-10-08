@@ -207,6 +207,7 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	meetgreet_enabled?: boolean | null;
 	meetgreet_info?: MeetGreetInfo | string | null;
 	notes?: NoteItem[] | null;
+	guestlist?: { ga: number; vip: number } | null; 
 }
 
 /**
