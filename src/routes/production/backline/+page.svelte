@@ -30,7 +30,7 @@
 	let previewFileName = '';
 
 	onMount(async () => {
-		setTimeout(() => mounted = true, 150);
+		setTimeout(() => (mounted = true), 150);
 		await loadEvents();
 	});
 
@@ -39,7 +39,7 @@
 			loading = true;
 			error = null;
 			console.log('Loading events from Supabase...');
-			
+
 			allEvents = await fetchEventsAdvance();
 			await filterEventsByStatus();
 			console.log('Loaded all events:', allEvents);
@@ -162,8 +162,9 @@
 	$: filteredEvents = sortEvents(
 		events.filter(
 			(event) =>
-				event.name.toLowerCase().includes(searchValue.toLowerCase()) ||
-				event.tags.some((tag) => tag.toLowerCase().includes(searchValue.toLowerCase()))
+				event.artist_type !== 'Local' &&
+				(event.name.toLowerCase().includes(searchValue.toLowerCase()) ||
+					event.tags.some((tag) => tag.toLowerCase().includes(searchValue.toLowerCase())))
 		),
 		currentFilter
 	);
