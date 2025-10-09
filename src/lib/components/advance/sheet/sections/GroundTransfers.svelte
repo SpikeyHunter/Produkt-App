@@ -83,7 +83,11 @@
 				groupKey = 'Show Transfers';
 			}
 			// Group Soundcheck and Post SC together
-			else if (transfer.type === 'Soundcheck' || transfer.type === 'Post SC') {
+			else if (
+				transfer.type === 'Soundcheck' ||
+				transfer.type === 'Post-SC' ||
+				transfer.type === 'Post SC'
+			) {
 				groupKey = 'Soundcheck Transfers';
 			}
 			// Keep Arrival and Departure separate

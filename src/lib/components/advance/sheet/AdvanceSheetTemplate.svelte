@@ -64,7 +64,7 @@
 
 		{#if showGroundTransfers} <GroundTransfers {event} /> {/if}
 		{#if showTechHospitality} <TechHospitality {event} /> {/if}
-		{#if showHouseRules} <HouseRules event_venue={event.event_venue} /> {/if}
+		{#if showHouseRules} <HouseRules event={event} />{/if}
 	</div>
 </div>
 

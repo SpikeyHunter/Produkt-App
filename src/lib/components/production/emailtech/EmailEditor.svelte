@@ -575,4 +575,25 @@
 		white-space: pre-wrap;
 		tab-size: 4;
 	}
+
+	:global(.tiptap mark) {
+		padding: 2px 4px;
+		border-radius: 3px;
+		font-weight: inherit !important;
+		/* Force black text on highlights */
+		color: #212121 !important;
+	}
+
+	/* Ensure inline styles from template are respected */
+	:global(.tiptap mark[style*='background-color']) {
+		/* Keep the background color from inline style */
+		background-color: inherit !important;
+	}
+
+	/* Specific handling for red highlights (crew mismatches) */
+	:global(.tiptap mark[style*='rgb(252, 165, 165)']),
+	:global(.tiptap mark[style*='#FCA5A5']) {
+		background-color: #fca5a5 !important;
+		color: #212121 !important;
+	}
 </style>

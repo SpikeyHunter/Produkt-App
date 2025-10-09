@@ -1,8 +1,35 @@
 <script lang="ts">
 	import Section from '../Section.svelte';
 	import ContentBox from '../ContentBox.svelte';
+	import type { EventAdvance } from '$lib/services/eventsService'; // <-- ADD THIS IMPORT
 
-	export let event_venue: string | undefined;
+	// Accept the official EventAdvance type
+	export let event: EventAdvance; // <-- CHANGE THIS LINE
+
+	// This derived variable keeps the Mosh Pits section working as before
+	$: event_venue = event.venue;
+
+	// Reactive variable to determine which PA System text to show
+	$: paVenueToShow = (() => {
+		// Check if the override is enabled in custom settings
+		if (event.custom_settings?.PA_System_Enabled && event.custom_settings.PA_System) {
+			// Return 'Bazart' or 'New City Gas' based on the custom setting
+			return event.custom_settings.PA_System === 'Bazart' ? 'Bazart' : 'New City Gas';
+		}
+		// If no override, fall back to the event's actual venue
+		return event.venue;
+	})();
+
+	// Reactive variable to determine which DJ Monitor text to show
+	$: djVenueToShow = (() => {
+		// Check if the override is enabled in custom settings
+		if (event.custom_settings?.DJ_Monitor_Enabled && event.custom_settings.DJ_Monitor) {
+			// Return 'Bazart' or 'New City Gas' based on the custom setting
+			return event.custom_settings.DJ_Monitor === 'Bazart' ? 'Bazart' : 'New City Gas';
+		}
+		// If no override, fall back to the event's actual venue
+		return event.venue;
+	})();
 </script>
 
 <Section title="HOUSE RULES">
@@ -47,7 +74,7 @@
 		{/if}
 
 		<ContentBox class="!bg-black/15 border-r-15 border-r-black border-l-3 border-confirmed">
-			{#if event_venue === 'Bazart'}
+			{#if paVenueToShow === 'Bazart'}
 				<div class="text-confirmed text-sm uppercase tracking-wider mb-1">PA SYSTEM – LOUNGE</div>
 				<div class="text-gray2 text-sm space-y-1">
 					<div>
@@ -64,7 +91,9 @@
 					<div>• Kit is fully tuned, calibrated, and phase-aligned for the Lounge environment.</div>
 				</div>
 			{:else}
-				<div class="text-confirmed text-sm uppercase tracking-wider mb-1">PA System</div>
+				<div class="text-confirmed text-sm uppercase tracking-wider mb-1">
+					PA System – Main Room
+				</div>
 				<div class="text-gray2 text-sm space-y-1">
 					<div>
 						• The venue has an installed JBL Professional PA using the Application engineered series
@@ -83,7 +112,7 @@
 		</ContentBox>
 
 		<ContentBox class="!bg-black/15 border-r-15 border-r-black border-l-3 border-info">
-			{#if event_venue === 'Bazart'}
+			{#if djVenueToShow === 'Bazart'}
 				<div class="text-info text-sm uppercase tracking-wider mb-1">DJ MONITORS – LOUNGE</div>
 				<div class="text-gray2 text-sm space-y-1">
 					<div>• In-booth monitoring consists of 02x EV ETX-12P powered speakers.</div>
@@ -92,7 +121,7 @@
 					</div>
 				</div>
 			{:else}
-				<div class="text-info text-sm uppercase tracking-wider mb-1">DJ Monitors</div>
+				<div class="text-info text-sm uppercase tracking-wider mb-1">DJ Monitors – Main Room</div>
 				<div class="text-gray2 text-sm space-y-1">
 					<div>
 						• In house DJ monitors consist of 6x Vertec VT4886 powered by a Crown iTech HD9000 and

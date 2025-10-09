@@ -11,13 +11,27 @@
 	const dispatch = createEventDispatcher();
 
 	// Local state to stage changes before saving
-	let localSettings: { ProdContact_Enabled?: boolean; ProdContact?: string } = {};
+	let localSettings: {
+		ProdContact_Enabled?: boolean;
+		ProdContact?: string;
+		PA_System_Enabled?: boolean;
+		PA_System?: string;
+		DJ_Monitor_Enabled?: boolean;
+		DJ_Monitor?: string;
+	} = {};
+
 	let isSaving = false;
 
 	// UI state is derived from localSettings for reactivity
 	$: isProdContactEnabled = localSettings.ProdContact_Enabled === true;
 	$: selectedProdContact = localSettings.ProdContact || '';
+	$: isPaSystemEnabled = localSettings.PA_System_Enabled === true;
+	$: selectedPaSystem = localSettings.PA_System || '';
+	$: isDjMonitorEnabled = localSettings.DJ_Monitor_Enabled === true;
+	$: selectedDjMonitor = localSettings.DJ_Monitor || '';
+
 	const prodContactOptions = Object.keys(productionContactMap);
+	const venueOptions = ['NCG', 'Bazart'];
 
 	onMount(() => {
 		// Create a deep copy to work with, preserving the original event object
@@ -28,6 +42,7 @@
 
 	// --- UI Handlers that only modify the local state ---
 
+	// Production Contact Handlers
 	function handleToggleProdContact(e: Event) {
 		const isEnabled = (e.target as HTMLInputElement).checked;
 		localSettings.ProdContact_Enabled = isEnabled;
@@ -50,7 +65,53 @@
 			localSettings.ProdContact = selectedValue;
 			localSettings = { ...localSettings };
 		}
-		showDropdown = false;
+		activeDropdown = null;
+	}
+
+	// PA System Handlers
+	function handleTogglePaSystem(e: Event) {
+		const isEnabled = (e.target as HTMLInputElement).checked;
+		localSettings.PA_System_Enabled = isEnabled;
+
+		if (isEnabled) {
+			if (!localSettings.PA_System) {
+				localSettings.PA_System = 'NCG'; // Default value
+			}
+		} else {
+			delete localSettings.PA_System;
+		}
+		localSettings = { ...localSettings };
+	}
+
+	function handlePaSystemSelect(selectedValue: string) {
+		if (isPaSystemEnabled) {
+			localSettings.PA_System = selectedValue;
+			localSettings = { ...localSettings };
+		}
+		activeDropdown = null;
+	}
+
+	// DJ Monitor Handlers
+	function handleToggleDjMonitor(e: Event) {
+		const isEnabled = (e.target as HTMLInputElement).checked;
+		localSettings.DJ_Monitor_Enabled = isEnabled;
+
+		if (isEnabled) {
+			if (!localSettings.DJ_Monitor) {
+				localSettings.DJ_Monitor = 'NCG'; // Default value
+			}
+		} else {
+			delete localSettings.DJ_Monitor;
+		}
+		localSettings = { ...localSettings };
+	}
+
+	function handleDjMonitorSelect(selectedValue: string) {
+		if (isDjMonitorEnabled) {
+			localSettings.DJ_Monitor = selectedValue;
+			localSettings = { ...localSettings };
+		}
+		activeDropdown = null;
 	}
 
 	// --- Save and Close Handlers ---
@@ -73,18 +134,25 @@
 	}
 
 	// --- Embedded Dropdown Logic ---
-	let showDropdown = false;
-	let dropdownElement: HTMLDivElement;
+	let activeDropdown: 'prod' | 'pa' | 'dj' | null = null;
+	let prodDropdownElement: HTMLDivElement;
+	let paDropdownElement: HTMLDivElement;
+	let djDropdownElement: HTMLDivElement;
 
-	function toggleDropdown() {
+	function toggleDropdown(name: 'prod' | 'pa' | 'dj') {
 		if (!isSaving) {
-			showDropdown = !showDropdown;
+			activeDropdown = activeDropdown === name ? null : name;
 		}
 	}
 
 	function handleClickOutside(event: MouseEvent) {
-		if (dropdownElement && !dropdownElement.contains(event.target as Node)) {
-			showDropdown = false;
+		const target = event.target as Node;
+		if (activeDropdown === 'prod' && prodDropdownElement && !prodDropdownElement.contains(target)) {
+			activeDropdown = null;
+		} else if (activeDropdown === 'pa' && paDropdownElement && !paDropdownElement.contains(target)) {
+			activeDropdown = null;
+		} else if (activeDropdown === 'dj' && djDropdownElement && !djDropdownElement.contains(target)) {
+			activeDropdown = null;
 		}
 	}
 
@@ -122,15 +190,18 @@
 			</div>
 			<div class="w-3/5 flex justify-start">
 				{#if isProdContactEnabled}
-					<div class="relative w-32" bind:this={dropdownElement}>
+					<div class="relative w-32" bind:this={prodDropdownElement}>
 						<button
 							type="button"
 							class="flex w-full items-center justify-between gap-2 rounded-2xl border border-transparent bg-gray1 px-4 py-2 text-left text-sm text-gray3 transition-colors hover:cursor-pointer hover:bg-lime hover:text-black focus:border-lime focus:outline-none"
-							on:click={toggleDropdown}
+							on:click={() => toggleDropdown('prod')}
 						>
 							<span>{selectedProdContact || 'Select...'}</span>
 							<svg
-								class="h-3 w-3 flex-shrink-0 text-gray-400 transition-transform {showDropdown ? 'rotate-180' : ''}"
+								class="h-3 w-3 flex-shrink-0 text-gray-400 transition-transform {activeDropdown ===
+								'prod'
+									? 'rotate-180'
+									: ''}"
 								viewBox="0 0 24 24"
 								fill="none"
 								stroke="currentColor"
@@ -140,7 +211,7 @@
 							</svg>
 						</button>
 
-						{#if showDropdown}
+						{#if activeDropdown === 'prod'}
 							<div
 								class="absolute top-full left-0 z-[9999] mt-1 w-full overflow-hidden rounded-lg border border-lime bg-navbar shadow-xl"
 							>
@@ -149,6 +220,120 @@
 										type="button"
 										class="block w-full border-b border-gray1 px-3 py-1.5 text-left font-bold text-white transition-colors last:border-b-0 hover:cursor-pointer hover:bg-lime hover:text-black"
 										on:click={() => handleProdContactSelect(option)}
+									>
+										{option}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		<div class="flex min-h-[44px] items-center">
+			<div class="w-3/5">PA System</div>
+			<div class="w-2/5 flex justify-start">
+				<label class="relative inline-flex cursor-pointer items-center">
+					<input
+						type="checkbox"
+						class="peer sr-only"
+						checked={isPaSystemEnabled}
+						on:change={handleTogglePaSystem}
+					/>
+					<div
+						class="peer h-6 w-11 rounded-full bg-gray2 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all peer-checked:bg-lime peer-checked:after:translate-x-full peer-checked:after:border-transparent peer-checked:after:bg-navbar"
+					></div>
+				</label>
+			</div>
+			<div class="w-3/5 flex justify-start">
+				{#if isPaSystemEnabled}
+					<div class="relative w-32" bind:this={paDropdownElement}>
+						<button
+							type="button"
+							class="flex w-full items-center justify-between gap-2 rounded-2xl border border-transparent bg-gray1 px-4 py-2 text-left text-sm text-gray3 transition-colors hover:cursor-pointer hover:bg-lime hover:text-black focus:border-lime focus:outline-none"
+							on:click={() => toggleDropdown('pa')}
+						>
+							<span>{selectedPaSystem || 'Select...'}</span>
+							<svg
+								class="h-3 w-3 flex-shrink-0 text-gray-400 transition-transform {activeDropdown === 'pa'
+									? 'rotate-180'
+									: ''}"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="3"
+							>
+								<path d="M6 9l6 6 6-6" />
+							</svg>
+						</button>
+
+						{#if activeDropdown === 'pa'}
+							<div
+								class="absolute top-full left-0 z-[9999] mt-1 w-full overflow-hidden rounded-lg border border-lime bg-navbar shadow-xl"
+							>
+								{#each venueOptions as option}
+									<button
+										type="button"
+										class="block w-full border-b border-gray1 px-3 py-1.5 text-left font-bold text-white transition-colors last:border-b-0 hover:cursor-pointer hover:bg-lime hover:text-black"
+										on:click={() => handlePaSystemSelect(option)}
+									>
+										{option}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		<div class="flex min-h-[44px] items-center">
+			<div class="w-3/5">DJ Monitor</div>
+			<div class="w-2/5 flex justify-start">
+				<label class="relative inline-flex cursor-pointer items-center">
+					<input
+						type="checkbox"
+						class="peer sr-only"
+						checked={isDjMonitorEnabled}
+						on:change={handleToggleDjMonitor}
+					/>
+					<div
+						class="peer h-6 w-11 rounded-full bg-gray2 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all peer-checked:bg-lime peer-checked:after:translate-x-full peer-checked:after:border-transparent peer-checked:after:bg-navbar"
+					></div>
+				</label>
+			</div>
+			<div class="w-3/5 flex justify-start">
+				{#if isDjMonitorEnabled}
+					<div class="relative w-32" bind:this={djDropdownElement}>
+						<button
+							type="button"
+							class="flex w-full items-center justify-between gap-2 rounded-2xl border border-transparent bg-gray1 px-4 py-2 text-left text-sm text-gray3 transition-colors hover:cursor-pointer hover:bg-lime hover:text-black focus:border-lime focus:outline-none"
+							on:click={() => toggleDropdown('dj')}
+						>
+							<span>{selectedDjMonitor || 'Select...'}</span>
+							<svg
+								class="h-3 w-3 flex-shrink-0 text-gray-400 transition-transform {activeDropdown === 'dj'
+									? 'rotate-180'
+									: ''}"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="3"
+							>
+								<path d="M6 9l6 6 6-6" />
+							</svg>
+						</button>
+
+						{#if activeDropdown === 'dj'}
+							<div
+								class="absolute top-full left-0 z-[9999] mt-1 w-full overflow-hidden rounded-lg border border-lime bg-navbar shadow-xl"
+							>
+								{#each venueOptions as option}
+									<button
+										type="button"
+										class="block w-full border-b border-gray1 px-3 py-1.5 text-left font-bold text-white transition-colors last:border-b-0 hover:cursor-pointer hover:bg-lime hover:text-black"
+										on:click={() => handleDjMonitorSelect(option)}
 									>
 										{option}
 									</button>

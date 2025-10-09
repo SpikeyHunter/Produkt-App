@@ -32,16 +32,19 @@
 	} from '$lib/types/emailtech';
 	import type { RealtimeChannel } from '@supabase/supabase-js';
 	import { writable, type Writable } from 'svelte/store';
+	import { supabase } from '$lib/supabase';
 
 	let loading = true;
 	let isSaving = false;
 	let autoSaveTimeout: NodeJS.Timeout;
 	let templateType: 'tech' | 'vj' = 'tech';
+	let crewChangeCheckInterval: NodeJS.Timeout;
 
 	let events: EmailTechEvent[] = [];
 	let selectedEvents: EmailTechEvent[] = [];
 	let crewMembers: CrewMember[] = [];
 	let crewAssignments: CrewAssignments = {};
+	let lastKnownCrewState: string = '';
 
 	let currentUser: CurrentUser;
 	let emailContent = '';
@@ -60,11 +63,13 @@
 	onMount(async () => {
 		currentUser = await getAuthenticatedUser();
 		await loadInitialData();
+		startCrewChangePolling();
 	});
 
 	onDestroy(() => {
 		eventChannel?.unsubscribe();
 		clearTimeout(autoSaveTimeout);
+		clearInterval(crewChangeCheckInterval);
 	});
 
 	async function loadInitialData() {
@@ -78,6 +83,94 @@
 		}
 	}
 
+	// NEW: Poll for crew changes every 2 seconds
+	function startCrewChangePolling() {
+		crewChangeCheckInterval = setInterval(async () => {
+			if (selectedEvents.length > 0) {
+				await checkForCrewChanges();
+			}
+		}, 2000);
+	}
+
+	// NEW: Check if crew has changed in the database
+	async function checkForCrewChanges() {
+		const mainEvent = selectedEvents[0];
+		if (!mainEvent) return;
+
+		try {
+			const { data, error } = await supabase
+				.from('events')
+				.select('crew')
+				.eq('event_id', mainEvent.event_id)
+				.single();
+
+			if (error) throw error;
+
+			const currentCrewJson = JSON.stringify(data?.crew || {});
+			
+			// Compare with last known state
+			if (lastKnownCrewState && lastKnownCrewState !== currentCrewJson) {
+				console.log('🔄 Crew change detected!');
+				
+				// Update local state
+				crewAssignments = convertDbCrewToState(data.crew);
+				mainEvent.crew = data.crew;
+				lastKnownCrewState = currentCrewJson;
+				
+				// Regenerate crew_call section with comparison
+				await regenerateCrewCallSection();
+			} else if (!lastKnownCrewState) {
+				// Initialize tracking
+				lastKnownCrewState = currentCrewJson;
+			}
+		} catch (error) {
+			console.error('Error checking crew changes:', error);
+		}
+	}
+
+	// NEW: Regenerate only the crew_call section
+	async function regenerateCrewCallSection() {
+		if (!emailContent || selectedEvents.length === 0) return;
+
+		const crewCallSection = techTemplateSections.find(s => s.id === 'crew_call');
+		if (!crewCallSection) return;
+
+		// Generate new crew_call content with stored HTML for comparison
+		const mainEvent = selectedEvents[0];
+		const storedHtml = templateType === 'tech' ? mainEvent.tech_mail : mainEvent.vj_mail;
+		
+		const newCrewCallContent = crewCallSection.generator(
+			selectedEvents,
+			crewAssignments,
+			crewMembers,
+			storedHtml || undefined
+		);
+
+		// Replace the crew_call section in the email content
+		const crewCallRegex = /<div[^>]*data-section="crew_call"[^>]*>[\s\S]*?<\/div>/i;
+		const wrappedNewContent = `<div data-section="crew_call">${newCrewCallContent}</div>`;
+
+		if (crewCallRegex.test(emailContent)) {
+			emailContent = emailContent.replace(crewCallRegex, wrappedNewContent);
+		} else {
+			// If crew_call doesn't exist, insert it after header
+			const headerRegex = /(<div[^>]*data-section="header"[^>]*>[\s\S]*?<\/div>)/i;
+			emailContent = emailContent.replace(headerRegex, `$1${wrappedNewContent}`);
+		}
+
+		// Update the editor
+		setTimeout(() => {
+			const editor = emailEditor?.getEditor();
+			if (editor && !editor.isFocused) {
+				editor.commands.setContent(emailContent || '<p></p>');
+			}
+		}, 0);
+
+		// Save the updated content
+		clearTimeout(autoSaveTimeout);
+		autoSaveTimeout = setTimeout(handleSaveTemplate, 500);
+	}
+
 	async function handleEventSelect(event: CustomEvent<EmailTechEvent[]>) {
 		selectedEvents = event.detail;
 		if (templateType === 'vj' && !isNCGEventSelected) {
@@ -89,13 +182,47 @@
 		setupRealtimeChannel();
 	}
 
+	function convertDbCrewToState(crew: any): CrewAssignments {
+		if (!crew) return {};
+		const newAssignments: CrewAssignments = {};
+		for (const role in crew) {
+			const value = crew[role as keyof typeof crew];
+			if (typeof value === 'string' && value.trim() !== '') {
+				newAssignments[role as keyof CrewAssignments] = [value];
+			} else if (Array.isArray(value)) {
+				newAssignments[role as keyof CrewAssignments] = value;
+			}
+		}
+		return newAssignments;
+	}
+
 	function loadCrewAssignments() {
 		if (selectedEvents.length === 0) {
 			crewAssignments = {};
+			lastKnownCrewState = '';
 			return;
 		}
 		const mainEvent = selectedEvents[0];
-		crewAssignments = mainEvent.crew || {};
+		crewAssignments = convertDbCrewToState(mainEvent.crew);
+		lastKnownCrewState = JSON.stringify(mainEvent.crew || {});
+	}
+
+	function generateSectionContent(sectionId: string, useStoredHtml: boolean = false): string {
+		const section = techTemplateSections.find((s) => s.id === sectionId);
+		if (!section) return '';
+		
+		const mainEvent = selectedEvents[0];
+		const storedHtml = useStoredHtml && mainEvent 
+			? (templateType === 'tech' ? mainEvent.tech_mail : mainEvent.vj_mail)
+			: undefined;
+
+		// Convert null to undefined to satisfy TypeScript
+		const htmlToPass = storedHtml === null ? undefined : storedHtml;
+
+		if (section.id === 'crew_call') {
+			return section.generator(selectedEvents, crewAssignments, crewMembers, htmlToPass);
+		}
+		return section.generator(selectedEvents, crewAssignments, crewMembers, htmlToPass);
 	}
 
 	async function setupRealtimeChannel() {
@@ -117,7 +244,7 @@
 		if (selectedEvents.length === 0) {
 			emailContent = '';
 			customSections = {};
-			hiddenSections = {}; // NEW - reset hidden sections
+			hiddenSections = {};
 			return;
 		}
 
@@ -130,7 +257,7 @@
 		);
 
 		customSections = savedCustom;
-		hiddenSections = {}; // Reset on new event load
+		hiddenSections = {};
 
 		const storedContent = templateType === 'tech' ? mainEvent.tech_mail : mainEvent.vj_mail;
 
@@ -140,14 +267,11 @@
 			storedContent !== '<p></p>' &&
 			storedContent !== '<p style="font-weight: 400;"></p>'
 		) {
-			// Load stored content and extract hidden sections based on savedSections
 			emailContent = storedContent;
 
-			// Extract any sections that should be hidden
 			const allSectionIds = techTemplateSections.map((s) => s.id);
 			allSectionIds.forEach((sectionId) => {
 				if (!savedSections.includes(sectionId)) {
-					// This section should be hidden
 					const regex = new RegExp(
 						`<div[^>]*data-section="${sectionId}"[^>]*>([\\s\\S]*?)<\\/div>`,
 						'i'
@@ -162,6 +286,9 @@
 					}
 				}
 			});
+
+			// Check for crew mismatches on load
+			await checkForCrewChanges();
 		} else if (savedSections.length > 0) {
 			emailContent = rebuildEmailContent(savedSections);
 		} else {
@@ -170,9 +297,9 @@
 
 		isLoadingContent = false;
 	}
+
 	function rebuildEmailContent(sectionsToInclude?: string[]): string {
 		if (selectedEvents.length === 0) return '';
-
 		if (templateType === 'vj') {
 			return (
 				customSections['vj_header'] ||
@@ -182,30 +309,26 @@
 
 		const sectionsToUse =
 			sectionsToInclude || activeSections.filter((s) => s.included).map((s) => s.id);
+
 		let contentParts: string[] = [];
-
-		// Loop through ALL sections in order
 		techTemplateSections.forEach((section) => {
-			const isVisible = sectionsToUse.includes(section.id);
-
-			if (isVisible) {
-				const templateContent = section.generator(selectedEvents, crewAssignments);
+			if (sectionsToUse.includes(section.id)) {
+				// Pass stored HTML for crew_call comparison
+				const templateContent = generateSectionContent(section.id, true);
 				const sectionHtml = mergeSectionContent(
 					templateContent,
 					customSections[section.id],
 					section.id,
 					true
 				);
-
-				if (sectionHtml && sectionHtml.trim()) {
+				if (sectionHtml?.trim()) {
 					contentParts.push(sectionHtml.trim());
 				}
 			}
 		});
-
-		// Join WITHOUT any separator - sections already have their own spacing
 		return contentParts.join('');
 	}
+
 	function extractSectionContent(fullContent: string): Record<string, string> {
 		const activeSectionIds = activeSections.filter((s) => s.included).map((s) => s.id);
 		return extractSectionsFromContent(fullContent, activeSectionIds);
@@ -220,14 +343,12 @@
 		if (match && match[0]) {
 			hiddenSections[sectionId] = match[0];
 
-			// Remove the section and clean up ANY whitespace/breaks around it
 			let newContent = emailContent.replace(match[0], '');
 
-			// Remove any stray breaks or whitespace that might have been between sections
 			newContent = newContent
-				.replace(/(<\/div>)\s*(<div)/g, '$1$2') // Remove whitespace between divs
-				.replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '') // Remove double breaks
-				.replace(/^\s+|\s+$/g, '') // Trim start and end
+				.replace(/(<\/div>)\s*(<div)/g, '$1$2')
+				.replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '')
+				.replace(/^\s+|\s+$/g, '')
 				.trim();
 
 			emailContent = newContent;
@@ -235,6 +356,7 @@
 
 		hiddenSections = { ...hiddenSections };
 	}
+
 	function restoreSection(sectionId: string) {
 		let contentToInsert = '';
 
@@ -245,7 +367,7 @@
 			const section = techTemplateSections.find((s) => s.id === sectionId);
 			if (!section) return;
 
-			const templateContent = section.generator(selectedEvents, crewAssignments);
+			const templateContent = generateSectionContent(sectionId, true);
 			contentToInsert = mergeSectionContent(
 				templateContent,
 				customSections[sectionId],
@@ -269,14 +391,12 @@
 		}
 
 		if (insertAfterSectionId) {
-			// Insert after the previous section WITHOUT <br/>
 			const regex = new RegExp(
 				`(<div[^>]*data-section="${insertAfterSectionId}"[^>]*>[\\s\\S]*?<\\/div>)`,
 				'i'
 			);
 			emailContent = emailContent.replace(regex, `$1${contentToInsert}`);
 		} else {
-			// Insert at beginning WITHOUT <br/>
 			if (emailContent && emailContent.trim()) {
 				emailContent = `${contentToInsert}${emailContent}`;
 			} else {
@@ -285,48 +405,27 @@
 		}
 	}
 
-	function debugState() {
-		console.log('=== DEBUG STATE ===');
-		console.log(
-			'Active sections:',
-			activeSections.filter((s) => s.included).map((s) => s.id)
-		);
-		console.log('Hidden sections:', Object.keys(hiddenSections));
-		console.log('Custom sections:', Object.keys(customSections));
-		console.log('Email content length:', emailContent.length);
-		console.log(
-			'Email content sections:',
-			[...emailContent.matchAll(/data-section="([^"]+)"/g)].map((m) => m[1])
-		);
-		console.log('First 500 chars of emailContent:', emailContent.substring(0, 500));
-		console.log('---');
-	}
-
 	function handleSectionsChange(event: CustomEvent<any[]>) {
 		const previousSections = [...activeSections];
 		activeSections = event.detail;
 
 		if (isLoadingContent) return;
 
-		// Find what changed
 		const changedSections = activeSections.filter((curr, idx) => {
 			const prev = previousSections[idx];
 			return prev && curr.included !== prev.included;
 		});
 
-		if (changedSections.length === 0) return; // Nothing changed
+		if (changedSections.length === 0) return;
 
 		changedSections.forEach((section) => {
 			if (section.included) {
-				// TOGGLING ON: Restore from hiddenSections
 				restoreSection(section.id);
 			} else {
-				// TOGGLING OFF: Extract and hide
 				hideSection(section.id);
 			}
 		});
 
-		// Update editor content
 		setTimeout(() => {
 			const editor = emailEditor?.getEditor();
 			if (editor && !editor.isFocused) {
@@ -335,21 +434,21 @@
 		}, 0);
 
 		saveCustomSections();
-		debugState();
 	}
 
 	function handleResetSection(event: CustomEvent<{ sectionId: string }>) {
 		const { sectionId } = event.detail;
 
-		// Find the section definition
 		const section = techTemplateSections.find((s) => s.id === sectionId);
 		if (!section) return;
 
-		// Generate fresh template content for this section only
-		const templateContent = section.generator(selectedEvents, crewAssignments);
+		// For crew_call, pass undefined to skip comparison (no highlights)
+		const templateContent = sectionId === 'crew_call' 
+			? section.generator(selectedEvents, crewAssignments, crewMembers, undefined)
+			: generateSectionContent(sectionId, false);
+			
 		const freshSectionHtml = `<div data-section="${sectionId}">${templateContent}</div>`;
 
-		// Check if section is currently visible in emailContent
 		const sectionRegex = new RegExp(
 			`<div[^>]*data-section="${sectionId}"[^>]*>([\\s\\S]*?)<\\/div>`,
 			'i'
@@ -357,24 +456,19 @@
 		const match = emailContent.match(sectionRegex);
 
 		if (match && match[0]) {
-			// Section is visible - replace it in place
 			emailContent = emailContent.replace(match[0], freshSectionHtml);
 		} else if (hiddenSections[sectionId]) {
-			// Section is hidden - update the hidden version
 			hiddenSections[sectionId] = freshSectionHtml;
-			hiddenSections = { ...hiddenSections }; // Trigger reactivity
+			hiddenSections = { ...hiddenSections };
 		} else {
-			// Section doesn't exist anywhere (shouldn't happen, but handle it)
 			console.warn(`Section ${sectionId} not found in visible or hidden content`);
 			return;
 		}
 
-		// Remove custom content for this section
 		const newCustomSections = { ...customSections };
 		delete newCustomSections[sectionId];
 		customSections = newCustomSections;
 
-		// Update editor only if section was visible
 		if (match) {
 			setTimeout(() => {
 				const editor = emailEditor?.getEditor();
@@ -384,18 +478,11 @@
 			}, 0);
 		}
 
-		// Save to database
 		saveCustomSections();
 	}
+
 	async function handleContentChange(event: CustomEvent<{ content: string }>) {
 		emailContent = event.detail.content;
-
-		// DEBUG: Check if data-section attributes survive
-		const sections = [...emailContent.matchAll(/data-section="([^"]+)"/g)].map((m) => m[1]);
-		if (sections.length === 0 && emailContent.length > 0) {
-			console.warn('⚠️ TipTap stripped data-section attributes!');
-			console.log('Content sample:', emailContent.substring(0, 200));
-		}
 
 		eventChannel?.send({
 			type: 'broadcast',
@@ -403,11 +490,9 @@
 			payload: { content: emailContent }
 		});
 
-		// Extract visible sections (don't touch hidden ones)
 		const visibleSectionIds = activeSections.filter((s) => s.included).map((s) => s.id);
 		const currentCustom = extractSectionsFromContent(emailContent, visibleSectionIds);
 
-		// Update customSections only for visible sections
 		Object.keys(currentCustom).forEach((key) => {
 			if (currentCustom[key] && currentCustom[key].trim()) {
 				customSections[key] = currentCustom[key];
@@ -467,10 +552,8 @@
 
 		const includedIds = activeSections.filter((s) => s.included).map((s) => s.id);
 
-		// Save with custom sections
 		await updateEventEmailData(firstSelected.event_id, templateType, includedIds, customSections);
 
-		// Update local cache
 		if (firstSelected.email_data) {
 			firstSelected.email_data[`${templateType}_custom_sections`] = customSections;
 		}
@@ -493,74 +576,46 @@
 		}
 	}
 
-	async function handleCrewAssignment(
-		event: CustomEvent<{ role: string; crewMember: CrewMember | null }>
-	) {
-		const { role, crewMember } = event.detail;
-
-		if (crewMember) {
-			crewAssignments = { ...crewAssignments, [role as CrewRole]: crewMember.name };
-		} else {
-			const newAssignments = { ...crewAssignments };
-			delete newAssignments[role as CrewRole];
-			crewAssignments = newAssignments;
-		}
-
+	async function handleCrewAssignment(event: CustomEvent<{ assignments: CrewAssignments }>) {
+		crewAssignments = event.detail.assignments;
 		const mainEvent = selectedEvents[0];
 		if (mainEvent) {
 			await updateEventCrew(mainEvent.event_id, crewAssignments);
 			mainEvent.crew = crewAssignments;
+			lastKnownCrewState = JSON.stringify(crewAssignments);
 		}
-
-		const crewDependentSections = ['crew_call', 'vj_schedule', 'lights'];
-		const needsUpdate = activeSections.some(
-			(s) => s.included && crewDependentSections.includes(s.id)
-		);
-
-		if (needsUpdate) {
-			// Only regenerate sections that don't have custom content
-			crewDependentSections.forEach((sectionId) => {
-				if (!customSections[sectionId]) {
-					const section = techTemplateSections.find((s) => s.id === sectionId);
-					if (section && activeSections.find((s) => s.id === sectionId)?.included) {
-						customSections[sectionId] = section.generator(selectedEvents, crewAssignments);
-					}
-				}
-			});
-
-			emailContent = rebuildEmailContent();
-
-			setTimeout(() => {
-				const editor = emailEditor?.getEditor();
-				if (editor && !editor.isFocused) {
-					editor.commands.setContent(emailContent || '<p></p>');
-				}
-			}, 0);
-		}
+		// Regenerate with stored HTML for comparison
+		await regenerateCrewCallSection();
 	}
 
 	async function handleAddCrew(event: CustomEvent<{ name: string; email?: string }>) {
 		const { name, email } = event.detail;
 		const newMember = await addCrewMember(name, email);
 		if (newMember) {
-			crewMembers = [...crewMembers, newMember];
+			crewMembers = [...crewMembers, newMember].sort((a, b) => a.name.localeCompare(b.name));
 		}
 	}
 
 	async function handleRemoveCrew(event: CustomEvent<CrewMember>) {
-		const member = event.detail;
-		const success = await removeCrewMember(member.id);
+		const memberToRemove = event.detail;
+		const success = await removeCrewMember(memberToRemove.id);
 		if (success) {
-			crewMembers = crewMembers.filter((m) => m.id !== member.id);
-
+			crewMembers = crewMembers.filter((m) => m.id !== memberToRemove.id);
 			const updatedAssignments = { ...crewAssignments };
 			let changed = false;
-			Object.entries(updatedAssignments).forEach(([role, name]) => {
-				if (name === member.name) {
-					delete updatedAssignments[role as CrewRole];
+
+			for (const role in updatedAssignments) {
+				const assignedNames = updatedAssignments[role as CrewRole];
+				if (Array.isArray(assignedNames) && assignedNames.includes(memberToRemove.name)) {
+					const newNames = assignedNames.filter((name) => name !== memberToRemove.name);
+					if (newNames.length > 0) {
+						updatedAssignments[role as CrewRole] = newNames;
+					} else {
+						delete updatedAssignments[role as CrewRole];
+					}
 					changed = true;
 				}
-			});
+			}
 
 			if (changed) {
 				crewAssignments = updatedAssignments;
@@ -568,7 +623,9 @@
 				if (mainEvent) {
 					await updateEventCrew(mainEvent.event_id, crewAssignments);
 					mainEvent.crew = crewAssignments;
+					lastKnownCrewState = JSON.stringify(crewAssignments);
 				}
+				await regenerateCrewCallSection();
 			}
 		}
 	}
