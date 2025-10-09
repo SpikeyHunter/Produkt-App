@@ -32,10 +32,11 @@ export interface UserProfile {
 	role: 'Admin' | 'User';
 	main_permission?: string;
 	secondary_permission?: string | string[];
+	page_permissions?: string[];  // ✅ ADD THIS LINE
 	created_at?: string;
 	updated_at?: string;
 	user_reminders?: ReminderData;
-	user_settings?: UserSettings;  // ✅ ADD THIS LINE
+	user_settings?: UserSettings;
 }
 
 interface AuthState {
@@ -72,7 +73,7 @@ function createAuthStore() {
 			console.log('Fetching profile for user:', userId);
 			const { data, error } = await supabase
 				.from('user_profiles')
-				.select('id, email, first_name, last_name, role, main_permission, secondary_permission, created_at, updated_at, user_reminders, user_settings')  // ✅ ADD user_settings HERE
+				.select('id, email, first_name, last_name, role, main_permission, secondary_permission, page_permissions, created_at, updated_at, user_reminders, user_settings')  // ✅ ADDED page_permissions HERE
 				.eq('id', userId)
 				.single();
 
@@ -85,7 +86,8 @@ function createAuthStore() {
 				// ✅ Ensure user_settings has a default value if not present
 				const profileWithDefaults: UserProfile = {
 					...data,
-					user_settings: data.user_settings || { theme: 'dark' }
+					user_settings: data.user_settings || { theme: 'dark' },
+					page_permissions: data.page_permissions || []  // ✅ ADD DEFAULT FOR page_permissions
 				};
 				profileCache.set(userId, { profile: profileWithDefaults, timestamp: Date.now() });
 				return profileWithDefaults;
@@ -125,7 +127,6 @@ function createAuthStore() {
 		}
 	}
 
-	// ✅ ADD THIS NEW FUNCTION for updating user settings
 	async function updateSettings(settings: UserSettings) {
 		const state = get({ subscribe });
 		if (!state.user || !state.profile) {
@@ -263,7 +264,7 @@ function createAuthStore() {
 		refreshProfile,
 		cleanup,
 		updateReminders,
-		updateSettings  // ✅ ADD THIS to the return object
+		updateSettings
 	};
 }
 
@@ -289,6 +290,10 @@ export const permissions = derived(authStore, $authStore => {
 			? profile.secondary_permission
 			: profile.secondary_permission.split(',').map(p => p.trim());
 		allPermissions.push(...secondary);
+	}
+	// ✅ ADD page_permissions to allPermissions
+	if (profile.page_permissions) {
+		allPermissions.push(...profile.page_permissions);
 	}
 
 	return {

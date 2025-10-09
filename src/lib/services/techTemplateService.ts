@@ -205,6 +205,7 @@ export function buildCrewCall(
 	if (crew830pmText !== highlight('TBD') && crew830pmText.trim() !== '') {
 		content += `<p>8:30pm: ${crew830pmText}</p>`;
 	}
+	content += `<p>&nbsp;</p>`;
 
 	return content;
 }
@@ -215,34 +216,72 @@ function highlight(text: string, color: string = '#FCA5A5'): string {
 	return `<mark style="background-color: ${color}; color: #212121; padding: 2px 4px; border-radius: 3px;">${text}</mark>`;
 }
 
+function linkify(text: string, urlMap: Record<string, string>): string {
+	if (!text) return '';
+
+	const urlRegex = /(https?:\/\/[^\s]+)/g;
+	const shortUrlBase = 'https://link.produkt.ca/';
+
+	return text.replace(urlRegex, (foundUrl) => {
+		// Check if the found URL has a custom slug in our map
+		const customSlug = urlMap[foundUrl];
+
+		if (customSlug) {
+			// If it does, build the custom display text
+			const displayText = shortUrlBase + customSlug;
+			return `<a href="${foundUrl}" style="color: #E1FF00; text-decoration: underline;">${displayText}</a>`;
+		} else {
+			// Otherwise, just display the original URL
+			return `<a href="${foundUrl}" style="color: #E1FF00; text-decoration: underline;">${foundUrl}</a>`;
+		}
+	});
+}
+
 export function buildProjects(events: EmailTechEvent[]): string {
 	let content = '<p><strong>Projects:</strong></p>';
+
+	// --- Define your mapping of long URLs to custom names here ---
+	const customUrlMappings = {
+		'https://drive.google.com/drive/folders/1RnDCHdyL0f6ClkOtpgUnRZNIUiZeYHMG': 'ncg-projo',
+		'https://link.produkt.ca/ncg-tv': 'ncg-tv'
+	};
+	// ----------------------------------------------------------------
 
 	const ncgEvent = events.find((e) => e.event_venue === 'New City Gas');
 	const bazartEvent = events.find((e) => e.event_venue === 'Bazart');
 
 	if (ncgEvent) {
-		content += '<p>Main Room</p>';
-		content += '<ul><li>Project TBD</li></ul>';
+		content += '<p><strong>Main Room</strong></p>';
+		content += `<ul><li>${highlight('Project TBD')}</li></ul>`;
+		content += `<p>&nbsp;</p>`;
 	}
 
 	if (bazartEvent) {
 		content += '<p>Lounge</p>';
-		content += '<ul><li>Project TBD</li></ul>';
+		content += `<ul><li>${highlight('Project TBD')}</li></ul>`;
+		content += `<p>&nbsp;</p>`;
 	}
 
 	const videoCrewName = events[0]?.crew?.Video;
-	if (videoCrewName) {
-		content += `<p>@${videoCrewName}</p>`;
+	if (videoCrewName && videoCrewName.length > 0) {
+		const firstName = videoCrewName[0].split(' ')[0];
+		content += `<p>@${firstName}</p>`;
 	}
 
-	content += '<p>Projecteur extÃ©rieur:</p>';
-	content +=
-		'<p>9:30pm: Logo NCG<br>https://drive.google.com/open?id=1RnDCHdyL0f6ClkOtpgUnRZNIUiZeYHMG&amp;usp=drive_fs</p>';
-	content +=
-		'<p>Visuals for TVS and Interior Projector:<br>TVS Main room: https://link.produkt.ca/ncg-tv</p>';
-	content += '<p>NCG: Folder #1 + Show artwork #3<br>Please remove show artworks at 12am</p>';
+	const projectorDetails =
+		'9:30pm: Logo NCG https://drive.google.com/drive/folders/1RnDCHdyL0f6ClkOtpgUnRZNIUiZeYHMG';
+	content += '<p>Projecteur extérieur:</p>';
+	content += `<ul><li>${linkify(projectorDetails, customUrlMappings)}</li></ul>`;
+	content += `<p>&nbsp;</p>`;
 
+	// --- This section has been updated ---
+	const tvsVisualsText =
+		'Visuals for TVS and Interior Projector:<br>TVS Main room: https://link.produkt.ca/ncg-tv';
+	content += `<p>${linkify(tvsVisualsText, customUrlMappings)}</p>`;
+	// ------------------------------------
+
+	content += '<p>NCG: Folder #1 + Show artwork #3<br>Please remove show artworks at 12am</p>';
+	content += `<p>&nbsp;</p>`;
 	return content;
 }
 

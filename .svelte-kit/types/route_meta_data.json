@@ -53,6 +53,7 @@
 	"/login/register": [],
 	"/login/reset-confirmed": [],
 	"/login/reset-password": [],
+	"/marketing/comptickets": [],
 	"/marketing/eventsinfo": [],
 	"/production/backline": [],
 	"/production/emailtech": [],

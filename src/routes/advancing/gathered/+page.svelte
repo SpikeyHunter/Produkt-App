@@ -19,6 +19,7 @@
 
 	// State for the new toggle button
 	let showLive = true;
+	let showLocalOnly = false;
 
 	// allEvents stores the complete list from the server
 	let allEvents: EventAdvance[] = [];
@@ -32,7 +33,7 @@
 
 	// Update the onMount function
 	onMount(async () => {
-		setTimeout(() => mounted = true, 150);
+		setTimeout(() => (mounted = true), 150);
 		await loadEvents();
 	});
 
@@ -42,7 +43,7 @@
 			loading = true;
 			error = null;
 			console.log('Loading events from Supabase...');
-			
+
 			allEvents = await fetchEventsAdvance();
 			// Apply the initial filter (showing live events by default)
 			await filterEventsByStatus(); // Add await here
@@ -64,11 +65,19 @@
 		console.log(`Toggled to ${showLive ? 'LIVE' : 'PAST'} events`);
 	}
 
+	function handleLocalToggle(): void {
+		showLocalOnly = !showLocalOnly;
+		console.log(`Toggled to ${showLocalOnly ? 'LOCAL' : 'ALL'} artists`);
+	}
+
 	async function filterEventsByStatus(): Promise<void> {
 		// Debug: Log all events first
 		console.log('🔍 DEBUG: All events before filtering:', allEvents);
-		console.log('🔍 DEBUG: Looking for Noizu event:', allEvents.find(e => e.artist_name === 'Noizu'));
-		
+		console.log(
+			'🔍 DEBUG: Looking for Noizu event:',
+			allEvents.find((e) => e.artist_name === 'Noizu')
+		);
+
 		// First, get all event_ids that exist in the events table
 		const { data: eventsTableData, error } = await supabase
 			.from('events')
@@ -90,16 +99,20 @@
 				console.log(`🔍 DEBUG: Checking event ${event.event_id} (${event.artist_name})`);
 				console.log(`🔍 DEBUG: - event_status: ${event.event_status}`);
 				console.log(`🔍 DEBUG: - exists in events table: ${existingEventIds.has(event.event_id)}`);
-				
+
 				// Custom events (not in events table) are always treated as live
 				if (!existingEventIds.has(event.event_id)) {
-					console.log(`✅ Custom event ${event.event_id} (${event.artist_name}) - treating as live`);
+					console.log(
+						`✅ Custom event ${event.event_id} (${event.artist_name}) - treating as live`
+					);
 					return true;
 				}
 
 				// Regular events use the event_status field
 				const isLive = event.event_status === 'LIVE';
-				console.log(`${isLive ? '✅' : '❌'} Regular event ${event.event_id} (${event.artist_name}) - status: ${event.event_status}`);
+				console.log(
+					`${isLive ? '✅' : '❌'} Regular event ${event.event_id} (${event.artist_name}) - status: ${event.event_status}`
+				);
 				return isLive;
 			});
 		} else {
@@ -186,14 +199,18 @@
 		}
 	}
 
-	// This reactive statement now filters and sorts the `events` array,
-	// which has already been filtered by live/past status.
-	$: filteredEvents = sortEvents(
-		events.filter(
-			(event) =>
-				event.name.toLowerCase().includes(searchValue.toLowerCase()) ||
-				event.tags.some((tag) => tag.toLowerCase().includes(searchValue.toLowerCase()))
-		),
+$: filteredEvents = sortEvents(
+		events
+			.filter((event) => {
+				return showLocalOnly
+					? event.artist_type === 'Local'
+					: event.artist_type !== 'Local';
+			})
+			.filter(
+				(event) =>
+					event.name.toLowerCase().includes(searchValue.toLowerCase()) ||
+					event.tags.some((tag) => tag.toLowerCase().includes(searchValue.toLowerCase()))
+			),
 		currentFilter
 	);
 
@@ -289,7 +306,6 @@
 						<div class="buttons-left">
 							<FilterButton bind:currentFilter on:filterChange={handleFilterChange} />
 
-							<!-- Live/Past Toggle Button -->
 							<button
 								class="h-7 px-4 flex items-center justify-center rounded-[14px] cursor-pointer transition-all duration-200 ease-in-out max-w-[50px] font-bold text-sm leading-[22px] {showLive
 									? 'bg-transparent border border-lime text-lime hover:!bg-lime hover:text-black'
@@ -300,6 +316,18 @@
 								aria-label="Toggle between live and past events"
 							>
 								{showLive ? 'Live' : 'Past'}
+							</button>
+
+							<button
+								class="h-7 px-4 flex items-center justify-center rounded-[14px] cursor-pointer transition-all duration-200 ease-in-out max-w-[60px] font-bold text-sm leading-[22px] {showLocalOnly
+									? 'bg-transparent border border-question text-question hover:!bg-question hover:text-black'
+									: 'bg-transparent border border-gray3 text-gray3 hover:!bg-gray3 hover:text-black'}"
+								on:click={handleLocalToggle}
+								disabled={loading}
+								title={showLocalOnly ? 'Showing Local Artists' : 'Showing All Artists'}
+								aria-label="Toggle between all and local artists"
+							>
+								{showLocalOnly ? 'Locals' : 'All'}
 							</button>
 						</div>
 
