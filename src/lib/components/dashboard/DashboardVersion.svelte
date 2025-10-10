@@ -94,11 +94,11 @@
 
 	{#if isLoading}
 		<div class="animate-pulse space-y-2 w-full">
-			<div class="h-4 bg-gray1 rounded w-3/4" />
-			<div class="h-3 bg-gray1 rounded w-full" />
-			<div class="h-3 bg-gray1 rounded w-5/6" />
-			<div class="h-3 bg-gray1 rounded w-full mt-2" />
-		</div>
+		<div class="h-4 bg-gray1 rounded w-3/4"></div>
+		<div class="h-3 bg-gray1 rounded w-full"></div>
+		<div class="h-3 bg-gray1 rounded w-5/6"></div>
+		<div class="h-3 bg-gray1 rounded w-full mt-2"></div>
+	</div>
 	{:else if commits.length > 0}
 		<div class="flex flex-col h-full justify-between">
 			<div class="overflow-y-auto pr-2 custom-scrollbar flex-grow">
