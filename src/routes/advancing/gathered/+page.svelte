@@ -150,22 +150,21 @@
 		return new Date(`${dateString}, ${currentYear}`);
 	}
 
-	function sortEvents(eventsToSort: EventAdvance[], filter: FilterType): EventAdvance[] {
+	function sortEvents(
+		eventsToSort: EventAdvance[],
+		filter: FilterType,
+		isLive: boolean
+	): EventAdvance[] {
 		const sorted = [...eventsToSort];
-
-		// Define artist type priority order
 		const artistTypePriority = {
 			Headliner: 1,
 			Support: 2,
 			Local: 3
 		};
-
-		// Function to get priority number for artist type
 		const getArtistTypePriority = (artistType: string | null | undefined): number => {
-			if (!artistType) return 999; // Unknown types go to the end
+			if (!artistType) return 999;
 			return artistTypePriority[artistType as keyof typeof artistTypePriority] || 999;
 		};
-
 		switch (filter) {
 			case 'a-z':
 				return sorted.sort((a, b) => a.name.localeCompare(b.name));
@@ -181,17 +180,14 @@
 				);
 			case 'none':
 			default:
-				// Default sorting: first by date, then by artist type priority
 				return sorted.sort((a, b) => {
 					const dateA = parseEventDate(a.date).getTime();
 					const dateB = parseEventDate(b.date).getTime();
 
-					// If dates are different, sort by date first
 					if (dateA !== dateB) {
-						return dateA - dateB;
+						return isLive ? dateA - dateB : dateB - dateA;
 					}
 
-					// If same date, sort by artist type priority
 					const priorityA = getArtistTypePriority(a.artist_type);
 					const priorityB = getArtistTypePriority(b.artist_type);
 					return priorityA - priorityB;
@@ -199,19 +195,19 @@
 		}
 	}
 
-$: filteredEvents = sortEvents(
+	// This is the line that was fixed
+	$: filteredEvents = sortEvents(
 		events
 			.filter((event) => {
-				return showLocalOnly
-					? event.artist_type === 'Local'
-					: event.artist_type !== 'Local';
+				return showLocalOnly ? event.artist_type === 'Local' : event.artist_type !== 'Local';
 			})
 			.filter(
 				(event) =>
 					event.name.toLowerCase().includes(searchValue.toLowerCase()) ||
 					event.tags.some((tag) => tag.toLowerCase().includes(searchValue.toLowerCase()))
 			),
-		currentFilter
+		currentFilter,
+		showLive // The missing 3rd argument is now provided
 	);
 
 	function handleSearch(event: CustomEvent<{ value: string }>) {
