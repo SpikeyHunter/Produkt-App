@@ -1,4 +1,3 @@
-<!-- /src/lib/components/marketing/comptickets/CompDownload.svelte -->
 <script lang="ts">
 	import type { CompTicketData, CompType, CompEntry } from '$lib/types/comptickets';
 	import { supabase } from '$lib/supabase';
@@ -9,17 +8,14 @@
 	let eventName = '';
 	let eventDate = '';
 	let downloadingType: CompType | null = null;
-
 	// Reactive statement to load event details when the event_id changes.
 	$: if ($data.event_id) loadEventDetails($data.event_id);
-
 	async function loadEventDetails(eventId: number) {
 		const { data: eventData, error } = await supabase
 			.from('events')
 			.select('event_name, event_date')
 			.eq('event_id', eventId)
 			.single();
-		
 		if (error) {
 			console.error('Error fetching event details for download:', error);
 			eventName = 'Unknown Event';
@@ -43,15 +39,15 @@
 	}
 
 	async function downloadCSV(type: CompType) {
-		const compList: CompEntry[] = $data[type] ?? [];
+		// MODIFIED: Filter the list to only include comps that have NOT been sent.
+		const compList: CompEntry[] = ($data[type] ?? []).filter(entry => !entry.sent);
+		
 		if (compList.length === 0) {
-			// Button should be disabled, so this is a fallback.
-			console.warn('Attempted to export an empty comp list.');
+			console.warn('Attempted to export an empty list of unsent comps.');
 			return;
 		}
 		
 		downloadingType = type;
-		
 		// Simulate a brief delay for user feedback
 		await new Promise(resolve => setTimeout(resolve, 500));
 		
@@ -67,33 +63,33 @@
 				typeName = $data.comp_status.other_comps_name || 'Other Comps';
 				break;
 		}
-		const fileName = `${eventName} - ${eventDate} - ${typeName}.csv`;
+		const fileName = `${eventName} - ${eventDate} - ${typeName} (Unsent).csv`;
 		exportCompsToCSV(compList, fileName);
 		
 		downloadingType = null;
 	}
 
-	// FIXED: Make the function reactive by depending on $data
-	function getCompCount(compData: CompTicketData, type: CompType): number {
+	// MODIFIED: Count only UNSENT comps for the download buttons
+	function getUnsentCompCount(compData: CompTicketData, type: CompType): number {
 		const entries = compData[type];
 		if (!Array.isArray(entries)) return 0;
-		return entries.reduce((sum, entry) => sum + (Number(entry.quantity) || 0), 0);
+		return entries
+			.filter(entry => !entry.sent)
+			.reduce((sum, entry) => sum + (Number(entry.quantity) || 0), 0);
 	}
 
 	// Use reactive statements that depend on $data to trigger updates
-	$: gaCount = getCompCount($data, 'ga_comps');
-	$: vipCount = getCompCount($data, 'vip_comps');
-	$: otherCount = getCompCount($data, 'other_comps');
+	$: gaCount = getUnsentCompCount($data, 'ga_comps');
+	$: vipCount = getUnsentCompCount($data, 'vip_comps');
+	$: otherCount = getUnsentCompCount($data, 'other_comps');
 	$: otherName = $data.comp_status.other_comps_name || 'Other';
-	
 	// Debug logging to verify reactivity
-	$: console.log('Download counts updated:', { gaCount, vipCount, otherCount });
+	$: console.log('Downloadable (unsent) counts updated:', { gaCount, vipCount, otherCount });
 </script>
 
 <div class="bg-navbar border border-gray1 rounded-xl p-4">
-	<h3 class="text-white text-sm font-bold mb-3">Download Files</h3>
+	<h3 class="text-white text-sm font-bold mb-3">Download Unsent Comps</h3>
 	<div class="flex flex-col gap-3">
-		<!-- GA Comps Button -->
 		<button 
 			on:click={() => downloadCSV('ga_comps')} 
 			disabled={gaCount === 0 || downloadingType !== null}
@@ -106,7 +102,6 @@
 			<span class="bg-black/20 px-2 py-0.5 rounded text-xs">{gaCount}</span>
 		</button>
 		
-		<!-- VIP Comps Button -->
 		<button 
 			on:click={() => downloadCSV('vip_comps')} 
 			disabled={vipCount === 0 || downloadingType !== null}
@@ -119,7 +114,6 @@
 			<span class="bg-black/20 px-2 py-0.5 rounded text-xs">{vipCount}</span>
 		</button>
 		
-		<!-- Other Comps Button -->
 		<button 
 			on:click={() => downloadCSV('other_comps')} 
 			disabled={otherCount === 0 || downloadingType !== null}

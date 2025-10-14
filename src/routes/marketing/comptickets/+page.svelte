@@ -1,4 +1,3 @@
-<!-- /src/routes/marketing/comptickets/+page.svelte -->
 <script lang="ts">
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import CompEvent from '$lib/components/marketing/comptickets/CompEvent.svelte';
@@ -16,11 +15,9 @@
 		other_comps: [],
 		comp_status: { status: 'None', other_comps_name: '' }
 	};
-
 	let compData = writable<CompTicketData>({ ...initialData });
 	let selectedEventId: number | null = null;
 	let isLoadingEvent = false;
-
 	// --- Database Logic ---
 
 	const saveData = async (data: CompTicketData | null) => {
@@ -62,7 +59,6 @@
 				},
 				{ onConflict: 'event_id' }
 			);
-
 			if (error) {
 				console.error('Error saving comps:', error);
 			} else {
@@ -70,12 +66,10 @@
 			}
 		}
 	};
-    
 	/**
 	 * Store subscription with improved logging
 	 */
 	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
-
 	compData.subscribe((data) => {
 		console.log('Store subscription triggered:', {
 			has_data: !!data,
@@ -103,15 +97,12 @@
 			saveData(data);
 		}, 350);
 	});
-
-
 	// --- Event Selection ---
 
 	async function handleEventSelect(e: CustomEvent<number>) {
 		const eventId = e.detail;
 		console.log('handleEventSelect called with eventId:', eventId);
 		console.log('Current selectedEventId:', selectedEventId);
-		
 		if (selectedEventId === eventId) {
 			console.log('Event already selected, skipping');
 			return;
@@ -120,7 +111,6 @@
 		console.log('Event selected:', eventId);
 		selectedEventId = eventId;
 		isLoadingEvent = true;
-		
 		const { data, error } = await supabase
 			.from('comp_tickets')
 			.select('*')
@@ -133,12 +123,27 @@
 
 		const parseComps = (comps: unknown): CompEntry[] => {
 			if (!comps) return [];
-			if (Array.isArray(comps)) return comps;
+			if (Array.isArray(comps)) {
+				// MODIFIED: Ensure new fields exist for backward compatibility
+				return comps.map(c => ({
+					...c,
+					sent: c.sent ?? false,
+					added_by: c.added_by || 'Unknown'
+				}));
+			}
 			if (typeof comps === 'string') {
 				try {
 					let parsed = JSON.parse(comps);
 					if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-					return Array.isArray(parsed) ? parsed : [];
+					if (Array.isArray(parsed)) {
+						// MODIFIED: Ensure new fields exist for backward compatibility
+						return parsed.map(c => ({
+							...c,
+							sent: c.sent ?? false,
+							added_by: c.added_by || 'Unknown'
+						}));
+					}
+					return [];
 				} catch (err) {
 					console.error('Failed to parse comps JSON from DB:', err);
 					return [];
@@ -146,7 +151,6 @@
 			}
 			return [];
 		};
-
 		if (data) {
 			console.log('Loaded existing comp data for event:', eventId);
 			compData.set({
@@ -172,7 +176,6 @@
 <MainLayout requiredPermission="CompTickets">
 	<div class="h-full overflow-hidden bg-bg-primary">
 		<div class="h-full p-6 flex gap-4 min-w-[1200px]">
-			<!-- Left Column: Event Selection -->
 			<div class="w-80 flex-shrink-0 h-full">
 				<CompEvent 
 					{selectedEventId}
@@ -180,7 +183,6 @@
 				/>
 			</div>
 
-			<!-- Middle Column: Comp Lists -->
 			<div class="flex-1 h-full">
 				{#if selectedEventId}
 					{#if isLoadingEvent}
@@ -204,7 +206,6 @@
 				{/if}
 			</div>
 
-			<!-- Right Column: Status & Download -->
 			<div class="w-80 flex-shrink-0 h-full flex flex-col gap-4">
 				{#if selectedEventId && !isLoadingEvent}
 					<CompStatus data={compData} />
