@@ -150,7 +150,7 @@
 </script>
 
 <svelte:head>
-	<title>{event ? `${event.name} Advance` : 'Event Details'}</title>
+	<title>{event ? `${event.artist_name} - Advance` : 'Event Details'}</title>
 </svelte:head>
 
 <MainLayout pageTitle="Advance Details">

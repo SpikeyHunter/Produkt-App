@@ -51,7 +51,6 @@
 		return items;
 	})();
 
-	// --- SFX ---
 	$: sfxItems = ((): string[] => {
 		const sfxData = parseRiderData(event.sfx_rider);
 		if (!sfxData) return [];
@@ -59,10 +58,18 @@
 		const items: string[] = [];
 
 		if (sfxData.cryo_jets?.enabled) {
-			items.push(`${sfxData.cryo_jets.qty}x Cryo Jets (CO2) - ${sfxData.cryo_jets.duration}sec`);
+			if (parseInt(sfxData.cryo_jets.duration, 10) === 0) {
+				items.push(`${sfxData.cryo_jets.qty}x Cryo Jets - Empty Tanks`);
+			} else {
+				items.push(`${sfxData.cryo_jets.qty}x Cryo Jets (CO2) - ${sfxData.cryo_jets.duration}sec`);
+			}
 		}
 		if (sfxData.sparkulars?.enabled) {
-			items.push(`${sfxData.sparkulars.qty}x Sparkulars - ${sfxData.sparkulars.duration}sec`);
+			if (parseInt(sfxData.sparkulars.duration, 10) === 0) {
+				items.push(`${sfxData.sparkulars.qty}x Sparkulars - Empty Reservoir`);
+			} else {
+				items.push(`${sfxData.sparkulars.qty}x Sparkulars - ${sfxData.sparkulars.duration}sec`);
+			}
 		}
 		if (sfxData.lasers?.enabled) {
 			items.push(`${sfxData.lasers.qty}x Lasers`);
