@@ -42,6 +42,8 @@ declare module '$env/static/private' {
 	export const GOOGLE_CALENDAR_ID: string;
 	export const GOOGLE_CREDENTIALS: string;
 	export const GITHUB_TOKEN: string;
+	export const TICKETMASTER_CONSUMER_KEY: string;
+	export const TICKETMASTER_CONSUMER_SECRET: string;
 	export const TERM_PROGRAM: string;
 	export const NODE: string;
 	export const INIT_CWD: string;
@@ -153,6 +155,8 @@ declare module '$env/dynamic/private' {
 		GOOGLE_CALENDAR_ID: string;
 		GOOGLE_CREDENTIALS: string;
 		GITHUB_TOKEN: string;
+		TICKETMASTER_CONSUMER_KEY: string;
+		TICKETMASTER_CONSUMER_SECRET: string;
 		TERM_PROGRAM: string;
 		NODE: string;
 		INIT_CWD: string;

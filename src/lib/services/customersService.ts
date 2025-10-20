@@ -207,8 +207,33 @@ export async function fetchFilteredCustomers(filters: CustomerFilters): Promise<
 
 export async function exportCustomers(filters: Omit<CustomerFilters, 'page' | 'pageSize'>): Promise<Customer[]> {
   try {
-    const { customers } = await fetchFilteredCustomers({ ...filters, page: 1, pageSize: 50000 });
-    return customers;
+    const PAGE_SIZE = 1000; // Supabase's max limit
+    let allCustomers: Customer[] = [];
+    let page = 1;
+    let hasMore = true;
+
+    // Keep fetching pages until we get all customers
+    while (hasMore) {
+      const { customers, totalCount } = await fetchFilteredCustomers({ 
+        ...filters, 
+        page, 
+        pageSize: PAGE_SIZE 
+      });
+
+      allCustomers = [...allCustomers, ...customers];
+      
+      // Check if there are more pages to fetch
+      hasMore = allCustomers.length < totalCount;
+      page++;
+      
+      // Safety check to prevent infinite loops
+      if (page > 1000) {
+        console.warn('Reached maximum page limit');
+        break;
+      }
+    }
+
+    return allCustomers;
   } catch (error) {
     console.error('Error exporting customers:', error);
     return [];
