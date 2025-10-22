@@ -182,6 +182,19 @@
 		const normalizedCurrent = currentArtistName.toLowerCase().trim();
 		const normalizedEntry = entry.artist.toLowerCase().trim();
 
+		// Check if the timetable entry contains "b2b"
+		if (normalizedEntry.includes('b2b')) {
+			// Split by "b2b" and check if any part matches the current artist
+			const artistParts = normalizedEntry.split(/b2b/i).map((part) => part.trim());
+			return artistParts.some(
+				(part) =>
+					part === normalizedCurrent ||
+					part.includes(normalizedCurrent) ||
+					normalizedCurrent.includes(part)
+			);
+		}
+
+		// Regular matching logic
 		return (
 			normalizedCurrent === normalizedEntry ||
 			normalizedCurrent.includes(normalizedEntry) ||

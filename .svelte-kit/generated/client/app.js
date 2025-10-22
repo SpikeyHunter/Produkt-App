@@ -32,7 +32,7 @@ export const dictionary = {
 		"/advancing/gathered": [3],
 		"/advancing/gathered/[event_param]": [4],
 		"/auth/verify": [5],
-		"/booking/artist": [6],
+		"/booking/artistavailability": [6],
 		"/booking/customers": [7],
 		"/calendar": [8],
 		"/dashboard": [9],

@@ -124,7 +124,10 @@
 			label: 'Booking',
 			icon: icons.booking,
 			requiredPermission: 'Booking',
-			subItems: [{ label: 'Customers Database', route: '/booking/customers' }]
+			subItems: [{ label: 'Artist Availability', route: '/booking/artistavailability' },
+						{ label: 'Customers Database', route: '/booking/customers' }		
+			]
+			
 		},
 		{
 			id: 'advancing',

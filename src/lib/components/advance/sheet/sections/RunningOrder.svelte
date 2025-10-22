@@ -27,7 +27,25 @@
 		return [];
 	}
 	function isHighlightedArtist(artistName: string): boolean {
-		return event.artist_name ? artistName.toLowerCase() === event.artist_name.toLowerCase() : false;
+		if (!event.artist_name || !artistName) return false;
+
+		const normalizedEventArtist = event.artist_name.toLowerCase().trim();
+		const normalizedTimetableArtist = artistName.toLowerCase().trim();
+
+		// Check if the timetable entry contains "b2b"
+		if (normalizedTimetableArtist.includes('b2b')) {
+			// Split by "b2b" and check if any part matches the event artist
+			const artistParts = normalizedTimetableArtist.split(/b2b/i).map((part) => part.trim());
+			return artistParts.some(
+				(part) =>
+					part === normalizedEventArtist ||
+					part.includes(normalizedEventArtist) ||
+					normalizedEventArtist.includes(part)
+			);
+		}
+
+		// Regular exact match
+		return normalizedTimetableArtist === normalizedEventArtist;
 	}
 </script>
 

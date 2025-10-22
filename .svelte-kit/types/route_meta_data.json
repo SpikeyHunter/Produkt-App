@@ -4,6 +4,18 @@
 	"/advancing/gathered/[event_param]": [
 		"src/routes/advancing/gathered/[event_param]/+page.ts"
 	],
+	"/api/booking/evenko": [
+		"src/routes/api/booking/evenko/+server.ts"
+	],
+	"/api/booking/evenko/cancel": [
+		"src/routes/api/booking/evenko/cancel/+server.ts"
+	],
+	"/api/booking/piknic": [
+		"src/routes/api/booking/piknic/+server.ts"
+	],
+	"/api/booking/piknic/cancel": [
+		"src/routes/api/booking/piknic/cancel/+server.ts"
+	],
 	"/api/flight-lookup": [
 		"src/routes/api/flight-lookup/+server.ts"
 	],
@@ -44,7 +56,7 @@
 		"src/routes/auth/reset-password/+server.ts"
 	],
 	"/auth/verify": [],
-	"/booking/artist": [],
+	"/booking/artistavailability": [],
 	"/booking/customers": [],
 	"/calendar": [],
 	"/dashboard": [],

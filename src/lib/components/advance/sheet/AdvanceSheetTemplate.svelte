@@ -19,6 +19,16 @@
 		status: string;
 		length: string;
 	}
+
+	interface Role {
+		id: string;
+		firstName: string;
+		lastName: string;
+		role: string;
+		customRole: string;
+		immigration: boolean;
+		showDropdown: boolean;
+	}
 	
 	// Section visibility toggles
 	export let showArtistItinerary = true;
@@ -38,6 +48,20 @@
 	$: artistName = event?.artist_name || 'ARTIST NAME';
 	$: venueName = event?.event_venue || 'VENUE NAME';
 	$: eventDate = event?.event_date || 'DATE';
+
+	// Check if any role has immigration enabled
+	$: hasImmigrationNeeded = (() => {
+		if (!event?.roles) return false;
+		try {
+			const roles: Role[] = typeof event.roles === 'string' 
+				? JSON.parse(event.roles) 
+				: event.roles;
+			return roles.some(role => role.immigration === true);
+		} catch (e) {
+			console.error('Error parsing roles:', e);
+			return false;
+		}
+	})();
 </script>
 
 <div
@@ -51,7 +75,7 @@
 		{#if showArtistItinerary} <Itinerary {event} /> {/if}
 		{#if showContact} <Contact {event} /> {/if}
 		{#if showHotel && event.hotel_enabled} <Hotel {event} /> {/if}
-		{#if showImmigration} <Immigration /> {/if}
+		{#if showImmigration && hasImmigrationNeeded} <Immigration /> {/if}
 
 		<div class="grid grid-cols-2 gap-5">
 			{#if showRunningOrder}

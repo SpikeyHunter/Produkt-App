@@ -27,7 +27,7 @@ export {};
 
 declare module "$app/types" {
 	export interface AppTypes {
-		RouteId(): "/" | "/advancing" | "/advancing/gathered" | "/advancing/gathered/[event_param]" | "/api" | "/api/flight-lookup" | "/api/generate-advance-pdf" | "/api/google-calendar" | "/api/guests" | "/api/latest-commit" | "/api/passport-ocr" | "/api/register" | "/api/update-event" | "/api/upload" | "/api/validate-registration-code" | "/api/validate-team-code" | "/auth" | "/auth/callback" | "/auth/forgot-password" | "/auth/reset-password" | "/auth/verify" | "/booking" | "/booking/artist" | "/booking/customers" | "/calendar" | "/dashboard" | "/letter" | "/login" | "/login/forgot-password" | "/login/register" | "/login/reset-confirmed" | "/login/reset-password" | "/marketing" | "/marketing/comptickets" | "/marketing/eventsinfo" | "/production" | "/production/backline" | "/production/emailtech" | "/settimes" | "/settings" | "/wifi";
+		RouteId(): "/" | "/advancing" | "/advancing/gathered" | "/advancing/gathered/[event_param]" | "/api" | "/api/booking" | "/api/booking/evenko" | "/api/booking/evenko/cancel" | "/api/booking/piknic" | "/api/booking/piknic/cancel" | "/api/flight-lookup" | "/api/generate-advance-pdf" | "/api/google-calendar" | "/api/guests" | "/api/latest-commit" | "/api/passport-ocr" | "/api/register" | "/api/update-event" | "/api/upload" | "/api/validate-registration-code" | "/api/validate-team-code" | "/auth" | "/auth/callback" | "/auth/forgot-password" | "/auth/reset-password" | "/auth/verify" | "/booking" | "/booking/artistavailability" | "/booking/customers" | "/calendar" | "/dashboard" | "/letter" | "/login" | "/login/forgot-password" | "/login/register" | "/login/reset-confirmed" | "/login/reset-password" | "/marketing" | "/marketing/comptickets" | "/marketing/eventsinfo" | "/production" | "/production/backline" | "/production/emailtech" | "/settimes" | "/settings" | "/wifi";
 		RouteParams(): {
 			"/advancing/gathered/[event_param]": { event_param: string }
 		};
@@ -37,6 +37,11 @@ declare module "$app/types" {
 			"/advancing/gathered": { event_param?: string };
 			"/advancing/gathered/[event_param]": { event_param: string };
 			"/api": Record<string, never>;
+			"/api/booking": Record<string, never>;
+			"/api/booking/evenko": Record<string, never>;
+			"/api/booking/evenko/cancel": Record<string, never>;
+			"/api/booking/piknic": Record<string, never>;
+			"/api/booking/piknic/cancel": Record<string, never>;
 			"/api/flight-lookup": Record<string, never>;
 			"/api/generate-advance-pdf": Record<string, never>;
 			"/api/google-calendar": Record<string, never>;
@@ -54,7 +59,7 @@ declare module "$app/types" {
 			"/auth/reset-password": Record<string, never>;
 			"/auth/verify": Record<string, never>;
 			"/booking": Record<string, never>;
-			"/booking/artist": Record<string, never>;
+			"/booking/artistavailability": Record<string, never>;
 			"/booking/customers": Record<string, never>;
 			"/calendar": Record<string, never>;
 			"/dashboard": Record<string, never>;
@@ -74,7 +79,7 @@ declare module "$app/types" {
 			"/settings": Record<string, never>;
 			"/wifi": Record<string, never>
 		};
-		Pathname(): "/" | "/advancing" | "/advancing/" | "/advancing/gathered" | "/advancing/gathered/" | `/advancing/gathered/${string}` & {} | `/advancing/gathered/${string}/` & {} | "/api" | "/api/" | "/api/flight-lookup" | "/api/flight-lookup/" | "/api/generate-advance-pdf" | "/api/generate-advance-pdf/" | "/api/google-calendar" | "/api/google-calendar/" | "/api/guests" | "/api/guests/" | "/api/latest-commit" | "/api/latest-commit/" | "/api/passport-ocr" | "/api/passport-ocr/" | "/api/register" | "/api/register/" | "/api/update-event" | "/api/update-event/" | "/api/upload" | "/api/upload/" | "/api/validate-registration-code" | "/api/validate-registration-code/" | "/api/validate-team-code" | "/api/validate-team-code/" | "/auth" | "/auth/" | "/auth/callback" | "/auth/callback/" | "/auth/forgot-password" | "/auth/forgot-password/" | "/auth/reset-password" | "/auth/reset-password/" | "/auth/verify" | "/auth/verify/" | "/booking" | "/booking/" | "/booking/artist" | "/booking/artist/" | "/booking/customers" | "/booking/customers/" | "/calendar" | "/calendar/" | "/dashboard" | "/dashboard/" | "/letter" | "/letter/" | "/login" | "/login/" | "/login/forgot-password" | "/login/forgot-password/" | "/login/register" | "/login/register/" | "/login/reset-confirmed" | "/login/reset-confirmed/" | "/login/reset-password" | "/login/reset-password/" | "/marketing" | "/marketing/" | "/marketing/comptickets" | "/marketing/comptickets/" | "/marketing/eventsinfo" | "/marketing/eventsinfo/" | "/production" | "/production/" | "/production/backline" | "/production/backline/" | "/production/emailtech" | "/production/emailtech/" | "/settimes" | "/settimes/" | "/settings" | "/settings/" | "/wifi" | "/wifi/";
+		Pathname(): "/" | "/advancing" | "/advancing/" | "/advancing/gathered" | "/advancing/gathered/" | `/advancing/gathered/${string}` & {} | `/advancing/gathered/${string}/` & {} | "/api" | "/api/" | "/api/booking" | "/api/booking/" | "/api/booking/evenko" | "/api/booking/evenko/" | "/api/booking/evenko/cancel" | "/api/booking/evenko/cancel/" | "/api/booking/piknic" | "/api/booking/piknic/" | "/api/booking/piknic/cancel" | "/api/booking/piknic/cancel/" | "/api/flight-lookup" | "/api/flight-lookup/" | "/api/generate-advance-pdf" | "/api/generate-advance-pdf/" | "/api/google-calendar" | "/api/google-calendar/" | "/api/guests" | "/api/guests/" | "/api/latest-commit" | "/api/latest-commit/" | "/api/passport-ocr" | "/api/passport-ocr/" | "/api/register" | "/api/register/" | "/api/update-event" | "/api/update-event/" | "/api/upload" | "/api/upload/" | "/api/validate-registration-code" | "/api/validate-registration-code/" | "/api/validate-team-code" | "/api/validate-team-code/" | "/auth" | "/auth/" | "/auth/callback" | "/auth/callback/" | "/auth/forgot-password" | "/auth/forgot-password/" | "/auth/reset-password" | "/auth/reset-password/" | "/auth/verify" | "/auth/verify/" | "/booking" | "/booking/" | "/booking/artistavailability" | "/booking/artistavailability/" | "/booking/customers" | "/booking/customers/" | "/calendar" | "/calendar/" | "/dashboard" | "/dashboard/" | "/letter" | "/letter/" | "/login" | "/login/" | "/login/forgot-password" | "/login/forgot-password/" | "/login/register" | "/login/register/" | "/login/reset-confirmed" | "/login/reset-confirmed/" | "/login/reset-password" | "/login/reset-password/" | "/marketing" | "/marketing/" | "/marketing/comptickets" | "/marketing/comptickets/" | "/marketing/eventsinfo" | "/marketing/eventsinfo/" | "/production" | "/production/" | "/production/backline" | "/production/backline/" | "/production/emailtech" | "/production/emailtech/" | "/settimes" | "/settimes/" | "/settings" | "/settings/" | "/wifi" | "/wifi/";
 		ResolvedPathname(): `${"" | `/${string}`}${ReturnType<AppTypes['Pathname']>}`;
 		Asset(): "/.DS_Store" | "/favicon-512.png" | "/images/.DS_Store" | "/images/NCG_LOGO2_BLANC.png" | "/images/ProduktXX_LOGO1.png" | "/images/ProduktXX_LOGO2.png" | "/images/ProduktXX_LOGO_lockup.png" | "/manifest.json" | "/pdf/.DS_Store" | "/pdf/IMM5686E_Template_Empty.pdf" | "/pdf/Invitation Letter.pdf" | string & {};
 	}
