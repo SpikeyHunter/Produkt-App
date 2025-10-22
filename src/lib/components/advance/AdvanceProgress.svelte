@@ -100,10 +100,24 @@
 		const timetable = parseJson(timetableToCheck);
 		if (!Array.isArray(timetable)) return 'No';
 
+		const eventArtist = event.artist_name.trim().toLowerCase();
+
 		const isConfirmed = timetable.some((slot: any) => {
 			if (!slot.artist || !slot.status) return false;
 			const slotArtist = slot.artist.trim().toLowerCase();
-			const eventArtist = event.artist_name.trim().toLowerCase();
+
+			// Check if the timetable entry contains "b2b"
+			if (slotArtist.includes('b2b')) {
+				// Split by "b2b" and check if any part matches the event artist
+				const artistParts = slotArtist.split(/b2b/i).map((part: string) => part.trim());
+				const artistMatches = artistParts.some(
+					(part: string) =>
+						part === eventArtist || part.includes(eventArtist) || eventArtist.includes(part)
+				);
+				return artistMatches && slot.status === 'Confirmed';
+			}
+
+			// Regular exact match
 			return slotArtist === eventArtist && slot.status === 'Confirmed';
 		});
 		return isConfirmed ? 'Yes' : 'No';
