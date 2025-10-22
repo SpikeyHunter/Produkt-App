@@ -101,154 +101,169 @@
 		return null;
 	}
 
-function generateSmartTags(event) {
-	const tags = [];
+	function generateSmartTags(event) {
+		const tags = [];
 
-	// Check Rider to Mihir FIRST - this should always show if false, regardless of completion status
-	const hospoRider = parseJson(event.hospo_rider);
-	if (hospoRider && hospoRider.rider_sent_to_mihir === false) {
-		tags.push('Rider to Mihir');
-	}
+		// Check Rider to Mihir FIRST - this should always show if false, regardless of completion status
+		const hospoRider = parseJson(event.hospo_rider);
+		if (hospoRider && hospoRider.rider_sent_to_mihir === false) {
+			tags.push('Rider to Mihir');
+		}
 
-	// If the advance is already marked as 'Completed', show completed tag along with any others
-	if (event.advance_status === 'Completed') {
-		tags.push('Advance Completed ✓');
-		return tags; // Return with both "Rider to Mihir" (if applicable) and "Advance Completed"
-	}
+		// If the advance is already marked as 'Completed', show completed tag along with any others
+		if (event.advance_status === 'Completed') {
+			tags.push('Advance Completed ✓');
+			return tags; // Return with both "Rider to Mihir" (if applicable) and "Advance Completed"
+		}
 
-	// If advance status is "To Do", only show "Advance to start"
-	if (!event.advance_status || event.advance_status === 'To Do') {
-		return ['Advance to start'];
-	}
+		// If advance status is "To Do", only show "Advance to start"
+		if (!event.advance_status || event.advance_status === 'To Do') {
+			return ['Advance to start'];
+		}
 
-	// Once advance is "Asked", show specific missing items
+		// Once advance is "Asked", show specific missing items
 
-	// Check Contact
-	if (!event.main_contact) {
-		tags.push('DOS');
-	}
+		// Check Contact
+		if (!event.main_contact) {
+			tags.push('DOS');
+		}
 
-	// Check Contract
-	if (!event.contract || !event.contract_url) {
-		tags.push('Contract');
-	}
+		// Check Contract
+		if (!event.contract || !event.contract_url) {
+			tags.push('Contract');
+		}
 
-	// Check Role List
-	const roles = parseJson(event.roles);
-	if (!roles || !Array.isArray(roles) || roles.length === 0) {
-		tags.push('Role List');
-	}
+		// Check Role List
+		const roles = parseJson(event.roles);
+		if (!roles || !Array.isArray(roles) || roles.length === 0) {
+			tags.push('Role List');
+		}
 
-	// ROS (Running Order/Set Times) Logic
-	const timetable = parseJson(event.timetable);
-	let isRosConfirmed = false;
-	if (timetable && Array.isArray(timetable) && event.artist_name) {
-		isRosConfirmed = timetable.some((slot) => {
-			if (!slot.artist || !slot.status) return false;
-			
-			const slotArtist = slot.artist.trim().toLowerCase();
+		// ROS (Running Order/Set Times) Logic
+		const timetable = parseJson(event.timetable);
+		let isRosConfirmed = false;
+		if (timetable && Array.isArray(timetable) && event.artist_name) {
 			const cardArtist = event.artist_name.trim().toLowerCase();
-			const statusLower = slot.status.toLowerCase();
-			
-			return slotArtist === cardArtist && statusLower === 'confirmed';
-		});
-	}
-	if (!isRosConfirmed) {
-		tags.push('ROS');
-	}
 
-	// Check Passports (for roles requiring immigration)
-	if (roles && Array.isArray(roles)) {
-		const rolesNeedingPassports = roles.filter((r) => r.immigration === true);
-		if (rolesNeedingPassports.length > 0) {
-			const passportInfo = parseJson(event.passport_info);
-			const passports = passportInfo
-				? Array.isArray(passportInfo)
-					? passportInfo
-					: [passportInfo]
-				: [];
-			const completePassports = rolesNeedingPassports.filter((role) => {
-				return passports.some(
-					(p) => p.id === role.id && p.passportNumber && p.givenName && p.lastName
-				);
+			isRosConfirmed = timetable.some((slot) => {
+				if (!slot.artist || !slot.status) return false;
+
+				const slotArtist = slot.artist.trim().toLowerCase();
+				const statusLower = slot.status.toLowerCase();
+
+				// Check if the timetable entry contains "b2b"
+				if (slotArtist.includes('b2b')) {
+					// Split by "b2b" and check if any part matches the card artist
+					const artistParts = slotArtist.split(/b2b/i).map((part) => part.trim());
+					const artistMatches = artistParts.some(
+						(part) => part === cardArtist || part.includes(cardArtist) || cardArtist.includes(part)
+					);
+					return artistMatches && statusLower === 'confirmed';
+				}
+
+				// Regular exact match
+				return slotArtist === cardArtist && statusLower === 'confirmed';
 			});
-			if (completePassports.length < rolesNeedingPassports.length) {
-				tags.push('Passports');
-			}
 		}
-	}
+		if (!isRosConfirmed) {
+			tags.push('ROS');
+		}
 
-	// Check Immigration Status
-	if (event.immigration_status === 'Waiting') {
-		tags.push('Immigration waiting');
-	} else if (!event.immigration_status || event.immigration_status === 'To Do') {
+		// Check Passports (for roles requiring immigration)
 		if (roles && Array.isArray(roles)) {
-			const needsImmigration = roles.some((r) => r.immigration === true);
-			if (needsImmigration) {
-				tags.push('Immigration');
+			const rolesNeedingPassports = roles.filter((r) => r.immigration === true);
+			if (rolesNeedingPassports.length > 0) {
+				const passportInfo = parseJson(event.passport_info);
+				const passports = passportInfo
+					? Array.isArray(passportInfo)
+						? passportInfo
+						: [passportInfo]
+					: [];
+				const completePassports = rolesNeedingPassports.filter((role) => {
+					return passports.some(
+						(p) => p.id === role.id && p.passportNumber && p.givenName && p.lastName
+					);
+				});
+				if (completePassports.length < rolesNeedingPassports.length) {
+					tags.push('Passports');
+				}
 			}
 		}
-	}
 
-	// Check Flights
-	const groundInfo = parseJson(event.ground_info);
-	const flightsEnabled = event.flights_enabled !== false;
-	if (flightsEnabled) {
-		const hasArrivals = groundInfo?.arrivals && groundInfo.arrivals.length > 0;
-		const hasDepartures = groundInfo?.departures && groundInfo.departures.length > 0;
-		if (!hasArrivals || !hasDepartures) {
-			tags.push('Flights');
+		// Check Immigration Status
+		if (event.immigration_status === 'Waiting') {
+			tags.push('Immigration waiting');
+		} else if (!event.immigration_status || event.immigration_status === 'To Do') {
+			if (roles && Array.isArray(roles)) {
+				const needsImmigration = roles.some((r) => r.immigration === true);
+				if (needsImmigration) {
+					tags.push('Immigration');
+				}
+			}
 		}
-	}
 
-	// Check Hotels
-	const hotelInfo = parseJson(event.hotel_info);
-	if (!hotelInfo || !Array.isArray(hotelInfo) || hotelInfo.length === 0) {
-		tags.push('Hotels');
-	} else {
-		const allConfirmed = hotelInfo.every(
-			(h) => h.confirmationNumber && h.confirmationNumber.trim() !== ''
-		);
-		if (!allConfirmed) {
-			tags.push('Hotels');
+		// Check Flights
+		const groundInfo = parseJson(event.ground_info);
+		const flightsEnabled = event.flights_enabled !== false;
+		if (flightsEnabled) {
+			const hasArrivals = groundInfo?.arrivals && groundInfo.arrivals.length > 0;
+			const hasDepartures = groundInfo?.departures && groundInfo.departures.length > 0;
+			if (!hasArrivals || !hasDepartures) {
+				tags.push('Flights');
+			}
 		}
-	}
 
-	// Check Rider Files
-	const riderFiles = parseJson(event.rider_files);
-	if (!riderFiles || !riderFiles.tech_rider_url) {
-		tags.push('Rider');
-	} else if (riderFiles.hospitality_included === 'No' && !riderFiles.hospo_rider_url) {
-		tags.push('Rider');
-	}
-
-	// Soundcheck Logic
-	const soundcheck = parseJson(event.soundcheck);
-	if (soundcheck && soundcheck.status) {
-		const status = soundcheck.status.toLowerCase();
-		if (status === 'tbd') {
-			tags.push('Soundcheck TBD');
-		} else if (status === 'asked') {
-			tags.push('Soundcheck asked');
+		// Check Hotels
+		const hotelsEnabled = event.hotel_enabled !== false;
+		if (hotelsEnabled) {
+			const hotelInfo = parseJson(event.hotel_info);
+			if (!hotelInfo || !Array.isArray(hotelInfo) || hotelInfo.length === 0) {
+				tags.push('Hotels');
+			} else {
+				const allConfirmed = hotelInfo.every(
+					(h) => h.confirmationNumber && h.confirmationNumber.trim() !== ''
+				);
+				if (!allConfirmed) {
+					tags.push('Hotels');
+				}
+			}
 		}
-	}
 
-	// Check for VJ to determine if visuals are needed
-	const hasVJ = roles && Array.isArray(roles) && roles.some((r) => r.role === 'VJ');
-	// Check Visuals (skip for Bazart venue or if a VJ is assigned)
-	if (event.event_venue !== 'Bazart' && !hasVJ) {
-		if (!event.visual_received) {
-			tags.push('Visuals');
+		// Check Rider Files
+		const riderFiles = parseJson(event.rider_files);
+		if (!riderFiles || !riderFiles.tech_rider_url) {
+			tags.push('Rider');
+		} else if (riderFiles.hospitality_included === 'No' && !riderFiles.hospo_rider_url) {
+			tags.push('Rider');
 		}
-	}
 
-	// If everything is done but status isn't completed
-	if (tags.length === 0 && event.advance_status !== 'Completed') {
-		tags.push('Mark as completed');
-	}
+		// Soundcheck Logic
+		const soundcheck = parseJson(event.soundcheck);
+		if (soundcheck && soundcheck.status) {
+			const status = soundcheck.status.toLowerCase();
+			if (status === 'tbd') {
+				tags.push('Soundcheck TBD');
+			} else if (status === 'asked') {
+				tags.push('Soundcheck asked');
+			}
+		}
 
-	return tags;
-}
+		// Check for VJ to determine if visuals are needed
+		const hasVJ = roles && Array.isArray(roles) && roles.some((r) => r.role === 'VJ');
+		// Check Visuals (skip for Bazart venue or if a VJ is assigned)
+		if (event.event_venue !== 'Bazart' && !hasVJ) {
+			if (!event.visual_received) {
+				tags.push('Visuals');
+			}
+		}
+
+		// If everything is done but status isn't completed
+		if (tags.length === 0 && event.advance_status !== 'Completed') {
+			tags.push('Mark as completed');
+		}
+
+		return tags;
+	}
 
 	// Get display date
 	$: displayDate = (() => {
