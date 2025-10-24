@@ -225,8 +225,22 @@ export async function syncToCalendar(
 				end: { dateTime: endTime.toISOString(), timeZone: 'America/Toronto' },
 				description: row.contact,
 				attendees:
-					row.driverName !== 'UBER' && getGuestEmail(row.driverName)
-						? [{ email: getGuestEmail(row.driverName), responseStatus: 'needsAction' }]
+					row.driverName !== 'UBER'
+						? (() => {
+								const attendees = [];
+								const driverEmail = getGuestEmail(row.driverName);
+								if (driverEmail) {
+									attendees.push({ email: driverEmail, responseStatus: 'needsAction' });
+								}
+								// Always add Eddy as an additional guest when Reza is the driver
+								if (row.driverName === 'Reza') {
+									const eddyEmail = getGuestEmail('Eddy');
+									if (eddyEmail && eddyEmail !== driverEmail) {
+										attendees.push({ email: eddyEmail, responseStatus: 'needsAction' });
+									}
+								}
+								return attendees;
+							})()
 						: [],
 				reminders: {
 					useDefault: false,
