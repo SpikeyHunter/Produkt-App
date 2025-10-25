@@ -91,8 +91,7 @@
   </div>
 </div>
 
-<style>
-  /* Ensure proper font inheritance */
+<style lang="postcss">
   * {
     font-family: var(--font-helvetica);
   }

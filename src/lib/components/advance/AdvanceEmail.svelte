@@ -310,7 +310,7 @@
 	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300 w-40 h-[420px]"
 >
 	<div class="flex items-center justify-between px-4 py-3 border-b border-gray1">
-		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Emails</h2>
+		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Others</h2>
 	</div>
 	<div class="flex-1 flex flex-col gap-3 px-4 py-2">
 		<div class="flex items-center gap-3 text-sm">

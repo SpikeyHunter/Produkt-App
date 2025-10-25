@@ -1,5 +1,6 @@
 {
 	"/": [],
+	"/advancing/artistliaison": [],
 	"/advancing/gathered": [],
 	"/advancing/gathered/[event_param]": [
 		"src/routes/advancing/gathered/[event_param]/+page.ts"
@@ -67,6 +68,7 @@
 	"/login/reset-password": [],
 	"/marketing/comptickets": [],
 	"/marketing/eventsinfo": [],
+	"/ncgapp/controlcenter": [],
 	"/production/backline": [],
 	"/production/emailtech": [],
 	"/settimes": [],

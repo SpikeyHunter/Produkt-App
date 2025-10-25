@@ -20,7 +20,7 @@
 	let isMounted = false;
 	let playAnimations = false;
 	let navElement: HTMLElement;
-	
+
 	// --- TYPES ---
 	interface SubMenuItem {
 		label: string;
@@ -61,7 +61,7 @@
 			document.removeEventListener('click', handleDocumentClick);
 		};
 	});
-	
+
 	// --- REACTIVITY ---
 	$: ($page.url.pathname, setActiveSubMenuFromRoute($page.url.pathname));
 	$: if (!isNavExpanded) {
@@ -75,7 +75,7 @@
 
 	// Show all menu items but track which ones are accessible
 	$: visibleMenuItems = menuItems;
-	
+
 	// --- DATA ---
 	const icons = {
 		dashboard: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
@@ -91,9 +91,15 @@
 		logout: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>`,
 		toggle: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>`
 	};
-	
+
 	const menuItems: MenuItem[] = [
-		{ id: 'dashboard', label: 'Dashboard', icon: icons.dashboard, route: '/dashboard', subItems: [] },
+		{
+			id: 'dashboard',
+			label: 'Dashboard',
+			icon: icons.dashboard,
+			route: '/dashboard',
+			subItems: []
+		},
 		{
 			id: 'calendar',
 			label: 'Calendar',
@@ -116,7 +122,11 @@
 			requiredPermission: 'Marketing',
 			subItems: [
 				{ label: 'Events Info', route: '/marketing/eventsinfo', requiredPermission: 'EventsInfo' },
-				{ label: 'Comp Tickets', route: '/marketing/comptickets', requiredPermission: 'CompTickets' }
+				{
+					label: 'Comp Tickets',
+					route: '/marketing/comptickets',
+					requiredPermission: 'CompTickets'
+				}
 			]
 		},
 		{
@@ -124,17 +134,20 @@
 			label: 'Booking',
 			icon: icons.booking,
 			requiredPermission: 'Booking',
-			subItems: [{ label: 'Artist Availability', route: '/booking/artistavailability' },
-						{ label: 'Customers Database', route: '/booking/customers' }		
+			subItems: [
+				{ label: 'Artist Availability', route: '/booking/artistavailability' },
+				{ label: 'Customers Database', route: '/booking/customers' }
 			]
-			
 		},
 		{
 			id: 'advancing',
 			label: 'Advancing',
 			icon: icons.advancing,
 			requiredPermission: 'Advance',
-			subItems: [{ label: 'Advance Gathered', route: '/advancing/gathered' }]
+			subItems: [
+				{ label: 'Advance Gathered', route: '/advancing/gathered' },
+				{ label: 'Artist Liaison', route: '/advancing/artistliaison' }
+			]
 		},
 		{
 			id: 'production',
@@ -145,9 +158,19 @@
 				{ label: 'Backline', route: '/production/backline' },
 				{ label: 'Email Tech', route: '/production/emailtech' }
 			]
+		},
+		{
+			id: 'ncgapp',
+			label: 'NCG App',
+			icon: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>`,
+			requiredPermission: 'NCGApp',
+			subItems: [
+				{ label: 'Control Center', route: '/ncgapp/controlcenter' },
+				{ label: 'Coming Soon', route: '/ncgapp/comingsoon' }
+			]
 		}
 	];
-	
+
 	// --- FUNCTIONS ---
 	/**
 	 * Check page access and redirect if no permission
@@ -157,11 +180,11 @@
 			goto('/login');
 			return;
 		}
-		
+
 		if (profile.role === 'Admin') {
 			return;
 		}
-		
+
 		if (!hasPermission(required, profile)) {
 			goto('/dashboard');
 		}
@@ -173,19 +196,21 @@
 	function hasPermission(requiredPermission: string | undefined, profile: any): boolean {
 		if (!requiredPermission) return true;
 		if (!profile) return false;
-		
+
 		// Admins have access to everything
 		if (profile.role === 'Admin') return true;
-		
+
 		// Get all user permissions - make sure we're getting the actual array values
 		const mainPerm = profile.main_permission ? [profile.main_permission] : [];
-		const secondaryPerms = Array.isArray(profile.secondary_permission) ? profile.secondary_permission : [];
+		const secondaryPerms = Array.isArray(profile.secondary_permission)
+			? profile.secondary_permission
+			: [];
 		const pagePerms = Array.isArray(profile.page_permissions) ? profile.page_permissions : [];
-		
+
 		const userPermissions = [...mainPerm, ...secondaryPerms, ...pagePerms].filter(Boolean);
-		
+
 		console.log('Checking permission:', requiredPermission, 'User permissions:', userPermissions);
-		
+
 		return userPermissions.includes(requiredPermission);
 	}
 
@@ -196,7 +221,7 @@
 		if (!profile) return item.id === 'dashboard';
 		if (profile.role === 'Admin') return true;
 		if (item.id === 'dashboard' || item.id === 'settimes') return true;
-		
+
 		return hasPermission(item.requiredPermission, profile);
 	}
 
@@ -334,7 +359,10 @@
 									<div class="submenu-container" class:expanded={activeSubMenu === item.id}>
 										<div class="submenu-content">
 											{#each item.subItems as subItem (subItem.route)}
-												{@const hasSubAccess = hasPermission(subItem.requiredPermission, $authStore.profile)}
+												{@const hasSubAccess = hasPermission(
+													subItem.requiredPermission,
+													$authStore.profile
+												)}
 												<button
 													type="button"
 													class="submenu-button"
@@ -355,7 +383,12 @@
 						<div
 							class="nav-item-container"
 							in:fly={playAnimations
-								? { y: 20, duration: 400, delay: visibleMenuItems.length * 50 + 200, easing: quintOut }
+								? {
+										y: 20,
+										duration: 400,
+										delay: visibleMenuItems.length * 50 + 200,
+										easing: quintOut
+									}
 								: { duration: 0 }}
 						>
 							<button type="button" class="nav-button disabled">
@@ -483,7 +516,9 @@
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
-		transition: opacity 0.2s ease-in-out, transform 0.3s var(--transition-easing);
+		transition:
+			opacity 0.2s ease-in-out,
+			transform 0.3s var(--transition-easing);
 		opacity: 1;
 		transform: translateX(0);
 	}
@@ -543,7 +578,9 @@
 		font-weight: 700;
 		font-size: 1rem;
 		color: var(--text-secondary);
-		transition: background-color 0.2s ease, color 0.2s ease;
+		transition:
+			background-color 0.2s ease,
+			color 0.2s ease;
 		cursor: pointer;
 	}
 	.navbar.collapsed .nav-button {
@@ -576,6 +613,14 @@
 		margin-right: 1rem;
 		transition: margin-right var(--transition-duration) var(--transition-easing);
 	}
+
+	/* Add this new rule to prevent image distortion */
+	.icon :global(img) {
+		transition: none;
+		image-rendering: -webkit-optimize-contrast;
+		image-rendering: crisp-edges;
+	}
+
 	.navbar.collapsed .icon {
 		margin-right: 0;
 	}
@@ -594,7 +639,9 @@
 	}
 	.arrow {
 		margin-left: auto;
-		transition: transform 0.2s ease, opacity var(--transition-duration) var(--transition-easing);
+		transition:
+			transform 0.2s ease,
+			opacity var(--transition-duration) var(--transition-easing);
 	}
 	.arrow.rotated {
 		transform: rotate(180deg);
@@ -620,7 +667,9 @@
 		font-size: 0.875rem;
 		border-radius: 0.5rem;
 		color: var(--text-secondary);
-		transition: background-color 0.2s ease, color 0.2s ease;
+		transition:
+			background-color 0.2s ease,
+			color 0.2s ease;
 		cursor: pointer;
 	}
 	.submenu-button:hover:not(.active):not(.blocked) {
