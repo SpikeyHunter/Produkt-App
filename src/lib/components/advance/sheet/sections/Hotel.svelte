@@ -97,6 +97,14 @@
 		});
 		return Array.from(allNotes);
 	}
+
+	// Check if hotel should show standard notes
+	function shouldShowStandardNotes(hotelName: string): boolean {
+		const normalizedName = hotelName.toLowerCase();
+		return normalizedName.includes('monville') || 
+		       normalizedName.includes('alt hotel') || 
+		       normalizedName.includes('w hotel');
+	}
 </script>
 
 {#if hotelGroups.length > 0}
@@ -162,10 +170,12 @@
 							{#each getHotelNotes(reservations) as note}
 								<div>• {note}</div>
 							{/each}
-							<div>
-								• {reservations.length > 1 ? 'Rooms' : 'Room'} and taxes are covered by New City Gas
-							</div>
-							<div>• Credit card must be provided for incidentals</div>
+							{#if shouldShowStandardNotes(hotelName)}
+								<div>
+									• {reservations.length > 1 ? 'Rooms' : 'Room'} and taxes are covered by New City Gas
+								</div>
+								<div>• Credit card must be provided for incidentals</div>
+							{/if}
 						</div>
 					</div>
 				</div>

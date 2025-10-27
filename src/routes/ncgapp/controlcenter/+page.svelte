@@ -92,16 +92,16 @@
 		display: grid;
 		grid-template-columns: 280px 1fr 280px;
 		gap: 16px;
-		height: 400px;
-		max-height: 400px;
+		height: 415px;
+		max-height: 415px;
 	}
 
 	.selector-column,
 	.carousel-column,
 	.modifier-column {
-		height: 400px;
-		max-height: 400px;
-		min-height: 400px;
+		height: 415px;
+		max-height: 415px;
+		min-height: 415px;
 		overflow: hidden;
 	}
 
@@ -130,18 +130,18 @@
 		animation: spin 1s linear infinite;
 	}
 
-	@media (max-width: 1400px) {
+	@media (max-width: 1415px) {
 		.control-center-container {
 			grid-template-columns: 280px 1fr 280px;
-			height: 400px;
+			height: 415px;
 			max-height: 325px;
 		}
 
 		.selector-column,
 		.carousel-column,
 		.modifier-column {
-			height: 400px;
-			max-height: 400px;
+			height: 415px;
+			max-height: 415px;
 		}
 	}
 </style>

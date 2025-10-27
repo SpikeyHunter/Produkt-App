@@ -124,7 +124,7 @@
 		delete: 'w-[40px]'
 	};
 
-	const driverOptions = ['Eddy', 'Reza', 'Tarek', 'Charles', 'UBER'];
+	const driverOptions = ['Eddy', 'Reza', 'Tarek', 'Charles', 'UBER', 'N/A'];
 	const eventTypes: CalendarEntry['type'][] = [
 		'Arrival',
 		'Departure',

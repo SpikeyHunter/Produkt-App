@@ -23,8 +23,10 @@
 
 	// Parse ground transport data
 	$: transferData = parseGroundTransport(event.ground_transport);
-	$: transferGroups = groupTransfersByType(transferData);
-	$: uniqueDrivers = getUniqueDrivers(transferData);
+	// Filter out N/A drivers
+	$: filteredTransferData = transferData.filter((t) => t.driverName !== 'N/A');
+	$: transferGroups = groupTransfersByType(filteredTransferData);
+	$: uniqueDrivers = getUniqueDrivers(filteredTransferData);
 
 	function parseGroundTransport(groundTransport: any): GroundTransfer[] {
 		if (!groundTransport) return [];
@@ -124,11 +126,11 @@
 		return sortedGroups;
 	}
 
-	// Get unique drivers with their contact info (excluding UBER)
+	// Get unique drivers with their contact info (excluding UBER and N/A)
 	function getUniqueDrivers(transfers: GroundTransfer[]) {
 		const driverSet = new Set<string>();
 		transfers.forEach((t) => {
-			if (t.driverName && t.driverName !== 'UBER') {
+			if (t.driverName && t.driverName !== 'UBER' && t.driverName !== 'N/A') {
 				driverSet.add(t.driverName);
 			}
 		});
@@ -139,8 +141,8 @@
 		}));
 	}
 
-	// Check if UBER is used in any transfer
-	$: hasUber = transferData.some((t) => t.driverName === 'UBER');
+	// Check if UBER is used in any transfer (excluding N/A)
+	$: hasUber = filteredTransferData.some((t) => t.driverName === 'UBER');
 
 	// Count number of passengers (count commas + 1)
 	function countPax(paxNames: string): number {
@@ -159,7 +161,7 @@
 	}
 </script>
 
-{#if transferData.length > 0}
+{#if filteredTransferData.length > 0}
 	<Section title="GROUND TRANSFERS">
 		<div class="space-y-4">
 			<ContentBox class="!bg-black/15">

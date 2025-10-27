@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	// Removed unused 'updateEventOrder' import
+	import { onMount, onDestroy } from 'svelte';
 	import { fetchUpcomingEvents, removeEventFromCarousel } from '$lib/services/controlCenterService';
 	import type { UpcomingEvent } from '$lib/types/controlcenter';
 	import { createEventDispatcher } from 'svelte';
@@ -9,155 +8,90 @@
 
 	export let events: UpcomingEvent[] = [];
 	export let selectedEventId: number | null = null;
+	export let autoplay: boolean = false;
 
-	let draggedItem: UpcomingEvent | null = null;
+	let activeIndex = 0;
 	let isDraggingOver = false;
-	let currentIndex = 0;
-	let isTransitioning = false;
-	let carouselElement: HTMLDivElement;
+	let autoPlayInterval: ReturnType<typeof setInterval>;
+	let carouselStage: HTMLDivElement;
+	let isDragging = false;
+	let startX = 0;
+	let currentX = 0;
 
 	onMount(async () => {
 		await loadEvents();
-		// Add keydown listener to the carousel element when it's focused
-		if (carouselElement) {
-			carouselElement.focus();
+		if (autoplay && events.length > 1) {
+			startAutoplay();
 		}
 	});
+
+	onDestroy(() => {
+		clearInterval(autoPlayInterval);
+	});
+
+	function startAutoplay() {
+		clearInterval(autoPlayInterval);
+		autoPlayInterval = setInterval(() => {
+			next();
+		}, 5000);
+	}
+
+	function stopAutoplay() {
+		clearInterval(autoPlayInterval);
+	}
 
 	async function loadEvents() {
 		events = await fetchUpcomingEvents();
 		dispatch('eventsLoaded', events);
-		if (events.length > 0 && !selectedEventId) {
-			handleSelect(events[0]);
+		if (events.length > 0) {
+			selectEvent(0);
 		}
 	}
 
-	async function handleRemove(event: UpcomingEvent) {
-		const success = await removeEventFromCarousel(event.event_id);
+	function selectEvent(index: number) {
+		if (events.length === 0) return;
+		activeIndex = ((index % events.length) + events.length) % events.length;
+		selectedEventId = events[activeIndex].event_id;
+		dispatch('select', events[activeIndex]);
+	}
+
+	async function handleRemove(eventId: number) {
+		const success = await removeEventFromCarousel(eventId);
 		if (success) {
-			const removedEventId = event.event_id;
+			events = events.filter(e => e.event_id !== eventId);
 			
-			// Manually filter out the removed event to avoid race conditions
-			const newEvents = events.filter(e => e.event_id !== removedEventId);
-			const oldIndex = currentIndex;
-
-			events = newEvents; // Update the bound events prop
-			
-			if (selectedEventId === removedEventId) {
+			if (events.length === 0) {
+				activeIndex = 0;
 				selectedEventId = null;
-				if (newEvents.length > 0) {
-					// Select the new item at the same index, or the last item
-					const newIndex = Math.min(oldIndex, newEvents.length - 1);
-					currentIndex = newIndex;
-					handleSelect(newEvents[newIndex]);
-				} else {
-					// Carousel is empty
-					currentIndex = 0;
-					dispatch('select', null);
-				}
+				dispatch('select', null);
 			} else {
-				// Resync currentIndex if the selected item's index changed
-				if (selectedEventId) {
-					const newIndex = newEvents.findIndex(e => e.event_id === selectedEventId);
-					if (newIndex !== -1) {
-						currentIndex = newIndex;
-					}
-				}
+				activeIndex = Math.min(activeIndex, events.length - 1);
+				selectEvent(activeIndex);
 			}
 			
-			// Dispatch the updated events list to the parent
-			dispatch('eventsLoaded', newEvents);
+			dispatch('eventsLoaded', events);
 		}
 	}
 
-	function handleSelect(event: UpcomingEvent) {
-		selectedEventId = event.event_id;
-		dispatch('select', event);
-	}
-
-	function nextSlide() {
-		if (isTransitioning || events.length < 2) return;
-		isTransitioning = true;
-		currentIndex = (currentIndex + 1) % events.length;
-		handleSelect(events[currentIndex]);
-		setTimeout(() => { isTransitioning = false; }, 400); // Matches CSS transition time
-	}
-
-	function prevSlide() {
-		if (isTransitioning || events.length < 2) return;
-		isTransitioning = true;
-		currentIndex = (currentIndex - 1 + events.length) % events.length;
-		handleSelect(events[currentIndex]);
-		setTimeout(() => { isTransitioning = false; }, 400); // Matches CSS transition time
-	}
-
-	function goToSlide(index: number) {
-		if (isTransitioning || index === currentIndex) return;
-		isTransitioning = true;
-		currentIndex = index;
-		handleSelect(events[currentIndex]);
-		setTimeout(() => { isTransitioning = false; }, 400); // Matches CSS transition time
-	}
-
-	function handleWheel(e: WheelEvent) {
-		// Don't prevent default, allow vertical scroll if not in carousel
-		if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
-			// Horizontal scroll
-			e.preventDefault();
-			if (e.deltaX > 0) {
-				nextSlide();
-			} else if (e.deltaX < 0) {
-				prevSlide();
-			}
-		} else {
-			// Vertical scroll
-			e.preventDefault(); // Prevent page scroll
-			if (e.deltaY > 0) {
-				nextSlide();
-			} else if (e.deltaY < 0) {
-				prevSlide();
-			}
+	function next() {
+		if (events.length > 0) {
+			selectEvent(activeIndex + 1);
 		}
 	}
 
-	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'ArrowLeft') {
-			e.preventDefault();
-			prevSlide();
-		} else if (e.key === 'ArrowRight') {
-			e.preventDefault();
-			nextSlide();
+	function prev() {
+		if (events.length > 0) {
+			selectEvent(activeIndex - 1);
 		}
 	}
 
-	function handleDragStart(e: DragEvent, item: UpcomingEvent) {
-		draggedItem = item;
-		if (e.dataTransfer) {
-			e.dataTransfer.effectAllowed = 'move';
-		}
-	}
-
-	function handleDropZoneDragOver(e: DragEvent) {
-		e.preventDefault();
-		isDraggingOver = true;
-		if (e.dataTransfer) {
-			e.dataTransfer.dropEffect = 'copy';
-		}
-	}
-
-	function handleDropZoneDragLeave() {
-		isDraggingOver = false;
-	}
-
-	async function handleDropZoneDrop(e: DragEvent) {
+	function handleDrop(e: DragEvent) {
 		e.preventDefault();
 		isDraggingOver = false;
-
 		const data = e.dataTransfer?.getData('application/json');
 		if (data) {
 			try {
 				const sourceEvent = JSON.parse(data);
-				// Check if event is already in the carousel
 				if (!events.find(ev => ev.event_id === sourceEvent.event_id)) {
 					dispatch('addFromSource', sourceEvent);
 				}
@@ -167,187 +101,161 @@
 		}
 	}
 
-	/**
-	 * [REVISED] Calculates the CSS class for a slide's position.
-	 * This new logic correctly handles any number of events by calculating
-	 * the slide's position relative to the center (0) and assigning
-	 * 'hidden' classes to items that are too far left or right.
-	 */
-	function getSlidePosition(index: number): string {
+	// Touch/Mouse drag handling
+	function handlePointerDown(e: PointerEvent) {
+		if (events.length <= 1) return;
+		isDragging = true;
+		startX = e.clientX;
+		currentX = e.clientX;
+		if (carouselStage) {
+			carouselStage.style.cursor = 'grabbing';
+		}
+		if (autoplay) stopAutoplay();
+	}
+
+	function handlePointerMove(e: PointerEvent) {
+		if (!isDragging) return;
+		currentX = e.clientX;
+	}
+
+	function handlePointerUp() {
+		if (!isDragging) return;
+		isDragging = false;
+		
+		const deltaX = currentX - startX;
+		const threshold = 50;
+
+		if (deltaX > threshold) {
+			prev();
+		} else if (deltaX < -threshold) {
+			next();
+		}
+
+		if (carouselStage) {
+			carouselStage.style.cursor = 'grab';
+		}
+
+		if (autoplay && events.length > 1) {
+			startAutoplay();
+		}
+	}
+
+	function getPosition(i: number, currentActive: number): number {
+		const diff = i - currentActive;
 		const total = events.length;
-		if (total <= 1) return 'center';
-
-		// Calculate the relative position from the current index
-		let pos = (index - currentIndex + total) % total;
-		
-		const half = Math.floor(total / 2);
-
-		// Re-map positions to be centered around 0
-		// Example (total=6, half=3):
-		// pos 0 -> 0 (center)
-		// pos 1 -> 1 (right)
-		// pos 2 -> 2 (far-right)
-		// pos 3 -> 3 (hidden-right) ... but 3 > half, so pos = 3 - 6 = -3 (hidden-left)
-		// pos 4 -> 4 (far-left) ... but 4 > half, so pos = 4 - 6 = -2 (far-left)
-		// pos 5 -> 5 (left) ... but 5 > half, so pos = 5 - 6 = -1 (left)
-		if (pos > half) {
-			pos -= total;
-		}
-
-		// Handle small carousels (2-4 items) gracefully
-		if (total === 2) {
-			if (pos === 0) return 'center';
-			if (pos === 1 || pos === -1) return 'right'; // pos 1 -> 1-2 = -1
-		}
-
-		if (total === 3) {
-			if (pos === 0) return 'center';
-			if (pos === 1) return 'right';
-			if (pos === -1) return 'left'; // pos 2 -> 2-3 = -1
-		}
-		
-		if (total === 4) {
-			if (pos === 0) return 'center';
-			if (pos === 1) return 'right';
-			if (pos === -1) return 'left';
-			if (pos === 2 || pos === -2) return 'far-right'; // pos 2 -> 2. pos 3 -> 3-4 = -1 (left).
-		}
-
-		// Standard 5-card display logic
-		switch(pos) {
-			case 0: return 'center';
-			case 1: return 'right';
-			case -1: return 'left';
-			case 2: return 'far-right';
-			case -2: return 'far-left';
-			default:
-				// All other cards are hidden
-				return pos > 2 ? 'hidden-right' : 'hidden-left';
-		}
+		let pos = diff;
+		if (diff > total / 2) pos = diff - total;
+		if (diff < -total / 2) pos = diff + total;
+		return pos;
 	}
 
-	// This reactive declaration ensures that if the parent `events` array
-	// changes (e.g., an item is added), we check if the
-	// currentIndex needs to be updated (e.g., if it was pointing to null).
-	$: if (events.length > 0 && selectedEventId) {
-		const index = events.findIndex(e => e.event_id === selectedEventId);
-		if (index !== -1 && index !== currentIndex) {
-			// Sync current index if selected ID changes from outside
-			currentIndex = index;
-		}
-	} else if (events.length > 0 && !selectedEventId) {
-		// If no event is selected, select the one at the current index
-		handleSelect(events[currentIndex]);
-	}
+	// Force reactivity by explicitly depending on activeIndex
+	$: cardPositions = events.map((_, i) => getPosition(i, activeIndex));
 </script>
 
-<div class="h-full flex flex-col bg-navbar border-2 border-gray1 rounded-xl overflow-hidden">
-	<div class="p-3 border-b border-gray1 flex-shrink-0">
-		<div class="flex items-center justify-between">
-			<h3 class="text-white text-sm font-bold">Event Carousel</h3>
-			<span class="text-xs text-gray2">{events.length} event{events.length !== 1 ? 's' : ''}</span>
-		</div>
+<svelte:window 
+	on:pointerup={handlePointerUp}
+	on:pointermove={handlePointerMove}
+/>
+
+<div class="carousel-wrapper">
+	<!-- Header -->
+	<div class="header">
+		<h3 class="title">Event Carousel</h3>
+		<span class="count">{events.length} event{events.length !== 1 ? 's' : ''}</span>
 	</div>
 
+	<!-- Main Content -->
 	<div 
-		class="flex-1 relative overflow-hidden carousel-wrapper" 
-		on:dragover={handleDropZoneDragOver}
-		on:dragleave={handleDropZoneDragLeave}
-		on:drop={handleDropZoneDrop}
-		role="application"
+		class="content"
+		on:dragover={(e) => { e.preventDefault(); isDraggingOver = true; }}
+		on:dragleave={() => { isDraggingOver = false; }}
+		on:drop={handleDrop}
+		role="region"
 		aria-label="Event carousel"
 	>
 		{#if events.length === 0}
-			<!-- Drop Zone for Empty Carousel -->
-			<div 
-				class="absolute inset-m-4 border-2 border-dashed rounded-xl m-4 flex flex-col items-center justify-center h-full text-center transition-colors 
-				{isDraggingOver ? 'border-lime bg-lime/5' : 'border-gray1'}"
-			>
-				<svg class="w-16 h-16 mb-3 transition-colors {isDraggingOver ? 'text-lime' : 'text-gray2'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<!-- Empty State -->
+			<div class="empty-state" class:dragging={isDraggingOver}>
+				<svg class="empty-icon" class:active={isDraggingOver} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<rect x="3" y="3" width="18" height="18" rx="2"></rect>
 					<path d="M12 8v8m-4-4h8"></path>
 				</svg>
-				<p class="text-gray2 text-sm font-bold">{isDraggingOver ? 'Drop here to add' : 'No events in carousel'}</p>
-				<p class="text-gray3 text-xs mt-1">{isDraggingOver ? 'Release to add event' : 'Click or drag events from the list'}</p>
+				<p class="empty-title">{isDraggingOver ? 'Drop here to add' : 'No events'}</p>
+				<p class="empty-subtitle">{isDraggingOver ? 'Release to add event' : 'Drag events from the list'}</p>
 			</div>
 		{:else}
-			<!-- Carousel Container -->
-			<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-			<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+			<!-- Carousel -->
 			<div 
-				class="carousel-container" 
-				bind:this={carouselElement}
-				on:wheel={handleWheel} 
-				on:keydown={handleKeydown} 
-				role="region" 
-				aria-label="Event carousel navigation" 
-				tabindex="0"
+				class="carousel-stage"
+				class:grabbing={isDragging}
+				bind:this={carouselStage}
+				on:pointerdown={handlePointerDown}
+				role="group"
+				aria-roledescription="carousel"
 			>
-				{#each events as event, index (event.event_id)}
-					{@const position = getSlidePosition(index)}
-					<div class="card-holder {position}">
-						<button
-							type="button"
-							class="carousel-card"
-							class:is-center={position === 'center'}
-							draggable="true"
-							on:dragstart={(e) => handleDragStart(e, event)}
-							on:click|preventDefault={() => {
-								if (position === 'center') {
-									// If it's already center, do nothing (it's already selected)
-									// Or you could open a modal, etc.
-								} else {
-									goToSlide(index);
+				{#each events as event, i (event.event_id)}
+					{@const pos = getPosition(i, activeIndex)}
+					{@const isVisible = Math.abs(pos) <= 2}
+					{@const x = pos * 240}
+					{@const scale = pos === 0 ? 1.0 : Math.max(0.65, 0.85 - Math.abs(pos) * 0.15)}
+					{@const rotateY = pos * -12}
+					{@const z = pos === 0 ? 30 : -Math.abs(pos) * 40}
+					{@const opacity = pos === 0 ? 1 : Math.max(0.4, 1 - Math.abs(pos) * 0.3)}
+					{@const brightness = pos === 0 ? 1 : Math.max(0.6, 1 - Math.abs(pos) * 0.2)}
+					{@const zIndex = 100 - Math.abs(pos)}
+					
+					<div 
+						class="card" 
+						class:hidden={!isVisible}
+						style:transform="translateX({x}px) translateZ({z}px) scale({scale}) rotateY({rotateY}deg)"
+						style:opacity={opacity}
+						style:filter="brightness({brightness})"
+						style:z-index={zIndex}
+						style:pointer-events={isVisible ? 'auto' : 'none'}
+					>
+						<button 
+							class="card-button"
+							class:active={i === activeIndex}
+							on:click={() => {
+								if (i !== activeIndex) {
+									selectEvent(i);
+									if (autoplay) {
+										stopAutoplay();
+										startAutoplay();
+									}
 								}
 							}}
-							aria-label="Event {index + 1}: {event.event_name}"
-							aria-current={position === 'center'}
-							tabindex={position === 'center' ? 0 : -1}
+							aria-label="{event.event_name}"
 						>
-							<div class="order-badge">{index + 1}</div>
+							<!-- Badge -->
+							<div class="badge">{i + 1}</div>
 
+							<!-- Flyer -->
 							{#if event.event_flyer}
-								<img 
-									src={event.event_flyer} 
-									alt={event.event_name} 
-									class="card-image" 
-									draggable="false" 
-									on:error={(e) => {
-										const img = e.currentTarget as HTMLImageElement;
-										img.style.display = 'none';
-										const placeholder = img.nextElementSibling as HTMLElement;
-										if (placeholder) {
-											placeholder.style.display = 'flex';
-										}
-									}}
-								/>
-								<!-- Fallback for broken image -->
-								<div class="card-placeholder" style="display: none;">
-									<svg class="w-12 h-12 text-lime" viewBox="0 0 24 24" fill="currentColor">
-										<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
-									</svg>
-								</div>
+								<img src={event.event_flyer} alt={event.event_name} class="flyer" draggable="false" />
 							{:else}
-								<div class="card-placeholder">
-									<svg class="w-12 h-12 text-lime" viewBox="0 0 24 24" fill="currentColor">
+								<div class="placeholder">
+									<svg class="placeholder-icon" viewBox="0 0 24 24" fill="currentColor">
 										<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
 									</svg>
 								</div>
 							{/if}
 
-							{#if position === 'center' && selectedEventId === event.event_id}
-								<div class="selection-overlay"></div>
+							<!-- Active Ring -->
+							{#if i === activeIndex}
+								<div class="ring"></div>
 							{/if}
 						</button>
 
-						{#if position === 'center'}
+						<!-- Remove Button -->
+						{#if i === activeIndex}
 							<button 
-								type="button" 
-								on:click|stopPropagation={() => handleRemove(event)} 
-								class="remove-btn"
-								aria-label="Remove {event.event_name} from carousel"
+								class="remove"
+								on:click|stopPropagation={() => handleRemove(event.event_id)}
+								aria-label="Remove event"
 							>
-								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<line x1="18" y1="6" x2="6" y2="18"></line>
 									<line x1="6" y1="6" x2="18" y2="18"></line>
 								</svg>
@@ -357,47 +265,59 @@
 				{/each}
 			</div>
 
-			<!-- Navigation Arrows -->
-			{#if events.length > 2}
+			<!-- Navigation Controls -->
+			{#if events.length > 1}
 				<button 
-					type="button"
-					class="nav-arrow left" 
-					on:click={prevSlide}
-					aria-label="Previous event"
-					tabindex="-1"
+					class="nav prev"
+					on:click={() => {
+						prev();
+						if (autoplay) {
+							stopAutoplay();
+							startAutoplay();
+						}
+					}}
+					aria-label="Previous"
 				>
-					<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
 						<polyline points="15 18 9 12 15 6"></polyline>
 					</svg>
 				</button>
 				
 				<button 
-					type="button"
-					class="nav-arrow right" 
-					on:click={nextSlide}
-					aria-label="Next event"
-					tabindex="-1"
+					class="nav next"
+					on:click={() => {
+						next();
+						if (autoplay) {
+							stopAutoplay();
+							startAutoplay();
+						}
+					}}
+					aria-label="Next"
 				>
-					<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
 						<polyline points="9 18 15 12 9 6"></polyline>
 					</svg>
 				</button>
-			{/if}
 
-			<!-- Dots Navigation -->
-			{#if events.length > 1 && events.length < 20} <!-- Hide dots if too many -->
-				<div class="dots-container">
-					{#each events as _, index}
-						<button
-							type="button"
-							class="dot"
-							class:active={index === currentIndex}
-							on:click={() => goToSlide(index)}
-							aria-label="Go to event {index + 1}"
-							tabindex="-1"
-						></button>
-					{/each}
-				</div>
+				<!-- Dots -->
+				{#if events.length <= 15}
+					<div class="dots">
+						{#each events as _, i}
+							<button 
+								class="dot"
+								class:active={i === activeIndex}
+								on:click={() => {
+									selectEvent(i);
+									if (autoplay) {
+										stopAutoplay();
+										startAutoplay();
+									}
+								}}
+								aria-label="Event {i + 1}"
+							></button>
+						{/each}
+					</div>
+				{/if}
 			{/if}
 		{/if}
 	</div>
@@ -405,223 +325,285 @@
 
 <style>
 	.carousel-wrapper {
-		position: relative;
-	}
-
-	.carousel-container {
-		position: relative;
-		width: 100%;
 		height: 100%;
 		display: flex;
-		align-items: center;
-		justify-content: center;
-		perspective: 1000px;
-	}
-
-	.carousel-container:focus {
-		outline: none;
-	}
-
-	/* Show focus ring only when keyboard-navigating */
-	.carousel-container:focus-visible {
-		outline: 2px solid #e1ff00;
-		outline-offset: -2px;
-		border-radius: 8px;
-	}
-
-	.card-holder {
-		position: absolute;
-		width: 180px;
-		height: 240px;
-		transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-		-webkit-transform-style: preserve-3d;
-        transform-style: preserve-3d;
-	}
-
-	.carousel-card {
-		position: relative;
-		width: 100%;
-		height: 100%;
+		flex-direction: column;
+		background: #212121;
+		border: 2px solid #2a2a2a;
 		border-radius: 12px;
 		overflow: hidden;
-		cursor: pointer;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-		border: none;
-		background: transparent;
-		padding: 0;
-		-webkit-transform: translateZ(0); /* Promotes to hardware layer */
-    	transform: translateZ(0);
 	}
 
-	.card-holder.center {
-		transform: translateX(0) translateZ(50px) scale(1.1) rotateY(0deg);
-		z-index: 10;
-		opacity: 1;
-		filter: brightness(1);
-	}
-	
-	.card-holder:hover .carousel-card.is-center {
-		transform: scale(1.05);
+	.header {
+		padding: 12px 16px;
+		border-bottom: 1px solid #2a2a2a;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-shrink: 0;
 	}
 
-	.card-holder.left {
-		transform: translateX(-200px) translateZ(0) scale(0.85) rotateY(15deg);
-		z-index: 5;
-		opacity: 0.6;
-		filter: brightness(0.7);
+	.title {
+		color: white;
+		font-size: 14px;
+		font-weight: 700;
+		margin: 0;
 	}
 
-	.card-holder.right {
-		transform: translateX(200px) translateZ(0) scale(0.85) rotateY(-15deg);
-		z-index: 5;
-		opacity: 0.6;
-		filter: brightness(0.7);
+	.count {
+		color: #808080;
+		font-size: 12px;
 	}
 
-	.card-holder.far-left {
-		transform: translateX(-350px) translateZ(-50px) scale(0.7) rotateY(25deg);
-		z-index: 1;
-		opacity: 0.3;
-		filter: brightness(0.5);
+	.content {
+		flex: 1;
+		position: relative;
+		overflow: hidden;
 	}
 
-	.card-holder.far-right {
-		transform: translateX(350px) translateZ(-50px) scale(0.7) rotateY(-25deg);
-		z-index: 1;
-		opacity: 0.3;
-		filter: brightness(0.5);
-	}
-	
-	/* [NEW] Added hidden states for items off-screen */
-	.card-holder.hidden-left {
-		transform: translateX(-500px) translateZ(-100px) scale(0.5) rotateY(35deg);
-		z-index: 0;
-		opacity: 0;
-		filter: brightness(0);
-		pointer-events: none;
-	}
-
-	.card-holder.hidden-right {
-		transform: translateX(500px) translateZ(-100px) scale(0.5) rotateY(-35deg);
-		z-index: 0;
-		opacity: 0;
-		filter: brightness(0);
-		pointer-events: none;
-	}
-
-
-	.order-badge {
+	/* Empty State */
+	.empty-state {
 		position: absolute;
-		top: 8px;
-		left: 8px;
-		width: 28px;
-		height: 28px;
+		inset: 16px;
+		border: 2px dashed #2a2a2a;
+		border-radius: 12px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+	}
+
+	.empty-state.dragging {
+		border-color: #e1ff00;
+		background: rgba(225, 255, 0, 0.05);
+	}
+
+	.empty-icon {
+		width: 64px;
+		height: 64px;
+		color: #808080;
+		margin-bottom: 12px;
+		transition: color 0.2s;
+	}
+
+	.empty-icon.active {
+		color: #e1ff00;
+	}
+
+	.empty-title {
+		color: #808080;
+		font-size: 14px;
+		font-weight: 700;
+		margin: 0 0 4px 0;
+	}
+
+	.empty-subtitle {
+		color: #666;
+		font-size: 12px;
+		margin: 0;
+	}
+
+	/* Carousel Stage */
+	.carousel-stage {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: flex-start;
+		justify-content: center;
+		perspective: 1400px;
+		position: relative;
+		cursor: grab;
+		touch-action: pan-y;
+		user-select: none;
+		padding-top: 20px;
+	}
+
+	.carousel-stage.grabbing {
+		cursor: grabbing;
+	}
+
+	.card {
+		position: absolute;
+		width: 200px;
+		height: 280px;
+		transition: all 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+		transform-style: preserve-3d;
+		will-change: transform, opacity;
+	}
+
+	.card.hidden {
+		opacity: 0 !important;
+		pointer-events: none;
+		transform: translateX(-1000px) !important;
+	}
+
+	.card-button {
+		width: 100%;
+		height: 100%;
+		position: relative;
+		border: none;
+		border-radius: 16px;
+		overflow: hidden;
+		cursor: pointer;
+		background: #1a1a1a;
+		padding: 0;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+		transition: all 0.3s ease;
+	}
+
+	.card-button:hover {
+		box-shadow: 0 12px 48px rgba(0, 0, 0, 0.7);
+	}
+
+	.card-button.active:hover {
+		transform: scale(1.02);
+	}
+
+	.badge {
+		position: absolute;
+		top: 12px;
+		left: 12px;
+		width: 36px;
+		height: 36px;
 		background: #e1ff00;
 		color: #000;
-		border-radius: 6px;
+		border-radius: 8px;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		font-size: 12px;
-		font-weight: bold;
-		z-index: 20;
+		font-size: 16px;
+		font-weight: 900;
+		z-index: 10;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 	}
 
-	.card-image {
+	.flyer {
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
-		background-color: #1a1a1a; /* Background color for images */
+		display: block;
+		pointer-events: none;
 	}
 
-	.card-placeholder {
+	.placeholder {
 		width: 100%;
 		height: 100%;
-		background: linear-gradient(135deg, rgba(225, 255, 0, 0.2), rgba(225, 255, 0, 0.1));
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		background: linear-gradient(135deg, rgba(225, 255, 0, 0.15), rgba(225, 255, 0, 0.05));
 	}
 
-	.remove-btn {
+	.placeholder-icon {
+		width: 72px;
+		height: 72px;
+		color: #e1ff00;
+	}
+
+	.ring {
+		position: absolute;
+		inset: 0;
+		border: 3px solid #e1ff00;
+		border-radius: 16px;
+		pointer-events: none;
+		background: rgba(225, 255, 0, 0.05);
+		animation: pulse 2s infinite;
+	}
+
+	@keyframes pulse {
+		0%, 100% { box-shadow: 0 0 0 0 rgba(225, 255, 0, 0.4); }
+		50% { box-shadow: 0 0 0 6px rgba(225, 255, 0, 0); }
+	}
+
+	.remove {
 		position: absolute;
 		top: 0;
 		right: 0;
-		width: 32px;
-		height: 32px;
-		background: #FCA5A5;
-		color: white;
+		width: 40px;
+		height: 40px;
+		background: #ef4444;
 		border: none;
-		border-bottom-left-radius: 8px;
-		border-top-right-radius: 12px;
+		border-bottom-left-radius: 12px;
+		border-top-right-radius: 16px;
+		color: white;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		opacity: 0;
-		transition: opacity 0.2s, background 0.2s;
-		z-index: 30;
 		cursor: pointer;
+		opacity: 0;
+		transition: opacity 0.2s ease, background 0.2s ease;
+		z-index: 20;
 	}
 
-	.card-holder:hover .remove-btn {
+	.remove svg {
+		width: 20px;
+		height: 20px;
+	}
+
+	.card:hover .remove {
 		opacity: 1;
 	}
 
-	.remove-btn:hover {
+	.remove:hover {
 		background: #dc2626;
 	}
 
-	.selection-overlay {
-		position: absolute;
-		inset: 0;
-		background: rgba(225, 255, 0, 0.2);
-		pointer-events: none;
-		border: 2px solid #e1ff00;
-		border-radius: 12px;
-	}
-
-	.nav-arrow {
+	/* Navigation */
+	.nav {
 		position: absolute;
 		top: 50%;
 		transform: translateY(-50%);
-		width: 40px;
-		height: 40px;
-		background: rgba(33, 33, 33, 0.8);
+		width: 48px;
+		height: 48px;
+		background: rgba(33, 33, 33, 0.95);
 		border: 2px solid #e1ff00;
 		border-radius: 50%;
+		color: #e1ff00;
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: #e1ff00;
 		cursor: pointer;
 		transition: all 0.2s;
-		z-index: 15;
-		backdrop-filter: blur(4px);
+		z-index: 200;
+		backdrop-filter: blur(8px);
 	}
 
-	.nav-arrow:hover {
+	.nav svg {
+		width: 24px;
+		height: 24px;
+	}
+
+	.nav:hover {
 		background: #e1ff00;
 		color: #000;
-		transform: translateY(-50%) scale(1.1);
+		transform: translateY(-50%) scale(1.15);
+		box-shadow: 0 0 20px rgba(225, 255, 0, 0.5);
 	}
 
-	.nav-arrow.left {
+	.nav.prev {
 		left: 20px;
 	}
 
-	.nav-arrow.right {
+	.nav.next {
 		right: 20px;
 	}
 
-	.dots-container {
+	/* Dots */
+	.dots {
 		position: absolute;
-		bottom: 12px;
+		bottom: 16px;
 		left: 50%;
 		transform: translateX(-50%);
 		display: flex;
-		gap: 8px;
-		z-index: 15;
+		gap: 10px;
+		background: rgba(33, 33, 33, 0.95);
+		padding: 8px 16px;
+		border-radius: 24px;
+		backdrop-filter: blur(10px);
+		z-index: 250;
+		border: 1px solid rgba(225, 255, 0, 0.2);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 	}
 
 	.dot {
@@ -630,13 +612,14 @@
 		border-radius: 50%;
 		background: rgba(255, 255, 255, 0.3);
 		border: none;
-		cursor: pointer;
-		transition: all 0.2s;
 		padding: 0;
+		cursor: pointer;
+		transition: all 0.3s;
 	}
 
 	.dot:hover {
-		background: rgba(255, 255, 255, 0.5);
+		background: rgba(255, 255, 255, 0.6);
+		transform: scale(1.2);
 	}
 
 	.dot.active {
@@ -645,4 +628,3 @@
 		border-radius: 4px;
 	}
 </style>
-
