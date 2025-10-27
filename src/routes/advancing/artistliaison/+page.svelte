@@ -18,25 +18,108 @@
 	}
 
 	async function handleExport(event: CustomEvent) {
-		const { event: exportEvent, format, options } = event.detail;
-		
+		const { event: eventToExport } = event.detail;
+
+		console.log('Exporting event:', eventToExport);
+
 		isExporting = true;
-		
+
 		try {
-			// TODO: Implement actual export logic here
-			console.log('Exporting event:', exportEvent);
-			console.log('Format:', format);
-			console.log('Options:', options);
-			
-			// Simulate export process
-			await new Promise(resolve => setTimeout(resolve, 2000));
-			
-			// Show success message (you can use a toast notification here)
-			alert(`Successfully exported ${exportEvent.event_name} as ${format.toUpperCase()}`);
-			
+			// Find the EventDetailsDisplay container
+			const elementToExport = document.querySelector('.event-details-container');
+
+			if (!elementToExport) {
+				console.error('Could not find event details container');
+				alert('Error: Could not find content to export');
+				return;
+			}
+
+			// Clone the element to clean it
+			const clone = elementToExport.cloneNode(true) as HTMLElement;
+
+			// IMPORTANT: Sync all form values to HTML attributes before cleaning
+			const originalInputs = elementToExport.querySelectorAll('input, textarea');
+			const clonedInputs = clone.querySelectorAll('input, textarea');
+
+			originalInputs.forEach((original, index) => {
+				const cloned = clonedInputs[index] as HTMLInputElement | HTMLTextAreaElement;
+				if (!cloned) return;
+
+				if (original instanceof HTMLInputElement) {
+					if (original.type === 'radio' || original.type === 'checkbox') {
+						// Sync checked state
+						if (original.checked) {
+							cloned.setAttribute('checked', 'checked');
+						} else {
+							cloned.removeAttribute('checked');
+						}
+					} else {
+						// Sync value for text inputs
+						cloned.setAttribute('value', original.value);
+					}
+				} else if (original instanceof HTMLTextAreaElement) {
+					// Sync textarea content
+					cloned.textContent = original.value;
+				}
+			});
+
+			// Remove all Svelte-generated attributes and classes
+			const allElements = clone.querySelectorAll('*');
+			allElements.forEach((el) => {
+				// Remove Svelte attributes
+				Array.from(el.attributes).forEach((attr) => {
+					if (attr.name.startsWith('s-') || attr.name.startsWith('data-')) {
+						el.removeAttribute(attr.name);
+					}
+				});
+			});
+
+			// Get cleaned HTML
+			const htmlContent = clone.outerHTML;
+
+			console.log('HTML content length:', htmlContent.length);
+
+			// Generate filename
+			const eventDate = new Date(eventToExport.event_date);
+			const day = eventDate.getDate();
+			const month = eventDate.toLocaleString('en-US', { month: 'short' });
+			const year = eventDate.getFullYear();
+			const fileName = `Artist_Liaison_${eventToExport.event_name}_${day}-${month}-${year}`;
+
+			// Call the API to generate PDF
+			const response = await fetch('/api/generate-liaison-pdf', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					htmlContent,
+					fileName
+				})
+			});
+
+			if (!response.ok) {
+				const errorResult = await response
+					.json()
+					.catch(() => ({ error: 'Failed to generate PDF.' }));
+				throw new Error(errorResult.error || `Server responded with status ${response.status}`);
+			}
+
+			// Get the PDF as a blob
+			const pdfBlob = await response.blob();
+
+			// Create download link
+			const pdfUrl = URL.createObjectURL(pdfBlob);
+			const link = document.createElement('a');
+			link.href = pdfUrl;
+			link.download = `${fileName}.pdf`;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			URL.revokeObjectURL(pdfUrl);
+
+			console.log('Export completed successfully');
 		} catch (error) {
 			console.error('Export failed:', error);
-			alert('Export failed. Please try again.');
+			alert(`Error exporting PDF: ${error instanceof Error ? error.message : 'Unknown error'}`);
 		} finally {
 			isExporting = false;
 		}
@@ -59,11 +142,7 @@
 			</div>
 
 			<div class="export-column">
-				<ExportManager 
-					{selectedEvent} 
-					{isExporting}
-					on:export={handleExport}
-				/>
+				<ExportManager {selectedEvent} {isExporting} on:export={handleExport} />
 			</div>
 		</div>
 	</div>
@@ -73,7 +152,9 @@
 	.fade-in {
 		opacity: 0;
 		transform: translateY(20px);
-		transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+		transition:
+			opacity 0.6s ease-out,
+			transform 0.6s ease-out;
 	}
 
 	.fade-in.mounted {
@@ -108,10 +189,9 @@
 	}
 
 	.details-column {
-		min-width: 0; /* Allows flex item to shrink below content size */
+		min-width: 0;
 	}
 
-	/* Responsive adjustments for smaller screens */
 	@media (max-width: 1400px) {
 		.liaison-container {
 			grid-template-columns: 280px 1fr 250px;

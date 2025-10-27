@@ -42,6 +42,8 @@
 		initializeData();
 	}
 
+	$: isLocalArtist = event?.artist_type === 'Local';
+
 	function initializeData() {
 		if (!event) return;
 		const parsedData = parseJsonData(event.rider_files) || {};
@@ -127,21 +129,17 @@
 		const filePath = `${folder}/${fullFileName}`;
 
 		// Upload to Supabase Storage
-		const { data, error } = await supabase.storage
-			.from('documents')
-			.upload(filePath, file, {
-				cacheControl: '3600',
-				upsert: true
-			});
+		const { data, error } = await supabase.storage.from('documents').upload(filePath, file, {
+			cacheControl: '3600',
+			upsert: true
+		});
 
 		if (error) {
 			throw new Error(error.message);
 		}
 
 		// Get public URL
-		const { data: urlData } = supabase.storage
-			.from('documents')
-			.getPublicUrl(filePath);
+		const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
 
 		return urlData.publicUrl;
 	}
@@ -155,9 +153,7 @@
 		}
 		const filePath = urlParts[1];
 
-		const { error } = await supabase.storage
-			.from('documents')
-			.remove([filePath]);
+		const { error } = await supabase.storage.from('documents').remove([filePath]);
 
 		if (error) {
 			throw new Error(error.message);
@@ -296,9 +292,19 @@
 					<span class="font-semibold min-w-[120px] text-gray3 text-xs">Tech Rider</span>
 					{#if !riderFiles.tech_rider_url}
 						<button
-							on:click={() => (showUploadModal = 'tech')}
-							class="bg-transparent border border-lime text-lime hover:!text-black hover:!bg-lime cursor-pointer font-bold text-center rounded-xl px-3 py-1 text-xs transition-all duration-200"
-							disabled={uploading}
+							on:click={() => !isLocalArtist && (showUploadModal = 'tech')}
+							class="bg-transparent border text-center rounded-xl px-3 py-1 text-xs transition-all duration-200"
+							class:border-lime={!isLocalArtist}
+							class:text-lime={!isLocalArtist}
+							class:hover:!text-black={!isLocalArtist}
+							class:hover:!bg-lime={!isLocalArtist}
+							class:cursor-pointer={!isLocalArtist}
+							class:font-bold={!isLocalArtist}
+							class:border-gray1={isLocalArtist}
+							class:text-gray2={isLocalArtist}
+							class:cursor-not-allowed={isLocalArtist}
+							class:opacity-50={isLocalArtist}
+							disabled={uploading || isLocalArtist}
 						>
 							{uploading && showUploadModal === 'tech' ? 'Uploading...' : 'Upload Tech Rider'}
 						</button>
@@ -364,7 +370,7 @@
 					{#if !hasVJ && event.event_venue !== 'Bazart'}
 						<button
 							on:click={addNewVisualField}
-							class="flex items-center justify-center w-6 h-6 text-lime hover:bg-lime hover:text-black rounded-full transition-colors"
+							class="flex items-center justify-center w-6 h-6 text-lime hover:cursor-pointer hover:bg-lime hover:text-black rounded-full transition-colors"
 							aria-label="Add visual link"
 						>
 							<svg
@@ -395,7 +401,7 @@
 								<input
 									type="text"
 									placeholder="https://visual-link.com"
-									class="flex-1 bg-gray1 text-gray3 p-2 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-lime"
+									class="flex-1 bg-gray1 text-gray3 p-2 rounded-lg text-xs focus:outline-none hover:cursor-pointer focus:ring-1 focus:ring-lime"
 									bind:value={visuals[key]}
 									on:input={updateVisualInput}
 								/>

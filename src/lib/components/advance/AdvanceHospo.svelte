@@ -6,13 +6,20 @@
 	import HospoRiderModal from '$lib/components/modals/HospoRiderModal.svelte';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
 
-	export let event: EventAdvance & { event_venue?: string; artist_name?: string };
+	export let event: EventAdvance & {
+		event_venue?: string;
+		artist_name?: string;
+		artist_type?: string | null;
+	};
 
 	const dispatch = createEventDispatcher();
 
 	// --- TYPE DEFINITIONS ---
 	// Define a type for rider items to help TypeScript
-	type HospoItem = { qty?: number; selected?: boolean };
+	type HospoItem = {
+		qty?: number;
+		selected: boolean; // Remove the ? to make it required
+	};
 
 	// Create a more complete local type to include new properties
 	type CompleteHospoRiderInfo = HospoRiderInfo & {
@@ -21,11 +28,12 @@
 			wine?: { [key: string]: HospoItem };
 			juice?: { [key: string]: HospoItem };
 		};
-		rider_sent_to_mihir?: boolean; // Added property
+		rider_sent_to_mihir?: boolean;
 	};
 
 	// --- STATE ---
 	let hospoRider: HospoRiderInfo | null = null;
+	let foodBuyout: { type: 'buyout' | 'dinner' | null; details: string } | null = null;
 	let saving = false;
 	let showHospoModal = false;
 	let justCopied = false;
@@ -37,6 +45,13 @@
 	// Parse hospo_rider from event
 	function parseHospoRider(eventData: typeof event) {
 		if (!eventData?.hospo_rider) {
+			// If no rider exists and artist is local, create default local rider
+			if (eventData?.artist_type === 'Local') {
+				const defaultRider = createDefaultLocalRider();
+				// Save the default rider to the database
+				saveDefaultLocalRider(defaultRider);
+				return defaultRider;
+			}
 			return null;
 		}
 
@@ -56,10 +71,57 @@
 		}
 	}
 
-	// Initialize and update hospo rider from event
-	$: hospoRider = parseHospoRider(event);
+	function createDefaultLocalRider() {
+		return {
+			base: {
+				regular_drinks: false,
+				regular_snacks: false
+			},
+			spirits: {
+				'Grey Goose': { selected: true, qty: 1 }
+			},
+			beers_wine: {
+				beers: {},
+				wine: {},
+				juice: {}
+			},
+			other_drinks: {},
+			custom_requests: [],
+			custom_rider_text: '',
+			rider_sent_to_mihir: false
+		};
+	}
 
-	// Cast to the more complete type for use in the component
+	function parseFoodBuyout(eventData: typeof event) {
+		// Local artists don't get food buyout by default
+		if (eventData?.artist_type === 'Local' && !eventData?.food_buyout) {
+			return { type: null, details: '' };
+		}
+
+		if (!eventData?.food_buyout) {
+			return { type: null, details: '' };
+		}
+
+		try {
+			let parsed = eventData.food_buyout;
+
+			if (typeof parsed === 'string') {
+				parsed = JSON.parse(parsed);
+			}
+
+			if (typeof parsed === 'string') {
+				parsed = JSON.parse(parsed);
+			}
+
+			return parsed;
+		} catch (e) {
+			console.error('Error parsing food_buyout:', e);
+			return { type: null, details: '' };
+		}
+	}
+
+	$: hospoRider = parseHospoRider(event);
+	$: foodBuyout = parseFoodBuyout(event);
 	$: completeHospoRider = hospoRider as CompleteHospoRiderInfo | null;
 
 	// --- DATABASE FUNCTIONS ---
@@ -86,6 +148,30 @@
 			console.error('❌ Unexpected error saving hospitality details:', err);
 		} finally {
 			saving = false;
+		}
+	}
+
+	async function saveDefaultLocalRider(defaultRider: any) {
+		if (!event?.event_id || !event.artist_name) {
+			console.warn('Missing required data for saving default local rider');
+			return;
+		}
+
+		try {
+			const { error } = await supabase
+				.from('events_advance')
+				.update({ hospo_rider: defaultRider })
+				.eq('event_id', event.event_id)
+				.eq('artist_name', event.artist_name);
+
+			if (error) {
+				console.error('❌ Failed to save default local rider:', error);
+			} else {
+				console.log('✅ Default local rider saved');
+				dispatch('datachanged');
+			}
+		} catch (err) {
+			console.error('❌ Unexpected error saving default local rider:', err);
 		}
 	}
 
@@ -285,9 +371,14 @@
 	}
 
 	function handleHospoUpdate(e: CustomEvent) {
-		// Update the local event object with the new hospo_rider data
-		if (event && e.detail?.updates?.hospo_rider) {
-			event = { ...event, hospo_rider: e.detail.updates.hospo_rider };
+		// Update the local event object with both hospo_rider and food_buyout
+		if (event) {
+			if (e.detail?.updates?.hospo_rider) {
+				event = { ...event, hospo_rider: e.detail.updates.hospo_rider };
+			}
+			if (e.detail?.updates?.food_buyout) {
+				event = { ...event, food_buyout: e.detail.updates.food_buyout };
+			}
 		}
 		// Refresh event data after modal saves
 		dispatch('datachanged');
@@ -302,6 +393,7 @@
 		// Count base items
 		if (completeHospoRider.base?.regular_drinks) count++;
 		if (completeHospoRider.base?.regular_snacks) count++;
+		if (foodBuyout?.type) count++;
 
 		// Count selected spirits
 		count += Object.values(completeHospoRider.spirits || {}).filter((item) => item.selected).length;
@@ -327,7 +419,12 @@
 	})();
 </script>
 
-<PopupNotification bind:show={showPopup} message={popupMessage} variant="navbar" iconType="success" />
+<PopupNotification
+	bind:show={showPopup}
+	message={popupMessage}
+	variant="navbar"
+	iconType="success"
+/>
 
 <div
 	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300"
@@ -363,7 +460,13 @@
 							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 						</svg>
 					{:else}
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+						<svg
+							class="w-4 h-4"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+							stroke-width="2"
+						>
 							<path
 								stroke-linecap="round"
 								stroke-linejoin="round"
@@ -417,6 +520,22 @@
 					</div>
 				{/if}
 
+				{#if foodBuyout && foodBuyout.type}
+					<div>
+						<h3 class="text-xs font-semibold text-gray3 mb-2">
+							{#if foodBuyout.type === 'buyout'}
+								Cash Buyout: {#if foodBuyout.details}<span class="font-normal text-gray-300"
+										>{foodBuyout.details}</span
+									>{/if}
+							{:else if foodBuyout.type === 'dinner'}
+								Dinner Buyout: {#if foodBuyout.details}<span class="font-normal text-gray-300"
+										>{foodBuyout.details}</span
+									>{/if}
+							{/if}
+						</h3>
+					</div>
+				{/if}
+
 				{#if Object.values(completeHospoRider.spirits || {}).some((item) => item.selected)}
 					<div>
 						<h3 class="text-xs font-semibold text-gray3 mb-2">Spirits</h3>
@@ -450,7 +569,7 @@
 									</span>
 								{/if}
 							{/each}
-							{#each Object.entries( (completeHospoRider.beers_wine?.wine || {}) as { [key: string]: HospoItem } ) as [name, item]}
+							{#each Object.entries((completeHospoRider.beers_wine?.wine || {}) as { [key: string]: HospoItem }) as [name, item]}
 								<span class="px-2 py-0.5 bg-gray1 text-gray-300 text-xs rounded-full">
 									{item.qty || 1}x {name}
 								</span>

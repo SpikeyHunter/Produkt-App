@@ -23,6 +23,23 @@
 	$: event_id = $page.params.event_param;
 
 	let timetableKey = 1;
+	let advanceEmailRef: any;
+
+	async function handleContactChanged(e: CustomEvent) {
+		// First, update the parent's event object
+		if (event) {
+			event.main_contact = e.detail.mainContact;
+			event = { ...event };
+		}
+
+		// Wait a tick for Svelte to propagate the change
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		// Then trigger the recheck
+		if (advanceEmailRef) {
+			advanceEmailRef.recheckCanGenerate();
+		}
+	}
 
 	onMount(async () => {
 		setTimeout(() => (mounted = true), 150);
@@ -86,8 +103,30 @@
 		}
 	}
 
-	function handleGoBack() {
-		goto('/advancing/gathered');
+	async function handleGoBack() {
+		if (!event) {
+			goto('/advancing/gathered');
+			return;
+		}
+
+		// Build URL params based on event properties
+		const params = new URLSearchParams();
+
+		// Check if event is past
+		if (event.event_status === 'PAST') {
+			params.set('live', 'false');
+		}
+
+		// Check if artist is local
+		if (event.artist_type === 'Local') {
+			params.set('local', 'true');
+		}
+
+		// Navigate back with the appropriate filters
+		const url = params.toString()
+			? `/advancing/gathered?${params.toString()}`
+			: '/advancing/gathered';
+		goto(url);
 	}
 
 	async function handleAdvanceInfoUpdate(e: CustomEvent) {
@@ -228,7 +267,11 @@
 							class="fade-in {mounted ? 'mounted' : ''} card-item"
 							style="transition-delay: 0.3s;"
 						>
-							<AdvanceEvent {event} on:update={handleAdvanceInfoUpdate} />
+							<AdvanceEvent
+								{event}
+								on:update={handleAdvanceInfoUpdate}
+								on:contactChanged={handleContactChanged}
+							/>
 						</div>
 
 						<div
@@ -281,7 +324,7 @@
 							class="fade-in {mounted ? 'mounted' : ''} card-item"
 							style="transition-delay: 0.7s;"
 						>
-							<AdvanceEmail {event} />
+							<AdvanceEmail bind:this={advanceEmailRef} {event} />
 						</div>
 					</div>
 				</div>

@@ -12,6 +12,7 @@
 		event_date: string;
 		event_flyer: string | null;
 		event_venue: string | null;
+		timetable: any;
 		totalAdvances: number;
 		completedAdvances: number;
 		isFullyCompleted: boolean;
@@ -47,10 +48,10 @@
 			// Get unique event IDs
 			const uniqueEventIds = [...new Set(advanceData.map(a => a.event_id))];
 
-			// Fetch event details for LIVE events only
+			// Fetch event details for LIVE events only - INCLUDING TIMETABLE
 			const { data: eventsData, error: eventsError } = await supabase
 				.from('events')
-				.select('event_id, event_name, event_date, event_flyer, event_venue, event_status')
+				.select('event_id, event_name, event_date, event_flyer, event_venue, event_status, timetable')
 				.in('event_id', uniqueEventIds)
 				.eq('event_status', 'LIVE');
 
@@ -69,6 +70,7 @@
 					event_date: event.event_date,
 					event_flyer: event.event_flyer,
 					event_venue: event.event_venue,
+					timetable: event.timetable,
 					totalAdvances: eventAdvances.length,
 					completedAdvances,
 					isFullyCompleted: completedAdvances === eventAdvances.length,

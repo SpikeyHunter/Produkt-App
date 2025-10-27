@@ -146,7 +146,8 @@
 			requiredPermission: 'Advance',
 			subItems: [
 				{ label: 'Advance Gathered', route: '/advancing/gathered' },
-				{ label: 'Artist Liaison', route: '/advancing/artistliaison' }
+				{ label: 'Artist Liaison', route: '/advancing/artistliaison' },
+       		 	{ label: 'Local Artists', route: '/advancing/localartists' }  
 			]
 		},
 		{

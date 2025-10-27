@@ -6,7 +6,7 @@
 	import CalendarSyncModal from '$lib/components/modals/CalendarSyncModal.svelte';
 	import ImmigrationModal from '$lib/components/modals/ImmigrationModal.svelte';
 	import AdvanceMeetGreetModal from '$lib/components/modals/MeetGreetModal.svelte';
-	import NotesModal from '$lib/components/modals/NotesModal.svelte'; // IMPORTED
+	import NotesModal from '$lib/components/modals/NotesModal.svelte';
 	import { portal } from '$lib/utils/portalUtils.js';
 	import type { EventAdvance } from '$lib/types/events.js';
 	import { parseRoles } from '$lib/utils/roleUtils.js';
@@ -23,22 +23,35 @@
 	let showScheduleModal = false;
 	let showImmigrationModal = false;
 	let showMeetGreetModal = false;
-	let showNotesModal = false; // ADDED
+	let showNotesModal = false;
+
+	// Check if artist is local
+	$: isLocal = event.artist_type === 'Local';
 
 	$: people = parseRoles(event.roles);
 	$: passportInfos = parsePassportInfo(event.passport_info);
 	$: immigrationPeople = people.filter((p) => p.immigration === true);
 	$: passportStatus = getPassportCompletionStatus(immigrationPeople, passportInfos);
-	$: roleButtonText = people.length === 0 ? 'Add roles' : `Modify (${people.length})`;
+	
+	// Role button - disabled for local artists
+	$: isRoleButtonDisabled = isLocal;
+	$: roleButtonText = isLocal ? 'N/A' : (people.length === 0 ? 'Add roles' : `Modify (${people.length})`);
+	$: roleButtonClasses = [
+		'bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
+		isLocal ? 'opacity-50 cursor-not-allowed' : 'hover:bg-lime hover:text-black cursor-pointer'
+	]
+		.filter(Boolean)
+		.join(' ');
+
 	$: passportButtonText = (() => {
+		if (isLocal) return 'N/A';
 		if (people.length === 0) return 'No Team';
 		if (immigrationPeople.length === 0) return 'N/A';
 		if (passportStatus.completed === 0)
 			return `Add (${passportStatus.completed}/${passportStatus.total})`;
 		return `Modify (${passportStatus.completed}/${passportStatus.total})`;
 	})();
-	$: isPassportButtonDisabled = immigrationPeople.length === 0;
-	$: isImmigrationButtonDisabled = immigrationPeople.length === 0;
+	$: isPassportButtonDisabled = isLocal || immigrationPeople.length === 0;
 	$: passportButtonClasses = [
 		'bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200 disabled:opacity-50',
 		!isPassportButtonDisabled
@@ -47,6 +60,8 @@
 	]
 		.filter(Boolean)
 		.join(' ');
+	
+	$: isImmigrationButtonDisabled = isLocal || immigrationPeople.length === 0;
 	$: immigrationButtonClasses = [
 		'bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200 disabled:opacity-50',
 		!isImmigrationButtonDisabled
@@ -55,10 +70,11 @@
 	]
 		.filter(Boolean)
 		.join(' ');
-	$: isHotelButtonDisabled = people.length === 0;
+	
+	$: isHotelButtonDisabled = isLocal || people.length === 0;
 	$: hotelButtonClasses = [
 		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
-		event.hotel_enabled === false ?
+		event.hotel_enabled === false || isLocal ?
 'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
 		!isHotelButtonDisabled && event.hotel_enabled !== false
 			? 'hover:bg-lime hover:text-black cursor-pointer'
@@ -68,10 +84,11 @@
 	]
 		.filter(Boolean)
 		.join(' ');
-	$: isFlightsButtonDisabled = people.length === 0;
+	
+	$: isFlightsButtonDisabled = isLocal || people.length === 0;
 	$: flightsButtonClasses = [
 		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
-		event.flights_enabled === false ?
+		event.flights_enabled === false || isLocal ?
 'bg-gray2 text-black opacity-50' : 'bg-gray2 text-black',
 		!isFlightsButtonDisabled && event.flights_enabled !== false
 			? 'hover:bg-lime hover:text-black cursor-pointer'
@@ -81,6 +98,7 @@
 	]
 		.filter(Boolean)
 		.join(' ');
+	
 	$: isScheduleButtonDisabled = people.length === 0;
 	$: scheduleButtonClasses = [
 		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
@@ -94,6 +112,7 @@
 	]
 		.filter(Boolean)
 		.join(' ');
+	
 	$: isMeetGreetButtonDisabled = people.length === 0;
 	$: meetGreetButtonClasses = [
 		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200',
@@ -114,7 +133,9 @@
 	}
 
 	function openRoleModal() {
-		showRoleModal = true;
+		if (!isRoleButtonDisabled) {
+			showRoleModal = true;
+		}
 	}
 	function handleRoleClose() {
 		showRoleModal = false;
@@ -188,14 +209,12 @@
 		showMeetGreetModal = false;
 	}
 
-	// ADDED START
 	function openNotesModal() {
 		showNotesModal = true;
 	}
 	function handleNotesClose() {
 		showNotesModal = false;
 	}
-	// ADDED END
 </script>
 
 <div
@@ -218,8 +237,9 @@
 				>
 			</div>
 			<button
-				class="bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime hover:text-black transition-all duration-200 cursor-pointer"
+				class={roleButtonClasses}
 				on:click={openRoleModal}
+				disabled={isRoleButtonDisabled}
 			>
 				{roleButtonText}
 			</button>

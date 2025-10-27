@@ -130,7 +130,7 @@
 			</div>
 
 			<!-- Right Column -->
-			<div class="w-full lg:w-[350px] lg:min-w-[300px] flex-shrink-0">
+			<div class="w-full lg:w-[200px] lg:min-w-[200px] flex-shrink-0">
 				<ControlPanel
 					bind:filters
 					on:filtersChange={handleFiltersChange}

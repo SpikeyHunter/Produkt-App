@@ -11,18 +11,32 @@
 
 	// Define available items for easy configuration
 	const spiritOptions = [
-		'Patron Reposado', 'Grey Goose', 'Moet Chandon', 
-        'Patron Silver', 'Bombay Sapphire', 'Dom Perignon', 
-        'Patron El Alto', 'Jameson Whiskey', 'Cava',
-        'Patron El Cielo', 'Fireball'
-		
+		'Patron Reposado',
+		'Grey Goose',
+		'Moet Chandon',
+		'Patron Silver',
+		'Bombay Sapphire',
+		'Dom Perignon',
+		'Patron El Alto',
+		'Jameson Whiskey',
+		'Cava',
+		'Patron El Cielo',
+		'Fireball'
 	];
 	const beerOptions = ['Corona', 'Stella', 'Bud Light', 'Corona 0%'];
 	const otherDrinkOptions = [
-		 'Red Bull Regular', 'Evian Water', 'Ginger Beer',
-         'Red Bull Sugar Free', 'Sparkling Water', 'Whiteclaw',
-         'Red Bull Watermelon', 'Perrier' , 'Seltzer',
-         'Red Bull Apricot', 'Tonic',  'Soda'
+		'Red Bull Regular',
+		'Evian Water',
+		'Ginger Beer',
+		'Red Bull Sugar Free',
+		'Sparkling Water',
+		'Whiteclaw',
+		'Red Bull Watermelon',
+		'Perrier',
+		'Seltzer',
+		'Red Bull Apricot',
+		'Tonic',
+		'Soda'
 	];
 	const juiceOptions = ['Pineapple Juice', 'Cranberry Juice', 'Orange Juice', 'Apple Juice'];
 	// Define a consistent type for all selectable items, including custom ones.
@@ -50,10 +64,13 @@
 	};
 	// Helper function to create default item data
 	const createDefaultItemData = (options: string[]): { [key: string]: Item } => {
-		return options.reduce((acc, item) => {
-			acc[item] = { selected: false, qty: 1 };
-			return acc;
-		}, {} as { [key: string]: Item });
+		return options.reduce(
+			(acc, item) => {
+				acc[item] = { selected: false, qty: 1 };
+				return acc;
+			},
+			{} as { [key: string]: Item }
+		);
 	};
 
 	const defaultHospoData: HospoData = {
@@ -72,6 +89,10 @@
 		custom_rider_text: ''
 	};
 	let hospoData: HospoData = JSON.parse(JSON.stringify(defaultHospoData));
+	let foodBuyout: { type: 'buyout' | 'dinner' | null; details: string } = {
+		type: null,
+		details: ''
+	};
 
 	// Helper to identify and flag custom items when loading from the DB
 	const augmentWithCustomFlag = (items: { [key: string]: Item } = {}, options: string[] = []) => {
@@ -94,18 +115,19 @@
 
 	$: if (event) {
 		try {
-			const existingData = typeof event.hospo_rider === 'string'
-				? JSON.parse(event.hospo_rider)
-				: event.hospo_rider;
+			// Load hospo_rider
+			const existingData =
+				typeof event.hospo_rider === 'string' ? JSON.parse(event.hospo_rider) : event.hospo_rider;
 			if (existingData) {
 				// Augment loaded data to correctly identify custom items before merging
 				const augmentedSpirits = augmentWithCustomFlag(existingData.spirits, spiritOptions);
 				const augmentedBeers = augmentWithCustomFlag(existingData.beers_wine?.beers, beerOptions);
-				const augmentedOtherDrinks = augmentWithCustomFlag(existingData.other_drinks, otherDrinkOptions);
+				const augmentedOtherDrinks = augmentWithCustomFlag(
+					existingData.other_drinks,
+					otherDrinkOptions
+				);
 				const augmentedWine = augmentWithCustomFlag(existingData.beers_wine?.wine);
 				const augmentedJuice = augmentWithCustomFlag(existingData.beers_wine?.juice, juiceOptions);
-				// All wine entries are custom
-
 				// Merge with defaults to ensure all fields exist and are of the correct type
 				const mergedData = {
 					...defaultHospoData,
@@ -124,9 +146,34 @@
 			} else {
 				hospoData = JSON.parse(JSON.stringify(defaultHospoData));
 			}
+
+			// Load food_buyout separately with double-encoding handling
+			try {
+				let existingFoodBuyout = event.food_buyout;
+
+				// Handle first level of encoding
+				if (typeof existingFoodBuyout === 'string') {
+					existingFoodBuyout = JSON.parse(existingFoodBuyout);
+				}
+
+				// Handle second level of encoding (double-encoded JSON)
+				if (typeof existingFoodBuyout === 'string') {
+					existingFoodBuyout = JSON.parse(existingFoodBuyout);
+				}
+
+				if (existingFoodBuyout && existingFoodBuyout.type !== undefined) {
+					foodBuyout = existingFoodBuyout;
+				} else {
+					foodBuyout = { type: null, details: '' };
+				}
+			} catch (foodBuyoutError) {
+				console.error('Error parsing food_buyout:', foodBuyoutError);
+				foodBuyout = { type: null, details: '' };
+			}
 		} catch (e) {
-			console.error('Error parsing hospo_rider:', e);
+			console.error('Error parsing data:', e);
 			hospoData = JSON.parse(JSON.stringify(defaultHospoData));
+			foodBuyout = { type: null, details: '' };
 		}
 	}
 
@@ -219,12 +266,12 @@
 	}
 
 	function removeCustomRequest(id: string) {
-		hospoData.custom_requests = hospoData.custom_requests.filter(req => req.id !== id);
+		hospoData.custom_requests = hospoData.custom_requests.filter((req) => req.id !== id);
 		hospoData = { ...hospoData };
 	}
 
 	function updateCustomRequestText(id: string, text: string) {
-		const request = hospoData.custom_requests.find(req => req.id === id);
+		const request = hospoData.custom_requests.find((req) => req.id === id);
 		if (request) {
 			request.text = text;
 			hospoData = { ...hospoData };
@@ -237,6 +284,7 @@
 		try {
 			// Deep copy the data to avoid modifying the original state
 			const cleanedData = JSON.parse(JSON.stringify(hospoData));
+
 			// Helper to process and clean up items
 			const processItems = (items: { [key: string]: Item }) => {
 				const newItems: any = {};
@@ -257,7 +305,7 @@
 			cleanedData.beers_wine.wine = processItems(cleanedData.beers_wine.wine);
 			cleanedData.beers_wine.juice = processItems(cleanedData.beers_wine.juice);
 			cleanedData.other_drinks = processItems(cleanedData.other_drinks);
-			
+
 			// Process custom requests
 			const newCustomRequests: OtherRequest[] = [];
 			cleanedData.custom_requests.forEach((req: OtherRequest & { isCustomItem?: boolean }) => {
@@ -267,9 +315,10 @@
 			});
 			cleanedData.custom_requests = newCustomRequests;
 
-
+			// Create updates object with both hospo_rider and food_buyout
 			const updates = {
-				hospo_rider: JSON.stringify(cleanedData)
+				hospo_rider: JSON.stringify(cleanedData),
+				food_buyout: JSON.stringify(foodBuyout)
 			};
 			await updateEventAdvance(event.event_id, event.artist_name, updates);
 			dispatch('save_success', { updates });
@@ -300,23 +349,85 @@
 				<div class="flex gap-3">
 					<button
 						type="button"
-						on:click={() => { hospoData.base.regular_drinks = !hospoData.base.regular_drinks;
-						hospoData = { ...hospoData }; }}
-						class="px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer border {hospoData.base.regular_drinks ? 'bg-lime text-black font-bold border-lime' : 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+						on:click={() => {
+							hospoData.base.regular_drinks = !hospoData.base.regular_drinks;
+							hospoData = { ...hospoData };
+						}}
+						class="px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer border {hospoData
+							.base.regular_drinks
+							? 'bg-lime text-black font-bold border-lime'
+							: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
 					>
 						Regular Drinks
 					</button>
 					<button
 						type="button"
-						on:click={() => { hospoData.base.regular_snacks = !hospoData.base.regular_snacks;
-						hospoData = { ...hospoData }; }}
-						class="px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer border {hospoData.base.regular_snacks ? 'bg-lime text-black font-bold border-lime' : 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+						on:click={() => {
+							hospoData.base.regular_snacks = !hospoData.base.regular_snacks;
+							hospoData = { ...hospoData };
+						}}
+						class="px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer border {hospoData
+							.base.regular_snacks
+							? 'bg-lime text-black font-bold border-lime'
+							: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
 					>
 						Regular Snacks
 					</button>
 				</div>
 			</div>
+			<div>
+				<h3 class="font-semibold text-white mb-3">Food Buyout</h3>
+				<div class="space-y-3">
+					<div class="flex gap-3">
+						<button
+							type="button"
+							on:click={() => {
+								foodBuyout = { type: null, details: '' };
+							}}
+							class="px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer border {!foodBuyout.type
+								? 'bg-lime text-black font-bold border-lime'
+								: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+						>
+							None
+						</button>
+						<button
+							type="button"
+							on:click={() => {
+								foodBuyout = { type: 'buyout', details: '50$' };
+							}}
+							class="px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer border {foodBuyout.type ===
+							'buyout'
+								? 'bg-lime text-black font-bold border-lime'
+								: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+						>
+							Cash Buyout
+						</button>
+						<button
+							type="button"
+							on:click={() => {
+								foodBuyout = { type: 'dinner', details: '' };
+							}}
+							class="px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer border {foodBuyout.type ===
+							'dinner'
+								? 'bg-lime text-black font-bold border-lime'
+								: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+						>
+							Dinner
+						</button>
+					</div>
 
+					{#if foodBuyout.type}
+						<input
+							type="text"
+							placeholder={foodBuyout.type === 'buyout'
+								? 'Enter amount (e.g., 50$)'
+								: 'Enter restaurant name or details'}
+							bind:value={foodBuyout.details}
+							class="w-full bg-gray1 text-white text-sm rounded-lg px-4 py-2 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime border border-gray-600"
+						/>
+					{/if}
+				</div>
+			</div>
 			<div>
 				<h3 class="font-semibold text-white mb-3">Spirits</h3>
 				<div class="grid grid-cols-3 gap-2">
@@ -326,7 +437,9 @@
 								<button
 									type="button"
 									on:click={() => toggleItem('spirits', key)}
-									class="flex-grow px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer border {item.selected ? 'bg-lime text-black font-bold border-lime' : 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+									class="flex-grow px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer border {item.selected
+										? 'bg-lime text-black font-bold border-lime'
+										: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
 								>
 									{key}
 								</button>
@@ -339,7 +452,9 @@
 										>
 											-
 										</button>
-										<span class="font-mono w-4 text-center text-gray-300 text-xs">{item.qty || 1}</span>
+										<span class="font-mono w-4 text-center text-gray-300 text-xs"
+											>{item.qty || 1}</span
+										>
 										<button
 											type="button"
 											on:click={() => adjustQty('spirits', key, 1)}
@@ -365,7 +480,13 @@
 										class="text-black hover:text-red-600 cursor-pointer flex-shrink-0"
 										aria-label="Remove custom spirit"
 									>
-										<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<svg
+											class="w-3 h-3"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+											stroke-width="2"
+										>
 											<path d="M6 18L18 6M6 6l12 12" />
 										</svg>
 									</button>
@@ -378,7 +499,9 @@
 									>
 										-
 									</button>
-									<span class="font-mono w-4 text-center text-gray-300 text-xs">{item.qty || 1}</span>
+									<span class="font-mono w-4 text-center text-gray-300 text-xs"
+										>{item.qty || 1}</span
+									>
 									<button
 										type="button"
 										on:click={() => adjustQty('spirits', key, 1)}
@@ -409,7 +532,9 @@
 								<button
 									type="button"
 									on:click={() => toggleItem('beers', key)}
-									class="flex-grow px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer border {item.selected ? 'bg-lime text-black font-bold border-lime' : 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+									class="flex-grow px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer border {item.selected
+										? 'bg-lime text-black font-bold border-lime'
+										: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
 								>
 									{key}
 								</button>
@@ -422,7 +547,9 @@
 										>
 											-
 										</button>
-										<span class="font-mono w-4 text-center text-gray-300 text-xs">{item.qty || 1}</span>
+										<span class="font-mono w-4 text-center text-gray-300 text-xs"
+											>{item.qty || 1}</span
+										>
 										<button
 											type="button"
 											on:click={() => adjustQty('beers', key, 1)}
@@ -448,7 +575,13 @@
 										class="text-black hover:text-red-600 cursor-pointer flex-shrink-0"
 										aria-label="Remove custom beer"
 									>
-										<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<svg
+											class="w-3 h-3"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+											stroke-width="2"
+										>
 											<path d="M6 18L18 6M6 6l12 12" />
 										</svg>
 									</button>
@@ -457,12 +590,14 @@
 									<button
 										type="button"
 										on:click={() => adjustQty('beers', key, -1)}
-										class="bg-navbar w-5 h-5 rounded text-white 
+										class="bg-navbar w-5 h-5 rounded text-white
 										flex items-center justify-center hover:bg-gray-700 transition-colors cursor-pointer"
 									>
 										-
 									</button>
-									<span class="font-mono w-4 text-center text-gray-300 text-xs">{item.qty || 1}</span>
+									<span class="font-mono w-4 text-center text-gray-300 text-xs"
+										>{item.qty || 1}</span
+									>
 									<button
 										type="button"
 										on:click={() => adjustQty('beers', key, 1)}
@@ -490,7 +625,13 @@
 									class="text-black hover:text-red-600 cursor-pointer flex-shrink-0"
 									aria-label="Remove custom wine"
 								>
-									<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+									<svg
+										class="w-3 h-3"
+										fill="none"
+										stroke="currentColor"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+									>
 										<path d="M6 18L18 6M6 6l12 12" />
 									</svg>
 								</button>
@@ -503,9 +644,10 @@
 								>
 									-
 								</button>
-								<span class="font-mono 
- w-4 text-center text-gray-300 text-xs">{item.qty ||
-									1}</span>
+								<span
+									class="font-mono
+ w-4 text-center text-gray-300 text-xs">{item.qty || 1}</span
+								>
 								<button
 									type="button"
 									on:click={() => adjustQty('wine', key, 1)}
@@ -524,7 +666,7 @@
 					>
 						+ Add Other Beer
 					</button>
-					
+
 					{#if Object.keys(hospoData.beers_wine.wine).length === 0}
 						<button
 							type="button"
@@ -546,7 +688,9 @@
 								<button
 									type="button"
 									on:click={() => toggleItem('juice', key)}
-									class="flex-grow px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer border {item.selected ? 'bg-lime text-black font-bold border-lime' : 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+									class="flex-grow px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer border {item.selected
+										? 'bg-lime text-black font-bold border-lime'
+										: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
 								>
 									{key}
 								</button>
@@ -559,7 +703,9 @@
 										>
 											-
 										</button>
-										<span class="font-mono w-4 text-center text-gray-300 text-xs">{item.qty || 1}</span>
+										<span class="font-mono w-4 text-center text-gray-300 text-xs"
+											>{item.qty || 1}</span
+										>
 										<button
 											type="button"
 											on:click={() => adjustQty('juice', key, 1)}
@@ -585,7 +731,13 @@
 										class="text-black hover:text-red-600 cursor-pointer flex-shrink-0"
 										aria-label="Remove custom juice"
 									>
-										<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<svg
+											class="w-3 h-3"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+											stroke-width="2"
+										>
 											<path d="M6 18L18 6M6 6l12 12" />
 										</svg>
 									</button>
@@ -598,7 +750,9 @@
 									>
 										-
 									</button>
-									<span class="font-mono w-4 text-center text-gray-300 text-xs">{item.qty || 1}</span>
+									<span class="font-mono w-4 text-center text-gray-300 text-xs"
+										>{item.qty || 1}</span
+									>
 									<button
 										type="button"
 										on:click={() => adjustQty('juice', key, 1)}
@@ -630,7 +784,9 @@
 								<button
 									type="button"
 									on:click={() => toggleItem('other_drinks', key)}
-									class="flex-grow px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer border {item.selected ? 'bg-lime text-black font-bold border-lime' : 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+									class="flex-grow px-3 py-1.5 rounded-lg text-xs transition-colors cursor-pointer border {item.selected
+										? 'bg-lime text-black font-bold border-lime'
+										: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
 								>
 									{key}
 								</button>
@@ -643,7 +799,9 @@
 										>
 											-
 										</button>
-										<span class="font-mono w-4 text-center text-gray-300 text-xs">{item.qty || 1}</span>
+										<span class="font-mono w-4 text-center text-gray-300 text-xs"
+											>{item.qty || 1}</span
+										>
 										<button
 											type="button"
 											on:click={() => adjustQty('other_drinks', key, 1)}
@@ -669,7 +827,13 @@
 										class="text-black hover:text-red-600 cursor-pointer flex-shrink-0"
 										aria-label="Remove custom drink"
 									>
-										<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+										<svg
+											class="w-3 h-3"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+											stroke-width="2"
+										>
 											<path d="M6 18L18 6M6 6l12 12" />
 										</svg>
 									</button>
@@ -678,12 +842,14 @@
 									<button
 										type="button"
 										on:click={() => adjustQty('other_drinks', key, -1)}
-										class="bg-navbar w-5 h-5 rounded text-white 
+										class="bg-navbar w-5 h-5 rounded text-white
 										flex items-center justify-center hover:bg-gray-700 transition-colors cursor-pointer"
 									>
 										-
 									</button>
-									<span class="font-mono w-4 text-center text-gray-300 text-xs">{item.qty || 1}</span>
+									<span class="font-mono w-4 text-center text-gray-300 text-xs"
+										>{item.qty || 1}</span
+									>
 									<button
 										type="button"
 										on:click={() => adjustQty('other_drinks', key, 1)}
@@ -724,7 +890,13 @@
 									class="text-black hover:text-red-600 cursor-pointer flex-shrink-0"
 									aria-label="Remove custom request"
 								>
-									<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+									<svg
+										class="w-3 h-3"
+										fill="none"
+										stroke="currentColor"
+										viewBox="0 0 24 24"
+										stroke-width="2"
+									>
 										<path d="M6 18L18 6M6 6l12 12" />
 									</svg>
 								</button>
@@ -743,8 +915,11 @@
 		</div>
 	{/if}
 
-	<div slot="footer" class="flex gap-2 justify-end 
-	pt-4">
+	<div
+		slot="footer"
+		class="flex gap-2 justify-end
+	pt-4"
+	>
 		<button
 			class="px-4 py-2 border border-gray2 text-gray2 rounded-full hover:bg-gray2 hover:text-black transition-colors cursor-pointer text-sm"
 			on:click={closeModal}

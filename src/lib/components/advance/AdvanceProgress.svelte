@@ -13,6 +13,9 @@
 	let mainEvent: any = null;
 	let loading = true;
 
+	// Check if artist is local
+	$: isLocal = event.artist_type === 'Local';
+
 	// Fetch main event data on mount
 	onMount(async () => {
 		if (event.event_id && event.event_id !== -1) {
@@ -61,9 +64,11 @@
 	// These will automatically update when event changes
 
 	$: parsedRoles = parseJson(event.roles);
-	$: rolesListStatus = Array.isArray(parsedRoles) && parsedRoles.length > 0 ? 'Yes' : 'No';
+	$: rolesListStatus = isLocal ? 'N/A' : (Array.isArray(parsedRoles) && parsedRoles.length > 0 ? 'Yes' : 'No');
 
 	$: passportStatus = (() => {
+		if (isLocal) return 'N/A';
+		
 		const roles = parseJson(event.roles);
 		if (!Array.isArray(roles) || roles.length === 0) return 'No';
 
@@ -124,6 +129,8 @@
 	})();
 
 	$: flightsStatus = (() => {
+		if (isLocal) return 'N/A';
+		
 		// If flights are disabled, show N/A
 		if (event.flights_enabled === false) return 'N/A';
 
@@ -150,6 +157,8 @@
 	})();
 
 	$: hotelsStatus = (() => {
+		if (isLocal) return 'N/A';
+		
 		// If hotels are disabled, show N/A
 		if (event.hotel_enabled === false) return 'N/A';
 
@@ -163,6 +172,8 @@
 	})();
 
 	$: riderStatus = (() => {
+		if (isLocal) return 'N/A';
+		
 		const riderFiles = parseJson(event.rider_files);
 		if (!riderFiles) return 'No';
 
@@ -194,6 +205,8 @@
 	})();
 
 	$: immigrationNeeded = (() => {
+		if (isLocal) return false;
+		
 		const roles = parseJson(event.roles);
 		if (!Array.isArray(roles) || roles.length === 0) return false;
 		return roles.some((person: any) => person.immigration === true);

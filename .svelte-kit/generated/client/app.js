@@ -24,7 +24,8 @@ export const nodes = [
 	() => import('./nodes/20'),
 	() => import('./nodes/21'),
 	() => import('./nodes/22'),
-	() => import('./nodes/23')
+	() => import('./nodes/23'),
+	() => import('./nodes/24')
 ];
 
 export const server_loads = [];
@@ -34,24 +35,25 @@ export const dictionary = {
 		"/advancing/artistliaison": [3],
 		"/advancing/gathered": [4],
 		"/advancing/gathered/[event_param]": [5],
-		"/auth/verify": [6],
-		"/booking/artistavailability": [7],
-		"/booking/customers": [8],
-		"/calendar": [9],
-		"/dashboard": [10],
-		"/letter": [11],
-		"/login/forgot-password": [12],
-		"/login/register": [13],
-		"/login/reset-confirmed": [14],
-		"/login/reset-password": [15],
-		"/marketing/comptickets": [16],
-		"/marketing/eventsinfo": [17],
-		"/ncgapp/controlcenter": [18],
-		"/production/backline": [19],
-		"/production/emailtech": [20],
-		"/settimes": [21],
-		"/settings": [22],
-		"/wifi": [23]
+		"/advancing/localartists": [6],
+		"/auth/verify": [7],
+		"/booking/artistavailability": [8],
+		"/booking/customers": [9],
+		"/calendar": [10],
+		"/dashboard": [11],
+		"/letter": [12],
+		"/login/forgot-password": [13],
+		"/login/register": [14],
+		"/login/reset-confirmed": [15],
+		"/login/reset-password": [16],
+		"/marketing/comptickets": [17],
+		"/marketing/eventsinfo": [18],
+		"/ncgapp/controlcenter": [19],
+		"/production/backline": [20],
+		"/production/emailtech": [21],
+		"/settimes": [22],
+		"/settings": [23],
+		"/wifi": [24]
 	};
 
 export const hooks = {

@@ -12,7 +12,7 @@ type EnsureDefined<T> = T extends null | undefined ? {} : T;
 type OptionalUnion<U extends Record<string, any>, A extends keyof U = U extends U ? keyof U : never> = U extends unknown ? { [P in Exclude<A, keyof U>]?: never } & U : never;
 export type Snapshot<T = any> = Kit.Snapshot<T>;
 type PageParentData = EnsureDefined<LayoutData>;
-type LayoutRouteId = RouteId | "/" | "/advancing/artistliaison" | "/advancing/gathered" | "/advancing/gathered/[event_param]" | "/auth/verify" | "/booking/artistavailability" | "/booking/customers" | "/calendar" | "/dashboard" | "/letter" | "/login/forgot-password" | "/login/register" | "/login/reset-confirmed" | "/login/reset-password" | "/marketing/comptickets" | "/marketing/eventsinfo" | "/ncgapp/controlcenter" | "/production/backline" | "/production/emailtech" | "/settimes" | "/settings" | "/wifi" | null
+type LayoutRouteId = RouteId | "/" | "/advancing/artistliaison" | "/advancing/gathered" | "/advancing/gathered/[event_param]" | "/advancing/localartists" | "/auth/verify" | "/booking/artistavailability" | "/booking/customers" | "/calendar" | "/dashboard" | "/letter" | "/login/forgot-password" | "/login/register" | "/login/reset-confirmed" | "/login/reset-password" | "/marketing/comptickets" | "/marketing/eventsinfo" | "/ncgapp/controlcenter" | "/production/backline" | "/production/emailtech" | "/settimes" | "/settings" | "/wifi" | null
 type LayoutParams = RouteParams & { event_param?: string }
 type LayoutParentData = EnsureDefined<{}>;
 

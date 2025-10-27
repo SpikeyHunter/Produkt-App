@@ -76,6 +76,40 @@
 		loading = false;
 	}
 
+	$: sortedArtistDetails = (() => {
+		const typeOrder = { Headliner: 1, Support: 2, Local: 3 };
+		return [...artistDetails].sort((a, b) => {
+			const orderA = typeOrder[a.artist_type as keyof typeof typeOrder] || 999;
+			const orderB = typeOrder[b.artist_type as keyof typeof typeOrder] || 999;
+			return orderA - orderB;
+		});
+	})();
+
+	$: uniqueDos = (() => {
+		const dosNames = artistDetails
+			.map((artist) => artist.dos)
+			.filter((dos) => dos && dos.trim() !== '');
+
+		const uniqueNames = [...new Set(dosNames)];
+
+		if (uniqueNames.length === 0) return 'N/A';
+		if (uniqueNames.length === 1) return uniqueNames[0];
+		if (uniqueNames.length === 2) return uniqueNames.join(' and ');
+
+		const lastName = uniqueNames.pop();
+		return uniqueNames.join(', ') + ', and ' + lastName;
+	})();
+
+	$: mainContactsList = sortedArtistDetails.map((artist) => {
+		const contacts = artist.main_contact || 'N/A';
+		const contactArray = contacts.split(/\s+OR\s+|\s+or\s+/i).map((c) => c.trim());
+
+		return {
+			artist_name: artist.artist_name,
+			contacts: contactArray
+		};
+	});
+
 	function parseJsonData(data: any): any {
 		if (!data) return null;
 		if (typeof data === 'object') return data;
@@ -112,9 +146,29 @@
 		try {
 			const date = new Date(dateString);
 			date.setDate(date.getDate() + 1);
-			const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+			const months = [
+				'January',
+				'February',
+				'March',
+				'April',
+				'May',
+				'June',
+				'July',
+				'August',
+				'September',
+				'October',
+				'November',
+				'December'
+			];
 			const day = date.getDate();
-			const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+			const suffix =
+				day % 10 === 1 && day !== 11
+					? 'st'
+					: day % 10 === 2 && day !== 12
+						? 'nd'
+						: day % 10 === 3 && day !== 13
+							? 'rd'
+							: 'th';
 			return `${months[date.getMonth()]} ${day}${suffix} ${date.getFullYear()}`;
 		} catch {
 			return dateString;
@@ -125,7 +179,8 @@
 		const lowerType = type.toLowerCase();
 		if (lowerType === 'show' || lowerType === 'post show') return '#FCA5A5';
 		else if (lowerType === 'arrival' || lowerType === 'departure') return '#93C5FD';
-		else if (lowerType === 'soundcheck' || lowerType === 'post sc' || lowerType === 'post-sc') return '#C4B5FD';
+		else if (lowerType === 'soundcheck' || lowerType === 'post sc' || lowerType === 'post-sc')
+			return '#C4B5FD';
 		return '#6B7280';
 	}
 
@@ -142,6 +197,12 @@
 
 	function formatTime(time24: string): string {
 		if (!time24) return '';
+
+		// Handle times that already have AM/PM
+		if (time24.toLowerCase().includes('am') || time24.toLowerCase().includes('pm')) {
+			return time24;
+		}
+
 		try {
 			const [hours, minutes] = time24.split(':');
 			const hour = parseInt(hours);
@@ -212,10 +273,6 @@
 		return parts[parts.length - 1] || '';
 	}
 
-	$: soundcheckEntries = (selectedEvent?.timetable || [])
-		.filter((item: TimetableEntry) => item.artist.toLowerCase().includes('soundcheck'))
-		.sort((a: TimetableEntry, b: TimetableEntry) => (a.time < b.time ? -1 : 1));
-
 	function formatSoundcheckTime(entry: TimetableEntry): string {
 		if (!entry.length) return formatTime(entry.time);
 		try {
@@ -264,15 +321,24 @@
 		});
 	}
 
-	$: allBackline = artistDetails.map((artist) => ({
+	$: allBackline = sortedArtistDetails.map((artist) => ({
 		artist_name: artist.artist_name,
 		items: getTechRiderSummary(artist.tech_rider)
 	}));
 
 	$: backlineFormatted = (() => {
 		if (allBackline.length === 0) return [];
+
+		// Filter out Local artists
+		const filteredBackline = allBackline.filter((artist) => {
+			const artistDetail = artistDetails.find((a) => a.artist_name === artist.artist_name);
+			return artistDetail?.artist_type !== 'Local';
+		});
+
+		if (filteredBackline.length === 0) return [];
+
 		const itemToArtists = new Map<string, string[]>();
-		allBackline.forEach((artist) => {
+		filteredBackline.forEach((artist) => {
 			artist.items.forEach((item) => {
 				if (!itemToArtists.has(item)) {
 					itemToArtists.set(item, []);
@@ -280,11 +346,13 @@
 				itemToArtists.get(item)!.push(artist.artist_name);
 			});
 		});
+
 		return Array.from(itemToArtists.entries()).map(([item, artists]) => {
-			if (artists.length === allBackline.length) {
-				return item;
-			} else {
+			// Only add artist names if NOT shared by all non-local artists
+			if (artists.length < filteredBackline.length) {
 				return `${item} (${artists.join(', ')})`;
+			} else {
+				return item;
 			}
 		});
 	})();
@@ -297,11 +365,15 @@
 		const items: string[] = [];
 		if (sfxData.cryo_jets?.enabled) {
 			const duration = parseInt(sfxData.cryo_jets.duration, 10);
-			items.push(`${sfxData.cryo_jets.qty}x Cryo Jets ${duration === 0 ? '- Empty Tanks' : `(CO2) - ${duration}sec`}`);
+			items.push(
+				`${sfxData.cryo_jets.qty}x Cryo Jets ${duration === 0 ? '- Empty Tanks' : `(CO2) - ${duration}sec`}`
+			);
 		}
 		if (sfxData.sparkulars?.enabled) {
 			const duration = parseInt(sfxData.sparkulars.duration, 10);
-			items.push(`${sfxData.sparkulars.qty}x Sparkulars ${duration === 0 ? '- Empty Reservoir' : `- ${duration}sec`}`);
+			items.push(
+				`${sfxData.sparkulars.qty}x Sparkulars ${duration === 0 ? '- Empty Reservoir' : `- ${duration}sec`}`
+			);
 		}
 		if (sfxData.lasers?.enabled) {
 			items.push(`${sfxData.lasers.qty}x Lasers`);
@@ -312,10 +384,12 @@
 		return items;
 	}
 
-	$: allSfx = artistDetails.map((artist) => ({
-		artist_name: artist.artist_name,
-		items: getSfxSummary(artist.sfx_rider)
-	})).filter((artist) => artist.items.length > 0);
+	$: allSfx = sortedArtistDetails
+		.map((artist) => ({
+			artist_name: artist.artist_name,
+			items: getSfxSummary(artist.sfx_rider)
+		}))
+		.filter((artist) => artist.items.length > 0);
 
 	function getGuestlistSummary(guestlist: any): string {
 		const data = parseJsonData(guestlist);
@@ -326,10 +400,12 @@
 		return parts.join(' + ');
 	}
 
-	$: allGuestlists = artistDetails.map((artist) => ({
-		artist_name: artist.artist_name,
-		summary: getGuestlistSummary(artist.guestlist)
-	})).filter((artist) => artist.summary);
+	$: allGuestlists = sortedArtistDetails
+		.map((artist) => ({
+			artist_name: artist.artist_name,
+			summary: getGuestlistSummary(artist.guestlist)
+		}))
+		.filter((artist) => artist.summary);
 
 	function getMeetGreetSummary(meetGreetInfo: any, enabled: boolean | null | undefined): string {
 		if (!enabled) return 'Not Required';
@@ -338,12 +414,14 @@
 		return `${formatTime(data.time)} - ${data.peopleCount} people`;
 	}
 
-	$: hasMeetAndGreet = artistDetails.some((artist) => artist.meetgreet_enabled);
+	$: hasMeetAndGreet = sortedArtistDetails.some((artist) => artist.meetgreet_enabled);
 
-	$: allMeetAndGreets = artistDetails.filter((artist) => artist.meetgreet_enabled).map((artist) => ({
-		artist_name: artist.artist_name,
-		summary: getMeetGreetSummary(artist.meetgreet_info, artist.meetgreet_enabled)
-	}));
+	$: allMeetAndGreets = sortedArtistDetails
+		.filter((artist) => artist.meetgreet_enabled)
+		.map((artist) => ({
+			artist_name: artist.artist_name,
+			summary: getMeetGreetSummary(artist.meetgreet_info, artist.meetgreet_enabled)
+		}));
 
 	function getHospitalityItems(hospoRider: any): string[] {
 		const hospoData = parseJsonData(hospoRider);
@@ -380,24 +458,39 @@
 		return items;
 	}
 
-	function getSoundcheckForArtist(artistName: string): string {
-		const entry = soundcheckEntries.find((e: TimetableEntry) => 
-			e.artist.toLowerCase().replace('soundcheck', '').trim() === artistName.toLowerCase()
-		);
-		return entry ? formatSoundcheckTime(entry) : 'N/A';
+	function getSoundcheckForArtist(artist: EventAdvance): string {
+		const soundcheckData = parseJsonData(artist.soundcheck);
+		if (!soundcheckData || soundcheckData.status !== 'yes') return 'N/A';
+
+		const startTime = formatTime(soundcheckData.start_time);
+		const endTime = formatTime(soundcheckData.end_time);
+		return `${startTime} to ${endTime}`;
 	}
 
-	$: timetableEntries = selectedEvent?.timetable ? 
-		(Array.isArray(selectedEvent.timetable) ? 
-			selectedEvent.timetable.filter((item: TimetableEntry) => item.status !== 'Default') : 
-			[]) : [];
+	$: timetableEntries = (() => {
+		const parsedTimetable = parseJsonData(selectedEvent?.timetable);
+		if (!parsedTimetable || !Array.isArray(parsedTimetable)) return [];
+		return parsedTimetable;
+	})();
+
+	$: soundcheckEntries = (selectedEvent?.timetable || [])
+		.filter((item: TimetableEntry) => item.artist.toLowerCase().includes('soundcheck'))
+		.sort((a: TimetableEntry, b: TimetableEntry) => (a.time < b.time ? -1 : 1));
 </script>
 
-<div class="h-full flex flex-col bg-navbar border-2 border-gray1 rounded-xl overflow-hidden">
+<div
+	class="h-full flex flex-col bg-navbar border-2 border-gray1 rounded-xl overflow-hidden event-details-container"
+>
 	{#if !selectedEvent}
 		<div class="flex-1 flex items-center justify-center">
 			<div class="text-center">
-				<svg class="w-16 h-16 text-gray2 mx-auto mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<svg
+					class="w-16 h-16 text-gray2 mx-auto mb-4"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
 					<rect x="3" y="7" width="18" height="10" rx="2" ry="2"></rect>
 					<line x1="8" y1="21" x2="16" y2="21"></line>
 					<line x1="12" y1="17" x2="12" y2="21"></line>
@@ -409,7 +502,9 @@
 	{:else}
 		<div class="p-4 border-b border-gray1 flex-shrink-0">
 			<h2 class="text-white text-xl font-bold">
-				Artist Liaison - {selectedEvent.event_name} - {formatEventDateFull(selectedEvent.event_date)}
+				Artist Liaison - {selectedEvent.event_name} - {formatEventDateFull(
+					selectedEvent.event_date
+				)}
 			</h2>
 		</div>
 
@@ -421,6 +516,59 @@
 					{/each}
 				</div>
 			{:else if artistDetails.length > 0}
+				<div class="bg-gray1 rounded-lg p-4">
+					<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+						Information
+					</h3>
+					<div class="grid grid-cols-2 gap-6">
+						<!-- Left Column -->
+						<div class="space-y-3">
+							<div>
+								<h4 class="text-gray2 text-xs uppercase tracking-wider mb-1">Artist Liaison</h4>
+								<p class="text-white text-xs">{uniqueDos}</p>
+							</div>
+							<div>
+								<h4 class="text-gray2 text-xs uppercase tracking-wider mb-2">Main Contact</h4>
+								<div class="space-y-2">
+									{#each mainContactsList as contact}
+										<div class="text-xs">
+											{#if contact.contacts.length === 1}
+												<div>
+													<span class="text-lime font-medium">{contact.artist_name}:</span>
+													<span class="text-white ml-1">{contact.contacts[0]}</span>
+												</div>
+											{:else}
+												<div class="text-lime font-medium mb-0.5">{contact.artist_name}:</div>
+												<div class="ml-2 space-y-0.5">
+													{#each contact.contacts as individualContact}
+														<div class="text-white">• {individualContact}</div>
+													{/each}
+												</div>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							</div>
+						</div>
+
+						<!-- Right Column -->
+						<div class="space-y-3">
+							<div>
+								<h4 class="text-gray2 text-xs uppercase tracking-wider mb-1">Event Name</h4>
+								<p class="text-white text-xs">{selectedEvent.event_name}</p>
+							</div>
+							<div>
+								<h4 class="text-gray2 text-xs uppercase tracking-wider mb-1">Event Date</h4>
+								<p class="text-white text-xs">{formatEventDateFull(selectedEvent.event_date)}</p>
+							</div>
+							<div>
+								<h4 class="text-gray2 text-xs uppercase tracking-wider mb-1">Event Venue</h4>
+								<p class="text-white text-xs">{selectedEvent.event_venue || 'N/A'}</p>
+							</div>
+						</div>
+					</div>
+				</div>
+
 				{#if hotelGroups.length > 0}
 					<div class="bg-gray1 rounded-lg p-4">
 						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
@@ -428,7 +576,9 @@
 						</h3>
 						{#each hotelGroups as [hotelName, reservations]}
 							{@const address = getHotelAddress(hotelName, reservations)}
-							{@const hotelNotes = reservations.filter((res) => res.notes && res.notes.trim() !== '').map((res) => res.notes!.trim())}
+							{@const hotelNotes = reservations
+								.filter((res) => res.notes && res.notes.trim() !== '')
+								.map((res) => res.notes!.trim())}
 							<div class="mb-4">
 								<h4 class="text-lime text-sm font-bold">{hotelName}</h4>
 								{#if address}
@@ -437,17 +587,26 @@
 								<table class="w-full text-xs">
 									<thead>
 										<tr class="border-b border-gray2/20">
-											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5">Guest</th>
-											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5">Conf #</th>
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5">Guest</th
+											>
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5"
+												>Conf #</th
+											>
 											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5">Room</th>
-											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5">Check-in</th>
-											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5">Check-out</th>
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5"
+												>Check-in</th
+											>
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5"
+												>Check-out</th
+											>
 										</tr>
 									</thead>
 									<tbody>
 										{#each reservations as res}
 											<tr class="border-b border-gray2/10">
-												<td class="py-1.5 text-white">{res.reservationFirstName} {res.reservationLastName}</td>
+												<td class="py-1.5 text-white"
+													>{res.reservationFirstName} {res.reservationLastName}</td
+												>
 												<td class="py-1.5 text-white">{res.confirmationNumber || 'N/A'}</td>
 												<td class="py-1.5 text-white">{res.roomType}</td>
 												<td class="py-1.5 text-white">{formatHotelDate(res.checkInDate)}</td>
@@ -474,11 +633,15 @@
 
 				{#if allGroundTransfers.length > 0}
 					<div class="bg-gray1 rounded-lg p-4">
-						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">Ground Transfers</h3>
+						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+							Ground Transfers
+						</h3>
 						<div class="overflow-x-auto">
 							<table class="w-full text-xs">
 								<thead>
-									<tr class="text-gray2 uppercase tracking-wider text-left border-b border-gray2/20">
+									<tr
+										class="text-gray2 uppercase tracking-wider text-left border-b border-gray2/20"
+									>
 										<th class="py-2 pr-2 w-24">Type</th>
 										<th class="py-2 px-2">Names</th>
 										<th class="py-2 px-2">Date</th>
@@ -493,17 +656,26 @@
 									{#each allGroundTransfers as transfer}
 										<tr class="border-b border-gray2/10">
 											<td class="py-2 pr-2 w-24">
-												<span class="inline-block px-2 py-1 rounded-full text-xs font-medium text-black" style="background-color: {getTransferTypeColor(transfer.type)}">
+												<span
+													class="inline-block px-2 py-1 rounded-full text-xs font-medium text-black"
+													style="background-color: {getTransferTypeColor(transfer.type)}"
+												>
 													{transfer.type}
 												</span>
 											</td>
 											<td class="py-2 px-2 text-white">{transfer.paxNames}</td>
 											<td class="py-2 px-2 text-lime">{formatGroundDate(transfer.date)}</td>
 											<td class="py-2 px-2 text-lime">{formatTime(transfer.pickupTime)}</td>
-											<td class="py-2 px-2 text-white truncate max-w-[120px]">{transfer.pickupLocation}</td>
-											<td class="py-2 px-2 text-white truncate max-w-[120px]">{transfer.dropoffLocation}</td>
+											<td class="py-2 px-2 text-white truncate max-w-[120px]"
+												>{transfer.pickupLocation}</td
+											>
+											<td class="py-2 px-2 text-white truncate max-w-[120px]"
+												>{transfer.dropoffLocation}</td
+											>
 											<td class="py-2 px-2 text-white">{transfer.driverName}</td>
-											<td class="py-2 pl-2 text-white">{extractFlightNumber(transfer.flightInfo)}</td>
+											<td class="py-2 pl-2 text-white"
+												>{extractFlightNumber(transfer.flightInfo)}</td
+											>
 										</tr>
 									{/each}
 								</tbody>
@@ -515,7 +687,9 @@
 				{#if hasBackline || allSfx.length > 0 || allGuestlists.length > 0}
 					<div class="grid grid-cols-3 gap-4">
 						<div class="bg-gray1 rounded-lg p-4">
-							<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">Backline</h3>
+							<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+								Backline
+							</h3>
 							{#if hasBackline}
 								<div class="text-xs text-white space-y-0.5">
 									{#each backlineFormatted as item}
@@ -546,7 +720,9 @@
 						</div>
 
 						<div class="bg-gray1 rounded-lg p-4">
-							<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">Guestlist</h3>
+							<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+								Guestlist
+							</h3>
 							{#if allGuestlists.length > 0}
 								<div class="text-xs space-y-2">
 									{#each allGuestlists as artist}
@@ -565,16 +741,24 @@
 
 				<div class="grid grid-cols-3 gap-4">
 					<div class="bg-gray1 rounded-lg p-4">
-						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">Set Times</h3>
+						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+							Set Times
+						</h3>
 						{#if timetableEntries.length > 0}
 							<div class="text-xs text-white space-y-1">
 								{#each timetableEntries as entry}
+									{@const isHeadliner = entry.notes?.toLowerCase() === 'headliner'}
+									{@const isDoorsCurfew = entry.status === 'Default'}
 									<div class="flex items-center gap-2">
-										<span class="text-lime font-medium w-16">{formatTime(entry.time)}</span>
-										<span>{entry.artist}</span>
-										{#if entry.length}
-											<span class="text-gray2">({entry.length})</span>
-										{/if}
+										<span
+											class="{isDoorsCurfew
+												? 'italic text-gray2'
+												: isHeadliner
+													? 'text-lime'
+													: 'text-white'} font-medium"
+										>
+											{formatTime(entry.time)} - {entry.artist}
+										</span>
 									</div>
 								{/each}
 							</div>
@@ -584,19 +768,23 @@
 					</div>
 
 					<div class="bg-gray1 rounded-lg p-4">
-						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">Soundcheck</h3>
+						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+							Soundcheck
+						</h3>
 						<div class="text-xs text-white space-y-2">
-							{#each artistDetails as artist}
+							{#each sortedArtistDetails as artist}
 								<div>
 									<div class="font-bold text-lime mb-1">{artist.artist_name}:</div>
-									<div class="ml-2">• {getSoundcheckForArtist(artist.artist_name)}</div>
+									<div class="ml-2">• {getSoundcheckForArtist(artist)}</div>
 								</div>
 							{/each}
 						</div>
 					</div>
 
 					<div class="bg-gray1 rounded-lg p-4">
-						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">Meet & Greet</h3>
+						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+							Meet & Greet
+						</h3>
 						{#if hasMeetAndGreet}
 							<div class="text-xs text-white space-y-2">
 								{#each allMeetAndGreets as artist}
@@ -607,15 +795,17 @@
 								{/each}
 							</div>
 						{:else}
-							<div class="text-xs text-gray2">None</div>
+							<div class="text-xs text-gray2">N/A</div>
 						{/if}
 					</div>
 				</div>
 
 				<div class="bg-gray1 rounded-lg p-4">
-					<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">Hospitality</h3>
+					<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+						Hospitality
+					</h3>
 					<div class="grid grid-cols-{artistDetails.length} gap-4">
-						{#each artistDetails as artist}
+						{#each sortedArtistDetails as artist}
 							{@const hospoItems = getHospitalityItems(artist.hospo_rider)}
 							<div>
 								<h4 class="text-lime font-bold text-sm mb-2">{artist.artist_name}</h4>
@@ -635,8 +825,12 @@
 
 				<div class="bg-gray1 rounded-lg p-4">
 					<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">Notes</h3>
-					<div class="grid grid-cols-1 md:grid-cols-{artistDetails.length <= 2 ? artistDetails.length : 3} gap-4">
-						{#each artistDetails as artist}
+					<div
+						class="grid grid-cols-1 md:grid-cols-{artistDetails.length <= 2
+							? artistDetails.length
+							: 3} gap-4"
+					>
+						{#each sortedArtistDetails as artist}
 							{@const artistKey = `${artist.event_id}-${artist.artist_name}`}
 							<div class="bg-black/20 rounded-lg p-3 relative">
 								<div class="flex justify-between items-start mb-3">
@@ -649,26 +843,59 @@
 								<div class="mb-3">
 									<div class="flex gap-2 mb-2">
 										<label class="flex items-center gap-1 cursor-pointer">
-											<input type="radio" name="food-{artistKey}" value="buyout" bind:group={foodBuyoutData[artistKey].type} on:change={() => saveFoodBuyout(artistKey)} class="w-3 h-3 text-lime" />
+											<input
+												type="radio"
+												name="food-{artistKey}"
+												value="buyout"
+												bind:group={foodBuyoutData[artistKey].type}
+												on:change={() => saveFoodBuyout(artistKey)}
+												class="w-3 h-3 text-lime"
+											/>
 											<span class="text-xs text-white">Buyout</span>
 										</label>
 										<label class="flex items-center gap-1 cursor-pointer">
-											<input type="radio" name="food-{artistKey}" value="dinner" bind:group={foodBuyoutData[artistKey].type} on:change={() => saveFoodBuyout(artistKey)} class="w-3 h-3 text-lime" />
+											<input
+												type="radio"
+												name="food-{artistKey}"
+												value="dinner"
+												bind:group={foodBuyoutData[artistKey].type}
+												on:change={() => saveFoodBuyout(artistKey)}
+												class="w-3 h-3 text-lime"
+											/>
 											<span class="text-xs text-white">Dinner</span>
 										</label>
 										<label class="flex items-center gap-1 cursor-pointer">
-											<input type="radio" name="food-{artistKey}" value="" bind:group={foodBuyoutData[artistKey].type} on:change={() => saveFoodBuyout(artistKey)} class="w-3 h-3 text-lime" />
+											<input
+												type="radio"
+												name="food-{artistKey}"
+												value={null}
+												bind:group={foodBuyoutData[artistKey].type}
+												on:change={() => saveFoodBuyout(artistKey)}
+												class="w-3 h-3 text-lime"
+											/>
 											<span class="text-xs text-white">None</span>
 										</label>
 									</div>
 									{#if foodBuyoutData[artistKey] && foodBuyoutData[artistKey].type}
-										<input type="text" placeholder="Details..." bind:value={foodBuyoutData[artistKey].details} on:blur={() => saveFoodBuyout(artistKey)} class="w-full bg-gray1 text-white text-xs rounded px-2 py-1 placeholder-gray2 focus:outline-none focus:ring-1 focus:ring-lime" />
+										<input
+											type="text"
+											placeholder="Details..."
+											bind:value={foodBuyoutData[artistKey].details}
+											on:blur={() => saveFoodBuyout(artistKey)}
+											class="w-full bg-gray1 text-white text-xs rounded px-2 py-1 placeholder-gray2 focus:outline-none focus:ring-1 focus:ring-lime"
+										/>
 									{/if}
 								</div>
 
 								<div class="border-t border-gray2/20 pt-3">
 									<h5 class="text-xs text-gray2 mb-1">Notes</h5>
-									<textarea placeholder="Additional notes..." bind:value={liaisonNotes[artistKey]} on:blur={() => saveLiaisonNotes(artistKey)} class="w-full bg-gray1 text-white text-xs rounded px-2 py-1 placeholder-gray2 focus:outline-none focus:ring-1 focus:ring-lime resize-none" rows="3"></textarea>
+									<textarea
+										placeholder="Additional notes..."
+										bind:value={liaisonNotes[artistKey]}
+										on:blur={() => saveLiaisonNotes(artistKey)}
+										class="w-full bg-gray1 text-white text-xs rounded px-2 py-1 placeholder-gray2 focus:outline-none focus:ring-1 focus:ring-lime resize-none"
+										rows="3"
+									></textarea>
 								</div>
 							</div>
 						{/each}

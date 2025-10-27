@@ -6,34 +6,12 @@
 	export let selectedEvent: any = null;
 	export let isExporting = false;
 
-	let exportFormat: 'pdf' | 'excel' | 'json' = 'pdf';
-	let includeOptions = {
-		eventDetails: true,
-		artistInfo: true,
-		contracts: true,
-		hotels: true,
-		flights: true,
-		ground: true,
-		riders: true,
-		immigration: true,
-		notes: true
-	};
-
 	function handleExport() {
 		if (!selectedEvent) return;
-
+		
 		dispatch('export', {
-			event: selectedEvent,
-			format: exportFormat,
-			options: includeOptions
+			event: selectedEvent
 		});
-	}
-
-	function toggleAll(value: boolean) {
-		Object.keys(includeOptions).forEach(key => {
-			includeOptions[key] = value;
-		});
-		includeOptions = { ...includeOptions };
 	}
 </script>
 
@@ -55,84 +33,11 @@
 			</div>
 		{:else}
 			<div class="space-y-4">
-				<!-- Export Format Selection -->
-				<div>
-					<label class="text-gray2 text-xs font-medium block mb-2">Export Format</label>
-					<div class="space-y-2">
-						<label class="flex items-center gap-2 cursor-pointer">
-							<input
-								type="radio"
-								bind:group={exportFormat}
-								value="pdf"
-								class="w-3 h-3 text-lime focus:ring-lime"
-							/>
-							<span class="text-white text-xs">PDF Document</span>
-						</label>
-						<label class="flex items-center gap-2 cursor-pointer">
-							<input
-								type="radio"
-								bind:group={exportFormat}
-								value="excel"
-								class="w-3 h-3 text-lime focus:ring-lime"
-							/>
-							<span class="text-white text-xs">Excel Spreadsheet</span>
-						</label>
-						<label class="flex items-center gap-2 cursor-pointer">
-							<input
-								type="radio"
-								bind:group={exportFormat}
-								value="json"
-								class="w-3 h-3 text-lime focus:ring-lime"
-							/>
-							<span class="text-white text-xs">JSON Data</span>
-						</label>
-					</div>
-				</div>
-
-				<!-- Include Options -->
-				<div>
-					<div class="flex items-center justify-between mb-2">
-						<label class="text-gray2 text-xs font-medium">Include in Export</label>
-						<div class="flex gap-1">
-							<button
-								type="button"
-								on:click={() => toggleAll(true)}
-								class="text-[10px] text-lime hover:text-lime/80 transition-colors"
-							>
-								All
-							</button>
-							<span class="text-gray3 text-[10px]">|</span>
-							<button
-								type="button"
-								on:click={() => toggleAll(false)}
-								class="text-[10px] text-gray2 hover:text-white transition-colors"
-							>
-								None
-							</button>
-						</div>
-					</div>
-					
-					<div class="space-y-2 bg-gray1 rounded-lg p-3">
-						{#each Object.entries(includeOptions) as [key, value]}
-							<label class="flex items-center gap-2 cursor-pointer">
-								<input
-									type="checkbox"
-									bind:checked={includeOptions[key]}
-									class="w-3 h-3 rounded text-lime focus:ring-lime"
-								/>
-								<span class="text-white text-xs capitalize">
-									{key.replace(/([A-Z])/g, ' $1').trim()}
-								</span>
-							</label>
-						{/each}
-					</div>
-				</div>
-
 				<!-- Event Summary -->
 				<div class="bg-gray1 rounded-lg p-3">
 					<p class="text-gray2 text-[10px] font-medium mb-1">Selected Event</p>
 					<p class="text-white text-xs font-bold">{selectedEvent.event_name}</p>
-					<p class="text-gray3 text-[10px]">{selectedEvent.totalAdvances} artists</p>
+					<p class="text-gray3 text-[10px]">{selectedEvent.totalAdvances || 0} artists</p>
 				</div>
 
 				<!-- Export Button -->
@@ -148,14 +53,14 @@
 							Exporting...
 						</span>
 					{:else}
-						Export {exportFormat.toUpperCase()}
+						Export as PDF
 					{/if}
 				</button>
 
 				<!-- Additional Info -->
 				<div class="text-center">
 					<p class="text-gray3 text-[10px]">
-						Export will compile all completed advance information for the selected event
+						Export will generate a PDF of the artist liaison sheet as displayed
 					</p>
 				</div>
 			</div>
@@ -176,11 +81,6 @@
 	}
 	.custom-scroll::-webkit-scrollbar-thumb:hover {
 		background: #f0ff4d;
-	}
-
-	input[type="radio"],
-	input[type="checkbox"] {
-		accent-color: #e1ff00;
 	}
 
 	@keyframes spin {

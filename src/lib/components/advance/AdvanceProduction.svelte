@@ -43,9 +43,19 @@
 		other: OtherRequest[];
 	}
 
+	interface TimetableEntry {
+		id: string;
+		time: string;
+		notes: string;
+		artist: string;
+		length: string;
+		status: string;
+	}
+
 	// Props & Dispatcher
 	export let event: EventAdvance & { event_venue?: string; artist_name?: string };
 	const dispatch = createEventDispatcher();
+
 	// --- STATE ---
 	let techRider: TechRider;
 	let sfxRider: SfxRider;
@@ -57,6 +67,9 @@
 	let justCopied = false;
 	let showPopup = false;
 	let popupMessage = '';
+	let artistType: string = '';
+	let timetable: TimetableEntry[] = [];
+
 	const defaultTechRider: TechRider = {
 		selected_mixer: '',
 		equipment: {
@@ -69,6 +82,7 @@
 		other: [],
 		confirmed: false
 	};
+
 	const defaultSoundcheck: SoundcheckInfo = {
 		status: 'asked',
 		start_time: '20:30',
@@ -81,21 +95,141 @@
 		lasers: { enabled: false, qty: 2 },
 		other: []
 	};
+
 	const sfxItems: [keyof Omit<SfxRider, 'other'>, string][] = [
 		['cryo_jets', 'Cryo Jets'],
 		['sparkulars', 'Sparkulars'],
 		['lasers', 'Lasers']
 	];
-	// --- REACTIVE LOGIC ---
 
-	// Initialize data from event
-	function initializeData() {
+	// --- HELPER FUNCTIONS ---
+	function parseJson(data: any): any {
+		if (!data) return null;
+		if (typeof data === 'object') return data;
+		if (typeof data === 'string') {
+			try {
+				return JSON.parse(data);
+			} catch (e) {
+				console.warn('Failed to parse JSON:', e);
+				return null;
+			}
+		}
+		return null;
+	}
+
+	async function fetchTimetableAndDetermineType() {
+		if (!event?.event_id || !event.artist_name) return;
+
+		try {
+			const { data, error } = await supabase
+				.from('events')
+				.select('timetable')
+				.eq('event_id', event.event_id)
+				.single();
+
+			if (error) {
+				console.error('Error fetching timetable:', error);
+				return;
+			}
+
+			if (data?.timetable) {
+				timetable = parseJson(data.timetable) || [];
+
+				// Find current artist in timetable - handle B2B scenarios
+				const currentArtistEntry = timetable.find((entry) => {
+					// Exact match
+					if (entry.artist === event.artist_name) {
+						return true;
+					}
+
+					// Check if this artist is part of a B2B
+					const artistsInSlot = entry.artist.split(/\s+B2B\s+/i).map((name) => name.trim());
+					return artistsInSlot.includes(event.artist_name);
+				});
+
+				if (currentArtistEntry) {
+					artistType = currentArtistEntry.notes || '';
+				}
+			}
+		} catch (err) {
+			console.error('Error in fetchTimetableAndDetermineType:', err);
+		}
+	}
+
+	async function getSupportArtistRider(): Promise<TechRider | null> {
+		if (!event?.event_id || artistType !== 'Local') return null;
+
+		// Find the timetable entry that contains the current artist
+		const currentArtistEntry = timetable.find((entry) => {
+			if (entry.artist === event.artist_name) return true;
+			const artistsInSlot = entry.artist.split(/\s+B2B\s+/i).map((name) => name.trim());
+			return artistsInSlot.includes(event.artist_name);
+		});
+
+		if (!currentArtistEntry) return null;
+
+		const currentArtistIndex = timetable.indexOf(currentArtistEntry);
+
+		// Find the next Support artist slot after current artist
+		const supportArtistEntry = timetable
+			.slice(currentArtistIndex + 1)
+			.find((entry) => entry.notes === 'Support');
+
+		if (!supportArtistEntry) return null;
+
+		try {
+			// Extract all artist names from the support slot (handle B2B)
+			const supportArtistNames = supportArtistEntry.artist
+				.split(/\s+B2B\s+/i)
+				.map((name) => name.trim());
+
+			// Try to fetch rider from the first artist in the support slot
+			const { data, error } = await supabase
+				.from('events_advance')
+				.select('tech_rider')
+				.eq('event_id', event.event_id)
+				.eq('artist_name', supportArtistNames[0])
+				.single();
+
+			if (error || !data) {
+				console.warn('Could not fetch support artist rider:', error);
+				return null;
+			}
+
+			const supportRider = parseJson(data.tech_rider);
+
+			// Filter out microphones for Local artists
+			if (supportRider && supportRider.equipment) {
+				const filteredEquipment = { ...supportRider.equipment };
+				delete filteredEquipment['Wireless Mic'];
+				delete filteredEquipment['Wired Mic'];
+
+				return {
+					...supportRider,
+					equipment: filteredEquipment
+				};
+			}
+
+			return supportRider;
+		} catch (err) {
+			console.error('Error fetching support artist rider:', err);
+			return null;
+		}
+	}
+
+	// --- REACTIVE LOGIC ---
+	async function initializeData() {
 		if (!event) return;
 
 		const eventKey = `${event.event_id}-${event.artist_name}`;
+
+		// Fetch timetable and determine artist type
+		await fetchTimetableAndDetermineType();
+
 		const dbTechRider = parseJson(event.tech_rider);
 		const dbSfxRider = parseJson(event.sfx_rider);
 		const dbSoundcheck = parseJson(event.soundcheck);
+
 		// Deep clone and merge equipment with defaults
 		const mergedEquipment = Object.keys(defaultTechRider.equipment).reduce((acc, key) => {
 			const defaultItem = defaultTechRider.equipment[key];
@@ -107,7 +241,7 @@
 			};
 			return acc;
 		}, {} as EquipmentMap);
-		
+
 		// Migrate old soundcheck format (enabled: boolean) to new format (status: string)
 		let migratedSoundcheck = dbSoundcheck;
 		if (dbSoundcheck && typeof dbSoundcheck.enabled === 'boolean') {
@@ -117,13 +251,62 @@
 				end_time: dbSoundcheck.end_time || defaultSoundcheck.end_time
 			};
 		}
-		
-		techRider = {
-			selected_mixer: dbTechRider?.selected_mixer || defaultTechRider.selected_mixer,
-			equipment: mergedEquipment,
-			other: Array.isArray(dbTechRider?.other) ? dbTechRider.other : [],
-			confirmed: dbTechRider?.confirmed || false
-		};
+
+		if (artistType === 'Local') {
+			// Default to "Same" (confirmed: true) if no existing data
+			const shouldUseSameRider = dbTechRider?.confirmed !== false; // true by default, or explicitly set
+
+			// If "Same" is selected, load support artist's rider
+			if (shouldUseSameRider) {
+				const supportRider = await getSupportArtistRider();
+
+				if (supportRider) {
+					techRider = {
+						selected_mixer: supportRider.selected_mixer || '',
+						equipment: { ...supportRider.equipment },
+						other: Array.isArray(supportRider.other) ? [...supportRider.other] : [],
+						confirmed: true
+					};
+				} else {
+					// Fallback if support rider not found
+					techRider = {
+						selected_mixer: dbTechRider?.selected_mixer || defaultTechRider.selected_mixer,
+						equipment: mergedEquipment,
+						other: Array.isArray(dbTechRider?.other) ? dbTechRider.other : [],
+						confirmed: true
+					};
+				}
+			} else {
+				// confirmed is false (meaning "Different"), use local artist's own rider
+				techRider = {
+					selected_mixer: dbTechRider?.selected_mixer || defaultTechRider.selected_mixer,
+					equipment: mergedEquipment,
+					other: Array.isArray(dbTechRider?.other) ? dbTechRider.other : [],
+					confirmed: false
+				};
+			}
+
+			// Set soundcheck to 'no' by default for local artists
+			soundcheck = {
+				...defaultSoundcheck,
+				status: 'no',
+				...(migratedSoundcheck || {})
+			};
+		} else {
+			// Non-local artists: normal behavior
+			techRider = {
+				selected_mixer: dbTechRider?.selected_mixer || defaultTechRider.selected_mixer,
+				equipment: mergedEquipment,
+				other: Array.isArray(dbTechRider?.other) ? dbTechRider.other : [],
+				confirmed: dbTechRider?.confirmed || false
+			};
+
+			soundcheck = {
+				...defaultSoundcheck,
+				...(migratedSoundcheck || {})
+			};
+		}
+
 		// Properly type and merge SFX rider
 		sfxRider = {
 			cryo_jets: { ...defaultSfxRider.cryo_jets, ...(dbSfxRider?.cryo_jets || {}) },
@@ -132,11 +315,6 @@
 			other: Array.isArray(dbSfxRider?.other) ? dbSfxRider.other : []
 		};
 
-		// Properly type and merge Soundcheck
-		soundcheck = {
-			...defaultSoundcheck,
-			...(migratedSoundcheck || {})
-		};
 		// Store initial state to compare for changes
 		lastSavedData = JSON.stringify({ techRider, sfxRider, soundcheck });
 		lastEventId = eventKey;
@@ -180,6 +358,7 @@
 
 		return text;
 	})();
+
 	$: sfxRiderCopyText = (() => {
 		if (!sfxRider || (event && event.event_venue !== 'New City Gas')) return '';
 
@@ -220,7 +399,9 @@
 
 		return text;
 	})();
+
 	$: fullCopyText = `${techRiderCopyText}\n${sfxRiderCopyText}`.trim();
+
 	// Generate HTML for clipboard
 	$: techRiderHtml = (() => {
 		if (!techRider) return '';
@@ -247,6 +428,7 @@
 
 		return html;
 	})();
+
 	$: sfxRiderHtml = (() => {
 		if (!sfxRider || (event && event.event_venue !== 'New City Gas')) return '';
 
@@ -283,22 +465,10 @@
 
 		return html;
 	})();
-	$: fullCopyHtml = `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9pt;">${techRiderHtml}<br>${sfxRiderHtml}</div>`;
-	// --- FUNCTIONS ---
-	function parseJson(data: any): any {
-		if (!data) return null;
-		if (typeof data === 'object') return data;
-		if (typeof data === 'string') {
-			try {
-				return JSON.parse(data);
-			} catch (e) {
-				console.warn('Failed to parse JSON:', e);
-				return null;
-			}
-		}
-		return null;
-	}
 
+	$: fullCopyHtml = `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9pt;">${techRiderHtml}<br>${sfxRiderHtml}</div>`;
+
+	// --- FUNCTIONS ---
 	async function saveChanges() {
 		if (!event?.event_id || !event.artist_name || !techRider || !sfxRider || !soundcheck) {
 			console.warn('Missing required data for saving');
@@ -379,9 +549,23 @@
 		}
 	}
 
-	function toggleTechRiderConfirmed() {
+	async function toggleTechRiderConfirmed() {
 		if (techRider) {
 			techRider.confirmed = !techRider.confirmed;
+
+			// If Local artist and switching to "Same", load support artist's rider
+			if (artistType === 'Local' && techRider.confirmed) {
+				const supportRider = await getSupportArtistRider();
+				if (supportRider) {
+					techRider = {
+						selected_mixer: supportRider.selected_mixer || '',
+						equipment: { ...supportRider.equipment },
+						other: Array.isArray(supportRider.other) ? [...supportRider.other] : [],
+						confirmed: true
+					};
+				}
+			}
+
 			techRider = { ...techRider };
 			scheduleAutoSave();
 		}
@@ -496,7 +680,12 @@
 	});
 </script>
 
-<PopupNotification bind:show={showPopup} message={popupMessage} variant="navbar" iconType="success" />
+<PopupNotification
+	bind:show={showPopup}
+	message={popupMessage}
+	variant="navbar"
+	iconType="success"
+/>
 
 <div
 	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300"
@@ -521,11 +710,23 @@
 					title={justCopied ? 'Copied!' : 'Copy production details'}
 				>
 					{#if justCopied}
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+						<svg
+							class="w-4 h-4"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+							stroke-width="2.5"
+						>
 							<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 						</svg>
 					{:else}
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+						<svg
+							class="w-4 h-4"
+							fill="none"
+							stroke="currentColor"
+							viewBox="0 0 24 24"
+							stroke-width="2"
+						>
 							<path
 								stroke-linecap="round"
 								stroke-linejoin="round"
@@ -548,7 +749,15 @@
 							type="button"
 							class="rounded-xl px-3 py-1 text-xs transition-colors duration-200 cursor-pointer flex items-center justify-center gap-2"
 							class:font-bold={soundcheck.status !== 'asked'}
-							style="background-color: {soundcheck.status === 'asked' ? '#FDBA74' : soundcheck.status === 'tbd' ? '#c4b5fd' : soundcheck.status === 'no' ? '#FCA5A5' : soundcheck.status === 'yes' ? '#86EFAC' : ''}; color: {soundcheck.status !== 'asked' ? '#000000' : '#000000'}"
+							style="background-color: {soundcheck.status === 'asked'
+								? '#FDBA74'
+								: soundcheck.status === 'tbd'
+									? '#c4b5fd'
+									: soundcheck.status === 'no'
+										? '#FCA5A5'
+										: soundcheck.status === 'yes'
+											? '#86EFAC'
+											: ''}; color: {soundcheck.status !== 'asked' ? '#000000' : '#000000'}"
 							on:click={cycleSoundcheckStatus}
 							disabled={saving}
 						>
@@ -596,7 +805,11 @@
 							on:click={toggleTechRiderConfirmed}
 							disabled={saving}
 						>
-							{techRider.confirmed ? 'Confirmed' : 'Not Confirmed'}
+							{#if artistType === 'Local'}
+								{techRider.confirmed ? 'Same' : 'Different'}
+							{:else}
+								{techRider.confirmed ? 'Confirmed' : 'Not Confirmed'}
+							{/if}
 						</button>
 					</div>
 				</div>
@@ -606,9 +819,11 @@
 						<button
 							type="button"
 							on:click={() => selectMixer(mixer)}
-							class="flex items-center justify-center text-xs px-2 py-1 rounded-lg cursor-pointer border border-transparent transition-all {techRider.selected_mixer === mixer
+							class="flex items-center justify-center text-xs px-2 py-1 rounded-lg cursor-pointer border border-transparent transition-all {techRider.selected_mixer ===
+							mixer
 								? 'bg-lime text-black font-bold'
 								: 'bg-gray1 text-gray3 hover:border-lime'}"
+							disabled={artistType === 'Local' && techRider.confirmed}
 						>
 							{mixer}
 						</button>
@@ -630,6 +845,7 @@
 											type="button"
 											on:click={() => toggleEquipment(name)}
 											class="flex-grow text-left cursor-pointer"
+											disabled={artistType === 'Local' && techRider.confirmed}
 										>
 											{name}
 										</button>
@@ -639,6 +855,7 @@
 													type="button"
 													on:click|stopPropagation={() => adjustQty(techRider.equipment, name, -1)}
 													class="bg-navbar w-5 h-5 rounded text-white flex items-center justify-center hover:bg-gray-700 transition-colors cursor-pointer"
+													disabled={artistType === 'Local' && techRider.confirmed}
 												>
 													-
 												</button>
@@ -647,6 +864,7 @@
 													type="button"
 													on:click|stopPropagation={() => adjustQty(techRider.equipment, name, 1)}
 													class="bg-navbar w-5 h-5 rounded text-white flex items-center justify-center hover:bg-gray-700 transition-colors cursor-pointer"
+													disabled={artistType === 'Local' && techRider.confirmed}
 												>
 													+
 												</button>
@@ -668,12 +886,14 @@
 								class="w-full bg-gray1 p-1.5 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-lime"
 								bind:value={item.text}
 								on:input={() => updateOtherText(item.id, item.text, 'tech')}
+								disabled={artistType === 'Local' && techRider.confirmed}
 							/>
 							<button
 								type="button"
 								class="flex items-center justify-center w-6 h-6 text-red-500 hover:bg-red-500 hover:text-white rounded-full transition-colors cursor-pointer"
 								aria-label="Remove request"
 								on:click={() => removeOtherRequest(item.id, 'tech')}
+								disabled={artistType === 'Local' && techRider.confirmed}
 							>
 								<svg
 									class="w-3.5 h-3.5"
@@ -696,6 +916,7 @@
 					type="button"
 					on:click={() => addOtherRequest('tech')}
 					class="w-full text-xs bg-gray1 text-gray3 border border-transparent hover:border-lime py-1 rounded-lg transition-all cursor-pointer"
+					disabled={artistType === 'Local' && techRider.confirmed}
 				>
 					+ Add Other Request
 				</button>
@@ -719,7 +940,9 @@
 										<span>{name}</span>
 									</button>
 									{#if item.enabled && item.duration !== undefined}
-										<div class="flex items-center justify-center gap-1 text-xs bg-gray1 rounded-lg p-1">
+										<div
+											class="flex items-center justify-center gap-1 text-xs bg-gray1 rounded-lg p-1"
+										>
 											<button
 												type="button"
 												on:click={() => adjustDuration(key, -30)}

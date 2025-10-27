@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import SearchBar from '$lib/components/inputs/SearchBar.svelte';
 	import AdvanceCard from '$lib/components/advance/AdvanceCard.svelte';
@@ -9,7 +10,7 @@
 	import Button from '$lib/components/buttons/Button.svelte';
 	import FilterButton, { type FilterType } from '$lib/components/buttons/FilterButton.svelte';
 	import { fetchEventsAdvance, type EventAdvance } from '$lib/services/eventsService.js';
-	import { supabase } from '$lib/supabase.js'; // Add this import
+	import { supabase } from '$lib/supabase.js';
 
 	let mounted = false;
 	let searchValue = '';
@@ -33,9 +34,51 @@
 
 	// Update the onMount function
 	onMount(async () => {
-		setTimeout(() => (mounted = true), 150);
+		// Read filters from URL params FIRST
+		const params = $page.url.searchParams;
+
+		if (params.has('live')) {
+			showLive = params.get('live') === 'true';
+		}
+		if (params.has('local')) {
+			showLocalOnly = params.get('local') === 'true';
+		}
+		if (params.has('filter')) {
+			currentFilter = params.get('filter') as FilterType;
+		}
+		if (params.has('search')) {
+			searchValue = params.get('search') || '';
+		}
+
+		// Then load events with the restored filters
 		await loadEvents();
+
+		// Set mounted for animations
+		setTimeout(() => (mounted = true), 150);
 	});
+
+	function updateUrlParams() {
+		if (!mounted) return;
+		
+		const params = new URLSearchParams();
+
+		if (!showLive) {
+			params.set('live', 'false');
+		}
+		if (showLocalOnly) {
+			params.set('local', 'true');
+		}
+		if (currentFilter !== 'none') {
+			params.set('filter', currentFilter);
+		}
+		if (searchValue) {
+			params.set('search', searchValue);
+		}
+
+		const newUrl = params.toString() ? `/advancing/gathered?${params.toString()}` : '/advancing/gathered';
+		window.history.replaceState({}, '', newUrl);
+		console.log('URL updated to:', newUrl);
+	}
 
 	// Update loadEvents function
 	async function loadEvents() {
@@ -45,8 +88,7 @@
 			console.log('Loading events from Supabase...');
 
 			allEvents = await fetchEventsAdvance();
-			// Apply the initial filter (showing live events by default)
-			await filterEventsByStatus(); // Add await here
+			await filterEventsByStatus();
 			console.log('Loaded all events:', allEvents);
 		} catch (err) {
 			console.error('Failed to load events:', err);
@@ -58,27 +100,26 @@
 		}
 	}
 
-	// Update handleToggle function
 	async function handleToggle(): Promise<void> {
 		showLive = !showLive;
-		await filterEventsByStatus(); // Add await here
+		await filterEventsByStatus();
+		updateUrlParams();
 		console.log(`Toggled to ${showLive ? 'LIVE' : 'PAST'} events`);
 	}
 
 	function handleLocalToggle(): void {
 		showLocalOnly = !showLocalOnly;
+		updateUrlParams();
 		console.log(`Toggled to ${showLocalOnly ? 'LOCAL' : 'ALL'} artists`);
 	}
 
 	async function filterEventsByStatus(): Promise<void> {
-		// Debug: Log all events first
 		console.log('🔍 DEBUG: All events before filtering:', allEvents);
 		console.log(
 			'🔍 DEBUG: Looking for Noizu event:',
 			allEvents.find((e) => e.artist_name === 'Noizu')
 		);
 
-		// First, get all event_ids that exist in the events table
 		const { data: eventsTableData, error } = await supabase
 			.from('events')
 			.select('event_id')
@@ -86,7 +127,6 @@
 
 		if (error) {
 			console.error('Error fetching events table data:', error);
-			// If we can't check, just show all events as live
 			events = allEvents;
 			return;
 		}
@@ -100,7 +140,6 @@
 				console.log(`🔍 DEBUG: - event_status: ${event.event_status}`);
 				console.log(`🔍 DEBUG: - exists in events table: ${existingEventIds.has(event.event_id)}`);
 
-				// Custom events (not in events table) are always treated as live
 				if (!existingEventIds.has(event.event_id)) {
 					console.log(
 						`✅ Custom event ${event.event_id} (${event.artist_name}) - treating as live`
@@ -108,7 +147,6 @@
 					return true;
 				}
 
-				// Regular events use the event_status field
 				const isLive = event.event_status === 'LIVE';
 				console.log(
 					`${isLive ? '✅' : '❌'} Regular event ${event.event_id} (${event.artist_name}) - status: ${event.event_status}`
@@ -117,12 +155,9 @@
 			});
 		} else {
 			events = allEvents.filter((event) => {
-				// Custom events are never shown in "past" view
 				if (!existingEventIds.has(event.event_id)) {
 					return false;
 				}
-
-				// Regular events use the event_status field
 				return event.event_status === 'PAST';
 			});
 		}
@@ -136,17 +171,15 @@
 	function parseEventDate(dateString: string): Date {
 		const currentYear = new Date().getFullYear();
 
-		// If it's already in a valid format, parse it directly
 		try {
 			const date = new Date(dateString);
 			if (!isNaN(date.getTime())) {
 				return date;
 			}
 		} catch (e) {
-			// If that fails, try the original format
+			// Fallback
 		}
 
-		// Fallback to the original parsing logic
 		return new Date(`${dateString}, ${currentYear}`);
 	}
 
@@ -195,7 +228,6 @@
 		}
 	}
 
-	// This is the line that was fixed
 	$: filteredEvents = sortEvents(
 		events
 			.filter((event) => {
@@ -207,18 +239,19 @@
 					event.tags.some((tag) => tag.toLowerCase().includes(searchValue.toLowerCase()))
 			),
 		currentFilter,
-		showLive // The missing 3rd argument is now provided
+		showLive
 	);
 
 	function handleSearch(event: CustomEvent<{ value: string }>) {
 		searchValue = event.detail.value;
+		updateUrlParams();
 	}
 
 	function handleFilterChange(event: CustomEvent<{ filter: FilterType }>) {
 		currentFilter = event.detail.filter;
+		updateUrlParams();
 	}
 
-	// Modal handlers
 	function handleEdit(event: CustomEvent) {
 		console.log('Edit event triggered:', event.detail.event);
 		selectedEvent = event.detail.event;
@@ -234,32 +267,27 @@
 
 	function handleSave(event: CustomEvent) {
 		console.log('Event saved:', event.detail);
-		// Refresh events list to reflect changes
 		loadEvents();
 	}
 
 	function handleDelete(event: CustomEvent) {
 		console.log('Event deleted:', event.detail);
-		// Refresh events list to reflect changes
 		loadEvents();
 	}
 
 	function handleCardClick(event: CustomEvent) {
 		console.log('Card clicked:', event.detail.event);
 		const eventData = event.detail.event;
-
-		// Use the full ID instead of extracting just the event ID
-		const fullId = eventData.id; // This is "151459-Chase & Status"
+		const fullId = eventData.id;
 
 		if (fullId) {
 			console.log('Navigating to full ID:', fullId);
-			goto(`/advancing/gathered/${fullId}`); // ✅ This goes to /151459-Chase & Status
+			goto(`/advancing/gathered/${fullId}`);
 		} else {
 			console.error('No valid ID found for navigation', eventData);
 		}
 	}
 
-	// Add modal handlers
 	function handleAddEvent() {
 		console.log('Add event button clicked');
 		showAddModal = true;
@@ -272,7 +300,6 @@
 
 	function handleAddSuccess() {
 		console.log('Event added successfully');
-		// Refresh events list to show new entries
 		loadEvents();
 	}
 </script>
@@ -365,7 +392,6 @@
 					</div>
 					<p class="text-gray2 text-base">Loading events...</p>
 				</div>
-				<!-- Error State -->
 			{:else if error}
 				<div class="flex flex-col items-center justify-center py-16 text-center">
 					<div class="w-16 h-16 mb-4 text-red-500">
@@ -395,7 +421,6 @@
 						</span>
 					</Button>
 				</div>
-				<!-- Events Grid -->
 			{:else}
 				<div class="fade-in {mounted ? 'mounted' : ''}" style="transition-delay: 0.2s;">
 					{#if filteredEvents.length > 0}
@@ -414,7 +439,6 @@
 							{/each}
 						</div>
 					{:else}
-						<!-- Empty State -->
 						<div class="flex flex-col items-center justify-center py-16 text-center">
 							<div class="w-16 h-16 mb-4 text-gray2">
 								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -459,7 +483,6 @@
 	</div>
 </MainLayout>
 
-<!-- Edit Modal - IMPORTANT: Place outside MainLayout for proper z-index -->
 <EventEditModal
 	bind:isOpen={showEditModal}
 	event={selectedEvent}
@@ -468,7 +491,6 @@
 	on:delete={handleDelete}
 />
 
-<!-- Add Modal - IMPORTANT: Place outside MainLayout for proper z-index -->
 <EventAddModal bind:isOpen={showAddModal} on:close={closeAddModal} on:success={handleAddSuccess} />
 
 <style>
@@ -560,7 +582,6 @@
 		opacity: 0.9;
 	}
 
-	/* Responsive Controls */
 	@media (min-width: 900px) {
 		.events-grid {
 			grid-template-columns: repeat(2, 400px);
@@ -588,7 +609,6 @@
 		}
 	}
 
-	/* Stack controls when cards are in single column (below 900px) */
 	@media (max-width: 899px) {
 		.controls-container {
 			flex-direction: column;

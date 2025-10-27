@@ -8,6 +8,8 @@
 		updateEventColumn
 	} from '$lib/services/eventsService';
 	import { generateAdvanceEmail } from './emails/emailGenerator';
+	import { generateLocalAdvanceEmail, canGenerateLocalEmail } from './emails/localEmailGenerator';
+	import { supabase } from '$lib/supabase';
 	import { generateProductionClipboardMessage } from './emails/clipboardGenerator';
 	import { generateMihirRider, downloadEmlFile } from './emails/mihirRiderGenerator';
 	import { guestlistSettings } from '$lib/components/settings/AdvanceVariables';
@@ -42,6 +44,33 @@
 	let gaCount: number = 0;
 	let vipCount: number = 0;
 	let updateTimeout: ReturnType<typeof setTimeout>;
+
+	// Add reactive statement to check if artist is local
+	$: isLocalArtist = event?.artist_type === 'Local';
+
+	// Button classes for Tech/Hospo
+	$: techHospoButtonClasses = [
+		'rounded-xl px-3.5 py-1 font-bold text-xs transition-all duration-200',
+		isLocalArtist
+			? 'bg-gray2 text-black opacity-50 cursor-not-allowed'
+			: 'bg-gray2 text-black hover:bg-lime cursor-pointer'
+	].join(' ');
+
+	// Button classes for Final Sheet
+	$: finalSheetButtonClasses = [
+		'rounded-xl px-4 py-1 font-bold text-xs transition-all duration-200',
+		isLocalArtist
+			? 'bg-gray2 text-black opacity-50 cursor-not-allowed'
+			: 'bg-gray2 text-black hover:bg-lime cursor-pointer'
+	].join(' ');
+
+	// Button classes for Settings
+	$: settingsButtonClasses = [
+		'rounded-xl px-4 py-1 font-bold text-xs transition-all duration-200',
+		isLocalArtist
+			? 'bg-gray2 text-black opacity-50 cursor-not-allowed'
+			: 'bg-gray2 text-black hover:bg-lime cursor-pointer'
+	].join(' ');
 
 	onMount(async () => {
 		// @ts-ignore
@@ -97,7 +126,7 @@
 			}
 		}, 500);
 	}
-	
+
 	$: fileName = generateFileName();
 
 	function generateFileName(): string {
@@ -131,9 +160,40 @@
 		}
 	}
 
-	function handleGenerateAdvanceEmail() {
-		if (event) {
-			generateAdvanceEmail(event);
+	let canGenerateLocal = true;
+
+	// Watch for changes to main_contact and artist_type
+	$: mainContact = event?.main_contact;
+	$: artistType = event?.artist_type;
+
+	// Re-check whenever these change
+	$: if (artistType === 'Local' && mainContact !== undefined) {
+		canGenerateLocalEmail(event, supabase).then((result) => {
+			canGenerateLocal = result;
+		});
+	} else if (artistType !== 'Local') {
+		canGenerateLocal = true;
+	}
+
+	async function handleGenerateEmail() {
+		try {
+			// Check if artist is local
+			if (event.artist_type === 'Local') {
+				if (!canGenerateLocal) {
+					popupMessage = 'Error: No main contact found for this artist';
+					showPopup = true;
+					setTimeout(() => (showPopup = false), 3000);
+					return;
+				}
+				await generateLocalAdvanceEmail(event, supabase);
+			} else {
+				await generateAdvanceEmail(event, supabase);
+			}
+		} catch (error: any) {
+			console.error('Error generating email:', error);
+			popupMessage = error.message || 'Error generating email';
+			showPopup = true;
+			setTimeout(() => (showPopup = false), 3000);
 		}
 	}
 
@@ -293,6 +353,25 @@
 			event = { ...event };
 		}
 	}
+
+	// Public method that can be called from parent
+	// Public method that can be called from parent
+	export async function recheckCanGenerate() {
+		console.log('🔄 Manually rechecking canGenerate...');
+		console.log('   Current main_contact:', event?.main_contact);
+		console.log('   Current artist_type:', event?.artist_type);
+
+		// Small delay to ensure event prop has updated
+		await new Promise((resolve) => setTimeout(resolve, 50));
+
+		if (event?.artist_type === 'Local') {
+			const result = await canGenerateLocalEmail(event, supabase);
+			console.log('   ✅ Manual check result:', result);
+			canGenerateLocal = result;
+		} else {
+			canGenerateLocal = true;
+		}
+	}
 </script>
 
 <div class="hidden" aria-hidden="true" bind:this={sheetContainer}>
@@ -330,8 +409,15 @@
 				</svg>
 			</div>
 			<button
-				class="bg-gray2 text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
-				on:click={handleGenerateAdvanceEmail}
+				class="rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200"
+				class:bg-gray2={true}
+				class:text-black={true}
+				class:hover:bg-lime={!(event?.artist_type === 'Local' && !canGenerateLocal)}
+				class:cursor-pointer={!(event?.artist_type === 'Local' && !canGenerateLocal)}
+				class:opacity-50={event?.artist_type === 'Local' && !canGenerateLocal}
+				class:cursor-not-allowed={event?.artist_type === 'Local' && !canGenerateLocal}
+				on:click={handleGenerateEmail}
+				disabled={event?.artist_type === 'Local' && !canGenerateLocal}
 			>
 				Start Thread
 			</button>
@@ -353,9 +439,9 @@
 				</svg>
 			</div>
 			<button
-				class="bg-gray2 text-black rounded-xl px-3.5 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
+				class={techHospoButtonClasses}
 				on:click={handleCopyProductionMessage}
-				disabled={justCopied}
+				disabled={justCopied || isLocalArtist}
 			>
 				Tech/Hospo
 			</button>
@@ -403,7 +489,7 @@
 			</button>
 		</div>
 		<div class="flex items-center gap-3 text-sm">
-			<div class="w-6 h-6 text-gray3 flex items-center justify-center">
+			<div class="w-6 h-6 flex items-center justify-center text-gray3">
 				{#if isGeneratingPdf}
 					<svg
 						class="animate-spin h-5 w-5 text-lime"
@@ -450,16 +536,17 @@
 			</div>
 			{#if event.advance_sheet_url}
 				<button
-					class="bg-gray2 text-black rounded-xl px-4 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
-					on:click={() => (isPreviewOpen = true)}
+					class={finalSheetButtonClasses}
+					on:click={() => !isLocalArtist && (isPreviewOpen = true)}
+					disabled={isLocalArtist}
 				>
 					Final Sheet
 				</button>
 			{:else}
 				<button
-					class="bg-gray2 text-black rounded-xl px-4 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
+					class={finalSheetButtonClasses}
 					on:click={handleGeneratePdf}
-					disabled={isGeneratingPdf}
+					disabled={isGeneratingPdf || isLocalArtist}
 				>
 					{#if isGeneratingPdf}
 						Generating...
@@ -470,7 +557,7 @@
 			{/if}
 		</div>
 		<div class="flex items-center gap-3 text-sm">
-			<div class="w-6 h-6 text-gray3 flex items-center justify-center">
+			<div class="w-6 h-6 flex items-center justify-center text-gray3">
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
 					class="w-6 h-6"
@@ -484,12 +571,17 @@
 						stroke-linejoin="round"
 						d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
 					/>
-					<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+					/>
 				</svg>
 			</div>
 			<button
-				class="bg-gray2 text-black rounded-xl px-4 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
-				on:click={() => (isSettingsModalOpen = true)}
+				class={settingsButtonClasses}
+				on:click={() => !isLocalArtist && (isSettingsModalOpen = true)}
+				disabled={isLocalArtist}
 			>
 				Settings
 			</button>

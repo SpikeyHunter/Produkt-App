@@ -1,4 +1,5 @@
 import type { EventAdvance, TimetableEntry } from '$lib/services/eventsService';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 /**
  * Generates an HTML table for the timetable.
@@ -88,13 +89,29 @@ function formatFullDate(dateString: string | null): string {
 /**
  * Generates the .eml file for the main advance email.
  * @param event The event data object.
+ * @param supabase The Supabase client instance.
  */
-export function generateAdvanceEmail(event: EventAdvance & { timetable?: TimetableEntry[] | null }) {
+export async function generateAdvanceEmail(
+    event: EventAdvance & { timetable?: TimetableEntry[] | null },
+    supabase: SupabaseClient
+) {
+    // Get the authenticated user
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user || !user.email) {
+        console.error('No authenticated user found or user has no email');
+        throw new Error('User must be authenticated to generate email');
+    }
+
     const artistName = event.artist_name || 'N/A';
     const eventDate = formatFullDate(event.event_date ?? null);
     const eventVenue = event.venue || 'TBD';
     
     const subject = `Advance // ${artistName} // ${eventDate} // ${eventVenue} Montreal`;
+
+    // Get the authenticated user's email
+    const fromEmail = user.email;
+    const userName = user.user_metadata?.name || fromEmail.split('@')[0];
 
     const timetableContent = generateTimetableHtml(event.timetable || null);
 
@@ -104,7 +121,7 @@ export function generateAdvanceEmail(event: EventAdvance & { timetable?: Timetab
     // Using a template literal for the HTML body and cleaning it up.
     const htmlBody = `
         <p>Hi X,&nbsp;</p>
-        <p>Hope you are well.&nbsp;I’ll be your contact for advancing this show!</p>
+        <p>Hope you are well.&nbsp;I'll be your contact for advancing this show!</p>
         <p>See below for advance details&nbsp;needed:&nbsp;</p>
         
         <p>
@@ -141,7 +158,7 @@ export function generateAdvanceEmail(event: EventAdvance & { timetable?: Timetab
 
         <p>
             <u><b>Media:&nbsp;</b></u><br>
-            - Please advise if you’re bringing your own photographer/videographer.<br>
+            - Please advise if you're bringing your own photographer/videographer.<br>
             - Outside media using professional equipment must provide a valid COI (minimum requirements available on request)<br>
             - Any camera setup at FOH, DJ booth, or use of an audio recorder must be advanced and approved in advance<br>
             - Our in-house photo/video team (subject to availability) can capture content and share it with you after the show<br>
@@ -154,10 +171,11 @@ export function generateAdvanceEmail(event: EventAdvance & { timetable?: Timetab
         ${timetableContent}
 
         <p>*Artists and crew members must get an ETA to board the plane (except for Canadian and US Citizen)<br>Please confirm with your airline or visit <a href="https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta/apply.html">https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta/apply.html</a></p>
-        <p>Best,&nbsp;<br>Charles</p>
+        <p>Best,&nbsp;<br>${userName.charAt(0).toUpperCase() + userName.slice(1)}</p>
     `.replace(/\n/g, '').replace(/    /g, '').trim();
 
     const emlContent = `Subject: ${subject}
+From: ${fromEmail}
 To: 
 CC: allanah@produkt.ca, janie@produkt.ca
 X-Unsent: 1
