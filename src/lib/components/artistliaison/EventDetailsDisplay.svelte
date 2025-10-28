@@ -223,6 +223,33 @@
 		}));
 	});
 
+	$: rolesData = (() => {
+		const rolesMap = new Map<string, Map<string, string>>();
+
+		artistDetails.forEach((artist) => {
+			const roles = parseJsonData(artist.roles) || [];
+			const artistRolesMap = new Map<string, string>();
+
+			roles.forEach((person: any) => {
+				const fullName = `${person.firstName} ${person.lastName}`.toLowerCase();
+				const role = person.customRole || person.role || 'N/A';
+				artistRolesMap.set(fullName, role);
+			});
+
+			rolesMap.set(artist.artist_name, artistRolesMap);
+		});
+
+		return rolesMap;
+	})();
+
+	function getGuestRole(artistName: string, firstName: string, lastName: string): string {
+		const artistRoles = rolesData.get(artistName);
+		if (!artistRoles) return 'N/A';
+
+		const fullName = `${firstName} ${lastName}`.toLowerCase();
+		return artistRoles.get(fullName) || 'N/A';
+	}
+
 	$: hotelGroups = ((): [string, (HotelReservation & { artist_name: string })[]][] => {
 		const groups = new Map<string, (HotelReservation & { artist_name: string })[]>();
 		allHotelReservations.forEach((res) => {
@@ -587,16 +614,17 @@
 								<table class="w-full text-xs">
 									<thead>
 										<tr class="border-b border-gray2/20">
-											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5">Guest</th
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/6">Guest</th
 											>
-											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5"
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/6">Role</th>
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/6"
 												>Conf #</th
 											>
-											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5">Room</th>
-											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5"
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/6">Room</th>
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/6"
 												>Check-in</th
 											>
-											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/5"
+											<th class="py-1 text-gray2 uppercase tracking-wider text-left w-1/6"
 												>Check-out</th
 											>
 										</tr>
@@ -606,6 +634,13 @@
 											<tr class="border-b border-gray2/10">
 												<td class="py-1.5 text-white"
 													>{res.reservationFirstName} {res.reservationLastName}</td
+												>
+												<td class="py-1.5 text-lime"
+													>{getGuestRole(
+														res.artist_name,
+														res.reservationFirstName,
+														res.reservationLastName
+													)}</td
 												>
 												<td class="py-1.5 text-white">{res.confirmationNumber || 'N/A'}</td>
 												<td class="py-1.5 text-white">{res.roomType}</td>
