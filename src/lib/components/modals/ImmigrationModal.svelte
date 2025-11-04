@@ -90,15 +90,7 @@
 	$: hasPromoterLetters = Array.from(immigrationInfos.values()).some(
 		(info) => info.letter_type === 'Promoter Letter'
 	);
-	$: stayDuration = (() => {
-		if (currentArrival?.date && currentDeparture?.date) {
-			const arrival = new Date(currentArrival.date);
-			const departure = new Date(currentDeparture.date);
-			const diff = Math.ceil((departure.getTime() - arrival.getTime()) / (1000 * 60 * 60 * 24));
-			return Math.max(1, diff);
-		}
-		return 2;
-	})();
+	$: stayDuration = 2;
 
 	$: formattedFee = (() => {
 		const amount = currentImmigrationInfo?.artist_fee;
@@ -125,18 +117,12 @@
 		if (!rawDate) return '';
 
 		const dateStr = String(rawDate);
+		// If it's already in YYYY-MM-DD format, return as-is
 		if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
 			return dateStr;
 		}
 
-		if (/^[A-Za-z]+ \d{1,2}$/.test(dateStr)) {
-			const currentYear = new Date().getFullYear();
-			const date = new Date(`${dateStr}, ${currentYear}`);
-			if (!isNaN(date.getTime())) {
-				return date.toISOString().split('T')[0];
-			}
-		}
-
+		// Otherwise try to parse it
 		const date = new Date(dateStr);
 		if (!isNaN(date.getTime())) {
 			return date.toISOString().split('T')[0];
@@ -148,10 +134,11 @@
 	$: formattedDepartureDate = (() => {
 		if (!formattedArrivalDate) return '';
 
+		// Parse the arrival date and add exactly 1 day
 		const [year, month, day] = formattedArrivalDate.split('-').map((num) => parseInt(num, 10));
 		const arrivalDate = new Date(year, month - 1, day);
 		const departureDate = new Date(arrivalDate);
-		departureDate.setDate(arrivalDate.getDate() + stayDuration - 1);
+		departureDate.setDate(arrivalDate.getDate() + 1);
 
 		return departureDate.toISOString().split('T')[0];
 	})();
