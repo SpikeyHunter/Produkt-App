@@ -99,11 +99,16 @@
 	}
 
 	// Check if hotel should show standard notes
-	function shouldShowStandardNotes(hotelName: string): boolean {
+	function shouldShowStandardNotes(hotelName: string, reservations: HotelReservation[]): boolean {
 		const normalizedName = hotelName.toLowerCase();
-		return normalizedName.includes('monville') || 
-		       normalizedName.includes('alt hotel') || 
-		       normalizedName.includes('w hotel');
+		const isCorrectHotel = normalizedName.includes('monville') || 
+		                       normalizedName.includes('alt hotel') || 
+		                       normalizedName.includes('w hotel');
+		
+		// Only show if it's the correct hotel AND at least one room is paid by us
+		const hasRoomPaidByUs = reservations.some(res => res.isPaidByUs === true);
+		
+		return isCorrectHotel && hasRoomPaidByUs;
 	}
 </script>
 
@@ -170,7 +175,7 @@
 							{#each getHotelNotes(reservations) as note}
 								<div>• {note}</div>
 							{/each}
-							{#if shouldShowStandardNotes(hotelName)}
+							{#if shouldShowStandardNotes(hotelName, reservations)}
 								<div>
 									• {reservations.length > 1 ? 'Rooms' : 'Room'} and taxes are covered by New City Gas
 								</div>
