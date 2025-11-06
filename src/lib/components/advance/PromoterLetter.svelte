@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { PromoterLetterData } from '$lib/types/letter';
-	import { getPronouns, numberToWord } from '$lib/utils/letter-helpers';
+	import { getPronouns, numberToWord, formatDateShort } from '$lib/utils/letter-helpers';
 
 	export let data: PromoterLetterData;
 	$: pronouns = getPronouns(data.artistGender);
@@ -9,6 +9,10 @@
 		? `${data.passportNumber} & ${data.visaNumber}`
 		: data.passportNumber;
 	$: stayDurationWord = numberToWord(data.stayDurationDays);
+	
+	// Force current year on dates
+	$: arrivalDateFormatted = data.arrivalDate ? formatDateShort(data.arrivalDate) : '';
+	$: performanceDateFormatted = data.performanceDate ? formatDateShort(data.performanceDate) : '';
 </script>
 
 <div id="letter-content" style="background-color: #ffffff; width: 8.5in; height: 11in; box-sizing: border-box;" class="text-black text-[12pt] leading-tight mx-auto p-[0.5in] print:p-[0.5in] print:m-0">
@@ -56,14 +60,14 @@
 		<span class="font-bold">{data.artistCitizenship}</span>
 		Citizen, so that
 		{pronouns.subject} may be permitted to enter Canada as a Business Visitor on
-		<span class="font-bold">{data.arrivalDate}</span> to provide {pronouns.possessive} essential services
+		<span class="font-bold">{arrivalDateFormatted}</span> to provide {pronouns.possessive} essential services
 		as performing artist for <span class="font-bold">{data.performanceName}</span>.
 	</div>
 
 	<div class="mb-1.5 text-justify">
 		{pronouns.title} <span class="font-bold">{data.artistLastName}</span> will be
 		<span class="font-bold">performing for {data.performanceName}</span> (<span >{data.showDuration}</span>) hour show on
-		<span class="font-bold">{data.performanceDate}</span> at New City Gas Concert hall. Upon the
+		<span class="font-bold">{performanceDateFormatted}</span> at New City Gas Concert hall. Upon the
 		conclusion of this one (1) night performance,
 		{pronouns.title} <span class="font-bold">{data.artistLastName}</span> will travel back and
 		will resume {pronouns.possessive} freelance work activities as an independent musical artist.
@@ -72,8 +76,7 @@
 	<div class="mb-1.5 text-justify">
 		Please note that {pronouns.title} <span class="font-bold">{data.artistLastName}</span> will
 		be remunerated by 4427319 Canada inc. in the amount of
-		<span class="font-bold">{data.paymentCurrency}</span>
-		<span class="font-bold">${data.paymentAmount}</span> for {pronouns.possessive} participation in
+		<span class="font-bold">{data.paymentCurrency} ${data.paymentAmount}</span> for {pronouns.possessive} participation in
 		<span class="font-bold">{data.performanceName}</span>.
 	</div>
 
@@ -96,12 +99,6 @@
 </div>
 
 <style>
-	@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;700&display=swap');
-	@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
-	@import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
-	@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&display=swap');
-	
-	/* Set default font with better rendering for crisp text */
 	#letter-content {
 		font-family: 'Times New Roman', Times, serif !important;
 		-webkit-font-smoothing: antialiased;

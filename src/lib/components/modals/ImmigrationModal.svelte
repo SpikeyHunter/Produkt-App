@@ -14,13 +14,21 @@
 	import { supabase } from '$lib/supabase.js';
 	import { PDFDocument } from 'pdf-lib';
 	import { suggestJobInfo } from '$lib/services/aiService.js';
-
+	import { onMount } from 'svelte';
+	
+	onMount(() => {
+		// Preload fonts to ensure they're ready for PDF generation
+		document.fonts.ready.then(() => {
+			console.log('Fonts loaded');
+		});
+	});
 	interface SimpleImmigrationInfo {
 		letter_type: string;
 		visa_required: boolean;
 		visa_number: string;
 		gender: 'male' | 'female' | '';
 		artist_fee: string;
+		artist_fee_currency: string;
 		letter_url: string;
 		letter_path: string;
 		custom_job_title?: string;
@@ -57,6 +65,7 @@
 		visa_number: '',
 		gender: 'male',
 		artist_fee: '',
+		artist_fee_currency: 'USD',
 		letter_url: '',
 		letter_path: ''
 	});
@@ -94,10 +103,12 @@
 
 	$: formattedFee = (() => {
 		const amount = currentImmigrationInfo?.artist_fee;
+		const currency = currentImmigrationInfo?.artist_fee_currency || 'USD';
 		if (amount === null || amount === undefined || amount === '') return '';
 		const num = Number(amount);
 		if (isNaN(num)) return amount;
-		return new Intl.NumberFormat('en-US').format(num);
+		const formatted = new Intl.NumberFormat('en-US').format(num);
+		return currency === 'CAD' ? `${formatted} CAD` : formatted;
 	})();
 
 	$: letterInfoIsFilled = !!(
@@ -189,8 +200,8 @@
 						: '',
 				performanceDate: event?.date || '',
 				showDuration: 2,
-				paymentCurrency: 'USD',
-				paymentAmount: formattedFee,
+				paymentCurrency: currentImmigrationInfo?.artist_fee_currency || 'USD',
+				paymentAmount: formattedFee.replace(' CAD', ''), // CHANGE THIS LINE to remove CAD suffix
 				stayDurationDays: stayDuration,
 				letterDate: new Date().toLocaleDateString('en-US', {
 					year: 'numeric',
@@ -280,6 +291,21 @@
 		} else {
 			return 'Delete';
 		}
+	}
+
+	function handleFeeInput(value: string) {
+		// Remove all non-alphanumeric characters except numbers
+		const cleanValue = value.replace(/[^0-9CADcad]/g, '');
+
+		// Check if CAD is in the input
+		const hasCAD = /cad/i.test(cleanValue);
+
+		// Extract just the numbers
+		const numbers = cleanValue.replace(/[CADcad]/g, '');
+
+		// Set the fee and currency
+		handleUpdateField('artist_fee', numbers);
+		handleUpdateField('artist_fee_currency', hasCAD ? 'CAD' : 'USD');
 	}
 
 	const getJobTitle = (role: string | undefined) => {
@@ -464,6 +490,7 @@
 				visa_number: oldData.visa_number || '',
 				gender: oldData.gender || 'male',
 				artist_fee: oldData.artist_fee || '',
+				artist_fee_currency: oldData.artist_fee_currency || 'USD', // ADD THIS LINE
 				letter_url: oldData.letter_url || '',
 				letter_path: oldData.letter_path || '',
 				custom_job_title: oldData.custom_job_title || '',
@@ -958,7 +985,7 @@ ${att.content}
 		showLetterPreview = true;
 		await tick();
 
-		await new Promise((resolve) => setTimeout(resolve, 500));
+		await new Promise((resolve) => setTimeout(resolve, 2000));
 		const html2pdf = (await import('html2pdf.js')).default;
 
 		const elementId = isArtist ? 'letter-content' : 'letter-content-crew';
@@ -982,7 +1009,7 @@ ${att.content}
 					filename: 'Promoter Letter.pdf',
 					image: { type: 'jpeg' as const, quality: 0.98 },
 					html2canvas: {
-						scale: 3,
+						scale: 4,
 						useCORS: true,
 						allowTaint: false,
 						backgroundColor: '#ffffff',
@@ -991,7 +1018,10 @@ ${att.content}
 						windowWidth: 816,
 						windowHeight: 1056,
 						x: 0,
-						y: 0
+						y: 0,
+						scrollY: 0,
+						scrollX: 0,
+						logging: false
 					},
 					jsPDF: {
 						unit: 'in',
@@ -1485,10 +1515,15 @@ ${att.content}
 								<input
 									type="text"
 									class="w-full bg-transparent border border-gray2 rounded-full px-3 py-1.5 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime text-sm"
-									placeholder="Enter amount"
-									value={isFeeFocused ? currentImmigrationInfo.artist_fee || '' : formattedFee}
-									on:input={(e) =>
-										handleUpdateField('artist_fee', e.currentTarget.value.replace(/[^0-9]/g, ''))}
+									placeholder="Enter amount (e.g., 300 or 300CAD)"
+									value={isFeeFocused
+										? (currentImmigrationInfo.artist_fee || '') +
+											(currentImmigrationInfo.artist_fee_currency === 'CAD' &&
+											currentImmigrationInfo.artist_fee
+												? 'CAD'
+												: '')
+										: formattedFee}
+									on:input={(e) => handleFeeInput(e.currentTarget.value)}
 									on:focus={() => (isFeeFocused = true)}
 									on:blur={() => (isFeeFocused = false)}
 								/>
