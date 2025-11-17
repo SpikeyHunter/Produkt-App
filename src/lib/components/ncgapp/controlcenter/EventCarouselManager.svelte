@@ -58,8 +58,8 @@
 	async function handleRemove(eventId: number) {
 		const success = await removeEventFromCarousel(eventId);
 		if (success) {
-			events = events.filter(e => e.event_id !== eventId);
-			
+			events = events.filter((e) => e.event_id !== eventId);
+
 			if (events.length === 0) {
 				activeIndex = 0;
 				selectedEventId = null;
@@ -68,9 +68,29 @@
 				activeIndex = Math.min(activeIndex, events.length - 1);
 				selectEvent(activeIndex);
 			}
-			
+
 			dispatch('eventsLoaded', events);
 		}
+	}
+
+	// ADD THIS NEW FUNCTION
+	export async function refreshCurrentEvent() {
+		const freshEvents = await fetchUpcomingEvents();
+		const currentEventId = selectedEventId;
+		events = freshEvents;
+
+		if (currentEventId && events.length > 0) {
+			const newIndex = events.findIndex((e) => e.event_id === currentEventId);
+			if (newIndex !== -1) {
+				activeIndex = newIndex;
+				selectedEventId = events[activeIndex].event_id;
+				dispatch('select', events[activeIndex]);
+			} else {
+				selectEvent(0);
+			}
+		}
+
+		dispatch('eventsLoaded', events);
 	}
 
 	function next() {
@@ -92,7 +112,7 @@
 		if (data) {
 			try {
 				const sourceEvent = JSON.parse(data);
-				if (!events.find(ev => ev.event_id === sourceEvent.event_id)) {
+				if (!events.find((ev) => ev.event_id === sourceEvent.event_id)) {
 					dispatch('addFromSource', sourceEvent);
 				}
 			} catch (err) {
@@ -121,7 +141,7 @@
 	function handlePointerUp() {
 		if (!isDragging) return;
 		isDragging = false;
-		
+
 		const deltaX = currentX - startX;
 		const threshold = 50;
 
@@ -153,10 +173,7 @@
 	$: cardPositions = events.map((_, i) => getPosition(i, activeIndex));
 </script>
 
-<svelte:window 
-	on:pointerup={handlePointerUp}
-	on:pointermove={handlePointerMove}
-/>
+<svelte:window on:pointerup={handlePointerUp} on:pointermove={handlePointerMove} />
 
 <div class="carousel-wrapper">
 	<!-- Header -->
@@ -166,10 +183,15 @@
 	</div>
 
 	<!-- Main Content -->
-	<div 
+	<div
 		class="content"
-		on:dragover={(e) => { e.preventDefault(); isDraggingOver = true; }}
-		on:dragleave={() => { isDraggingOver = false; }}
+		on:dragover={(e) => {
+			e.preventDefault();
+			isDraggingOver = true;
+		}}
+		on:dragleave={() => {
+			isDraggingOver = false;
+		}}
 		on:drop={handleDrop}
 		role="region"
 		aria-label="Event carousel"
@@ -177,16 +199,25 @@
 		{#if events.length === 0}
 			<!-- Empty State -->
 			<div class="empty-state" class:dragging={isDraggingOver}>
-				<svg class="empty-icon" class:active={isDraggingOver} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<svg
+					class="empty-icon"
+					class:active={isDraggingOver}
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
 					<rect x="3" y="3" width="18" height="18" rx="2"></rect>
 					<path d="M12 8v8m-4-4h8"></path>
 				</svg>
 				<p class="empty-title">{isDraggingOver ? 'Drop here to add' : 'No events'}</p>
-				<p class="empty-subtitle">{isDraggingOver ? 'Release to add event' : 'Drag events from the list'}</p>
+				<p class="empty-subtitle">
+					{isDraggingOver ? 'Release to add event' : 'Drag events from the list'}
+				</p>
 			</div>
 		{:else}
 			<!-- Carousel -->
-			<div 
+			<div
 				class="carousel-stage"
 				class:grabbing={isDragging}
 				bind:this={carouselStage}
@@ -204,17 +235,17 @@
 					{@const opacity = pos === 0 ? 1 : Math.max(0.4, 1 - Math.abs(pos) * 0.3)}
 					{@const brightness = pos === 0 ? 1 : Math.max(0.6, 1 - Math.abs(pos) * 0.2)}
 					{@const zIndex = 100 - Math.abs(pos)}
-					
-					<div 
-						class="card" 
+
+					<div
+						class="card"
 						class:hidden={!isVisible}
 						style:transform="translateX({x}px) translateZ({z}px) scale({scale}) rotateY({rotateY}deg)"
-						style:opacity={opacity}
+						style:opacity
 						style:filter="brightness({brightness})"
 						style:z-index={zIndex}
 						style:pointer-events={isVisible ? 'auto' : 'none'}
 					>
-						<button 
+						<button
 							class="card-button"
 							class:active={i === activeIndex}
 							on:click={() => {
@@ -226,18 +257,36 @@
 									}
 								}
 							}}
-							aria-label="{event.event_name}"
+							aria-label={event.event_name}
 						>
 							<!-- Badge -->
 							<div class="badge">{i + 1}</div>
-
+							{#if event.event_badge}
+								{@const parsedBadge = (() => {
+									try {
+										return JSON.parse(event.event_badge);
+									} catch {
+										return { text: event.event_badge, color: '#e1ff00' };
+									}
+								})()}
+								<div class="status-badge" style:background-color={parsedBadge.color}>
+									{parsedBadge.text}
+								</div>
+							{/if}
 							<!-- Flyer -->
 							{#if event.event_flyer}
-								<img src={event.event_flyer} alt={event.event_name} class="flyer" draggable="false" />
+								<img
+									src={event.event_flyer}
+									alt={event.event_name}
+									class="flyer"
+									draggable="false"
+								/>
 							{:else}
 								<div class="placeholder">
 									<svg class="placeholder-icon" viewBox="0 0 24 24" fill="currentColor">
-										<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path>
+										<path
+											d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+										></path>
 									</svg>
 								</div>
 							{/if}
@@ -250,7 +299,7 @@
 
 						<!-- Remove Button -->
 						{#if i === activeIndex}
-							<button 
+							<button
 								class="remove"
 								on:click|stopPropagation={() => handleRemove(event.event_id)}
 								aria-label="Remove event"
@@ -267,7 +316,7 @@
 
 			<!-- Navigation Controls -->
 			{#if events.length > 1}
-				<button 
+				<button
 					class="nav prev"
 					on:click={() => {
 						prev();
@@ -282,8 +331,8 @@
 						<polyline points="15 18 9 12 15 6"></polyline>
 					</svg>
 				</button>
-				
-				<button 
+
+				<button
 					class="nav next"
 					on:click={() => {
 						next();
@@ -303,7 +352,7 @@
 				{#if events.length <= 15}
 					<div class="dots">
 						{#each events as _, i}
-							<button 
+							<button
 								class="dot"
 								class:active={i === activeIndex}
 								on:click={() => {
@@ -512,8 +561,13 @@
 	}
 
 	@keyframes pulse {
-		0%, 100% { box-shadow: 0 0 0 0 rgba(225, 255, 0, 0.4); }
-		50% { box-shadow: 0 0 0 6px rgba(225, 255, 0, 0); }
+		0%,
+		100% {
+			box-shadow: 0 0 0 0 rgba(225, 255, 0, 0.4);
+		}
+		50% {
+			box-shadow: 0 0 0 6px rgba(225, 255, 0, 0);
+		}
 	}
 
 	.remove {
@@ -532,7 +586,9 @@
 		justify-content: center;
 		cursor: pointer;
 		opacity: 0;
-		transition: opacity 0.2s ease, background 0.2s ease;
+		transition:
+			opacity 0.2s ease,
+			background 0.2s ease;
 		z-index: 20;
 	}
 
@@ -627,4 +683,40 @@
 		width: 24px;
 		border-radius: 4px;
 	}
+
+	.badge {
+	position: absolute;
+	top: 12px;
+	left: 12px;
+	width: 36px;
+	height: 36px;
+	background: #e1ff00;
+	color: #000;
+	border-radius: 8px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 16px;
+	font-weight: 900;
+	z-index: 10;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* ADD THIS: Status Badge */
+.status-badge {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	padding: 6px 12px;
+	border-radius: 8px;
+	color: #000;
+	font-size: 10px;
+	font-weight: 900;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	z-index: 10;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	line-height: 1;
+}
+
 </style>

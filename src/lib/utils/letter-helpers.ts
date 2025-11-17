@@ -61,17 +61,18 @@ export function formatDateShort(date: Date | string): string {
     const month = dateObj.toLocaleDateString('en-US', monthOptions);
     const day = dateObj.getDate();
     
-    // Get current year
-    const currentYear = new Date().getFullYear();
+    // Get year from the *provided date*
+    const year = dateObj.getFullYear();
     
     // Rebuild as: Month Day, Year
-    return `${month} ${day}, ${currentYear}`;
+    return `${month} ${day}, ${year}`;
 }
 
 export function createDefaultLetterData(
     person?: Person, 
     eventName?: string, 
     eventDate?: string,
+    explicitArrivalDate?: string,
     passportNumber?: string,
     visaNumber?: string,
     paymentAmount?: string,
@@ -79,21 +80,27 @@ export function createDefaultLetterData(
 ): PromoterLetterData {
     const today = new Date();
     
-    // If eventDate is provided, parse it and force current year
+    // If eventDate is provided, parse it
     let performanceDate = '';
     let arrivalDate = '';
     
     if (eventDate) {
         const eventDateObj = new Date(eventDate);
-        const currentYear = new Date().getFullYear();
+        // Use the event's *actual* year, not the current year
+        const eventYear = eventDateObj.getFullYear();
         
-        // Create performance date with current year
-        const perfDate = new Date(currentYear, eventDateObj.getMonth(), eventDateObj.getDate());
+        // Create performance date
+        const perfDate = new Date(eventYear, eventDateObj.getMonth(), eventDateObj.getDate());
         performanceDate = formatDateShort(perfDate);
         
-        // Create arrival date (2 days before) with current year
-        const arrDate = new Date(currentYear, eventDateObj.getMonth(), eventDateObj.getDate() - 2);
-        arrivalDate = formatDateShort(arrDate);
+        if (explicitArrivalDate) {
+            // If an explicit arrival date is given, use it
+            arrivalDate = formatDateShort(new Date(explicitArrivalDate));
+        } else {
+            // Otherwise, fall back to the old logic (2 days before)
+            const arrDate = new Date(eventYear, eventDateObj.getMonth(), eventDateObj.getDate() - 2);
+            arrivalDate = formatDateShort(arrDate);
+        }
     }
     
     return {

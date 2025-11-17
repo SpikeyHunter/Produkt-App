@@ -60,7 +60,7 @@
 		<input type="text" bind:value={searchTerm} placeholder="Search events..." class="w-full bg-gray1 text-white rounded-lg px-3 py-2 text-xs placeholder-gray2 focus:outline-none focus:ring-2 focus:ring-lime" />
 	</div>
 
-	<div class="flex-1 overflow-y-auto p-3 space-y-2 custom-scroll">
+	<div class="flex-1 overflow-y-auto px-3 pt-4 mb-4 space-y-2 custom-scroll">
 		{#if loading}
 			<div class="space-y-2">
 				{#each Array(8) as _}
