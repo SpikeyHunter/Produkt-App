@@ -1,10 +1,3 @@
-<!--
-  MODIFIED BudgetAddModal component.
-  - Sorts events: LIVE (future) -> PAST (recent).
-  - Shows "Budget started" tag for added events and disables them.
-  - Passes on:close event from the underlying Modal.
-  - FIX: Re-instated validation to require a name for custom budget entries.
--->
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import Modal from '$lib/components/modals/Modal.svelte';
@@ -42,15 +35,12 @@
 
 	async function loadEvents() {
 		try {
-			// First, get all unique event_ids from the show_budget table
 			const { data: budgets, error: budgetError } = await supabase
 				.from('show_budget')
 				.select('event_id')
 				.not('event_id', 'is', null);
 
-			if (budgetError) {
-				console.error('Error loading existing budgets:', budgetError);
-			}
+			if (budgetError) console.error('Error loading existing budgets:', budgetError);
 
 			if (budgets) {
 				addedEventIds = new Set(budgets.map((b) => b.event_id));
@@ -58,42 +48,38 @@
 
 			const today = new Date().toISOString().split('T')[0];
 
-			// Fetch LIVE events (today -> future)
+			// Fetch LIVE events
 			const { data: liveData, error: liveError } = await supabase
 				.from('events')
 				.select('event_id, event_name, event_date, event_flyer, event_venue')
 				.gte('event_date', today)
 				.order('event_date', { ascending: true });
-
 			if (liveError) throw liveError;
 
-			// Fetch PAST events (recent -> oldest)
+			// Fetch PAST events
 			const { data: pastData, error: pastError } = await supabase
 				.from('events')
 				.select('event_id, event_name, event_date, event_flyer, event_venue')
 				.lt('event_date', today)
 				.order('event_date', { ascending: false });
-
 			if (pastError) throw pastError;
 
 			const allEvents = [...(liveData || []), ...(pastData || [])];
 
-			// Filter out events with excluded keywords
 			const excludeKeywords = [
 				'test', 'réservations', 'pass', 'event', 'template',
 				'produktworld', 'piknic', 'oktoberfest'
 			];
+
 			const filteredData = (allEvents || []).filter(
 				(event) =>
 					!excludeKeywords.some((keyword) => event.event_name.toLowerCase().includes(keyword))
 			);
 
-			// Map events to include an 'isAdded' flag
 			availableEvents = filteredData.map((event) => ({
 				...event,
 				isAdded: addedEventIds.has(event.event_id)
 			}));
-			// DO NOT filter out added events
 		} catch (error) {
 			console.error('Error loading events:', error);
 		}
@@ -121,6 +107,12 @@
 		searchValue = '';
 	}
 
+	// --- FIX: Explicitly defined closeModal ---
+	function closeModal() {
+		dispatch('close');
+		resetForm();
+	}
+
 	function formatEventDate(dateString: string): string {
 		try {
 			const date = new Date(dateString);
@@ -133,15 +125,6 @@
 		} catch (error) {
 			return dateString;
 		}
-	}
-
-	function toggleEventDropdown() {
-		showEventDropdown = !showEventDropdown;
-	}
-
-	function closeModal() {
-		dispatch('close');
-		resetForm();
 	}
 
 	function handleClickOutside(event: MouseEvent) {
@@ -157,48 +140,52 @@
 
 		isSubmitting = true;
 		try {
+			// Schema-compliant base data (initializes JSON columns to avoid nulls)
+			const baseData = {
+				expenses_artist_fee: [],
+				expenses_technical: [],
+				expenses_hospitality: [],
+				expenses_other: [],
+				budget_production: [],
+				budget_other: []
+			};
+
 			let insertData: any = {};
 
 			if (isCustomEvent) {
-				// Create a new custom budget entry
 				insertData = {
+					...baseData,
 					event_name: searchValue.trim(),
-					event_id: null,
-					budget: 0,
-					budget_notes: null
+					event_id: null
 				};
 			} else if (selectedEvent) {
-				// Create a new budget entry linked to an event
 				insertData = {
+					...baseData,
 					event_id: selectedEvent.event_id,
-					event_name: selectedEvent.event_name,
-					budget: 0,
-					budget_notes: null
+					event_name: selectedEvent.event_name
 				};
 			}
 
-			// We add .select() to get the inserted data back, which is good practice
 			const { data, error: insertError } = await supabase
 				.from('show_budget')
 				.insert([insertData])
 				.select();
 
 			if (insertError) {
-				console.error('❌ Error creating budget entry:', insertError); // Line 257
+				console.error('❌ Error creating budget entry:', insertError);
 				throw insertError;
 			}
 
 			dispatch('success');
 			closeModal();
 		} catch (error) {
-			console.error('❌ Error submitting budget entry:', error); // Line 266
+			console.error('❌ Error submitting budget entry:', error);
 		} finally {
 			isSubmitting = false;
 		}
 	}
 
-	// FIX: Custom event name is now obligatory
-	$: isFormValid = (selectedEvent || (isCustomEvent && searchValue.trim() !== ''));
+	$: isFormValid = selectedEvent || (isCustomEvent && searchValue.trim() !== '');
 </script>
 
 <svelte:window on:click={handleClickOutside} />
@@ -212,9 +199,7 @@
 	on:close={closeModal}
 >
 	<div class="space-y-6">
-		<!-- Event Search/Selection or Custom Event -->
 		{#if !isCustomEvent}
-			<!-- Normal Event Search -->
 			<div class="dropdown-container relative">
 				<p class="font-normal text-lime mb-2">Search Events to Add</p>
 				<div class="relative">
@@ -227,9 +212,7 @@
 						bind:value={searchValue}
 						on:focus={() => (showEventDropdown = true)}
 						on:input={() => {
-							if (selectedEvent) {
-								selectedEvent = null;
-							}
+							if (selectedEvent) selectedEvent = null;
 							showEventDropdown = true;
 						}}
 					/>
@@ -244,14 +227,9 @@
 									showEventDropdown = false;
 								}}
 								aria-label="Clear selection"
+								title="Clear selection"
 							>
-								<svg
-									class="w-4 h-4"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="2"
-								>
+								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 									<line x1="18" y1="6" x2="6" y2="18" />
 									<line x1="6" y1="6" x2="18" y2="18" />
 								</svg>
@@ -260,8 +238,9 @@
 						<button
 							type="button"
 							class="cursor-pointer"
-							aria-label="Toggle dropdown"
 							on:click={() => (showEventDropdown = !showEventDropdown)}
+							aria-label="Toggle dropdown"
+							title="Toggle dropdown"
 						>
 							<svg
 								class="w-4 h-4 text-lime transition-transform {showEventDropdown
@@ -282,7 +261,6 @@
 					<div
 						class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto"
 					>
-						<!-- Custom Event Option -->
 						<button
 							type="button"
 							class="w-full px-4 py-3 text-left text-white hover:bg-lime hover:text-black transition-colors cursor-pointer border-b border-gray1"
@@ -308,7 +286,6 @@
 							</div>
 						</button>
 
-						<!-- Event Options -->
 						{#each filteredEvents as event}
 							<button
 								type="button"
@@ -357,7 +334,6 @@
 								</div>
 							</button>
 						{/each}
-
 						{#if searchValue && filteredEvents.length === 0}
 							<div class="px-4 py-6 text-center text-gray2">
 								<p>No events found matching "{searchValue}"</p>
@@ -367,9 +343,7 @@
 				{/if}
 			</div>
 		{:else}
-			<!-- Custom Event Fields -->
 			<div class="space-y-4">
-				<!-- Go Back Button and Title -->
 				<div class="flex items-center gap-3 mb-4">
 					<button
 						type="button"
@@ -379,6 +353,7 @@
 							searchValue = '';
 						}}
 						aria-label="Back to search"
+						title="Back to search"
 					>
 						<svg
 							class="w-4 h-4"
@@ -393,14 +368,12 @@
 					</button>
 					<h3 class="text-lg font-bold text-white">Create a Custom Budget Entry</h3>
 				</div>
-
-				<!-- Event Name -->
 				<div>
 					<p class="font-normal text-lime mb-2">Entry Name</p>
 					<input
 						type="text"
 						class="w-full bg-transparent border border-lime rounded-full px-4 py-3 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime"
-						placeholder="Enter custom entry name (e.g., 'Artist Fees Q4')"
+						placeholder="Enter custom entry name"
 						bind:value={searchValue}
 					/>
 				</div>
