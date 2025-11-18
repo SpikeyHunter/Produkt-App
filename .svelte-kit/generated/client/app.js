@@ -25,7 +25,8 @@ export const nodes = [
 	() => import('./nodes/21'),
 	() => import('./nodes/22'),
 	() => import('./nodes/23'),
-	() => import('./nodes/24')
+	() => import('./nodes/24'),
+	() => import('./nodes/25')
 ];
 
 export const server_loads = [];
@@ -51,9 +52,10 @@ export const dictionary = {
 		"/ncgapp/controlcenter": [19],
 		"/production/backline": [20],
 		"/production/emailtech": [21],
-		"/settimes": [22],
-		"/settings": [23],
-		"/wifi": [24]
+		"/production/showbudget": [22],
+		"/settimes": [23],
+		"/settings": [24],
+		"/wifi": [25]
 	};
 
 export const hooks = {

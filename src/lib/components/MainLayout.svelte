@@ -157,6 +157,7 @@
 			requiredPermission: 'Production',
 			subItems: [
 				{ label: 'Backline', route: '/production/backline' },
+				{ label: 'Show Budget', route: '/production/showbudget', requiredPermission: 'ShowBudget'},
 				{ label: 'Email Tech', route: '/production/emailtech' }
 			]
 		},
