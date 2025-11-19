@@ -59,7 +59,7 @@
 
 	function updateUrlParams() {
 		if (!mounted) return;
-		
+
 		const params = new URLSearchParams();
 
 		if (!showLive) {
@@ -75,7 +75,9 @@
 			params.set('search', searchValue);
 		}
 
-		const newUrl = params.toString() ? `/advancing/gathered?${params.toString()}` : '/advancing/gathered';
+		const newUrl = params.toString()
+			? `/advancing/gathered?${params.toString()}`
+			: '/advancing/gathered';
 		window.history.replaceState({}, '', newUrl);
 		console.log('URL updated to:', newUrl);
 	}
@@ -168,19 +170,21 @@
 		console.log('🔍 DEBUG: Final filtered events:', events);
 	}
 
-	function parseEventDate(dateString: string): Date {
-		const currentYear = new Date().getFullYear();
+	function parseEventDate(dateString: string | null | undefined): Date {
+		if (!dateString) return new Date(0); // Handle missing dates safely
 
-		try {
-			const date = new Date(dateString);
-			if (!isNaN(date.getTime())) {
-				return date;
-			}
-		} catch (e) {
-			// Fallback
+		// Standardize input to string
+		const dateStr = String(dateString);
+
+		// Try parsing ISO format (YYYY-MM-DD) first
+		const date = new Date(dateStr);
+		if (!isNaN(date.getTime())) {
+			return date;
 		}
 
-		return new Date(`${dateString}, ${currentYear}`);
+		// Fallback for "Month Day" format (adds current year)
+		const currentYear = new Date().getFullYear();
+		return new Date(`${dateStr}, ${currentYear}`);
 	}
 
 	function sortEvents(
@@ -189,41 +193,77 @@
 		isLive: boolean
 	): EventAdvance[] {
 		const sorted = [...eventsToSort];
-		const artistTypePriority = {
+
+		// 1. Headliner, 2. Support, 3. Local, 4. Other
+		const artistTypePriority: Record<string, number> = {
 			Headliner: 1,
 			Support: 2,
-			Local: 3
+			Local: 3,
+			Other: 4
 		};
-		const getArtistTypePriority = (artistType: string | null | undefined): number => {
-			if (!artistType) return 999;
-			return artistTypePriority[artistType as keyof typeof artistTypePriority] || 999;
+
+		// 1. New City Gas, 2. Bazart, 3. Other
+		const venuePriority: Record<string, number> = {
+			'new city gas': 1,
+			bazart: 2
 		};
+
+		const getArtistPriority = (type: string | null | undefined): number => {
+			if (!type) return 999;
+			return artistTypePriority[type] || 999;
+		};
+
+		const getVenuePriority = (venue: string | null | undefined): number => {
+			if (!venue) return 999;
+			const v = venue.toLowerCase();
+			// Check if venue string contains our keywords
+			if (v.includes('new city gas')) return 1;
+			if (v.includes('bazart')) return 2;
+			return 3;
+		};
+
+		// Helper to access date safely from either property
+		const getDate = (e: any) => parseEventDate(e.event_date || e.date).getTime();
+
 		switch (filter) {
 			case 'a-z':
-				return sorted.sort((a, b) => a.name.localeCompare(b.name));
+				return sorted.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 			case 'z-a':
-				return sorted.sort((a, b) => b.name.localeCompare(a.name));
+				return sorted.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
 			case 'date-asc':
-				return sorted.sort(
-					(a, b) => parseEventDate(a.date).getTime() - parseEventDate(b.date).getTime()
-				);
+				return sorted.sort((a, b) => getDate(a) - getDate(b));
 			case 'date-desc':
-				return sorted.sort(
-					(a, b) => parseEventDate(b.date).getTime() - parseEventDate(a.date).getTime()
-				);
+				return sorted.sort((a, b) => getDate(b) - getDate(a));
 			case 'none':
 			default:
-				return sorted.sort((a, b) => {
-					const dateA = parseEventDate(a.date).getTime();
-					const dateB = parseEventDate(b.date).getTime();
+				return sorted.sort((a: any, b: any) => {
+					// 1. Sort by FULL Date (Year included via .getTime())
+					const dateA = getDate(a);
+					const dateB = getDate(b);
 
 					if (dateA !== dateB) {
+						// If Live: Ascending (Soonest -> Furthest)
+						// If Past: Descending (Most Recent -> Oldest)
 						return isLive ? dateA - dateB : dateB - dateA;
 					}
 
-					const priorityA = getArtistTypePriority(a.artist_type);
-					const priorityB = getArtistTypePriority(b.artist_type);
-					return priorityA - priorityB;
+					// 2. Sort by Venue (New City Gas -> Bazart -> Others)
+					const venueA = getVenuePriority(a.event_venue || a.venue);
+					const venueB = getVenuePriority(b.event_venue || b.venue);
+
+					if (venueA !== venueB) {
+						return venueA - venueB;
+					}
+
+					// 3. Group by Event ID (Keep artists from same event together)
+					if (a.event_id !== b.event_id) {
+						return (a.event_id || 0) - (b.event_id || 0);
+					}
+
+					// 4. Sort by Artist Type (Headliner -> Support -> Local)
+					const typeA = getArtistPriority(a.artist_type);
+					const typeB = getArtistPriority(b.artist_type);
+					return typeA - typeB;
 				});
 		}
 	}

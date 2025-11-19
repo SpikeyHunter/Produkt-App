@@ -24,15 +24,22 @@
 	let hasLoadedEvents = false;
 	let venue = '';
 	let customVenue = '';
+	
 	const artistTypeOptions = ['Headliner', 'Support', 'Local', 'Other'];
 	const venueOptions = ['New City Gas', 'Bazart', 'Other'];
+
+	// 1. EXCLUDED KEYWORDS FILTER
+	const excludeKeywords = ['test', 'réservations', 'pass', 'event', 'template', 'produktworld', 'piknic', 'oktoberfest'];
+
 	// Reset form when modal opens/closes or event changes
 	$: if (event && isOpen && !hasLoadedEvents) {
-		artistName = event?.artist_name || ''; // <-- CORRECTED LINE
+		artistName = event?.artist_name || '';
 		const currentEventId = event?.id?.split('-')[0] || '';
 		const eventArtistType = event?.artist_type || '';
+		
 		// Initialize venue from event data
 		const eventVenue = event?.event_venue || event?.venue || '';
+
 		if (eventVenue) {
 			const knownVenue = venueOptions.find(v => v.toLowerCase() === eventVenue.toLowerCase());
 			if (knownVenue) {
@@ -66,7 +73,7 @@
 			isCustomEvent = true;
 			hasLoadedEvents = true;
 		});
-		// Check if the artist type is one of our predefined options
+
 		if (artistTypeOptions.includes(eventArtistType)) {
 			artistType = eventArtistType;
 			customArtistType = '';
@@ -100,13 +107,20 @@
 				.select('event_id, event_name, event_date, event_flyer')
 				.eq('event_status', 'LIVE')
 				.order('event_date', { ascending: true });
+
 			if (error) {
 				console.error('Error loading events:', error);
 				availableEvents = [];
 				return;
 			}
 
-			availableEvents = data || [];
+			// Apply Filter
+			const rawEvents = data || [];
+			availableEvents = rawEvents.filter(e => {
+				const lowerName = (e.event_name || '').toLowerCase();
+				return !excludeKeywords.some(keyword => lowerName.includes(keyword));
+			});
+
 		} catch (error) {
 			console.error('Error loading events:', error);
 			availableEvents = [];
@@ -164,39 +178,134 @@
 		showVenueDropdown = !showVenueDropdown;
 	}
 
+	// 2. TRANSFER FUNCTION (Events Table)
+	async function transferEventData(oldId: number, newId: number) {
+		if (!oldId || !newId || oldId === newId || oldId === -1) return;
+		console.log(`[Transfer] Moving base event data from ${oldId} to ${newId}`);
+		try {
+			const { data: oldData, error: fetchError } = await supabase
+				.from('events')
+				.select('event_genre, timetable, timetable_active, event_venue, tech_mail, vj_mail, crew, email_data')
+				.eq('event_id', oldId)
+				.single();
+
+			if (oldData && !fetchError) {
+				await supabase.from('events').update(oldData).eq('event_id', newId);
+				console.log('[Transfer] Success');
+			}
+		} catch (err) {
+			console.error('[Transfer] Error:', err);
+		}
+	}
+
 	async function handleSave() {
 		if (!artistName.trim() || (!selectedEvent && !isCustomEvent) || !event) return;
 
 		isSubmitting = true;
 		try {
-			/** @type {string} */
 			const originalEventIdStr = event.id?.split('-')[0] || '';
-			/** @type {string} */
 			const originalArtistName = event.id?.split('-').slice(1).join('-') || '';
-			const updates = {
-				event_id: selectedEvent ? selectedEvent.event_id : -1, // Use -1 for custom events
-				artist_name: artistName.trim(),
-				artist_type: artistType === 'Other' ?
-					customArtistType.trim() || undefined : artistType || undefined
-			};
+			
+			const oldId = parseInt(originalEventIdStr);
+			const newId = selectedEvent ? selectedEvent.event_id : -1;
 
-			await updateEventAdvance(parseInt(originalEventIdStr), originalArtistName, updates);
-			// Update venue in the events table if venue was changed
+			const finalArtistType = artistType === 'Other' ? (customArtistType.trim() || null) : (artistType || null);
 			const finalVenue = venue === 'Other' ? customVenue.trim() : venue;
-			if (finalVenue && (selectedEvent || parseInt(originalEventIdStr) !== -1)) {
-				const eventIdToUpdate = selectedEvent ? selectedEvent.event_id : parseInt(originalEventIdStr);
-				await updateEvent(eventIdToUpdate, { event_venue: finalVenue });
+
+			// === SCENARIO 1: MOVING TO A NEW EVENT ID (CLONE STRATEGY) ===
+			if (selectedEvent && !isNaN(oldId) && oldId !== -1 && oldId !== newId) {
+				console.log('[Save] Detected Event ID change. Starting Clone Strategy...');
+
+				// A. Transfer base event data (timetable, etc)
+				await transferEventData(oldId, newId);
+
+				// B. Fetch the FULL OLD RECORD from events_advance to avoid data loss
+				const { data: oldRecord, error: fetchError } = await supabase
+					.from('events_advance')
+					.select('*')
+					.eq('event_id', oldId)
+					.eq('artist_name', originalArtistName)
+					.single();
+
+				if (fetchError || !oldRecord) {
+					throw new Error("Could not find original record to clone.");
+				}
+
+				// C. Prepare New Record (Copy everything except ID, update event_id and name)
+				// eslint-disable-next-line no-unused-vars
+				const { id, created_at, updated_at, ...dataToKeep } = oldRecord;
+				
+				const newRecord = {
+					...dataToKeep,
+					event_id: newId,
+					artist_name: artistName.trim(),
+					artist_type: finalArtistType
+				};
+
+				// D. Insert New Record
+				const { error: insertError } = await supabase
+					.from('events_advance')
+					.insert(newRecord);
+
+				if (insertError) throw insertError;
+				console.log('[Save] Cloned record inserted successfully.');
+
+				// E. Update Venue on the NEW Event ID
+				if (finalVenue) {
+					await updateEvent(newId, { event_venue: finalVenue });
+				}
+
+				// F. Delete Old Record from events_advance
+				await supabase
+					.from('events_advance')
+					.delete()
+					.eq('id', oldRecord.id);
+				
+				console.log('[Save] Old ADVANCE record deleted.');
+
+				// G. CRITICAL FIX: Delete the OLD Event from the 'events' table
+				// This removes the custom row (e.g. ID 14) so you don't have duplicates.
+				const { error: deleteEventError } = await supabase
+					.from('events')
+					.delete()
+					.eq('event_id', oldId);
+				
+				if (deleteEventError) {
+					console.warn("[Save] Warning: Could not delete old event row (might have other dependencies):", deleteEventError);
+				} else {
+					console.log('[Save] Old EVENT row deleted successfully.');
+				}
+
+			} else {
+				// === SCENARIO 2: SAME EVENT ID (STANDARD UPDATE) ===
+				console.log('[Save] Updating existing record...');
+				
+				const updates = {
+					event_id: newId,
+					artist_name: artistName.trim(),
+					artist_type: finalArtistType
+				};
+
+				await updateEventAdvance(oldId, originalArtistName, updates);
+
+				// Update venue on existing ID
+				if (finalVenue && (selectedEvent || oldId !== -1)) {
+					const targetId = selectedEvent ? selectedEvent.event_id : oldId;
+					await updateEvent(targetId, { event_venue: finalVenue });
+				}
 			}
 
 			dispatch('save', {
-				eventId: parseInt(originalEventIdStr),
+				eventId: oldId,
 				originalArtistName: originalArtistName,
-				updates,
+				// We send back the *new* state for the UI
 				event: {
 					...event,
-					id: `${updates.event_id}-${artistName.trim()}`,
+					id: `${newId}-${artistName.trim()}`,
+					event_id: newId,
+					artist_name: artistName.trim(),
 					name: artistName.trim(),
-					artist_type: artistType === 'Other' ? customArtistType.trim() || null : artistType || null,
+					artist_type: finalArtistType,
 					venue: finalVenue,
 					event_venue: finalVenue
 				}
@@ -204,34 +313,24 @@
 			closeModal();
 		} catch (error) {
 			console.error('Error saving event:', error);
+			alert('Error saving changes. Please check console.');
 		} finally {
 			isSubmitting = false;
 		}
 	}
 
-	// UPDATED handleDelete function
 	async function handleDelete() {
 		if (!event) return;
 		isSubmitting = true;
 		try {
-			// More robust parsing of the event ID
 			const eventParts = event.id?.split('-') || [];
 			const eventIdStr = eventParts[0] || '';
 			const originalArtistName = eventParts.slice(1).join('-') || '';
 			
-			console.log('Deleting event with:', {
-				fullId: event.id,
-				eventIdStr,
-				originalArtistName,
-				parsedEventId: parseInt(eventIdStr)
-			});
-			// Validate that we have both required parameters
 			if (!eventIdStr || !originalArtistName) {
-				console.error('Invalid event ID format:', event.id);
 				throw new Error('Invalid event ID format');
 			}
 
-			// Pass the file URLs to the service function for cleanup
 			await deleteEventAdvance(
 				parseInt(eventIdStr),
 				originalArtistName,
@@ -247,7 +346,6 @@
 			closeModal();
 		} catch (error) {
 			console.error('Error deleting event:', error);
-			// Optionally show an error message to the user
 			alert('Failed to delete event. Please check the console for details.');
 		} finally {
 			isSubmitting = false;
@@ -274,7 +372,6 @@
 		showDropdown = !showDropdown;
 	}
 
-	// Close dropdown when clicking outside
 	function handleClickOutside(event: MouseEvent) {
 		if (event.target && (event.target as Element).closest && !(event.target as Element).closest('.dropdown-container')) {
 			showDropdown = false;
@@ -287,7 +384,6 @@
 		try {
 			const date = new Date(dateString);
 			date.setDate(date.getDate() + 1);
-			// Fix timezone offset
 			return date.toLocaleDateString('en-US', { 
 				month: 'long', 
 				day: 'numeric',
@@ -324,7 +420,7 @@
 						type="text"
 						class="w-full bg-transparent border border-lime rounded-full px-4 py-3 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime pr-16"
 						placeholder={selectedEvent ?
-							selectedEvent.event_name : (isCustomEvent ? 'Custom Event' : 'Search for an event')}
+						selectedEvent.event_name : (isCustomEvent ? 'Custom Event' : 'Search for an event')}
 						bind:value={searchValue}
 						on:focus={() => showEventDropdown = true}
 						on:input={() => {
@@ -502,7 +598,8 @@
 				>
 					<span class={venue ? 'text-white' : 'text-gray2'}>
 						{#if venue}
-							{venue === 'Other' && customVenue ? `${venue}: ${customVenue}` : venue}
+							{venue === 'Other' && customVenue ?
+							`${venue}: ${customVenue}` : venue}
 						{:else}
 							Select venue
 						{/if}
@@ -546,12 +643,14 @@
 				<div class="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
 					<div class="flex items-center gap-2 mb-2">
 						<svg class="w-5 h-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
-							<path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+							<path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 
+13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
 						</svg>
 						<h4 class="text-red-400 font-bold text-sm">Confirm Deletion</h4>
 					</div>
 					<p class="text-red-300 text-sm mb-3">
-						Are you sure you want to delete this event entry? This action cannot be undone.
+						Are you sure you want to delete this event entry?
+						This action cannot be undone.
 					</p>
 					<div class="flex gap-2">
 						<button
@@ -597,7 +696,8 @@
 				class="px-6 py-3 rounded-full transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
 				class:bg-lime={isFormValid && !isSubmitting}
 				class:text-black={isFormValid && !isSubmitting}
-				class:bg-gray1={!isFormValid || isSubmitting}
+				class:bg-gray1={!isFormValid ||
+				isSubmitting}
 				class:text-gray2={!isFormValid || isSubmitting}
 				class:hover:bg-lime={isFormValid && !isSubmitting}
 				disabled={!isFormValid || isSubmitting || showDeleteConfirm}
