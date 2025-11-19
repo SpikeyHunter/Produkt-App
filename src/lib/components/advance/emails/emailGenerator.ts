@@ -130,6 +130,8 @@ export async function generateAdvanceEmail(
             - Role list<br>
             - Exemption letters will be sent once received for Immigration Canada<br>
         </p>
+        
+        <p>*Artists and crew members must get an ETA to board the plane (except for Canadian and US Citizen)<br>Please confirm with your airline or visit <a href="https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta/apply.html">https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta/apply.html</a></p>
 
         <p>
             <u><b>Hotel:&nbsp;</b></u><br>
@@ -170,7 +172,6 @@ export async function generateAdvanceEmail(
         </p>
         ${timetableContent}
 
-        <p>*Artists and crew members must get an ETA to board the plane (except for Canadian and US Citizen)<br>Please confirm with your airline or visit <a href="https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta/apply.html">https://www.canada.ca/en/immigration-refugees-citizenship/services/visit-canada/eta/apply.html</a></p>
         <p>Best,&nbsp;<br>${userName.charAt(0).toUpperCase() + userName.slice(1)}</p>
     `.replace(/\n/g, '').replace(/    /g, '').trim();
 
