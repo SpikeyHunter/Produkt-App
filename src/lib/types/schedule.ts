@@ -9,6 +9,7 @@ export type ShiftType =
     | 'Corpo' 
     | 'Maintenance' 
     | 'Office'
+    | 'OFF' // Added OFF
     | 'Other';
 
 export interface Staff {
@@ -36,9 +37,8 @@ export interface ScheduleWeek {
   shifts: Shift[];
 }
 
-// Updated to support multiple shifts per day
 export interface StaffRow {
   staff: Staff;
-  shifts: Shift[][]; // Array of Arrays (7 days, each can have multiple shifts)
+  shifts: Shift[][];
   totalHours: number;
 }

@@ -13,7 +13,7 @@
         'Bazart': '#e9e9e9', 'Bazart Nuits': '#ffe5a0', 'Moet City': '#f8edd3',
         'NCG Show': '#d4edbc', 'NCG 360': '#ffcfc9', 'DSTRKT': '#bfe1f6',
         'Tour Production': '#c6dbe1', 'Corpo': '#e6cff2', 'Maintenance': '#ffc8aa',
-        'Other': '#fdfdfd', 'Office': 'transparent'
+        'Other': '#fdfdfd', 'Office': 'transparent', 'OFF': '#333333'
     };
     const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -138,8 +138,10 @@
     }
 
     function getCardStyle(type: string): string {
-        const bg = HEX_COLORS[type] || '#fdfdfd';
         if (type === 'Office') return `background-color: transparent; color: #ffffff; border: 1px solid rgba(255,255,255,0.2);`;
+        if (type === 'OFF') return `background-color: #333333; color: #888888; border: 1px solid #444444;`;
+        
+        const bg = HEX_COLORS[type] || '#fdfdfd';
         return `background-color: ${bg}; color: #222; border: 1px solid rgba(0,0,0,0.1);`;
     }
 
@@ -174,6 +176,7 @@
         );
     };
 
+    // Actions ... (Keep createNextWeek, deleteWeek, deleteRow, addStaffToWeek unchanged)
     async function createNextWeek() {
         if (!currentUser || viewMode === 'past') return;
         let nextStart = new Date();
@@ -277,7 +280,6 @@
         isModalOpen = true;
     }
 
-    // KEY FIX: Added 'currentStaffList' argument to force reactivity when staff updates
     function getStaffForWeek(week: ScheduleWeek, currentStaffList: Staff[]): StaffRow[] {
         let visibleStaff = currentStaffList.filter(s => s.stage_manager);
         const activeStaffIds = new Set(week.shifts.map(s => s.staff_id));
@@ -294,7 +296,9 @@
             week.shifts.filter(s => s.staff_id === staff.id).forEach(shift => {
                 if ((shift.shift_type as string) !== 'PLACEHOLDER') {
                     staffShifts[shift.day_index].push(shift);
-                    totalHours += calculateHours(shift.start_time, shift.end_time);
+                    if ((shift.shift_type as string) !== 'OFF') {
+                        totalHours += calculateHours(shift.start_time, shift.end_time);
+                    }
                 }
             });
             staffShifts.forEach(dayShifts => dayShifts.sort((a,b) => a.start_time.localeCompare(b.start_time)));
@@ -307,7 +311,9 @@
         rows.forEach(row => { 
             row.shifts.forEach((dayShifts, dayIdx) => { 
                 dayShifts.forEach(shift => {
-                    if (shift) totals[dayIdx] += calculateHours(shift.start_time, shift.end_time); 
+                    if (shift && (shift.shift_type as string) !== 'OFF') {
+                        totals[dayIdx] += calculateHours(shift.start_time, shift.end_time); 
+                    }
                 });
             }); 
         });
@@ -342,19 +348,19 @@
 </script>
 
 <div class="h-full w-full p-6 text-white overflow-y-auto">
-    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-5 gap-4">
-        <div><h1 class="text-3xl font-bold mb-1">Schedule - Stage Manager</h1></div>
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+        <div><h1 class="text-3xl font-bold mb-1">Schedules</h1></div>
         <div class="flex gap-4 items-start">
              <div class="flex bg-gray2/20 p-1 rounded-full border border-gray2/30 h-10">
-                 <button class="px-4 hover:cursor-pointer rounded-full text-sm font-medium transition-all {viewMode === 'current' ? 'bg-lime text-black font-bold shadow-lg' : 'text-gray2 hover:text-white'}" on:click={() => viewMode = 'current'}>Current</button>
-                 <button class="px-4 hover:cursor-pointer rounded-full text-sm font-medium transition-all {viewMode === 'past' ? 'bg-white text-black font-bold shadow-lg' : 'text-gray2 hover:text-white'}" on:click={() => viewMode = 'past'}>Past</button>
+                 <button class="px-4 rounded-full text-sm font-medium transition-all {viewMode === 'current' ? 'bg-lime text-black font-bold shadow-lg' : 'text-gray2 hover:text-white'}" on:click={() => viewMode = 'current'}>Current</button>
+                 <button class="px-4 rounded-full text-sm font-medium transition-all {viewMode === 'past' ? 'bg-white text-black font-bold shadow-lg' : 'text-gray2 hover:text-white'}" on:click={() => viewMode = 'past'}>Past</button>
              </div>
             {#if currentUser}
                 <div class="flex flex-col items-end gap-2">
                     <button class="h-10 px-5 bg-lime text-black font-bold rounded-full hover:bg-lime/90 transition-all cursor-pointer text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" on:click={createNextWeek} disabled={viewMode === 'past'}>
                         <span>+</span> <span class="hidden md:inline">Add Next Week</span>
                     </button>
-                    <button class="text-xs pr-3 text-gray2 hover:text-white underline transition-colors" on:click={() => isStaffModalOpen = true}>Set Default Staff</button>
+                    <button class="text-xs text-gray2 hover:text-white underline transition-colors" on:click={() => isStaffModalOpen = true}>Set Default Staff</button>
                 </div>
             {/if}
         </div>
@@ -370,21 +376,21 @@
                     <div class="flex items-center gap-4">
                         {#if currentUser}
                             <div class="flex items-center gap-3 relative">
-                                <button class="px-3 py-1.5 rounded-2xl bg-gray2/20 hover:bg-gray2/40 text-sm font-medium text-white flex items-center gap-2 cursor-pointer transition-colors" on:click|stopPropagation={() => { activeAddWeekId = activeAddWeekId === week.id ? null : week.id; staffSearchTerm = ''; }}>
+                                <button class="px-3 py-1.5 rounded-lg bg-gray2/20 hover:bg-gray2/40 text-sm font-medium text-white flex items-center gap-2 cursor-pointer transition-colors border border-gray2/30" on:click|stopPropagation={() => { activeAddWeekId = activeAddWeekId === week.id ? null : week.id; staffSearchTerm = ''; }}>
                                     <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg> Add Staff
                                 </button>
                                 {#if confirmDeleteWeekId === week.id}
-                                    <button class="w-8 h-8 rounded-2xl bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors cursor-pointer" aria-label="Confirm delete week" on:click={() => deleteWeek(week.id)}>
+                                    <button class="w-8 h-8 rounded-lg bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors cursor-pointer" aria-label="Confirm delete week" on:click={() => deleteWeek(week.id)}>
                                         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
                                     </button>
                                 {:else}
-                                    <button class="w-8 h-8 rounded-2xl bg-gray2/20 text-gray2 hover:bg-red-500/20 hover:text-red-500 border border-transparent hover:border-red-500/30 flex items-center justify-center transition-colors cursor-pointer" aria-label="Delete week" on:click={() => confirmDeleteWeekId = week.id} on:mouseleave={() => setTimeout(() => { if(confirmDeleteWeekId===week.id) confirmDeleteWeekId = null}, 2000)}>
+                                    <button class="w-8 h-8 rounded-lg bg-gray2/20 text-gray2 hover:bg-red-500/20 hover:text-red-500 border border-transparent hover:border-red-500/30 flex items-center justify-center transition-colors cursor-pointer" aria-label="Delete week" on:click={() => confirmDeleteWeekId = week.id} on:mouseleave={() => setTimeout(() => { if(confirmDeleteWeekId===week.id) confirmDeleteWeekId = null}, 2000)}>
                                         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                                     </button>
                                 {/if}
                                 {#if activeAddWeekId === week.id}
-                                    <div class="absolute right-0 top-full mt-2 w-64 bg-gray1 rounded-xl shadow-2xl z-30 flex flex-col overflow-hidden" use:clickOutside on:click_outside={() => activeAddWeekId = null}>
-                                        <div class="p-3 bg-gray2/10">
+                                    <div class="absolute right-0 top-full mt-2 w-64 bg-gray1 border border-gray2 rounded-xl shadow-2xl z-30 flex flex-col overflow-hidden" use:clickOutside on:click_outside={() => activeAddWeekId = null}>
+                                        <div class="p-3 border-b border-gray2/20 bg-gray2/10">
                                             <input type="text" bind:value={staffSearchTerm} use:focusInput placeholder="Search name..." class="w-full bg-black/30 border border-gray2/20 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:border-lime" />
                                         </div>
                                         <div class="max-h-60 overflow-y-auto">
@@ -433,8 +439,12 @@
                                                             role="button"
                                                             tabindex="0"
                                                         >
-                                                            <span class="font-bold whitespace-nowrap text-xs sm:text-sm">{formatTimeDisplay(shift.start_time)} - {formatTimeDisplay(shift.end_time)}</span>
-                                                            <span class="opacity-80 w-full text-center truncate text-xs font-bold leading-none mt-0.5">{shift.shift_type}</span>
+                                                            {#if shift.shift_type === 'OFF'}
+                                                                <span class="font-bold text-xs text-gray-400">OFF</span>
+                                                            {:else}
+                                                                <span class="font-bold whitespace-nowrap text-xs sm:text-sm">{formatTimeDisplay(shift.start_time)} - {formatTimeDisplay(shift.end_time)}</span>
+                                                                <span class="opacity-80 w-full text-center truncate text-xs font-bold leading-none mt-0.5">{shift.shift_type}</span>
+                                                            {/if}
                                                         </div>
                                                     {/each}
                                                 {:else if currentUser}

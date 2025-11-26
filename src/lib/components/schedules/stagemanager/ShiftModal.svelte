@@ -7,7 +7,7 @@
 	export let dayName: string = '';
 	export let shift: Partial<Shift> = {};
     export let dayShiftCount = 0;
-    export let existingShifts: Shift[] = []; // Passed from parent for validation
+    export let existingShifts: Shift[] = [];
 
 	const dispatch = createEventDispatcher();
 
@@ -15,19 +15,17 @@
 		'Bazart': '#e9e9e9', 'Bazart Nuits': '#ffe5a0', 'Moet City': '#f8edd3',
 		'NCG Show': '#d4edbc', 'NCG 360': '#ffcfc9', 'DSTRKT': '#bfe1f6',
 		'Tour Production': '#c6dbe1', 'Corpo': '#e6cff2', 'Maintenance': '#ffc8aa',
-		'Other': '#fdfdfd', 'Office': 'transparent'
+		'Other': '#fdfdfd', 'Office': 'transparent', 'OFF': '#333333'
 	};
     
     const TYPE_KEYS = Object.keys(HEX_COLORS) as ShiftType[];
 
 	let startTime = '10:00';
 	let endTime = '18:00';
-    // Set Office as default
-	let selectedType: ShiftType = 'Office';
+	let selectedType: ShiftType = 'Office'; // Default to Office
     let customLabel = '';
     let validationError = '';
 
-    // Reset state when modal opens
 	$: if (isOpen) {
         if (shift.id) {
             // EDIT MODE
@@ -36,80 +34,70 @@
             selectedType = (shift.shift_type && HEX_COLORS[shift.shift_type]) ? (shift.shift_type as ShiftType) : 'Office';
             customLabel = shift.custom_label || '';
         } else {
-            // CREATE MODE - Smart Suggestions
+            // CREATE MODE
             selectedType = 'Office';
             customLabel = '';
             suggestSmartTime();
         }
 	}
 
-    // Validation Logic (Reactive)
     $: {
         validationError = '';
-        const newStart = parseInt(startTime.replace(':', ''));
-        const newEnd = parseInt(endTime.replace(':', ''));
+        // Only validate times if NOT OFF
+        if (selectedType !== 'OFF') {
+            const newStart = parseInt(startTime.replace(':', ''));
+            const newEnd = parseInt(endTime.replace(':', ''));
 
-        if (newEnd <= newStart) {
-            // Optional: Allow overnight shifts? If not, warn.
-            // validationError = "End time must be after start time";
-        }
+            // Check Overlaps
+            for (const existing of existingShifts) {
+                if (shift.id && existing.id === shift.id) continue;
+                if ((existing.shift_type as string) === 'PLACEHOLDER') continue;
+                // Don't check overlap against OFF shifts or if we are making an OFF shift
+                if ((existing.shift_type as string) === 'OFF') continue; 
 
-        // Check Overlaps
-        for (const existing of existingShifts) {
-            // Skip self if editing
-            if (shift.id && existing.id === shift.id) continue;
-            // Skip placeholders
-            if ((existing.shift_type as string) === 'PLACEHOLDER') continue;
+                const exStart = parseInt(existing.start_time.slice(0,5).replace(':', ''));
+                const exEnd = parseInt(existing.end_time.slice(0,5).replace(':', ''));
 
-            const exStart = parseInt(existing.start_time.slice(0,5).replace(':', ''));
-            const exEnd = parseInt(existing.end_time.slice(0,5).replace(':', ''));
-
-            // Overlap formula: (StartA < EndB) and (EndA > StartB)
-            if (newStart < exEnd && newEnd > exStart) {
-                validationError = "A shift is already booked during those hours";
+                if (newStart < exEnd && newEnd > exStart) {
+                    validationError = "A shift is already booked during those hours";
+                }
             }
         }
     }
 
     function suggestSmartTime() {
-        // If there is an existing shift, try to suggest a time around it
-        const realShifts = existingShifts.filter(s => (s.shift_type as string) !== 'PLACEHOLDER');
+        const realShifts = existingShifts.filter(s => (s.shift_type as string) !== 'PLACEHOLDER' && (s.shift_type as string) !== 'OFF');
         
         if (realShifts.length > 0) {
             const other = realShifts[0];
             const otherStartH = parseInt(other.start_time.split(':')[0]);
             const otherEndH = parseInt(other.end_time.split(':')[0]);
 
-            // If the existing shift is "late" (starts after 1pm), suggest "early" (before it)
             if (otherStartH >= 13) {
-                // Suggest ending 1 hour before the other starts
                 let suggestEnd = otherStartH - 1;
-                let suggestStart = suggestEnd - 8; // 8 hour shift
+                let suggestStart = suggestEnd - 8;
                 if (suggestStart < 0) suggestStart = 0;
-                
                 startTime = `${suggestStart.toString().padStart(2, '0')}:00`;
                 endTime = `${suggestEnd.toString().padStart(2, '0')}:00`;
             } else {
-                // Otherwise (existing is early), suggest "late" (after it)
                 let suggestStart = otherEndH + 1;
                 let suggestEnd = suggestStart + 8;
-                if (suggestEnd > 23) suggestEnd = 23; // Cap at midnight-ish
-
+                if (suggestEnd > 23) suggestEnd = 23;
                 startTime = `${suggestStart.toString().padStart(2, '0')}:00`;
                 endTime = `${suggestEnd.toString().padStart(2, '0')}:00`;
             }
         } else {
-            // Default if empty
             startTime = '10:00';
             endTime = '18:00';
         }
     }
 
 	function handleSave() {
-        if (validationError) return;
+        if (validationError && selectedType !== 'OFF') return;
 		dispatch('save', {
-			start_time: startTime,
-			end_time: endTime,
+			// If OFF, clear times to 00:00
+			start_time: selectedType === 'OFF' ? '00:00' : startTime,
+			end_time: selectedType === 'OFF' ? '00:00' : endTime,
 			shift_type: selectedType,
             custom_label: customLabel
 		});
@@ -166,9 +154,9 @@
                                 <button
                                     class="text-sm px-3 py-3 rounded-lg border transition-all truncate text-left cursor-pointer font-medium"
                                     class:border-lime={selectedType === type}
-                                    class:border-transparent={selectedType !== type && type !== 'Office'}
-                                    class:border-gray2={selectedType !== type && type === 'Office'}
-                                    style="background-color: {HEX_COLORS[type]}; color: {type === 'Office' ? '#ffffff' : '#222'};"
+                                    class:border-transparent={selectedType !== type && type !== 'Office' && type !== 'OFF'}
+                                    class:border-gray2={selectedType !== type && (type === 'Office' || type === 'OFF')}
+                                    style="background-color: {HEX_COLORS[type]}; color: {type === 'Office' || type === 'OFF' ? '#ffffff' : '#222'};"
                                     on:click={() => selectedType = type}
                                 >
                                     {type}
@@ -177,18 +165,24 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-6">
-                        <div class="space-y-2">
-                            <label class="text-xs font-bold text-gray2 uppercase tracking-wider block" for="start">Start Time</label>
-                            <input type="time" id="start" bind:value={startTime} class="w-full bg-black/30 border border-gray2/20 rounded-xl px-4 py-3 text-white text-lg focus:outline-none focus:border-lime transition-all" />
+                    {#if selectedType !== 'OFF'}
+                        <div class="grid grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-2">
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold text-gray2 uppercase tracking-wider block" for="start">Start Time</label>
+                                <input type="time" id="start" bind:value={startTime} class="w-full bg-black/30 border border-gray2/20 rounded-xl px-4 py-3 text-white text-lg focus:outline-none focus:border-lime transition-all" />
+                            </div>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold text-gray2 uppercase tracking-wider block" for="end">End Time</label>
+                                <input type="time" id="end" bind:value={endTime} class="w-full bg-black/30 border border-gray2/20 rounded-xl px-4 py-3 text-white text-lg focus:outline-none focus:border-lime transition-all" />
+                            </div>
                         </div>
-                        <div class="space-y-2">
-                            <label class="text-xs font-bold text-gray2 uppercase tracking-wider block" for="end">End Time</label>
-                            <input type="time" id="end" bind:value={endTime} class="w-full bg-black/30 border border-gray2/20 rounded-xl px-4 py-3 text-white text-lg focus:outline-none focus:border-lime transition-all" />
+                    {:else}
+                        <div class="p-4 rounded-lg bg-gray2/10 border border-gray2/20 text-center text-gray2 text-sm italic animate-in fade-in">
+                            Staff marked as OFF for this slot.
                         </div>
-                    </div>
+                    {/if}
                     
-                    {#if validationError}
+                    {#if validationError && selectedType !== 'OFF'}
                         <div class="p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
                             <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                             <span class="text-red-400 text-sm font-bold">{validationError}</span>
@@ -213,7 +207,7 @@
                     <button 
                         class="flex-1 px-5 py-3 rounded-xl bg-lime text-black font-bold hover:bg-lime/90 transition-all text-sm cursor-pointer ml-auto disabled:opacity-50 disabled:cursor-not-allowed"
                         on:click={handleSave}
-                        disabled={!!validationError}
+                        disabled={!!validationError && selectedType !== 'OFF'}
                     >
                         {shift.id ? 'Save Changes' : 'Add Shift'}
                     </button>
