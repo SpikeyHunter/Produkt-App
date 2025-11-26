@@ -147,7 +147,7 @@
 			subItems: [
 				{ label: 'Advance Gathered', route: '/advancing/gathered' },
 				{ label: 'Artist Liaison', route: '/advancing/artistliaison' },
-       		 	{ label: 'Local Artists', route: '/advancing/localartists' }  
+				{ label: 'Local Artists', route: '/advancing/localartists' }
 			]
 		},
 		{
@@ -157,8 +157,17 @@
 			requiredPermission: 'Production',
 			subItems: [
 				{ label: 'Backline', route: '/production/backline' },
-				{ label: 'Show Budget', route: '/production/showbudget', requiredPermission: 'ShowBudget'},
+				{ label: 'Show Budget', route: '/production/showbudget', requiredPermission: 'ShowBudget' },
 				{ label: 'Email Tech', route: '/production/emailtech' }
+			]
+		},
+		{
+			id: 'schedules',
+			label: 'Schedules',
+			icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>`,
+			requiredPermission: 'Production',
+			subItems: [
+				{ label: 'Stage Manager', route: '/schedules/stagemanager' }
 			]
 		},
 		{
@@ -166,9 +175,15 @@
 			label: 'NCG App',
 			icon: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>`,
 			requiredPermission: 'NCGApp',
-			subItems: [
-				{ label: 'Control Center', route: '/ncgapp/controlcenter' }
-			]
+			subItems: [{ label: 'Control Center', route: '/ncgapp/controlcenter' }]
+		},
+		{
+			id: 'sultanshepard',
+			label: 'Sultan+Shepard',
+			icon: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 24px; height: 24px;"><div style="width: 100%; height: 2px; background-color: currentColor;"></div><span style="font-family: sans-serif; font-weight: bold; font-size: 14px; line-height: 1; margin: 3px 0;">S+S</span><div style="width: 100%; height: 2px; background-color: currentColor;"></div></div>`,
+			requiredPermission: 'SS',
+			route: '/sultanshepard/show',
+			subItems: []
 		}
 	];
 
@@ -391,12 +406,7 @@
 										easing: quintOut
 									}
 								: { duration: 0 }}
-						>
-							<button type="button" class="nav-button disabled">
-								<span class="icon">{@html icons.dataEditor}</span>
-								<span class="label">Coming Soon</span>
-							</button>
-						</div>
+						></div>
 					</div>
 					<div class="mt-auto">
 						<div class="nav-separator"></div>
@@ -595,7 +605,6 @@
 		background-color: var(--accent-color);
 		color: var(--color-black);
 	}
-	.nav-button.disabled,
 	.nav-button.blocked {
 		color: var(--text-tertiary);
 		cursor: not-allowed;

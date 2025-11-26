@@ -75,7 +75,6 @@
 					hold_level: null
 				})
 				.eq('calendar_event_id', event.calendar_event_id);
-
 			if (error) throw error;
 
 			dispatch('update');
@@ -87,7 +86,6 @@
 
 	async function copyEventInfo() {
 		if (!event) return;
-
 		copying = true;
 		let clipboardText = `Event: ${event.title}\n`;
 		if (event.artist_name) clipboardText += `Artist: ${event.artist_name}\n`;
@@ -134,18 +132,18 @@
 		class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 outline-none"
 		style="z-index: 9999;"
 		transition:fade={{ duration: 250, easing: cubicOut }}
-		on:click={closeModal}
+		on:click|self={closeModal}
 		on:keydown={handleKeydown}
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="event-title"
-		tabindex="-1"
+		role="button"
+		aria-label="Close modal"
+		tabindex="0"
 	>
 		<div
 			class="bg-gray1 rounded-2xl max-w-lg w-full relative shadow-2xl border border-gray2/20 transform"
 			transition:fly={{ y: 20, duration: 250, easing: cubicOut }}
-			on:click|stopPropagation
-			role="document"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="event-title"
 		>
 			<div class="flex items-start justify-between p-6 pb-4 border-b border-gray2/20">
 				<div class="flex items-start gap-3 flex-1">
@@ -352,11 +350,11 @@
 	}
 
 	/* Apply animations when modal opens */
-	[role='dialog'] {
+	[role='button'] {
 		animation: fadeIn 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 	}
 
-	[role='document'] {
+	[role='dialog'] {
 		animation: slideUp 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 	}
 
