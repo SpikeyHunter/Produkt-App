@@ -349,7 +349,7 @@
 
 <div class="h-full w-full p-6 text-white overflow-y-auto">
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-        <div><h1 class="text-3xl font-bold mb-1">Schedules</h1></div>
+        <div><h1 class="text-3xl font-bold mb-1">Schedule - Stage Manager</h1></div>
         <div class="flex gap-4 items-start">
              <div class="flex bg-gray2/20 p-1 rounded-full border border-gray2/30 h-10">
                  <button class="px-4 rounded-full text-sm font-medium transition-all {viewMode === 'current' ? 'bg-lime text-black font-bold shadow-lg' : 'text-gray2 hover:text-white'}" on:click={() => viewMode = 'current'}>Current</button>
