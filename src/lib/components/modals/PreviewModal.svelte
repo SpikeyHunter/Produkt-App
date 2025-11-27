@@ -77,7 +77,7 @@
 	<div class="absolute top-4 right-4 flex items-center gap-2 z-10">
 		{#if showDownloadButton}
 			<button
-				class="bg-gray2 text-black p-2 flex items-center gap-2 rounded-lg font-bold text-xs hover:bg-lime transition-colors cursor-pointer"
+				class="bg-gray2 text-black p-2 flex items-center gap-2 rounded-2xl font-bold text-xs hover:bg-lime transition-colors cursor-pointer"
 				on:click={handleDownload}
 				aria-label="Download file"
 			>
@@ -89,7 +89,7 @@
 		{/if}
 		{#if showDeleteButton}
 			<button
-				class="border border-gray2 text-gray2 p-2 flex items-center gap-2 rounded-lg font-bold text-xs hover:border-red-500 hover:text-red-500 transition-colors cursor-pointer disabled:opacity-75"
+				class="border border-gray2 text-gray2 p-2 flex items-center gap-2 rounded-2xl font-bold text-xs hover:border-red-500 hover:text-red-500 transition-colors cursor-pointer disabled:opacity-75"
 				on:click={() => (showDeleteConfirm = true)}
 				disabled={isDeleting}
 				aria-label="Delete file"

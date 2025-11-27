@@ -6,7 +6,8 @@
     export let placeholder = 'Select date';
     export let width = 'w-full';
     export let height = 'h-auto';
-    export let variant = 'default'; // 'default', 'slim', 'outline'
+    export let variant = 'default';
+    // 'default', 'slim', 'outline', 'input' (NEW)
     export let disabled = false;
     export const required = false;
     export let minDate = '';
@@ -34,13 +35,16 @@
             }
         }
     });
+
     // Reactive formatted display value for the input
     $: displayValue = value ? formatDisplayDate(value) : '';
+
     // Make calendar display values explicitly reactive to changes in currentCalendarDate
     $: monthYearDisplay = currentCalendarDate.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long'
     });
+
     // Close datepicker when clicking outside
     function handleClickOutside(event: MouseEvent) {
         if (event.target && (event.target as Element).closest) {
@@ -61,6 +65,7 @@
             const year = date.getFullYear();
             const numericMonth = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
+
             switch (format) {
                 case 'dd/mm/yyyy':
                     return `${day}/${numericMonth}/${year}`;
@@ -77,23 +82,24 @@
             return '';
         }
     }
-function selectDate(date: Date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    value = `${year}-${month}-${day}`;
 
-    dispatch('change', value);
+    function selectDate(date: Date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        value = `${year}-${month}-${day}`;
 
-    // Defer closing the datepicker to prevent event conflicts
-    setTimeout(() => {
-        showDatePicker = false;
-    }, 100); // A small delay is enough
+        dispatch('change', value);
 
-    if (autoSave) {
-        saveToDatabase(value);
+        // Defer closing the datepicker to prevent event conflicts
+        setTimeout(() => {
+            showDatePicker = false;
+        }, 100);
+
+        if (autoSave) {
+            saveToDatabase(value);
+        }
     }
-}
 
     function changeMonth(amount: number) {
         currentCalendarDate = new Date(
@@ -182,6 +188,7 @@ function selectDate(date: Date) {
         }
         return days;
     })();
+
     async function saveToDatabase(newValue: string) {
         if (!dbTable || !dbColumn || !dbId) {
             console.warn('DatePicker: Missing database props for auto-save.');
@@ -193,6 +200,7 @@ function selectDate(date: Date) {
                 .from(dbTable)
                 .update({ [dbColumn]: newValue })
                 .eq('id', dbId);
+
             if (error) throw error;
         } catch (error) {
             console.error('Error saving date to database:', error);
@@ -202,13 +210,16 @@ function selectDate(date: Date) {
     // Dynamic classes
     $: baseClasses =
         'relative flex items-center justify-between text-left transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-navbar focus:ring-lime';
+        
+    // UPDATED: Added 'input' variant to match your form fields
     $: variantClasses =
         variant === 'slim'
             ? 'px-2 py-1 text-xs rounded-md'
             : variant === 'outline'
                 ? 'px-3 py-1.5 text-xs rounded-lg border-2 border-lime bg-transparent text-lime hover:bg-lime hover:text-black'
-                : 'bg-navbar border border-gray2 text-white text-xs rounded-lg px-3 py-1.5 hover:border-lime !hover:cursor-pointer !hover:text-lime';
-    // default variant
+                : variant === 'input' 
+                    ? 'px-4 bg-transparent border border-lime text-white text-base rounded-full hover:border-lime/80'
+                    : 'bg-navbar border border-gray2 text-white text-xs rounded-lg px-3 py-1.5 hover:border-lime !hover:cursor-pointer !hover:text-lime'; // default
 </script>
 
 <svelte:window on:click={handleClickOutside} />

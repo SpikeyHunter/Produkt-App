@@ -182,7 +182,7 @@
 			label: 'Sultan+Shepard',
 			icon: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 24px; height: 24px;"><div style="width: 100%; height: 2px; background-color: currentColor;"></div><span style="font-family: sans-serif; font-weight: bold; font-size: 14px; line-height: 1; margin: 3px 0;">S+S</span><div style="width: 100%; height: 2px; background-color: currentColor;"></div></div>`,
 			requiredPermission: 'SS',
-			route: '/sultanshepard/show',
+			route: '/sultanshepard/djshow',
 			subItems: []
 		}
 	];
