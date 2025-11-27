@@ -170,23 +170,49 @@
 		console.log('🔍 DEBUG: Final filtered events:', events);
 	}
 
-	function parseEventDate(dateString: string | null | undefined): Date {
-		if (!dateString) return new Date(0); // Handle missing dates safely
+	//
 
-		// Standardize input to string
-		const dateStr = String(dateString);
-
-		// Try parsing ISO format (YYYY-MM-DD) first
-		const date = new Date(dateStr);
-		if (!isNaN(date.getTime())) {
-			return date;
+	// 1. REPLACEMENT FOR parseEventDate
+	function parseEventDate(dateString: string | null | undefined): number {
+		// A. Handle TBD / Null / Empty
+		// We return a massive number so they sort to the BOTTOM of the list
+		if (!dateString || dateString.toUpperCase() === 'TBD' || dateString === '') {
+			return 8640000000000000; // Max safe integer for Date
 		}
 
-		// Fallback for "Month Day" format (adds current year)
-		const currentYear = new Date().getFullYear();
-		return new Date(`${dateStr}, ${currentYear}`);
+		const dateStr = String(dateString);
+		let date = new Date(dateStr);
+
+		// B. Fallback: If "Month Day" format failed or resulted in Invalid Date
+		if (isNaN(date.getTime())) {
+			const currentYear = new Date().getFullYear();
+			date = new Date(`${dateStr}, ${currentYear}`);
+		}
+
+		// C. If still invalid, push to bottom
+		if (isNaN(date.getTime())) return 8640000000000000;
+
+		// D. "Kasango" Fix (Year Bump)
+		// If we are looking at Live events, and the date appears to be in the past
+		// (e.g. It is Nov 2025, but the event is "Jan 15"), assume it's next year.
+		if (showLive) {
+			const now = new Date();
+			// We give a 7-day buffer so we don't accidentally bump an event that happened yesterday
+			const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+			if (date < oneWeekAgo) {
+				// Only bump if the string didn't explicitly include a year like "2025"
+				const hasExplicitYear = /\b20\d{2}\b/.test(dateStr);
+				if (!hasExplicitYear) {
+					date.setFullYear(date.getFullYear() + 1);
+				}
+			}
+		}
+
+		return date.getTime();
 	}
 
+	// 2. REPLACEMENT FOR sortEvents (Simplified)
 	function sortEvents(
 		eventsToSort: EventAdvance[],
 		filter: FilterType,
@@ -194,36 +220,30 @@
 	): EventAdvance[] {
 		const sorted = [...eventsToSort];
 
-		// 1. Headliner, 2. Support, 3. Local, 4. Other
+		// Priorities (same as before)
 		const artistTypePriority: Record<string, number> = {
 			Headliner: 1,
 			Support: 2,
 			Local: 3,
 			Other: 4
 		};
-
-		// 1. New City Gas, 2. Bazart, 3. Other
 		const venuePriority: Record<string, number> = {
 			'new city gas': 1,
 			bazart: 2
 		};
 
-		const getArtistPriority = (type: string | null | undefined): number => {
-			if (!type) return 999;
-			return artistTypePriority[type] || 999;
-		};
-
+		const getArtistPriority = (type: string | null | undefined): number =>
+			type ? artistTypePriority[type] || 999 : 999;
 		const getVenuePriority = (venue: string | null | undefined): number => {
 			if (!venue) return 999;
 			const v = venue.toLowerCase();
-			// Check if venue string contains our keywords
 			if (v.includes('new city gas')) return 1;
 			if (v.includes('bazart')) return 2;
 			return 3;
 		};
 
-		// Helper to access date safely from either property
-		const getDate = (e: any) => parseEventDate(e.event_date || e.date).getTime();
+		// Use the new numeric parser
+		const getDateTimestamp = (e: any) => parseEventDate(e.event_date || e.date);
 
 		switch (filter) {
 			case 'a-z':
@@ -231,39 +251,33 @@
 			case 'z-a':
 				return sorted.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
 			case 'date-asc':
-				return sorted.sort((a, b) => getDate(a) - getDate(b));
+				return sorted.sort((a, b) => getDateTimestamp(a) - getDateTimestamp(b));
 			case 'date-desc':
-				return sorted.sort((a, b) => getDate(b) - getDate(a));
+				return sorted.sort((a, b) => getDateTimestamp(b) - getDateTimestamp(a));
 			case 'none':
 			default:
 				return sorted.sort((a: any, b: any) => {
-					// 1. Sort by FULL Date (Year included via .getTime())
-					const dateA = getDate(a);
-					const dateB = getDate(b);
+					const dateA = getDateTimestamp(a);
+					const dateB = getDateTimestamp(b);
 
+					// 1. Primary Sort: DATE
 					if (dateA !== dateB) {
-						// If Live: Ascending (Soonest -> Furthest)
-						// If Past: Descending (Most Recent -> Oldest)
+						// If showing Live: Smallest (Today) -> Largest (Future)
+						// If showing Past: Largest (Recent) -> Smallest (Oldest)
+						// Note: dateA/B might be the massive "TBD" number, which will always stay at bottom in Ascending sort
 						return isLive ? dateA - dateB : dateB - dateA;
 					}
 
-					// 2. Sort by Venue (New City Gas -> Bazart -> Others)
+					// 2. Secondary Sort: Venue
 					const venueA = getVenuePriority(a.event_venue || a.venue);
 					const venueB = getVenuePriority(b.event_venue || b.venue);
+					if (venueA !== venueB) return venueA - venueB;
 
-					if (venueA !== venueB) {
-						return venueA - venueB;
-					}
+					// 3. Tertiary Sort: Event ID
+					if (a.event_id !== b.event_id) return (a.event_id || 0) - (b.event_id || 0);
 
-					// 3. Group by Event ID (Keep artists from same event together)
-					if (a.event_id !== b.event_id) {
-						return (a.event_id || 0) - (b.event_id || 0);
-					}
-
-					// 4. Sort by Artist Type (Headliner -> Support -> Local)
-					const typeA = getArtistPriority(a.artist_type);
-					const typeB = getArtistPriority(b.artist_type);
-					return typeA - typeB;
+					// 4. Quaternary Sort: Artist Type
+					return getArtistPriority(a.artist_type) - getArtistPriority(b.artist_type);
 				});
 		}
 	}

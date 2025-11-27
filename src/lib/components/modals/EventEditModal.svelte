@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import Modal from '$lib/components/modals/Modal.svelte';
-	import { updateEventAdvance, deleteEventAdvance, updateEvent } from '$lib/services/eventsService.js';
+	import {
+		updateEventAdvance,
+		deleteEventAdvance,
+		updateEvent
+	} from '$lib/services/eventsService.js';
 	import { supabase } from '$lib/supabase.js';
 
 	export let isOpen = false;
@@ -24,24 +28,33 @@
 	let hasLoadedEvents = false;
 	let venue = '';
 	let customVenue = '';
-	
+
 	const artistTypeOptions = ['Headliner', 'Support', 'Local', 'Other'];
 	const venueOptions = ['New City Gas', 'Bazart', 'Other'];
 
 	// 1. EXCLUDED KEYWORDS FILTER
-	const excludeKeywords = ['test', 'réservations', 'pass', 'event', 'template', 'produktworld', 'piknic', 'oktoberfest'];
+	const excludeKeywords = [
+		'test',
+		'réservations',
+		'pass',
+		'event',
+		'template',
+		'produktworld',
+		'piknic',
+		'oktoberfest'
+	];
 
 	// Reset form when modal opens/closes or event changes
 	$: if (event && isOpen && !hasLoadedEvents) {
 		artistName = event?.artist_name || '';
 		const currentEventId = event?.id?.split('-')[0] || '';
 		const eventArtistType = event?.artist_type || '';
-		
+
 		// Initialize venue from event data
 		const eventVenue = event?.event_venue || event?.venue || '';
 
 		if (eventVenue) {
-			const knownVenue = venueOptions.find(v => v.toLowerCase() === eventVenue.toLowerCase());
+			const knownVenue = venueOptions.find((v) => v.toLowerCase() === eventVenue.toLowerCase());
 			if (knownVenue) {
 				venue = knownVenue;
 				customVenue = '';
@@ -53,26 +66,29 @@
 			venue = '';
 			customVenue = '';
 		}
-		
+
 		// Load events once and set selected event
-		loadEvents().then(() => {
-			// Find the matching event in availableEvents
-			selectedEvent = availableEvents.find(e => e.event_id.toString() === currentEventId) || null;
-			if (selectedEvent) {
-				searchValue = selectedEvent.event_name;
-				isCustomEvent = false;
-			} else {
-				// Custom event or event not found
+		loadEvents()
+			.then(() => {
+				// Find the matching event in availableEvents
+				selectedEvent =
+					availableEvents.find((e) => e.event_id.toString() === currentEventId) || null;
+				if (selectedEvent) {
+					searchValue = selectedEvent.event_name;
+					isCustomEvent = false;
+				} else {
+					// Custom event or event not found
+					searchValue = 'Custom Event';
+					isCustomEvent = true;
+				}
+				hasLoadedEvents = true;
+			})
+			.catch(() => {
+				// If loading fails, assume custom event
 				searchValue = 'Custom Event';
 				isCustomEvent = true;
-			}
-			hasLoadedEvents = true;
-		}).catch(() => {
-			// If loading fails, assume custom event
-			searchValue = 'Custom Event';
-			isCustomEvent = true;
-			hasLoadedEvents = true;
-		});
+				hasLoadedEvents = true;
+			});
 
 		if (artistTypeOptions.includes(eventArtistType)) {
 			artistType = eventArtistType;
@@ -84,7 +100,7 @@
 			artistType = '';
 			customArtistType = '';
 		}
-		
+
 		showDeleteConfirm = false;
 		showDropdown = false;
 		showEventDropdown = false;
@@ -92,9 +108,10 @@
 	}
 
 	$: if (searchValue && !isCustomEvent) {
-		filteredEvents = availableEvents.filter(event =>
-			event.event_name.toLowerCase().includes(searchValue.toLowerCase()) ||
-			event.event_id.toString().includes(searchValue)
+		filteredEvents = availableEvents.filter(
+			(event) =>
+				event.event_name.toLowerCase().includes(searchValue.toLowerCase()) ||
+				event.event_id.toString().includes(searchValue)
 		);
 	} else {
 		filteredEvents = availableEvents;
@@ -116,11 +133,10 @@
 
 			// Apply Filter
 			const rawEvents = data || [];
-			availableEvents = rawEvents.filter(e => {
+			availableEvents = rawEvents.filter((e) => {
 				const lowerName = (e.event_name || '').toLowerCase();
-				return !excludeKeywords.some(keyword => lowerName.includes(keyword));
+				return !excludeKeywords.some((keyword) => lowerName.includes(keyword));
 			});
-
 		} catch (error) {
 			console.error('Error loading events:', error);
 			availableEvents = [];
@@ -185,7 +201,9 @@
 		try {
 			const { data: oldData, error: fetchError } = await supabase
 				.from('events')
-				.select('event_genre, timetable, timetable_active, event_venue, tech_mail, vj_mail, crew, email_data')
+				.select(
+					'event_genre, timetable, timetable_active, event_venue, tech_mail, vj_mail, crew, email_data'
+				)
 				.eq('event_id', oldId)
 				.single();
 
@@ -205,11 +223,12 @@
 		try {
 			const originalEventIdStr = event.id?.split('-')[0] || '';
 			const originalArtistName = event.id?.split('-').slice(1).join('-') || '';
-			
+
 			const oldId = parseInt(originalEventIdStr);
 			const newId = selectedEvent ? selectedEvent.event_id : -1;
 
-			const finalArtistType = artistType === 'Other' ? (customArtistType.trim() || null) : (artistType || null);
+			const finalArtistType =
+				artistType === 'Other' ? customArtistType.trim() || null : artistType || null;
 			const finalVenue = venue === 'Other' ? customVenue.trim() : venue;
 
 			// === SCENARIO 1: MOVING TO A NEW EVENT ID (CLONE STRATEGY) ===
@@ -228,13 +247,13 @@
 					.single();
 
 				if (fetchError || !oldRecord) {
-					throw new Error("Could not find original record to clone.");
+					throw new Error('Could not find original record to clone.');
 				}
 
 				// C. Prepare New Record (Copy everything except ID, update event_id and name)
 				// eslint-disable-next-line no-unused-vars
 				const { id, created_at, updated_at, ...dataToKeep } = oldRecord;
-				
+
 				const newRecord = {
 					...dataToKeep,
 					event_id: newId,
@@ -243,24 +262,25 @@
 				};
 
 				// D. Insert New Record
-				const { error: insertError } = await supabase
-					.from('events_advance')
-					.insert(newRecord);
+				const { error: insertError } = await supabase.from('events_advance').insert(newRecord);
 
 				if (insertError) throw insertError;
 				console.log('[Save] Cloned record inserted successfully.');
 
 				// E. Update Venue on the NEW Event ID
+				// E. Update Venue on the NEW Event ID and force is_custom to FALSE
+				const targetEventUpdates: any = { is_custom: false }; // Ensure it's marked as a real event
+
 				if (finalVenue) {
-					await updateEvent(newId, { event_venue: finalVenue });
+					targetEventUpdates.event_venue = finalVenue;
 				}
 
+				// We run this update to set the venue AND ensure the flag is false
+				await updateEvent(newId, targetEventUpdates);
+
 				// F. Delete Old Record from events_advance
-				await supabase
-					.from('events_advance')
-					.delete()
-					.eq('id', oldRecord.id);
-				
+				await supabase.from('events_advance').delete().eq('id', oldRecord.id);
+
 				console.log('[Save] Old ADVANCE record deleted.');
 
 				// G. CRITICAL FIX: Delete the OLD Event from the 'events' table
@@ -269,17 +289,19 @@
 					.from('events')
 					.delete()
 					.eq('event_id', oldId);
-				
+
 				if (deleteEventError) {
-					console.warn("[Save] Warning: Could not delete old event row (might have other dependencies):", deleteEventError);
+					console.warn(
+						'[Save] Warning: Could not delete old event row (might have other dependencies):',
+						deleteEventError
+					);
 				} else {
 					console.log('[Save] Old EVENT row deleted successfully.');
 				}
-
 			} else {
 				// === SCENARIO 2: SAME EVENT ID (STANDARD UPDATE) ===
 				console.log('[Save] Updating existing record...');
-				
+
 				const updates = {
 					event_id: newId,
 					artist_name: artistName.trim(),
@@ -326,19 +348,43 @@
 			const eventParts = event.id?.split('-') || [];
 			const eventIdStr = eventParts[0] || '';
 			const originalArtistName = eventParts.slice(1).join('-') || '';
-			
+
 			if (!eventIdStr || !originalArtistName) {
 				throw new Error('Invalid event ID format');
 			}
 
+			const eventId = parseInt(eventIdStr);
+
+			// 1. Delete the specific Advance entry
 			await deleteEventAdvance(
-				parseInt(eventIdStr),
+				eventId,
 				originalArtistName,
 				event.contract_url,
 				event.passport_info
 			);
+
+			// 2. [NEW] Check if the parent event is custom, and delete it if so
+			const { data: parentEvent } = await supabase
+				.from('events')
+				.select('is_custom')
+				.eq('event_id', eventId)
+				.single();
+
+			if (parentEvent?.is_custom) {
+				const { error: deleteParentError } = await supabase
+					.from('events')
+					.delete()
+					.eq('event_id', eventId);
+
+				if (deleteParentError) {
+					console.warn('[Delete] Could not delete parent custom event:', deleteParentError);
+				} else {
+					console.log('[Delete] Parent custom event deleted successfully.');
+				}
+			}
+
 			dispatch('delete', {
-				eventId: parseInt(eventIdStr),
+				eventId: eventId,
 				artistName: originalArtistName,
 				event
 			});
@@ -373,7 +419,11 @@
 	}
 
 	function handleClickOutside(event: MouseEvent) {
-		if (event.target && (event.target as Element).closest && !(event.target as Element).closest('.dropdown-container')) {
+		if (
+			event.target &&
+			(event.target as Element).closest &&
+			!(event.target as Element).closest('.dropdown-container')
+		) {
 			showDropdown = false;
 			showEventDropdown = false;
 			showVenueDropdown = false;
@@ -384,8 +434,8 @@
 		try {
 			const date = new Date(dateString);
 			date.setDate(date.getDate() + 1);
-			return date.toLocaleDateString('en-US', { 
-				month: 'long', 
+			return date.toLocaleDateString('en-US', {
+				month: 'long',
 				day: 'numeric',
 				year: 'numeric'
 			});
@@ -394,11 +444,12 @@
 		}
 	}
 
-	$: isFormValid = artistName.trim().length > 0 && 
-					 (selectedEvent || isCustomEvent) &&
-					 (artistType !== 'Other' || customArtistType.trim().length > 0) &&
-					 (venue !== 'Other' || customVenue.trim().length > 0) &&
-					 venue.trim().length > 0;
+	$: isFormValid =
+		artistName.trim().length > 0 &&
+		(selectedEvent || isCustomEvent) &&
+		(artistType !== 'Other' || customArtistType.trim().length > 0) &&
+		(venue !== 'Other' || customVenue.trim().length > 0) &&
+		venue.trim().length > 0;
 </script>
 
 <svelte:window on:click={handleClickOutside} />
@@ -419,10 +470,13 @@
 					<input
 						type="text"
 						class="w-full bg-transparent border border-lime rounded-full px-4 py-3 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime pr-16"
-						placeholder={selectedEvent ?
-						selectedEvent.event_name : (isCustomEvent ? 'Custom Event' : 'Search for an event')}
+						placeholder={selectedEvent
+							? selectedEvent.event_name
+							: isCustomEvent
+								? 'Custom Event'
+								: 'Search for an event'}
 						bind:value={searchValue}
-						on:focus={() => showEventDropdown = true}
+						on:focus={() => (showEventDropdown = true)}
 						on:input={() => {
 							if (selectedEvent) {
 								selectedEvent = null;
@@ -432,7 +486,7 @@
 						}}
 					/>
 					<div class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2">
-						{#if (selectedEvent || isCustomEvent || searchValue)}
+						{#if selectedEvent || isCustomEvent || searchValue}
 							<button
 								type="button"
 								class="p-1 text-gray2 hover:text-lime rounded-full hover:bg-gray1 transition-colors cursor-pointer"
@@ -444,9 +498,15 @@
 								}}
 								aria-label="Clear selection"
 							>
-								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<line x1="18" y1="6" x2="6" y2="18"/>
-									<line x1="6" y1="6" x2="18" y2="18"/>
+								<svg
+									class="w-4 h-4"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<line x1="18" y1="6" x2="6" y2="18" />
+									<line x1="6" y1="6" x2="18" y2="18" />
 								</svg>
 							</button>
 						{/if}
@@ -456,21 +516,25 @@
 							aria-label="Toggle dropdown"
 							on:click={toggleEventDropdown}
 						>
-							<svg 
-								class="w-4 h-4 text-lime transition-transform {showEventDropdown ? 'rotate-180' : ''}" 
-								viewBox="0 0 24 24" 
-								fill="none" 
-								stroke="currentColor" 
+							<svg
+								class="w-4 h-4 text-lime transition-transform {showEventDropdown
+									? 'rotate-180'
+									: ''}"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
 								stroke-width="2"
 							>
-								<path d="M6 9l6 6 6-6"/>
+								<path d="M6 9l6 6 6-6" />
 							</svg>
 						</button>
 					</div>
 				</div>
 
 				{#if showEventDropdown}
-					<div class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto">
+					<div
+						class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto"
+					>
 						<button
 							type="button"
 							class="w-full px-4 py-3 text-left text-white hover:bg-lime hover:text-black transition-colors cursor-pointer border-b border-gray1"
@@ -478,9 +542,15 @@
 						>
 							<div class="flex items-center gap-3">
 								<div class="w-12 h-12 bg-gray1 rounded-lg flex items-center justify-center">
-									<svg class="w-6 h-6 text-lime" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<line x1="12" y1="5" x2="12" y2="19"/>
-										<line x1="5" y1="12" x2="19" y2="12"/>
+									<svg
+										class="w-6 h-6 text-lime"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
+										<line x1="12" y1="5" x2="12" y2="19" />
+										<line x1="5" y1="12" x2="19" y2="12" />
 									</svg>
 								</div>
 								<div>
@@ -499,18 +569,28 @@
 								<div class="flex items-center gap-3">
 									<div class="w-12 h-12 rounded-lg overflow-hidden bg-gray1 flex-shrink-0">
 										{#if eventOption.event_flyer}
-											<img src={eventOption.event_flyer} alt={eventOption.event_name} class="w-full h-full object-cover" />
+											<img
+												src={eventOption.event_flyer}
+												alt={eventOption.event_name}
+												class="w-full h-full object-cover"
+											/>
 										{:else}
-											<div class="w-full h-full bg-gradient-to-br from-lime/40 to-lime/20 flex items-center justify-center">
+											<div
+												class="w-full h-full bg-gradient-to-br from-lime/40 to-lime/20 flex items-center justify-center"
+											>
 												<svg class="w-4 h-4 text-lime" viewBox="0 0 24 24" fill="currentColor">
-													<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+													<path
+														d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+													/>
 												</svg>
 											</div>
 										{/if}
 									</div>
 									<div class="flex-1 min-w-0">
 										<p class="font-medium truncate">{eventOption.event_name}</p>
-										<p class="text-sm opacity-70">{formatEventDate(eventOption.event_date)} • ID: {eventOption.event_id}</p>
+										<p class="text-sm opacity-70">
+											{formatEventDate(eventOption.event_date)} • ID: {eventOption.event_id}
+										</p>
 									</div>
 								</div>
 							</button>
@@ -551,19 +631,21 @@
 							Select artist type
 						{/if}
 					</span>
-					<svg 
-						class="w-4 h-4 text-lime transition-transform {showDropdown ? 'rotate-180' : ''}" 
-						viewBox="0 0 24 24" 
-						fill="none" 
-						stroke="currentColor" 
+					<svg
+						class="w-4 h-4 text-lime transition-transform {showDropdown ? 'rotate-180' : ''}"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
 						stroke-width="2"
 					>
-						<path d="M6 9l6 6 6-6"/>
+						<path d="M6 9l6 6 6-6" />
 					</svg>
 				</button>
 
 				{#if showDropdown}
-					<div class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-10">
+					<div
+						class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-10"
+					>
 						{#each artistTypeOptions as option}
 							<button
 								type="button"
@@ -598,25 +680,26 @@
 				>
 					<span class={venue ? 'text-white' : 'text-gray2'}>
 						{#if venue}
-							{venue === 'Other' && customVenue ?
-							`${venue}: ${customVenue}` : venue}
+							{venue === 'Other' && customVenue ? `${venue}: ${customVenue}` : venue}
 						{:else}
 							Select venue
 						{/if}
 					</span>
-					<svg 
-						class="w-4 h-4 text-lime transition-transform {showVenueDropdown ? 'rotate-180' : ''}" 
-						viewBox="0 0 24 24" 
-						fill="none" 
-						stroke="currentColor" 
+					<svg
+						class="w-4 h-4 text-lime transition-transform {showVenueDropdown ? 'rotate-180' : ''}"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
 						stroke-width="2"
 					>
-						<path d="M6 9l6 6 6-6"/>
+						<path d="M6 9l6 6 6-6" />
 					</svg>
 				</button>
 
 				{#if showVenueDropdown}
-					<div class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-10">
+					<div
+						class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-10"
+					>
 						{#each venueOptions as option}
 							<button
 								type="button"
@@ -643,14 +726,17 @@
 				<div class="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
 					<div class="flex items-center gap-2 mb-2">
 						<svg class="w-5 h-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
-							<path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 
-13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+							<path
+								fill-rule="evenodd"
+								d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 
+13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+								clip-rule="evenodd"
+							/>
 						</svg>
 						<h4 class="text-red-400 font-bold text-sm">Confirm Deletion</h4>
 					</div>
 					<p class="text-red-300 text-sm mb-3">
-						Are you sure you want to delete this event entry?
-						This action cannot be undone.
+						Are you sure you want to delete this event entry? This action cannot be undone.
 					</p>
 					<div class="flex gap-2">
 						<button
@@ -696,8 +782,7 @@
 				class="px-6 py-3 rounded-full transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
 				class:bg-lime={isFormValid && !isSubmitting}
 				class:text-black={isFormValid && !isSubmitting}
-				class:bg-gray1={!isFormValid ||
-				isSubmitting}
+				class:bg-gray1={!isFormValid || isSubmitting}
 				class:text-gray2={!isFormValid || isSubmitting}
 				class:hover:bg-lime={isFormValid && !isSubmitting}
 				disabled={!isFormValid || isSubmitting || showDeleteConfirm}
