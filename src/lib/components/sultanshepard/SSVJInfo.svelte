@@ -6,22 +6,37 @@
     const dispatch = createEventDispatcher();
 
     // Default State
-    let vjInfo = show.vj_info || { needed: 'no', confirmed: 'no', name: 'Other' };
-    // Updated videocheck structure to support start/end times
-    let videocheck = show.videocheck || { needed: 'no', startTime: '', endTime: '', confirmed: 'no' };
+    // needed: null (TBD), confirmed: false (No)
+    let vjInfo = show.vj_info || { needed: null, confirmed: false, name: 'Other' };
+    
+    // videocheck: needed: null (TBD), confirmed: false (No)
+    let videocheck = show.videocheck || { needed: null, startTime: '', endTime: '', confirmed: false };
 
-    // Helpers
-    function cycleStatus(current: string): string {
-        return current === 'yes' ? 'no' : 'yes';
+    // --- Helpers ---
+
+    // 1. Ternary Cycle (TBD -> Yes -> No) for "Needed" toggles
+    function cycleStatus(current: boolean | null): boolean | null {
+        if (current === null || current === undefined) return true; // TBD -> Yes
+        if (current === true) return false; // Yes -> No
+        return null; // No -> TBD
     }
 
-    function getStatusColor(status: string) {
-        if (status === 'yes') return '#86EFAC'; // Green
-        return '#FCA5A5'; // Red
+    // 2. Binary Cycle (No -> Yes) for "Confirmed" sub-toggles
+    function cycleBinary(current: boolean | null): boolean {
+        // If currently true, go to false. If false or null, go to true.
+        return current === true ? false : true;
     }
 
-    function getStatusText(status: string) {
-        return status === 'yes' ? 'Yes' : 'No';
+    function getStatusColor(status: boolean | null) {
+        if (status === true) return '#86EFAC'; // Green (Yes)
+        if (status === false) return '#FCA5A5'; // Red (No)
+        return '#FDBA74'; // Orange (TBD) -- Updated Color
+    }
+
+    function getStatusText(status: boolean | null) {
+        if (status === true) return 'Yes';
+        if (status === false) return 'No';
+        return 'TBD';
     }
 
     async function save() {
@@ -57,7 +72,7 @@
                 </button>
             </div>
 
-            {#if vjInfo.needed === 'yes'}
+            {#if vjInfo.needed === true}
                 <div class="space-y-3 pl-3 border-l-4 border-lime animate-fade-in">
                     <div class="flex justify-between items-center">
                         <span class="text-sm text-gray3">Confirmed</span>
@@ -65,7 +80,7 @@
                             type="button"
                             class="rounded-2xl px-3 py-1 text-xs transition-colors duration-200 cursor-pointer flex items-center justify-center gap-2 font-bold min-w-[50px]"
                             style="background-color: {getStatusColor(vjInfo.confirmed)}; color: #000000"
-                            on:click={() => { vjInfo.confirmed = cycleStatus(vjInfo.confirmed); save(); }}
+                            on:click={() => { vjInfo.confirmed = cycleBinary(vjInfo.confirmed); save(); }}
                         >
                             {getStatusText(vjInfo.confirmed)}
                         </button>
@@ -98,28 +113,25 @@
                 </button>
             </div>
 
-            {#if videocheck.needed === 'yes'}
+            {#if videocheck.needed === true}
                 <div class="space-y-3 pl-3 border-l-4 border-lime animate-fade-in">
                     
-                    
-                        
-                        <div class="flex items-center gap-2">
-                            <span class="text-sm text-gray3">From</span>
-                            <input 
-                                type="time" 
-                                class="bg-gray1 text-white text-xs rounded-2xl px-2.5 py-1 border-none focus:ring-1 focus:ring-lime cursor-pointer w-full text-center" 
-                                bind:value={videocheck.startTime} 
-                                on:change={save} 
-                            />
-                            <span class="text-gray3 text-sm">to</span>
-                            <input 
-                                type="time" 
-                                class="bg-gray1 text-white text-xs rounded-2xl px-2.5 py-1 border-none focus:ring-1 focus:ring-lime cursor-pointer w-full text-center" 
-                                bind:value={videocheck.endTime} 
-                                on:change={save} 
-                            />
-                        </div>
-                    
+                    <div class="flex items-center gap-2">
+                        <span class="text-sm text-gray3">From</span>
+                        <input 
+                            type="time" 
+                            class="bg-gray1 text-white text-xs rounded-2xl px-2.5 py-1 border-none focus:ring-1 focus:ring-lime cursor-pointer w-full text-center" 
+                            bind:value={videocheck.startTime} 
+                            on:change={save} 
+                        />
+                        <span class="text-gray3 text-sm">to</span>
+                        <input 
+                            type="time" 
+                            class="bg-gray1 text-white text-xs rounded-2xl px-2.5 py-1 border-none focus:ring-1 focus:ring-lime cursor-pointer w-full text-center" 
+                            bind:value={videocheck.endTime} 
+                            on:change={save} 
+                        />
+                    </div>
 
                     <div class="flex justify-between items-center pt-1">
                         <span class="text-sm text-gray3">Confirmed</span>
@@ -127,7 +139,7 @@
                             type="button"
                             class="rounded-2xl px-3 py-1 text-xs transition-colors duration-200 cursor-pointer flex items-center justify-center gap-2 font-bold min-w-[50px]"
                             style="background-color: {getStatusColor(videocheck.confirmed)}; color: #000000"
-                            on:click={() => { videocheck.confirmed = cycleStatus(videocheck.confirmed); save(); }}
+                            on:click={() => { videocheck.confirmed = cycleBinary(videocheck.confirmed); save(); }}
                         >
                             {getStatusText(videocheck.confirmed)}
                         </button>

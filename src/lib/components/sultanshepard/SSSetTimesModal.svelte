@@ -22,9 +22,9 @@
 
     const DEFAULT_SET_TIMES = [
         { time: '10:00PM', activity: 'Doors', status: 'Default' },
-        { time: '10:00PM', activity: 'Local', status: 'Confirmed' },
-        { time: '11:30PM', activity: 'Support', status: 'Confirmed' },
-        { time: '1:00AM', activity: 'Sultan + Shepard', status: 'Confirmed' },
+        { time: '10:00PM', activity: 'Local', status: 'Tentative' },
+        { time: '11:30PM', activity: 'Support', status: 'Tentative' },
+        { time: '1:00AM', activity: 'Sultan + Shepard', status: 'Tentative' },
         { time: '3:00AM', activity: 'Curfew', status: 'Default' }
     ];
 

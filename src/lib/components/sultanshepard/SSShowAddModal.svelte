@@ -13,14 +13,17 @@
 	// Form State
 	let show_date = '';
 	let show_venue = '';
+	let venue_address = ''; 
 	let show_city = '';
 	let show_country = '';
 
+    // Validation: Address is NOT required
 	$: isFormValid = show_date && show_venue;
 
 	function resetForm() {
 		show_date = '';
 		show_venue = '';
+		venue_address = '';
 		show_city = '';
 		show_country = '';
 		loading = false;
@@ -39,6 +42,7 @@
 			await createSSShow({
 				show_date,
 				show_venue,
+				venue_address, // Optional
 				show_city,
 				show_country
 			});
@@ -81,6 +85,16 @@
 				class="w-full bg-transparent border border-lime rounded-full px-4 h-[50px] text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime"
 				placeholder="e.g. New City Gas"
 				bind:value={show_venue}
+			/>
+		</div>
+
+        <div>
+			<p class="font-normal text-lime mb-2">Venue Address <span class="text-gray2 text-xs font-normal ml-1">(Optional)</span></p>
+			<input
+				type="text"
+				class="w-full bg-transparent border border-lime rounded-full px-4 h-[50px] text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime"
+				placeholder="e.g. 950 Ottawa St"
+				bind:value={venue_address}
 			/>
 		</div>
 

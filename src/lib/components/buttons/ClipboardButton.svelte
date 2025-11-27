@@ -94,7 +94,7 @@
 		color: var(--color-lime);
 		border: 1px solid var(--color-lime);
 		border-radius: 24px;
-		font-size: 12px;
+		font-size: 11px;
 		font-weight: 600;
 		cursor: pointer;
 		transition: all 0.2s ease;

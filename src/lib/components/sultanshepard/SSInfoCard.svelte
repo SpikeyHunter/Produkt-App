@@ -5,16 +5,51 @@
     export let show: SSShow;
     const dispatch = createEventDispatcher();
 
-    // Handle DOS as array of objects or strings.
-    let dosContactsRaw = Array.isArray(show.dos_contact) ? show.dos_contact : [];
-    
-    let contactList = dosContactsRaw.map((c: any) => {
-        if (typeof c === 'string') return c;
-        if (typeof c === 'object') return `${c.name || ''} ${c.phone ? '- ' + c.phone : ''}`.trim();
-        return '';
-    });
+    // Local state for address (Read Only here)
+    let venueAddress = show.venue_address || '';
 
+    // --- ROBUST DOS CONTACT INITIALIZATION ---
+    let contactList: string[] = [''];
+
+    // 1. Check if data exists
+    if (show.dos_contact) {
+        // Case A: It's already an array (rare, but good to handle)
+        if (Array.isArray(show.dos_contact)) {
+            contactList = show.dos_contact.map(c => typeof c === 'object' ? `${c.name} - ${c.phone}` : String(c));
+        } 
+        // Case B: It's a String
+        else if (typeof show.dos_contact === 'string') {
+            const raw = show.dos_contact.trim();
+            
+            // Check if it looks like a JSON Array e.g. '["Name - 123"]'
+            if (raw.startsWith('[') && raw.endsWith(']')) {
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        contactList = parsed.map(c => {
+                            // Handle if inner items are objects or strings
+                            if (typeof c === 'object' && c !== null) {
+                                return `${c.name || ''} ${c.phone ? '- ' + c.phone : ''}`.trim();
+                            }
+                            return String(c);
+                        });
+                    }
+                } catch (e) {
+                    console.warn("Failed to parse DOS contact JSON, using raw string", e);
+                    contactList = [raw]; // Fallback
+                }
+            } 
+            // Case C: It's just a plain text string (Legacy data)
+            else if (raw.length > 0) {
+                contactList = [raw];
+            }
+        }
+    }
+
+    // Ensure there is always at least one empty line if list is empty
     if (contactList.length === 0) contactList = [''];
+
+    // --- END INITIALIZATION ---
 
     $: daysUntil = (() => {
         const today = new Date();
@@ -36,7 +71,6 @@
         timeZone: 'UTC' 
     });
 
-    // Only allow adding if the last field has content
     $: canAdd = contactList.length === 0 || contactList[contactList.length - 1].trim() !== '';
 
     function addContact() {
@@ -47,14 +81,18 @@
 
     function removeContact(index: number) {
         contactList = contactList.filter((_, i) => i !== index);
-        if (contactList.length === 0) contactList = ['']; // Ensure at least one empty field remains
+        if (contactList.length === 0) contactList = [''];
         saveContacts();
     }
 
     function saveContacts() {
         const toSave = contactList.filter(c => c.trim() !== '');
-        updateSSShow(show.id, { dos_contact: toSave });
-        dispatch('update', { updates: { dos_contact: toSave } });
+        
+        // IMPORTANT: Stringify the array before saving to match the Text column type
+        const jsonString = JSON.stringify(toSave);
+        
+        updateSSShow(show.id, { dos_contact: jsonString });
+        dispatch('update', { updates: { dos_contact: jsonString } });
     }
 </script>
 
@@ -77,7 +115,17 @@
     <div class="flex-1 flex flex-col min-w-0 h-full">
         <div class="flex-shrink-0 mb-2">
             <h2 class="text-xl font-bold text-white leading-tight whitespace-normal line-clamp-2">{show.show_venue}</h2>
-            <div class="text-lime font-medium text-sm truncate mt-0.5">{show.show_city}, {show.show_country}</div>
+            
+            <div class="text-lime font-medium text-sm mt-0.5 whitespace-normal leading-tight">
+                {show.show_city}, {show.show_country}
+            </div>
+
+            {#if show.venue_address}
+                <div class="text-gray2 text-xs mt-0.5 whitespace-normal leading-tight">
+                    {show.venue_address}
+                </div>
+            {/if}
+
             <div class="text-gray3 italic font-bold text-[10px] mt-1">{daysUntil}</div>
         </div>
 

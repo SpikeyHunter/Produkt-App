@@ -7,26 +7,27 @@ export interface SSShow {
     show_venue: string;
     show_city: string;
     show_country: string;
+    venue_address: string | null;
+    
+    // JSONB columns
     show_settimes: any;
-    
-    show_specs: string | null;
-    show_specs_file: string | null;
-    
-    // Consolidated JSONB for venue toggles
-    venue_info: {
-        pixel_map?: string;
-        camera?: string;
-        sdi_confirmed?: string;
-        bring_own_camera?: string;
-        [key: string]: any;
-    };
-
     vj_info: any;
     videocheck: any;
     tracklist: any;
-    dos_contact: any;
     notes: any;
+    venue_info: any;
+    show_specs: any; // JSONB in DB
+
+    // Boolean columns
+    pixel_map: boolean;
+    camera: boolean;
+    sdi_confirmed: boolean;
+
+    // Text columns
+    show_specs_file: string | null;
     flyer_url: string | null;
+    dos_contact: string | null; // Stored as text (stringified JSON)
+    
     progress?: number;
 }
 
@@ -64,36 +65,41 @@ const FLYER_ASSETS = [
   { "file_path": "sultanshepard/ss_image_9.jpeg", "public_url": "https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/sultanshepard/ss_image_9.jpeg" }
 ];
 
-// Helper to determine the next flyer URL
 async function getNextFlyerUrl(): Promise<string> {
     try {
-        // Get the total count of existing shows to determine the next index
         const { count, error } = await supabase
             .from('ss_djshows')
             .select('*', { count: 'exact', head: true });
 
         if (error) throw error;
-        
         const nextIndex = (count || 0) % FLYER_ASSETS.length;
         return FLYER_ASSETS[nextIndex].public_url;
     } catch (err) {
         console.error('Error calculating flyer index:', err);
-        return FLYER_ASSETS[0].public_url; // Fallback to first image
+        return FLYER_ASSETS[0].public_url;
     }
 }
 
-// Calculate simplistic progress
+export function getSSImage(index: number): string {
+    if (FLYER_ASSETS.length === 0) return '';
+    const assetIndex = index % FLYER_ASSETS.length;
+    return FLYER_ASSETS[assetIndex].public_url;
+}
+
 export function calculateSSProgress(show: SSShow): number {
+    const specsExists = show.show_specs || show.show_specs_file;
+    const hasDos = show.dos_contact && show.dos_contact.length > 2; // Rough check if contact array/string exists
+    const hasSdi = show.sdi_confirmed === true; // Check boolean
+
     const fields = [
-        show.show_specs || show.show_specs_file,
+        specsExists,
         show.show_settimes,
         show.videocheck,
-        show.dos_contact,
-        // Checked nested props safely
-        show.venue_info?.sdi_confirmed
+        hasDos,
+        hasSdi
     ];
     
-    const completed = fields.filter(f => f !== null && f !== false && f !== undefined && f !== 'no').length;
+    const completed = fields.filter(f => f !== null && f !== false && f !== undefined).length;
     return Math.round((completed / fields.length) * 100);
 }
 
@@ -114,12 +120,11 @@ export async function fetchSSShows(): Promise<SSShow[]> {
     }));
 }
 
-// Default Set Times
 const DEFAULT_SET_TIMES = [
     { time: '10:00PM', activity: 'Doors', status: 'Default' },
-    { time: '10:00PM', activity: 'Local', status: 'Confirmed' },
-    { time: '11:30PM', activity: 'Support', status: 'Confirmed' },
-    { time: '1:00AM', activity: 'Sultan + Shepard', status: 'Confirmed' },
+    { time: '10:00PM', activity: 'Local', status: 'Tentative' },
+    { time: '11:30PM', activity: 'Support', status: 'Tentative' },
+    { time: '1:00AM', activity: 'Sultan + Shepard', status: 'Tentative' },
     { time: '3:00AM', activity: 'Curfew', status: 'Default' }
 ];
 
@@ -131,19 +136,22 @@ export async function createSSShow(showData: Partial<SSShow>) {
         .insert([{
             show_date: showData.show_date,
             show_venue: showData.show_venue,
+            venue_address: showData.venue_address || null,
             show_city: showData.show_city,
             show_country: showData.show_country,
             flyer_url: flyerUrl,
             show_settimes: DEFAULT_SET_TIMES,
-            // Initialize venue_info JSON correctly without top-level conflict
-            venue_info: {
-                pixel_map: 'no',
-                camera: 'no',
-                sdi_confirmed: 'no',
-                bring_own_camera: 'no'
-            },
+            
+            // Boolean values for schema
+            pixel_map: false,
+            camera: false,
+            sdi_confirmed: false,
+            
+            // JSONB structures
+            venue_info: { bring_own_camera: 'no' }, 
+            show_specs: { url: '' }, // Initialize as object since schema is JSONB
             vj_info: { needed: 'no', confirmed: 'no', name: 'None' },
-            dos_contact: []
+            dos_contact: '[]' // Initialize as empty JSON string array
         }])
         .select()
         .single();
