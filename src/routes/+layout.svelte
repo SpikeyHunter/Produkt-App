@@ -27,7 +27,8 @@
         '/advancing': 'Advance',
         '/booking': 'Booking',
         '/production': 'Production',
-        '/marketing': 'Marketing'
+        '/marketing': 'Marketing',
+        '/sultanshepard': 'sultanshepard'
     };
     const ADMIN_ROUTES = ['/settings', '/calendar'];
 
