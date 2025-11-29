@@ -25,7 +25,6 @@
 	let dropdownPosition = { top: 0, left: 0, width: 0 };
 	const dispatch = createEventDispatcher();
 
-	// Defined columns to prevent iteration errors
 	const staffCols: (keyof TechRow)[] = ['ld', 'video', 'vj', 'sound', 'tech_sm'];
 
 	// --- Local Input State Management ---
@@ -111,10 +110,7 @@
 		dispatch('blur');
 		if (!isEditable('date')) return;
 		let inputVal = (e.target as HTMLInputElement).value.trim();
-
-		// Auto-capitalize input (e.g. "1 dec" -> "1 Dec") before parsing
 		inputVal = inputVal.replace(/\b([a-z])\w+/g, (s) => s.charAt(0).toUpperCase() + s.slice(1));
-
 		let parsedDate = dayjs(`${inputVal} ${currentYear}`, [
 			'D MMM YYYY',
 			'MMM D YYYY',
@@ -189,18 +185,12 @@
 		}
 	}
 
-	// FIX: Changed 'val' type to 'any' to handle numbers/strings safely
 	function getStaffFieldStyle(val: any, type: string): string {
 		if (type === 'Canceled') return canceledCSSText;
 		if (!val) return 'color: #d1d5db;';
-
-		// Safely convert to string before string operations
 		const v = String(val).toLowerCase().trim();
-
 		if (/^n[\/\\]?a$/.test(v))
 			return 'color: #9ca3af; font-style: italic; background-color: transparent;';
-
-		// Check string version for special characters
 		if (String(val).includes('?')) return 'background-color: #f4c7c3; color: black;';
 		if (v.includes('book')) return 'background-color: #fce8b2; color: black;';
 		return 'background-color: #b7e1cd; color: black;';
@@ -378,7 +368,7 @@
 	<div class={stdBorder}>
 		<input
 			class="{cellBaseClass} text-center"
-			value={row.op_hours}
+			value={row.op_hours || ''}
 			readonly={!isEditable('op_hours')}
 			style={row.type === 'Canceled' ? canceledCSSText : 'color: #d1d5db;'}
 			on:focus={() => handleFocus('op_hours')}
@@ -390,7 +380,7 @@
 	<div class={rangeBorder}>
 		<input
 			class="{cellBaseClass} text-center"
-			value={row.crew_call}
+			value={row.crew_call || ''}
 			readonly={!isEditable('crew_call')}
 			style={row.type === 'Canceled' ? canceledCSSText : 'color: #d1d5db;'}
 			on:focus={() => handleFocus('crew_call')}
@@ -404,7 +394,7 @@
 		<div class={stdBorder}>
 			<input
 				class="{cellBaseClass} text-center"
-				value={row[f]}
+				value={row[f] || ''}
 				readonly={!isEditable(f)}
 				style={getStaffFieldStyle(row[f], row.type)}
 				on:focus={() => handleFocus(f)}
@@ -417,7 +407,7 @@
 	<div class={rangeBorder}>
 		<input
 			class="{cellBaseClass} text-center"
-			value={row.dt}
+			value={row.dt || ''}
 			readonly={!isEditable('dt')}
 			style={getStaffFieldStyle(row.dt, row.type)}
 			on:focus={() => handleFocus('dt')}
@@ -429,7 +419,7 @@
 	<div class={rangeBorder}>
 		<input
 			class="{cellBaseClass} text-center"
-			value={row.artist_liaison}
+			value={row.artist_liaison || ''}
 			readonly={!isEditable('artist_liaison')}
 			style={getStaffFieldStyle(row.artist_liaison, row.type)}
 			on:focus={() => handleFocus('artist_liaison')}
@@ -441,7 +431,7 @@
 	<div class={stdBorder}>
 		<input
 			class="{cellBaseClass} text-gray-300"
-			value={row.notes}
+			value={row.notes || ''}
 			readonly={!isEditable('notes')}
 			on:focus={() => handleFocus('notes')}
 			on:blur={(e) => handleGenericBlur(e, 'notes')}
