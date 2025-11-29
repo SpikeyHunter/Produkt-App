@@ -50,12 +50,18 @@
   const cellBaseClass = "w-full h-full bg-transparent px-1 border-0 focus:ring-1 focus:ring-lime outline-none text-[14px] placeholder-gray-500 font-normal leading-tight disabled:cursor-default disabled:text-opacity-80";
   const stdBorder = "border-r border-gray2/10 flex items-center";
   const rangeBorder = "border-r-2 border-r-gray2/30 flex items-center";
-
+  
   // -- Permission Check Helpers --
   function isEditable(field: string): boolean {
       if (userPermissions.role === 'viewer') return false;
       if (userPermissions.canEditAll) return true;
       return userPermissions.allowedColumns.includes(field);
+  }
+
+  // --- NEW: Focus Handling ---
+  function handleFocus(field: keyof TechRow) {
+      if (!isEditable(field)) return;
+      dispatch('focus', { id: row.id, field });
   }
 
   function handleChange(field: keyof TechRow, value: any) {
@@ -66,6 +72,7 @@
   }
 
   function handleDateBlur(e: Event) {
+    dispatch('blur'); // Notify parent
     if (!isEditable('date')) return;
     const inputVal = (e.target as HTMLInputElement).value.trim();
     let parsedDate = dayjs(`${inputVal} ${currentYear}`, ['D MMM YYYY', 'MMM D YYYY', 'D-M YYYY', 'D/M YYYY']);
@@ -91,7 +98,6 @@
       
       const parts = clean.split('-');
       if (parts.length !== 2) return input;
-
       const parseTimePart = (str: string) => {
           const match = str.match(/^(\d{1,2})(?:[:h]?(\d{2}))?([a-z]+)?$/);
           if (!match) return null;
@@ -109,12 +115,10 @@
           }
           return { h24, m, rawH: h, isExplicit };
       };
-
       const start = parseTimePart(parts[0]);
       const end = parseTimePart(parts[1]);
       
       if (!start || !end) return input;
-
       const resolveTime = (t: any, compareTo?: any) => {
           if (t.isExplicit) return t.h24;
           let guess = (t.rawH < 12) ? t.rawH + 12 : t.rawH;
@@ -124,7 +128,6 @@
 
       let sH = resolveTime(start);
       let eH = resolveTime(end);
-
       if (!end.isExplicit && end.rawH <= 12 && sH > eH) {
            eH = end.rawH === 12 ? 0 : end.rawH; 
       }
@@ -140,6 +143,7 @@
   }
 
   function handleTimeBlur(e: Event, field: keyof TechRow) {
+      dispatch('blur'); // Notify parent
       if (!isEditable(field)) return;
       const input = e.target as HTMLInputElement;
       const formatted = formatTimeRange(input.value);
@@ -160,6 +164,7 @@
   }
 
   function handleStaffBlur(e: Event, field: keyof TechRow) {
+      dispatch('blur'); // Notify parent
       if (!isEditable(field)) return;
       const input = e.target as HTMLInputElement;
       let val = input.value.trim();
@@ -172,7 +177,7 @@
   }
 
   function handleContextMenu(e: MouseEvent, field: string | null) {
-    if (userPermissions.role === 'viewer') return; // Viewers see nothing
+    if (userPermissions.role === 'viewer') return;
     e.preventDefault();
     dispatch('contextmenu', { e, row, field });
   }
@@ -189,7 +194,7 @@
 
   function toggleTypeDropdown(e: MouseEvent) {
       if (!isEditable('type')) return;
-      e.stopPropagation(); 
+      e.stopPropagation();
       dispatch('toggleDropdown', { id: row.id });
   }
 
@@ -249,6 +254,7 @@
         type="text"
         bind:value={dateInput}
         readonly={!isEditable('date')}
+        on:focus={() => handleFocus('date')}
         on:blur={handleDateBlur}
         on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         on:contextmenu={(e) => handleContextMenu(e, 'date')}
@@ -281,6 +287,8 @@
       rows="1"
       readonly={!isEditable('event_name')}
       value={row.event_name} 
+      on:focus={() => handleFocus('event_name')}
+      on:blur={() => dispatch('blur')}
       on:change={(e) => handleChange('event_name', e.currentTarget.value)}
       on:contextmenu={(e) => handleContextMenu(e, 'event_name')}
       class="w-full h-full bg-transparent border-0 outline-none text-[13px] font-normal leading-tight resize-none overflow-hidden block rounded-full px-3 py-0.5 disabled:cursor-default"
@@ -295,6 +303,7 @@
         value={row.op_hours} 
         readonly={!isEditable('op_hours')}
         style={row.type === 'Canceled' ? canceledCSSText : 'color: #d1d5db;'}
+        on:focus={() => handleFocus('op_hours')}
         on:blur={(e) => handleTimeBlur(e, 'op_hours')}
         on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         on:contextmenu={(e) => handleContextMenu(e, 'op_hours')}
@@ -306,6 +315,7 @@
         value={row.crew_call} 
         readonly={!isEditable('crew_call')}
         style={row.type === 'Canceled' ? canceledCSSText : 'color: #d1d5db;'}
+        on:focus={() => handleFocus('crew_call')}
         on:blur={(e) => handleTimeBlur(e, 'crew_call')}
         on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         on:contextmenu={(e) => handleContextMenu(e, 'crew_call')}
@@ -318,6 +328,7 @@
       value={row.ld} 
       readonly={!isEditable('ld')}
       style={getStaffFieldStyle(row.ld, row.type)}
+      on:focus={() => handleFocus('ld')}
       on:blur={(e) => handleStaffBlur(e, 'ld')} 
       on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       on:contextmenu={(e) => handleContextMenu(e, 'ld')}
@@ -329,6 +340,7 @@
       value={row.video} 
       readonly={!isEditable('video')}
       style={getStaffFieldStyle(row.video, row.type)}
+      on:focus={() => handleFocus('video')}
       on:blur={(e) => handleStaffBlur(e, 'video')} 
       on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       on:contextmenu={(e) => handleContextMenu(e, 'video')}
@@ -340,6 +352,7 @@
       value={row.vj} 
       readonly={!isEditable('vj')}
       style={getStaffFieldStyle(row.vj, row.type)}
+      on:focus={() => handleFocus('vj')}
       on:blur={(e) => handleStaffBlur(e, 'vj')} 
       on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       on:contextmenu={(e) => handleContextMenu(e, 'vj')}
@@ -351,6 +364,7 @@
       value={row.sound} 
       readonly={!isEditable('sound')}
       style={getStaffFieldStyle(row.sound, row.type)}
+      on:focus={() => handleFocus('sound')}
       on:blur={(e) => handleStaffBlur(e, 'sound')} 
       on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       on:contextmenu={(e) => handleContextMenu(e, 'sound')}
@@ -362,6 +376,7 @@
       value={row.tech_sm} 
       readonly={!isEditable('tech_sm')}
       style={getStaffFieldStyle(row.tech_sm, row.type)}
+      on:focus={() => handleFocus('tech_sm')}
       on:blur={(e) => handleStaffBlur(e, 'tech_sm')} 
       on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       on:contextmenu={(e) => handleContextMenu(e, 'tech_sm')}
@@ -373,6 +388,7 @@
       value={row.dt} 
       readonly={!isEditable('dt')}
       style={getStaffFieldStyle(row.dt, row.type)}
+      on:focus={() => handleFocus('dt')}
       on:blur={(e) => handleStaffBlur(e, 'dt')} 
       on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       on:contextmenu={(e) => handleContextMenu(e, 'dt')}
@@ -384,6 +400,7 @@
       value={row.artist_liaison} 
       readonly={!isEditable('artist_liaison')}
       style={getStaffFieldStyle(row.artist_liaison, row.type)}
+      on:focus={() => handleFocus('artist_liaison')}
       on:blur={(e) => handleStaffBlur(e, 'artist_liaison')} 
       on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
       on:contextmenu={(e) => handleContextMenu(e, 'artist_liaison')}
@@ -395,6 +412,8 @@
         class="{cellBaseClass} text-gray-300" 
         value={row.notes} 
         readonly={!isEditable('notes')}
+        on:focus={() => handleFocus('notes')}
+        on:blur={() => dispatch('blur')}
         on:change={(e) => handleChange('notes', e.currentTarget.value)} 
         on:contextmenu={(e) => handleContextMenu(e, 'notes')}
     />
@@ -402,7 +421,7 @@
 </div>
 
 {#if showTypeDropdown}
-    <div 
+   <div 
         class="fixed z-[9999] bg-[#1e1e1e] border border-gray-700 rounded-lg shadow-2xl py-1 max-h-[300px] overflow-y-auto flex flex-col min-w-[160px]"
         style="top: {dropdownPosition.top}px; left: {dropdownPosition.left}px;"
         role="menu"
