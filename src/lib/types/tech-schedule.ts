@@ -31,7 +31,7 @@ export const EVENT_COLORS: Record<string, string> = {
   'Maintenance': '#ffdcc7ff',
   'Montage': '#f3ac87ff',
   'Demontage': '#f3ac87ff',
-  'Other': '#fdfdfd',
+  'Other': 'transparent',
   'Hold': 'transparent',
   'Canceled': '#ff0000', // Special handling in logic
   '': 'transparent'
