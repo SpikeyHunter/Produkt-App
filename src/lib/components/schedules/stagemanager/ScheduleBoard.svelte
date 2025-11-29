@@ -6,6 +6,7 @@
     import { calculateHours, getWeekRangeString } from '$lib/utils/timeUtils';
     import ShiftModal from './ShiftModal.svelte';
     import ManagerStaffModal from '../ManagerStaffModal.svelte';
+    import { goto } from '$app/navigation';
 
     export let currentUser: User | null = null;
 
@@ -351,6 +352,12 @@
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div><h1 class="text-3xl font-bold mb-1">Schedule - Stage Manager</h1></div>
         <div class="flex gap-4 items-start">
+            <button
+									class="flex items-center gap-2 px-3 py-2.5 rounded-4xl border border-gray2/30 text-gray2 transition-all text-xs font-bold hover:text-lime hover:border-lime hover:cursor-pointer"
+									on:click={() => goto('/schedules/tech')}
+								>
+									<span class="uppercase tracking-wider">Schedule Techs</span>
+								</button>
              <div class="flex bg-gray2/20 p-1 rounded-full border border-gray2/30 h-10">
                  <button class="px-4 rounded-full text-sm font-medium transition-all {viewMode === 'current' ? 'bg-lime text-black font-bold shadow-lg' : 'text-gray2 hover:text-white'}" on:click={() => viewMode = 'current'}>Current</button>
                  <button class="px-4 rounded-full text-sm font-medium transition-all {viewMode === 'past' ? 'bg-white text-black font-bold shadow-lg' : 'text-gray2 hover:text-white'}" on:click={() => viewMode = 'past'}>Past</button>

@@ -94,7 +94,7 @@
 			<div class="bg-gray1 border border-gray2/30 w-full max-w-md rounded-2xl shadow-2xl p-8 flex flex-col gap-6">
 				<div class="text-center">
                     <img src="/images/ProduktXX_LOGO1.png" alt="Produkt Logo" class="h-9 mx-auto mb-10" />
-					<h2 class="text-2xl font-bold text-white mb-2">Restricted Access</h2>
+					<h2 class="text-2xl font-bold text-white mb-2">Stage Manager</h2>
 					<p class="text-gray2 text-sm">Please enter the password to view the Stage Manager schedule.</p>
 				</div>
 

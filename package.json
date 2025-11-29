@@ -64,6 +64,7 @@
 		"@types/lodash-es": "^4.17.12",
 		"bcrypt": "^6.0.0",
 		"date-fns": "^4.1.0",
+		"dayjs": "^1.11.19",
 		"fast-xml-parser": "^4.3.5",
 		"fdir": "^6.4.6",
 		"googleapis": "^157.0.0",

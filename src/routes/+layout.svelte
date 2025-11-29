@@ -20,6 +20,7 @@
         '/sultanshepard',
         '/schedules' // Added to protect general schedule routes
     ];
+
     const PUBLIC_ONLY_ROUTES = ['/', '/login', '/login/register', '/login/forgot-password'];
 
     // --- PERMISSION CONFIGURATION ---
@@ -30,6 +31,7 @@
         '/marketing': 'Marketing',
         '/sultanshepard': 'sultanshepard'
     };
+
     const ADMIN_ROUTES = ['/settings', '/calendar'];
 
     let isAuthInitialized = false;
@@ -69,11 +71,12 @@
         const currentPath = $page.url.pathname;
         const isProtectedRoute = PROTECTED_ROUTES.some((route) => currentPath.startsWith(route));
         
-        // Exception: Don't check permissions for the public stage manager route
-        const isPublicRoute = currentPath.startsWith('/schedules/stagemanager');
+        // Exception: Don't check permissions for the public stage manager OR tech route
+        const isPublicRoute = currentPath.startsWith('/schedules/stagemanager') || currentPath.startsWith('/schedules/tech');
 
         if (isProtectedRoute && !isPublicRoute) {
             const hasAccess = hasAccessToRoute(currentPath, $authStore.profile);
+
             if (!hasAccess) {
                 console.warn(
                     `[Permission Guard] Access denied to "${currentPath}" for user with role "${$authStore.profile.role}". Redirecting to dashboard.`
@@ -103,13 +106,14 @@
             const userIsLoggedIn = !!session?.user;
 
             // --- PUBLIC ROUTE EXCEPTION ---
-            const isPublicRoute = currentPath.startsWith('/schedules/stagemanager');
+            // Allow both stage manager and tech schedule to be public (password protected internally)
+            const isPublicRoute = currentPath.startsWith('/schedules/stagemanager') || currentPath.startsWith('/schedules/tech');
 
             // --- PRIMARY AUTHENTICATION GUARD ---
             // Redirect to home IF: 
             // 1. User is NOT logged in
             // 2. Route IS in the protected list
-            // 3. Route is NOT the public stage manager page
+            // 3. Route is NOT a public route
             if (!userIsLoggedIn && PROTECTED_ROUTES.some((route) => currentPath.startsWith(route)) && !isPublicRoute) {
                 console.log('[Auth Guard] User not logged in. Redirecting to home.');
                 await goto('/');
@@ -124,7 +128,6 @@
         });
 
         authSubscription = subscription;
-
         return () => {
             if (authSubscription) {
                 authSubscription.unsubscribe();
