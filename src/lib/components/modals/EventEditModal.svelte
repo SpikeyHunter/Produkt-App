@@ -285,6 +285,9 @@
 
 				// G. CRITICAL FIX: Delete the OLD Event from the 'events' table
 				// This removes the custom row (e.g. ID 14) so you don't have duplicates.
+				await supabase.from('events').update({ is_custom: false }).eq('event_id', oldId);
+
+				// STEP 2: NOW delete the row
 				const { error: deleteEventError } = await supabase
 					.from('events')
 					.delete()
