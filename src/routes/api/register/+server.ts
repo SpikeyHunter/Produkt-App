@@ -23,7 +23,7 @@ const REGISTRATION_CODES = {
   [USER_REGISTRATION_CODE]: 'User'
 };
 
-const ALLOWED_EMAIL_DOMAINS = ['@produkt.ca', '@newcitygas.com'];
+const ALLOWED_EMAIL_DOMAINS = ['@produkt.ca', '@newcitygas.com', '@hqaudio.ca', '@onedot.ca', '@icloud.com'];
 
 function validateName(name: string): boolean {
   if (name.length < 2) return false;
