@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, tick } from 'svelte';
     import { supabase } from '$lib/supabase';
     import type { User } from '@supabase/supabase-js';
     import TechScheduleBoard from '$lib/components/schedules/tech/TechScheduleBoard.svelte';
@@ -28,10 +28,12 @@
         allowedColumns: [] as string[]
     };
 
-    // CACHE STATE for Instant Loading
+    // CACHE & LOADING STATE
     let scheduleCache: Record<number, TechRow[]> = {};
     let currentRows: TechRow[] = [];
     let isScheduleLoading = false;
+    // Fix: Request ID to prevent race conditions (e.g. clicking 2024 then 2025 quickly)
+    let loadRequestId = 0;
     
     // Guest Auth State
     let isGuestAuthenticated = false;
@@ -39,8 +41,6 @@
     let passwordError = '';
 
     let hidePastMonths = true;
-
-    // NEW: Delete Mode Toggle State
     let isDeleteMode = false;
 
     onMount(async () => {
@@ -69,41 +69,79 @@
         
         const currentY = dayjs().year();
         if (years.includes(currentY)) {
-            selectedYear = currentY;
+            // Use the safe switch function instead of direct assignment
+            switchYear(currentY);
             viewMode = 'current';
         } else if (years.length > 0) {
-            selectedYear = years.sort((a, b) => b - a)[0]; 
+            const maxYear = years.sort((a, b) => b - a)[0];
+            switchYear(maxYear);
         }
     });
 
-    // Watch for year selection to load data (Instant if cached)
-    $: if (selectedYear) {
-        loadScheduleForYear(selectedYear);
-        // Reset delete mode when switching years
+    // --- CRITICAL FIX: Safe Switching Logic ---
+    async function switchYear(year: number) {
+        if (selectedYear === year) return;
+
+        // 1. Force Save: If user is typing, force the field to blur/save BEFORE destroying the view
+        if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+            await tick(); // Wait for the blur event handlers to run
+        }
+        
+        // 2. Snapshot current state to cache so we don't lose edits visually
+        if (selectedYear && currentRows.length > 0) {
+            scheduleCache[selectedYear] = currentRows;
+        }
+
+        // 3. Update Selection
+        selectedYear = year;
         isDeleteMode = false;
+
+        // 4. Load Data Safely
+        loadScheduleForYear(year);
     }
 
     async function loadScheduleForYear(year: number) {
+        // Increment Request ID: Only the latest request will be allowed to update the UI
+        const requestId = ++loadRequestId;
+        
         // 1. Instant Load from Cache
         if (scheduleCache[year]) {
             currentRows = scheduleCache[year];
-            isScheduleLoading = false;
+            // Don't set loading true if we have cache, just fetch silently to update
+            fetchDataForYear(year, requestId, true);
         } else {
-            // 2. Fetch if not in cache
+            // 2. No cache, show loading
             isScheduleLoading = true;
             currentRows = []; 
-            
-            const { data, error } = await supabase
-                .from('schedule_techs')
-                .select('*')
-                .eq('year', year)
-                .order('date', { ascending: true })
-                .order('sort_order', { ascending: true });
+            fetchDataForYear(year, requestId, false);
+        }
+    }
 
-            if (!error && data) {
-                scheduleCache[year] = data;
+    async function fetchDataForYear(year: number, requestId: number, isSilent: boolean) {
+        const { data, error } = await supabase
+            .from('schedule_techs')
+            .select('*')
+            .eq('year', year)
+            .order('date', { ascending: true })
+            .order('sort_order', { ascending: true });
+
+        // Race Condition Check: If user switched tabs while this was loading, IGNORE this result
+        if (requestId !== loadRequestId) {
+            return;
+        }
+
+        if (!error && data) {
+            scheduleCache[year] = data;
+            // Only update currentRows if we are still on that year (double check)
+            if (selectedYear === year) {
                 currentRows = data;
             }
+        } else if (error) {
+            console.error("Error loading schedule:", error);
+        }
+        
+        if (!isSilent) {
             isScheduleLoading = false;
         }
     }
@@ -127,28 +165,12 @@
         }
 
         const roles = [main, ...secondary].filter(Boolean);
-        // Checking for 'Production' or explicitly 'Admin' if it exists in DB
         if (roles.includes('Production') || roles.includes('Admin')) {
-            userPermissions = {
-                role: 'production',
-                canAddYear: true,
-                canEditAll: true,
-                allowedColumns: [] 
-            };
+            userPermissions = { role: 'production', canAddYear: true, canEditAll: true, allowedColumns: [] };
         } else if (roles.includes('TechEditor')) {
-            userPermissions = {
-                role: 'editor',
-                canAddYear: false,
-                canEditAll: true,
-                allowedColumns: []
-            };
+            userPermissions = { role: 'editor', canAddYear: false, canEditAll: true, allowedColumns: [] };
         } else if (roles.includes('TechBooker')) {
-            userPermissions = {
-                role: 'booker',
-                canAddYear: false,
-                canEditAll: false,
-                allowedColumns: ['ld', 'video', 'vj', 'sound', 'tech_sm', 'dt', 'notes']
-            };
+            userPermissions = { role: 'booker', canAddYear: false, canEditAll: false, allowedColumns: ['ld', 'video', 'vj', 'sound', 'tech_sm', 'dt', 'notes'] };
         } else {
              userPermissions = { role: 'viewer', canAddYear: false, canEditAll: false, allowedColumns: [] };
         }
@@ -196,9 +218,7 @@
     }
 
     function handleKeydown(e: KeyboardEvent) {
-        if (e.key === 'Enter') {
-            handlePasswordSubmit();
-        }
+        if (e.key === 'Enter') handlePasswordSubmit();
     }
 
     function focusInput(node: HTMLElement) {
@@ -221,19 +241,11 @@
                 keepFetching = false;
             } else {
                 data.forEach(d => allYears.add(d.year));
-                if (data.length < limit) {
-                    keepFetching = false;
-                } else {
-                    from += limit;
-                }
+                if (data.length < limit) keepFetching = false;
+                else from += limit;
             }
         }
-        
-        if (allYears.size > 0) {
-            years = [...allYears];
-        } else {
-            years = [];
-        }
+        years = allYears.size > 0 ? [...allYears] : [];
     }
 
     async function addYear() {
@@ -260,7 +272,7 @@
         const { error } = await supabase.from('schedule_techs').insert(newRows);
         if (!error) {
             years = [...years, yearToCreate].sort((a, b) => b - a);
-            selectedYear = yearToCreate;
+            switchYear(yearToCreate);
             viewMode = 'current'; 
         } else {
             alert('Error creating year: ' + (error as any).message);
@@ -277,7 +289,7 @@
         const currentSelectionInList = selectedYear && displayedYears.includes(selectedYear);
         if (!currentSelectionInList) {
             if (displayedYears.length > 0) {
-                selectedYear = displayedYears[0];
+                switchYear(displayedYears[0]);
             } else {
                 selectedYear = null;
             }
@@ -310,11 +322,8 @@
                                     </div>
                                     {#each displayedYears as year}
                                          <button
-                                            class="px-5 py-2 text-sm font-bold rounded-t-lg hover:cursor-pointer transition-colors border-t border-x {selectedYear ===
-                                            year
-                                                ? 'bg-gray1 text-white border-gray2/30'
-                                                : 'bg-transparent text-gray2 border-transparent hover:text-white hover:bg-white/5'}"
-                                            on:click={() => (selectedYear = year)}
+                                            class="px-5 py-2 text-sm font-bold rounded-t-lg hover:cursor-pointer transition-colors border-t border-x {selectedYear === year ? 'bg-gray1 text-white border-gray2/30' : 'bg-transparent text-gray2 border-transparent hover:text-white hover:bg-white/5'}"
+                                            on:click={() => switchYear(year)}
                                         >
                                             {year}
                                         </button>
@@ -360,10 +369,7 @@
                                 </button>
 
                                 <button
-                                     class="flex items-center gap-2 px-3 py-1.5 rounded-2xl border transition-all text-xs font-bold hover:cursor-pointer
-                                    {hidePastMonths
-                                        ? 'border-gray2/30 text-gray2 hover:text-white hover:border-gray2 '
-                                        : 'border-gray2/30 text-lime'}"
+                                     class="flex items-center gap-2 px-3 py-1.5 rounded-2xl border transition-all text-xs font-bold hover:cursor-pointer {hidePastMonths ? 'border-gray2/30 text-gray2 hover:text-white hover:border-gray2 ' : 'border-gray2/30 text-lime'}"
                                     on:click={() => (hidePastMonths = !hidePastMonths)}
                                      title={hidePastMonths ? 'Show Previous Months' : 'Hide Previous Months'}
                                 >
@@ -401,14 +407,13 @@
                                     <p>Loading...</p>
                                 </div>
                             {:else if selectedYear}
-                                {#key selectedYear}
-                                    <TechScheduleBoard 
-                                        year={selectedYear} 
-                                        loading={isScheduleLoading}
-                                        {hidePastMonths} 
-                                        {userPermissions}
-                                        {isDeleteMode}
-                                        bind:rows={currentRows}
+                                 {#key selectedYear}
+                                     <TechScheduleBoard 
+                                            year={selectedYear} 
+                                            loading={isScheduleLoading}
+                                            {hidePastMonths} 
+                                            {userPermissions}  {isDeleteMode}
+                                            bind:rows={currentRows}
                                     />
                                 {/key}
                             {:else}
@@ -429,7 +434,7 @@
                 </div>
             </MainLayout>
         {:else}
-            <div class="w-full h-screen bg-gray1 overflow-hidden flex flex-col p-4">
+             <div class="w-full h-screen bg-gray1 overflow-hidden flex flex-col p-4">
                 <div class="flex items-center justify-between px-6 py-4 border-b border-gray2/20 bg-gray1">
                     <div class="flex items-center gap-6">
                          <h2 class="text-lime font-bold text-lg uppercase tracking-wider">Schedule Techs</h2>
@@ -444,58 +449,41 @@
                             </div>
                             {#each displayedYears as year}
                                 <button
-                                    class="px-5 py-2 text-sm font-bold rounded-t-lg hover:cursor-pointer transition-colors border-t border-x {selectedYear ===
-                                    year
-                                         ? 'bg-gray1 text-white border-gray2/30'
-                                        : 'bg-transparent text-gray2 border-transparent hover:text-white hover:bg-white/5'}"
-                                    on:click={() => (selectedYear = year)}
+                                    class="px-5 py-2 text-sm font-bold rounded-t-lg hover:cursor-pointer transition-colors border-t border-x {selectedYear === year ? 'bg-gray1 text-white border-gray2/30' : 'bg-transparent text-gray2 border-transparent hover:text-white hover:bg-white/5'}"
+                                    on:click={() => switchYear(year)}
                                 >
                                     {year}
                                 </button>
                             {/each}
-
                             {#if displayedYears.length === 0}
                                 <span class="text-gray2 text-xs italic py-2 px-2">No {viewMode} years found</span>
                             {/if}
                         </div>
                     </div>
-
                     <div class="flex items-center gap-4">
-                          <button
+                        <button
                             class="flex items-center gap-2 px-3 py-1.5 rounded-2xl border border-gray2/30 text-gray2 transition-all text-xs font-bold hover:text-lime hover:border-gray2/30 hover:cursor-pointer"
                             on:click={() => goto('/schedules/stagemanager')}
                         >
                             <span class="uppercase tracking-wider">Stage Manager</span>
                         </button>
-
                         <button
-                            class="flex items-center gap-2 px-3 py-1.5 rounded-2xl border transition-all text-xs font-bold hover:cursor-pointer
-                            {hidePastMonths
-                                ? 'border-gray2/30 text-gray2 hover:text-white hover:border-gray2 '
-                                : 'border-gray2/30 text-lime'}"
+                            class="flex items-center gap-2 px-3 py-1.5 rounded-2xl border transition-all text-xs font-bold hover:cursor-pointer {hidePastMonths ? 'border-gray2/30 text-gray2 hover:text-white hover:border-gray2 ' : 'border-gray2/30 text-lime'}"
                             on:click={() => (hidePastMonths = !hidePastMonths)}
                             title={hidePastMonths ? 'Show Previous Months' : 'Hide Previous Months'}
                         >
                             {#if hidePastMonths}
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                                     <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.742L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" clip-rule="evenodd" />
-                                </svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.742L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" clip-rule="evenodd" /></svg>
                             {:else}
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                                     <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-                                    <path fill-rule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 8.201 2.665 9.336 6.41.147.481.147.99 0 1.472C18.201 14.335 14.257 17 10 17c-4.257 0-8.201-2.665-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
-                                </svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4"><path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" /><path fill-rule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 8.201 2.665 9.336 6.41.147.481.147.99 0 1.472C18.201 14.335 14.257 17 10 17c-4.257 0-8.201-2.665-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" /></svg>
                             {/if}
                             <span class="uppercase tracking-wider">Previous Months</span>
                         </button>
                     </div>
                 </div>
-
                 <div class="flex-1 overflow-hidden relative bg-gray1">
                     {#if isLoading}
-                        <div class="flex items-center justify-center h-full text-lime animate-pulse">
-                            <p>Loading...</p>
-                        </div>
+                        <div class="flex items-center justify-center h-full text-lime animate-pulse"><p>Loading...</p></div>
                     {:else if selectedYear}
                          {#key selectedYear}
                              <TechScheduleBoard 
@@ -507,9 +495,7 @@
                             />
                         {/key}
                     {:else}
-                        <div class="flex flex-col items-center justify-center h-full text-gray2 gap-4">
-                             <p class="text-lg">No schedules found for {viewMode} years.</p>
-                        </div>
+                        <div class="flex flex-col items-center justify-center h-full text-gray2 gap-4"><p class="text-lg">No schedules found for {viewMode} years.</p></div>
                     {/if}
                 </div>
             </div>
@@ -523,29 +509,11 @@
                     <h2 class="text-2xl font-bold text-white mb-2">Schedule Techs</h2>
                     <p class="text-gray2 text-sm">Please enter the password to view the Tech schedule.</p>
                 </div>
-
                 <div class="space-y-2">
-                    <input 
-                        type="password" 
-                        placeholder="Enter Password" 
-                        bind:value={passwordInput}
-                        on:keydown={handleKeydown}
-                        use:focusInput
-                        class="w-full bg-black/30 border border-gray2/20 rounded-xl px-4 py-3 text-white text-center focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime transition-all placeholder-gray2/50"
-                    />
-                    {#if passwordError}
-                        <p class="text-red-500 text-xs text-center font-bold animate-in fade-in slide-in-from-top-1">
-                            {passwordError}
-                        </p>
-                    {/if}
+                    <input type="password" placeholder="Enter Password" bind:value={passwordInput} on:keydown={handleKeydown} use:focusInput class="w-full bg-black/30 border border-gray2/20 rounded-xl px-4 py-3 text-white text-center focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime transition-all placeholder-gray2/50"/>
+                    {#if passwordError}<p class="text-red-500 text-xs text-center font-bold animate-in fade-in slide-in-from-top-1">{passwordError}</p>{/if}
                 </div>
-
-                <button 
-                    on:click={handlePasswordSubmit}
-                    class="w-full py-3 rounded-xl bg-lime text-black font-bold hover:bg-lime/90 transition-all shadow-lg shadow-lime/10"
-                >
-                    Access Schedule
-                </button>
+                <button on:click={handlePasswordSubmit} class="w-full py-3 rounded-xl bg-lime text-black font-bold hover:bg-lime/90 transition-all shadow-lg shadow-lime/10">Access Schedule</button>
             </div>
         </div>
     {/if}

@@ -505,7 +505,8 @@
 {#if showTypeDropdown}
 	<div
 		class="fixed z-[9999] bg-[#1e1e1e] border border-gray-700 rounded-lg shadow-2xl py-1 max-h-[300px] overflow-y-auto flex flex-col min-w-[160px]"
-		style="top: {dropdownPosition.top}px; left: {dropdownPosition.left}px;"
+		style="top: {dropdownPosition.top}px;
+		left: {dropdownPosition.left}px;"
 		role="menu"
 		tabindex="-1"
 		on:click|stopPropagation

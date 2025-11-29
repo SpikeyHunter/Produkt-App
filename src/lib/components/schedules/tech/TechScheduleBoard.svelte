@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { supabase } from '$lib/supabase';
-  import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
+  import type { RealtimePostgresChangesPayload, RealtimeChannel } from '@supabase/supabase-js';
   import type { TechRow } from '$lib/types/tech-schedule'; 
   import TechRowComponent from './TechRow.svelte';
   import TechContextMenu from './TechContextMenu.svelte';
@@ -24,6 +24,9 @@
   export let loading: boolean = false;
 
   let activeEdit: { rowId: string; field: keyof TechRow } | null = null;
+  
+  // Realtime Channel Reference
+  let channel: RealtimeChannel | null = null;
 
   const COL_WIDTHS = {
     index: '40px',
@@ -72,7 +75,6 @@
   
   let contextMenu = { show: false, x: 0, y: 0, row: null as TechRow | null, field: null as string | null };
   let clipboardData: { type: 'row' | 'cell', data: any, field?: string } | null = null;
-  let channel: any;
   let activeDropdownId: string | null = null;
 
   let historyPanel = { 
@@ -89,8 +91,58 @@
   let hoveredColumnKey: string | null = null;
   let gridContainer: HTMLDivElement;
   
-  $: if (year) {
-    setupRealtime();
+  // --- REALTIME SETUP ---
+  onMount(() => {
+    if (year) {
+      setupRealtime();
+    }
+  });
+
+  onDestroy(() => {
+    if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+    }
+  });
+
+  function setupRealtime() {
+    // Safety check: remove existing if any to prevent duplicates
+    if (channel) supabase.removeChannel(channel);
+    
+    // Unique channel name per year prevents cross-talk
+    const channelName = `tech-schedule-changes-${year}`;
+    
+    channel = supabase
+      .channel(channelName)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_techs', filter: `year=eq.${year}` }, 
+      (payload) => handleRealtimeUpdate(payload as RealtimePostgresChangesPayload<TechRow>))
+      .subscribe();
+  }
+
+  function handleRealtimeUpdate(payload: RealtimePostgresChangesPayload<TechRow>) {
+    if (payload.eventType === 'INSERT') {
+      if (!rows.find(r => r.id === payload.new.id)) {
+        rows = [...rows, payload.new];
+      }
+    } else if (payload.eventType === 'UPDATE') {
+      rows = rows.map(r => {
+          if (r.id !== payload.new.id) return r;
+
+          const incoming = payload.new;
+          
+          // CRITICAL: Conflict Resolution
+          // If we are currently editing a specific field, ignore the server update for THAT field only
+          if (activeEdit && activeEdit.rowId === r.id && activeEdit.field) {
+              return {
+                  ...incoming,
+                  [activeEdit.field]: r[activeEdit.field] 
+              };
+          }
+          return incoming;
+      });
+    } else if (payload.eventType === 'DELETE') {
+      rows = rows.filter(r => r.id !== payload.old.id);
+    }
   }
 
   $: filteredRows = rows
@@ -106,42 +158,35 @@
         return a.sort_order - b.sort_order;
     });
 
-  function setupRealtime() {
-    if (channel) supabase.removeChannel(channel);
-    channel = supabase
-      .channel('tech-schedule-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_techs', filter: `year=eq.${year}` }, 
-      (payload) => handleRealtimeUpdate(payload as RealtimePostgresChangesPayload<TechRow>))
-      .subscribe();
-  }
+  // --- OPTIMISTIC UPDATES ---
+  async function updateCell(id: string, field: string, value: any, isRestore = false) {
+    const canEdit = userPermissions.canEditAll || userPermissions.allowedColumns.includes(field);
+    if (!canEdit) return;
 
-  // --- OPTIMIZED: Smart Realtime Handling ---
-  function handleRealtimeUpdate(payload: RealtimePostgresChangesPayload<TechRow>) {
-    if (payload.eventType === 'INSERT') {
-      if (!rows.find(r => r.id === payload.new.id)) {
-        rows = [...rows, payload.new];
-      }
-    } else if (payload.eventType === 'UPDATE') {
-      rows = rows.map(r => {
-          if (r.id !== payload.new.id) return r;
+    const rowIndex = rows.findIndex(r => r.id === id);
+    if (rowIndex === -1) return;
+    const oldRow = rows[rowIndex];
+    
+    // 1. Optimistic Update
+    const updatedRow = { ...oldRow, [field]: value };
+    rows = rows.map(r => r.id === id ? updatedRow : r);
 
-          const incoming = payload.new;
-          
-          // CRITICAL FIX: If user is editing THIS specific field on THIS row, 
-          // ignore the incoming value for that field to prevent cursor jumping.
-          if (activeEdit && activeEdit.rowId === r.id && activeEdit.field) {
-              return {
-                  ...incoming,
-                  [activeEdit.field]: r[activeEdit.field] // Keep local value
-              };
-          }
-          return incoming;
-      });
-    } else if (payload.eventType === 'DELETE') {
-      rows = rows.filter(r => r.id !== payload.old.id);
+    // 2. DB Update
+    const updatePayload: Record<string, any> = {};
+    updatePayload[field] = value;
+    const { error } = await supabase.from('schedule_techs').update(updatePayload).eq('id', id);
+    
+    if (error) {
+        console.error('Update failed', error);
+        // Revert on error
+        rows = rows.map(r => r.id === id ? oldRow : r);
+        alert('Failed to save changes: ' + error.message);
+    } else if (!isRestore) {
+        // Log history asynchronously
+        logHistory(id, 'UPDATE', { [field]: oldRow[field as keyof TechRow] }, { [field]: value });
     }
   }
-
+  
   async function logHistory(rowId: string, action: 'UPDATE' | 'DELETE' | 'INSERT', oldData: any, newData: any) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return; 
@@ -157,45 +202,16 @@
     if (error) console.error("Failed to log history", error);
   }
 
-  // --- OPTIMIZED: Optimistic Updates ---
-  async function updateCell(id: string, field: string, value: any, isRestore = false) {
-    const canEdit = userPermissions.canEditAll || userPermissions.allowedColumns.includes(field);
-    if (!canEdit) return;
-
-    const rowIndex = rows.findIndex(r => r.id === id);
-    if (rowIndex === -1) return;
-    const oldRow = rows[rowIndex];
-    
-    // 1. Optimistic Update: Update Local State Immediately
-    const updatedRow = { ...oldRow, [field]: value };
-    rows = rows.map(r => r.id === id ? updatedRow : r);
-
-    // 2. Send to DB
-    const updatePayload: Record<string, any> = {};
-    updatePayload[field] = value;
-    const { error } = await supabase.from('schedule_techs').update(updatePayload).eq('id', id);
-    
-    if (error) {
-        console.error('Update failed', error);
-        // 3. Revert on Error
-        rows = rows.map(r => r.id === id ? oldRow : r);
-        alert('Failed to save changes: ' + error.message);
-    } else if (!isRestore) {
-        // 4. Log History asynchronously
-        logHistory(id, 'UPDATE', { [field]: oldRow[field as keyof TechRow] }, { [field]: value });
-    }
-  }
-
   function handleCellFocus(e: CustomEvent) {
       const field = e.detail.field as keyof TechRow;
       activeEdit = { rowId: e.detail.id, field };
   }
 
   function handleCellBlur() {
-      // Small delay to allow click events to register before clearing active edit state
+      // Short delay allows "force save" logic in parent to read active element before clearing it
       setTimeout(() => {
           activeEdit = null;
-      }, 100);
+      }, 50);
   }
 
   async function handleRestore(event: CustomEvent) {
@@ -226,14 +242,13 @@
       const targetRow = rows.find(r => r.id === id);
       if(!targetRow) return;
 
-      // Optimistic delete
       const previousRows = [...rows];
       rows = rows.filter(r => r.id !== id);
 
       const { error } = await supabase.from('schedule_techs').delete().eq('id', id);
       
       if (error) {
-          rows = previousRows; // Revert
+          rows = previousRows;
           alert('Failed to delete row: ' + error.message);
       } else {
           await logHistory(id, 'DELETE', targetRow, null);
@@ -251,6 +266,7 @@
     const y = Math.min(e.clientY, window.innerHeight - 300);
 
     contextMenu = { show: true, x, y, row, field };
+    
     contextMenuHasHistory = false;
     contextMenuCheckingHistory = true;
 
@@ -352,7 +368,6 @@
                     event_name: '', type: '', notes: '', ld: '', video: '', vj: '', 
                     sound: '', tech_sm: '', dt: '', artist_liaison: '', op_hours: '', crew_call: '' 
                   };
-                 // Optimistic Clear
                  rows = rows.map(r => r.id === row.id ? { ...r, ...emptyData } : r);
                  await supabase.from('schedule_techs').update(emptyData).eq('id', row.id);
              } else if (targetField && targetField !== 'date') {
@@ -367,7 +382,6 @@
             if (!userPermissions.canEditAll) return;
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { id: _, sort_order: __, date: ___, year: ____, ...dataToPaste } = clipboardData.data;
-            // Optimistic Paste
             rows = rows.map(r => r.id === row.id ? { ...r, ...dataToPaste } : r);
             await supabase.from('schedule_techs').update(dataToPaste).eq('id', row.id);
         } else if (targetField && clipboardData.type === 'cell') {
@@ -403,7 +417,6 @@
 
     const prevOrder = idx > 0 ? filteredRows[idx - 1].sort_order : targetRow.sort_order - 1;
 
-    // Permissions check for menu items
     if (['addBelow', 'addAbove', 'duplicate', 'delete', 'clear', 'cut', 'paste'].includes(action)) {
         if ((action === 'clear' || action === 'cut' || action === 'paste') && targetField !== '__ROW__') {
             if (!userPermissions.canEditAll && !userPermissions.allowedColumns.includes(targetField || '')) {
@@ -484,10 +497,6 @@
       if (!userPermissions.canEditAll) return;
       activeDropdownId = activeDropdownId === id ? null : id;
   }
-
-  onDestroy(() => {
-    if (channel) supabase.removeChannel(channel);
-  });
 </script>
 
 <svelte:window 
@@ -522,7 +531,7 @@
       <div class="p-2 pl-4">NOTES</div>
     </div>
 
-    {#if loading}
+    {#if loading && rows.length === 0}
       <div class="flex items-center justify-center h-full text-lime animate-pulse text-sm min-w-full mt-10">Loading Schedule...</div>
     {:else}
       {#each filteredRows as row, i (row.id)}
