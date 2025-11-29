@@ -60,7 +60,7 @@
 	}
 
 	function validateEmail(email: string): boolean {
-		const allowedDomains = ['@produkt.ca', '@newcitygas.com'];
+		const allowedDomains = ['@produkt.ca', '@newcitygas.com', '@hqaudio.ca', '@onedot.ca', '@icloud.com'];
 		return allowedDomains.some((domain) => email.endsWith(domain));
 	}
 
