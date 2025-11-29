@@ -10,22 +10,16 @@
   import customParseFormat from 'dayjs/plugin/customParseFormat';
 
   dayjs.extend(customParseFormat);
-  
+
   export let year: number;
   export let hidePastMonths: boolean;
-  
-  // Received from +page.svelte
   export let userPermissions: {
       role: string;
       canAddYear: boolean;
       canEditAll: boolean;
       allowedColumns: string[];
   } = { role: 'viewer', canAddYear: false, canEditAll: false, allowedColumns: [] };
-  
-  // NEW Prop for delete mode
   export let isDeleteMode = false;
-
-  // Data Props (Passed from Parent)
   export let rows: TechRow[] = [];
   export let loading: boolean = false;
 
@@ -66,7 +60,7 @@
     liaison: 'artist_liaison',
     notes: 'notes'
   };
-  
+
   let columnRanges: { key: string; end: number }[] = [];
   let accum = 0;
   for (const [key, widthStr] of Object.entries(COL_WIDTHS)) {
@@ -75,12 +69,12 @@
   }
 
   const gridStyle = `display: grid; grid-template-columns: ${Object.values(COL_WIDTHS).join(' ')}; min-width: max-content;`;
+  
   let contextMenu = { show: false, x: 0, y: 0, row: null as TechRow | null, field: null as string | null };
   let clipboardData: { type: 'row' | 'cell', data: any, field?: string } | null = null;
   let channel: any;
   let activeDropdownId: string | null = null;
-  
-  // History State
+
   let historyPanel = { 
     open: false, 
     rowId: null as string | null, 
@@ -121,6 +115,7 @@
       .subscribe();
   }
 
+  // --- OPTIMIZED: Smart Realtime Handling ---
   function handleRealtimeUpdate(payload: RealtimePostgresChangesPayload<TechRow>) {
     if (payload.eventType === 'INSERT') {
       if (!rows.find(r => r.id === payload.new.id)) {
@@ -132,10 +127,12 @@
 
           const incoming = payload.new;
           
+          // CRITICAL FIX: If user is editing THIS specific field on THIS row, 
+          // ignore the incoming value for that field to prevent cursor jumping.
           if (activeEdit && activeEdit.rowId === r.id && activeEdit.field) {
               return {
                   ...incoming,
-                  [activeEdit.field]: r[activeEdit.field] 
+                  [activeEdit.field]: r[activeEdit.field] // Keep local value
               };
           }
           return incoming;
@@ -160,6 +157,7 @@
     if (error) console.error("Failed to log history", error);
   }
 
+  // --- OPTIMIZED: Optimistic Updates ---
   async function updateCell(id: string, field: string, value: any, isRestore = false) {
     const canEdit = userPermissions.canEditAll || userPermissions.allowedColumns.includes(field);
     if (!canEdit) return;
@@ -168,24 +166,23 @@
     if (rowIndex === -1) return;
     const oldRow = rows[rowIndex];
     
-    const safeField = field as keyof TechRow;
-    const oldValue = oldRow[safeField];
-
-    // Optimistic Update
+    // 1. Optimistic Update: Update Local State Immediately
     const updatedRow = { ...oldRow, [field]: value };
     rows = rows.map(r => r.id === id ? updatedRow : r);
 
+    // 2. Send to DB
     const updatePayload: Record<string, any> = {};
     updatePayload[field] = value;
-
     const { error } = await supabase.from('schedule_techs').update(updatePayload).eq('id', id);
     
     if (error) {
         console.error('Update failed', error);
+        // 3. Revert on Error
+        rows = rows.map(r => r.id === id ? oldRow : r);
         alert('Failed to save changes: ' + error.message);
-        rows = rows.map(r => r.id === id ? oldRow : r); // Revert on error
     } else if (!isRestore) {
-        await logHistory(id, 'UPDATE', { [field]: oldValue }, { [field]: value });
+        // 4. Log History asynchronously
+        logHistory(id, 'UPDATE', { [field]: oldRow[field as keyof TechRow] }, { [field]: value });
     }
   }
 
@@ -195,9 +192,10 @@
   }
 
   function handleCellBlur() {
+      // Small delay to allow click events to register before clearing active edit state
       setTimeout(() => {
           activeEdit = null;
-      }, 200);
+      }, 100);
   }
 
   async function handleRestore(event: CustomEvent) {
@@ -222,18 +220,24 @@
       historyPanel = { ...historyPanel };
   }
 
-  // Handle direct delete from Row (triggered when isDeleteMode is active)
   async function handleRowDelete(event: CustomEvent) {
       if (!isDeleteMode || !userPermissions.canEditAll) return;
-      
       const { id } = event.detail;
       const targetRow = rows.find(r => r.id === id);
       if(!targetRow) return;
 
-      // REMOVED CONFIRM CHECK
+      // Optimistic delete
+      const previousRows = [...rows];
       rows = rows.filter(r => r.id !== id);
-      await supabase.from('schedule_techs').delete().eq('id', id);
-      await logHistory(id, 'DELETE', targetRow, null);
+
+      const { error } = await supabase.from('schedule_techs').delete().eq('id', id);
+      
+      if (error) {
+          rows = previousRows; // Revert
+          alert('Failed to delete row: ' + error.message);
+      } else {
+          await logHistory(id, 'DELETE', targetRow, null);
+      }
   }
 
   async function handleContextMenu(event: CustomEvent) {
@@ -247,7 +251,6 @@
     const y = Math.min(e.clientY, window.innerHeight - 300);
 
     contextMenu = { show: true, x, y, row, field };
-    
     contextMenuHasHistory = false;
     contextMenuCheckingHistory = true;
 
@@ -255,7 +258,6 @@
         checkHistoryAvailability(row.id, field);
     } else {
         contextMenuCheckingHistory = false;
-        contextMenuHasHistory = false;
     }
     
     const closeMenu = () => {
@@ -334,7 +336,7 @@
 
     const key = e.key.toLowerCase();
     const getRowValue = (r: TechRow, f: string) => (r as any)[f];
-
+    
     if (key === 'c' || key === 'x') {
         e.preventDefault();
         if (targetField === '__ROW__') {
@@ -349,7 +351,8 @@
                  const emptyData = { 
                     event_name: '', type: '', notes: '', ld: '', video: '', vj: '', 
                     sound: '', tech_sm: '', dt: '', artist_liaison: '', op_hours: '', crew_call: '' 
-                 };
+                  };
+                 // Optimistic Clear
                  rows = rows.map(r => r.id === row.id ? { ...r, ...emptyData } : r);
                  await supabase.from('schedule_techs').update(emptyData).eq('id', row.id);
              } else if (targetField && targetField !== 'date') {
@@ -364,6 +367,7 @@
             if (!userPermissions.canEditAll) return;
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { id: _, sort_order: __, date: ___, year: ____, ...dataToPaste } = clipboardData.data;
+            // Optimistic Paste
             rows = rows.map(r => r.id === row.id ? { ...r, ...dataToPaste } : r);
             await supabase.from('schedule_techs').update(dataToPaste).eq('id', row.id);
         } else if (targetField && clipboardData.type === 'cell') {
@@ -399,6 +403,7 @@
 
     const prevOrder = idx > 0 ? filteredRows[idx - 1].sort_order : targetRow.sort_order - 1;
 
+    // Permissions check for menu items
     if (['addBelow', 'addAbove', 'duplicate', 'delete', 'clear', 'cut', 'paste'].includes(action)) {
         if ((action === 'clear' || action === 'cut' || action === 'paste') && targetField !== '__ROW__') {
             if (!userPermissions.canEditAll && !userPermissions.allowedColumns.includes(targetField || '')) {
@@ -431,7 +436,7 @@
              const emptyData = { 
                  event_name: '', type: '', notes: '', ld: '', video: '', vj: '', 
                  sound: '', tech_sm: '', dt: '', artist_liaison: '', op_hours: '', crew_call: '' 
-             };
+              };
              rows = rows.map(r => r.id === targetRow.id ? { ...r, ...emptyData } : r);
              await supabase.from('schedule_techs').update(emptyData).eq('id', targetRow.id);
         } else if (targetField) {
@@ -568,13 +573,13 @@
   {/if}
 
   <HistorySidePanel 
-      isOpen={historyPanel.open}
-      rowId={historyPanel.rowId}
-      rowIndex={historyPanel.rowIndex} 
-      field={historyPanel.field}
-      rowDate={historyPanel.date}
-      on:close={() => historyPanel.open = false}
-      on:restore={handleRestore}
+    isOpen={historyPanel.open}
+    rowId={historyPanel.rowId}
+    rowIndex={historyPanel.rowIndex} 
+    field={historyPanel.field}
+    rowDate={historyPanel.date}
+    on:close={() => historyPanel.open = false}
+    on:restore={handleRestore}
   />
 </div>
 
