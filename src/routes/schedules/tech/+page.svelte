@@ -40,6 +40,9 @@
 
     let hidePastMonths = true;
 
+    // NEW: Delete Mode Toggle State
+    let isDeleteMode = false;
+
     onMount(async () => {
         const { data: { session } } = await supabase.auth.getSession();
         currentUser = session?.user || null;
@@ -61,7 +64,7 @@
             checkGuestAccess();
         }
 
-        await fetchAllYears(); // CHANGED: More robust fetch
+        await fetchAllYears(); 
         isLoading = false;
         
         const currentY = dayjs().year();
@@ -76,6 +79,8 @@
     // Watch for year selection to load data (Instant if cached)
     $: if (selectedYear) {
         loadScheduleForYear(selectedYear);
+        // Reset delete mode when switching years
+        isDeleteMode = false;
     }
 
     async function loadScheduleForYear(year: number) {
@@ -107,7 +112,7 @@
         const { data, error } = await supabase
             .from('user_profiles')
             .select('main_permission, secondary_permission')
-            .eq('id', userId) // Using 'id' to fix 400 error
+            .eq('id', userId)
             .single();
 
         if (error || !data) return;
@@ -123,7 +128,8 @@
 
         const roles = [main, ...secondary].filter(Boolean);
         
-        if (roles.includes('Production')) {
+        // Checking for 'Production' or explicitly 'Admin' if it exists in DB
+        if (roles.includes('Production') || roles.includes('Admin')) {
             userPermissions = {
                 role: 'production',
                 canAddYear: true,
@@ -200,15 +206,12 @@
         node.focus();
     }
 
-    // ROBUST FETCH: Recursive fetch to ensure we find ALL years regardless of row count limits
     async function fetchAllYears() {
         let allYears = new Set<number>();
         let from = 0;
         const limit = 1000;
         let keepFetching = true;
 
-        // Note: For massive tables this is heavy, but for < 50k rows it's acceptable to ensure accuracy
-        // Since we only need the 'year' column, payload is small
         while(keepFetching) {
             const { data, error } = await supabase
                 .from('schedule_techs')
@@ -258,8 +261,7 @@
 
         const { error } = await supabase.from('schedule_techs').insert(newRows);
         if (!error) {
-            // Manually add to years immediately so UI updates without waiting for fetch
-            years = [...years, yearToCreate].sort((a, b) => b - a); // Force update to 'years'
+            years = [...years, yearToCreate].sort((a, b) => b - a);
             selectedYear = yearToCreate;
             viewMode = 'current'; 
         } else {
@@ -327,8 +329,36 @@
                             </div>
 
                             <div class="flex items-center gap-4">
+                                <!-- DELETE MODE TOGGLE: Visible only for Admin/Production -->
+                                {#if userPermissions.role === 'production'}
+                                    <button 
+                                        class="flex items-center justify-center p-2 rounded-full transition-all duration-200 hover:cursor-pointer hover:scale-110 focus:outline-none {isDeleteMode ? 'bg-problem/10 hover:bg-problem/20' : 'bg-gray2/10 hover:bg-gray2/20'}"
+                                        on:click={() => isDeleteMode = !isDeleteMode}
+                                        title={isDeleteMode ? "Exit Delete Mode" : "Enter Delete Mode"}
+                                    >
+                                        {#if isDeleteMode}
+                                            <!-- Garbage Icon (Active) -->
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-problem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                <polyline points="3 6 5 6 21 6"></polyline>
+                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                                <line x1="10" y1="11" x2="10" y2="17"></line>
+                                                <line x1="14" y1="11" x2="14" y2="17"></line>
+                                            </svg>
+                                        {:else}
+                                            <!-- Cursor Arrow inside Circle (Default) -->
+                                            <div class="relative w-5 h-5 flex items-center justify-center">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"></path>
+                                                    <path d="M13 13l6 6"></path>
+                                                </svg>
+                                                <div class="absolute inset-0 rounded-full border border-gray2 opacity-50"></div>
+                                            </div>
+                                        {/if}
+                                    </button>
+                                {/if}
+
                                 <button
-                                    class="flex items-center gap-2 px-3 py-1.5 rounded-2xl border border-gray2/30 text-lime transition-all text-xs font-bold hover:text-white hover:border-gray2 hover:cursor-pointer"
+                                    class="flex items-center gap-2 px-3 py-1.5 rounded-2xl border border-gray2/30 text-gray2 transition-all text-xs font-bold hover:text-white hover:border-gray2 hover:cursor-pointer"
                                     on:click={() => goto('/schedules/stagemanager')}
                                 >
                                     <span class="uppercase tracking-wider">Stage Manager</span>
@@ -381,6 +411,7 @@
                                     loading={isScheduleLoading}
                                     {hidePastMonths} 
                                     {userPermissions}
+                                    {isDeleteMode}
                                     bind:rows={currentRows}
                                 />
                             {:else}
@@ -405,7 +436,6 @@
                 <div class="flex items-center justify-between px-6 py-4 border-b border-gray2/20 bg-gray1">
                     <div class="flex items-center gap-6">
                         <h2 class="text-lime font-bold text-lg uppercase tracking-wider">Schedule Techs</h2>
-
                         <div class="flex space-x-1">
                             <div class="mr-2">
                                 <button
@@ -434,6 +464,7 @@
                     </div>
 
                     <div class="flex items-center gap-4">
+                         <!-- Stage Manager Button & Others (No Delete Button for guest) -->
                         <button
                             class="flex items-center gap-2 px-3 py-1.5 rounded-2xl border border-gray2/30 text-gray2 transition-all text-xs font-bold hover:text-lime hover:border-gray2/30 hover:cursor-pointer"
                             on:click={() => goto('/schedules/stagemanager')}
@@ -452,15 +483,15 @@
                             {#if hidePastMonths}
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
                                     <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.742L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" clip-rule="evenodd" />
-                                        </svg>
-                                    {:else}
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                                            <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
-                                            <path fill-rule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 8.201 2.665 9.336 6.41.147.481.147.99 0 1.472C18.201 14.335 14.257 17 10 17c-4.257 0-8.201-2.665-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
-                                        </svg>
-                                    {/if}
-                                    <span class="uppercase tracking-wider">Previous Months</span>
-                                </button>
+                                </svg>
+                            {:else}
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                                    <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+                                    <path fill-rule="evenodd" d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 8.201 2.665 9.336 6.41.147.481.147.99 0 1.472C18.201 14.335 14.257 17 10 17c-4.257 0-8.201-2.665-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+                                </svg>
+                            {/if}
+                            <span class="uppercase tracking-wider">Previous Months</span>
+                        </button>
                     </div>
                 </div>
 

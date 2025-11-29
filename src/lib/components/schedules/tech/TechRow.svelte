@@ -12,6 +12,7 @@
 	export let gridStyle: string;
 	export let currentYear: number;
 	export let activeDropdownId: string | null = null;
+    export let isDeleteMode = false;
 
 	// Permissions Prop
 	export let userPermissions: {
@@ -51,7 +52,8 @@
 			: `background-color: ${EVENT_COLORS[row.type] || 'transparent'};`;
 	$: textColorStyle = (() => {
 		if (row.type === 'Canceled') return canceledCSSText;
-		if (row.type === 'Other') return 'color: #BDBDBB;'; // Added: Gray text for 'Other'
+		if (row.type === 'Other') return 'color: #7a7a7aff;'; 
+    if (row.type === 'Bazart') return 'color: #BDBDBB;'; 
 		if (row.type === 'Hold') return 'color: #9ca3af; font-style: italic;';
 		return hasBackground ? 'color: rgba(0,0,0,0.95);' : 'color: white;';
 	})();
@@ -62,6 +64,8 @@
 
 	// -- Permission Check Helpers --
 	function isEditable(field: string): boolean {
+        // If delete mode is on, everything is technically 'not editable' because the overlay blocks it,
+        // but logic-wise we can keep this true/false as inputs are visually covered.
 		if (userPermissions.role === 'viewer') return false;
 		if (userPermissions.canEditAll) return true;
 		return userPermissions.allowedColumns.includes(field);
@@ -246,7 +250,10 @@
 
 		// Added: Specific styling for 'Other'
 		if (type === 'Other')
-			return 'background-color: transparent; color: #BDBDBB; border: 1px solid #BDBDBB;';
+			return 'background-color: transparent; color: #BDBDBB; ';
+    
+      if (type === 'Bazart')
+			return 'background-color: #BDBDBB; color: black; border: 1px solid #BDBDBB;';
 
 		if (type === 'Hold')
 			return 'background-color: transparent; color: #9ca3af; border: 1px dashed #666;';
@@ -254,17 +261,36 @@
 		const bgColor = EVENT_COLORS[type] || '#333';
 		return `background-color: ${bgColor}; color: #000000; font-weight: 700; border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 1px 2px rgba(0,0,0,0.2);`;
 	}
+
+    function handleDeleteClick(e: MouseEvent) {
+        if(!isDeleteMode) return;
+        e.stopPropagation();
+        e.preventDefault();
+        dispatch('deleteRow', { id: row.id });
+    }
 </script>
 
 <div
 	role="row"
 	tabindex="0"
 	style="{gridStyle}; font-family: Arial, Helvetica, sans-serif;"
-	class="border-b border-gray2/10 hover:bg-white/5 transition-colors min-h-[24px] items-stretch {isSelected
+	class="border-b border-gray2/10 hover:bg-white/5 transition-colors min-h-[24px] items-stretch relative {isSelected
 		? 'bg-lime/10'
 		: ''}"
 	on:keydown
 >
+    <!-- Optimized Delete Mode Overlay: Always present, toggled via style to prevent DOM thrashing -->
+    <div 
+        class="absolute inset-0 z-50 hover:bg-red-500/20 transition-colors items-center justify-center group cursor-not-allowed"
+        style="display: {isDeleteMode ? 'flex' : 'none'};"
+        on:click={handleDeleteClick}
+        role="button"
+        tabindex="0"
+        on:keydown={(e) => e.key === 'Enter' && handleDeleteClick(e as any)}
+        title="Click to delete this row"
+    >
+    </div>
+
 	<button
 		type="button"
 		class="w-full h-full text-center text-gray2 select-none {stdBorder} justify-center cursor-context-menu hover:text-white focus:text-white focus:outline-none bg-transparent text-[14px]"

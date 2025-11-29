@@ -20,7 +20,7 @@ export interface TechRow {
 export type TechRowColumn = keyof TechRow;
 
 export const EVENT_COLORS: Record<string, string> = {
-  'Bazart': '#e0e0e0ff',
+  'Bazart': 'transparent',
   'Bazart Nuits': '#ffe089ff',
   'Moet City': '#f1e5cbff',
   'NCG Show': '#c4ef9bff',

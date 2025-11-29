@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import { supabase } from '$lib/supabase';
   import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
-  import type { TechRow } from '$lib/types/tech-schedule'; // Ensure this path is correct
+  import type { TechRow } from '$lib/types/tech-schedule'; 
   import TechRowComponent from './TechRow.svelte';
   import TechContextMenu from './TechContextMenu.svelte';
   import HistorySidePanel from './HistorySidePanel.svelte';
@@ -22,11 +22,13 @@
       allowedColumns: string[];
   } = { role: 'viewer', canAddYear: false, canEditAll: false, allowedColumns: [] };
   
+  // NEW Prop for delete mode
+  export let isDeleteMode = false;
+
   // Data Props (Passed from Parent)
   export let rows: TechRow[] = [];
   export let loading: boolean = false;
 
-  // FIX 1: Strictly type the 'field' so TypeScript knows it belongs to TechRow
   let activeEdit: { rowId: string; field: keyof TechRow } | null = null;
 
   const COL_WIDTHS = {
@@ -40,14 +42,13 @@
     ld: '90px',
     video: '90px',
     vj: '90px',
-    sound: '110px',
-    tsm: '110px',
+    sound: '120px',
+    tsm: '120px',
     dt: '90px',
-    liaison: '100px',
+    liaison: '120px',
     notes: '400px'
   };
 
-  // Helper to map columns to strict TechRow keys
   const COL_FIELD_MAP: Record<string, keyof TechRow | '__ROW__' | null> = {
     index: '__ROW__', 
     day: null,       
@@ -131,9 +132,7 @@
 
           const incoming = payload.new;
           
-          // FIX 2: This block caused the error. Now activeEdit.field is strictly typed.
           if (activeEdit && activeEdit.rowId === r.id && activeEdit.field) {
-              // We create a new object merging incoming data, but protecting the active field
               return {
                   ...incoming,
                   [activeEdit.field]: r[activeEdit.field] 
@@ -169,7 +168,6 @@
     if (rowIndex === -1) return;
     const oldRow = rows[rowIndex];
     
-    // Cast field to keyof TechRow to allow access
     const safeField = field as keyof TechRow;
     const oldValue = oldRow[safeField];
 
@@ -177,7 +175,6 @@
     const updatedRow = { ...oldRow, [field]: value };
     rows = rows.map(r => r.id === id ? updatedRow : r);
 
-    // FIX 3: Construct safe update object for Supabase
     const updatePayload: Record<string, any> = {};
     updatePayload[field] = value;
 
@@ -192,7 +189,6 @@
     }
   }
 
-  // FIX 4: Cast the string from the event to a valid TechRow key
   function handleCellFocus(e: CustomEvent) {
       const field = e.detail.field as keyof TechRow;
       activeEdit = { rowId: e.detail.id, field };
@@ -203,8 +199,6 @@
           activeEdit = null;
       }, 200);
   }
-
-  // ... [Keep handleRestore, handleContextMenu, checkHistoryAvailability, handleRowMouseMove as they were] ...
 
   async function handleRestore(event: CustomEvent) {
       if (!userPermissions.canEditAll) return;
@@ -226,6 +220,20 @@
           });
       }
       historyPanel = { ...historyPanel };
+  }
+
+  // Handle direct delete from Row (triggered when isDeleteMode is active)
+  async function handleRowDelete(event: CustomEvent) {
+      if (!isDeleteMode || !userPermissions.canEditAll) return;
+      
+      const { id } = event.detail;
+      const targetRow = rows.find(r => r.id === id);
+      if(!targetRow) return;
+
+      // REMOVED CONFIRM CHECK
+      rows = rows.filter(r => r.id !== id);
+      await supabase.from('schedule_techs').delete().eq('id', id);
+      await logHistory(id, 'DELETE', targetRow, null);
   }
 
   async function handleContextMenu(event: CustomEvent) {
@@ -275,7 +283,6 @@
       hoveredColumnKey = foundCol ? foundCol.key : null;
   }
 
-  // FIX 5: Safer focus targeting
   function getTargetFromFocus(): { rowId: string, field: string | null } | null {
       const activeEl = document.activeElement as HTMLElement;
       if (!activeEl || !gridContainer || !gridContainer.contains(activeEl)) return null;
@@ -311,7 +318,6 @@
         targetField = focusedTarget.field;
     } else {
         targetRowId = hoveredRowId;
-        // Fix column key mapping
         const found = columnRanges.find(c => c.key === hoveredColumnKey);
         targetField = found ? (COL_FIELD_MAP[found.key] as string) : null;
     }
@@ -327,11 +333,8 @@
     };
 
     const key = e.key.toLowerCase();
-    
-    // Helper to safely access row data with string key
     const getRowValue = (r: TechRow, f: string) => (r as any)[f];
 
-    // COPY (Cmd+C)
     if (key === 'c' || key === 'x') {
         e.preventDefault();
         if (targetField === '__ROW__') {
@@ -340,7 +343,6 @@
             clipboardData = { type: 'cell', data: getRowValue(row, targetField), field: targetField };
         }
 
-        // CUT (Cmd+X)
         if (key === 'x') {
              if (!canEditField(targetField)) return;
              if (targetField === '__ROW__') {
@@ -356,7 +358,6 @@
         }
     }
 
-    // PASTE (Cmd+V)
     if (key === 'v' && clipboardData) {
         e.preventDefault();
         if (targetField === '__ROW__' && clipboardData.type === 'row') {
@@ -423,6 +424,7 @@
       case 'delete': 
         rows = rows.filter(r => r.id !== targetRow.id);
         await supabase.from('schedule_techs').delete().eq('id', targetRow.id); 
+        await logHistory(targetRow.id, 'DELETE', targetRow, null);
         break;
       case 'clear':
         if (targetField === '__ROW__') {
@@ -542,11 +544,13 @@
               currentYear={year}
               activeDropdownId={activeDropdownId}
               {userPermissions}
+              {isDeleteMode}
               on:toggleDropdown={(e) => handleRowDropdownToggle(e.detail.id)}
               on:update={(e) => updateCell(e.detail.id, e.detail.field, e.detail.value)}
               on:contextmenu={handleContextMenu}
               on:focus={handleCellFocus}
               on:blur={handleCellBlur} 
+              on:deleteRow={handleRowDelete}
             />
         </div>
       {/each}
