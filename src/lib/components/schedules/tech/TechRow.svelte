@@ -26,7 +26,6 @@
 	const dispatch = createEventDispatcher();
 	const staffCols: (keyof TechRow)[] = ['ld', 'video', 'vj', 'sound', 'tech_sm'];
 
-	// --- Local Input State Management ---
 	let dateInput = '';
 	let activeField: string | null = null;
 
@@ -63,7 +62,8 @@
 		'w-full h-full bg-transparent px-1 border-0 focus:ring-1 focus:ring-lime outline-none text-[14px] placeholder-gray-500 font-normal leading-tight disabled:cursor-default disabled:text-opacity-80';
 	const stdBorder = 'border-r border-gray2/10 flex items-center';
 	const rangeBorder = 'border-r-2 border-r-gray2/30 flex items-center';
-	function isEditable(field: string): boolean {
+	
+    function isEditable(field: string): boolean {
 		if (isDeleteMode) return false;
 		if (userPermissions.role === 'viewer') return false;
 		if (userPermissions.canEditAll) return true;
@@ -76,7 +76,7 @@
 		dispatch('focus', { id: row.id, field });
 	}
 
-    // --- FIX 1: DEBOUNCE LOGIC ---
+    // --- FIX 1: STRICT DEBOUNCE FOR TYPING ---
     function debounce(func: Function, wait: number) {
         let timeout: any;
         return function (...args: any[]) {
@@ -85,19 +85,23 @@
         };
     }
 
-    // We use this specifically for text inputs to avoid spamming the DB
-    const dispatchDebouncedUpdate = debounce((id: string, field: string, value: any) => {
-        dispatch('update', { id, field, value });
-    }, 500);
+    // Only dispatch update if user stops typing for 600ms
+    const debouncedDispatch = debounce((field: string, value: any) => {
+        dispatch('update', { id: row.id, field, value });
+    }, 600);
 
-	function handleChange(field: keyof TechRow, value: any, useDebounce = false) {
+    function handleTextInput(e: Event, field: keyof TechRow) {
+        if (!isEditable(field)) return;
+        const val = (e.target as HTMLInputElement).value;
+        // Do NOT dispatch immediately. Wait for debounce.
+        debouncedDispatch(field, val);
+    }
+
+    // --- NON-TYPING CHANGES (Immediate) ---
+	function handleChangeImmediate(field: keyof TechRow, value: any) {
 		if (!isEditable(field)) return;
 		if (row[field] !== value) {
-            if (useDebounce) {
-                dispatchDebouncedUpdate(row.id, field, value);
-            } else {
-                dispatch('update', { id: row.id, field, value });
-            }
+            dispatch('update', { id: row.id, field, value });
         }
 	}
 
@@ -113,19 +117,17 @@
 			else formatted = formatted.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
 
 			if (formatted !== row[field]) {
-				handleChange(field, formatted, false); // Blur is final, no debounce needed
+				handleChangeImmediate(field, formatted);
 				input.value = formatted;
 			}
 		} else {
-			if (value !== row[field]) handleChange(field, value, false);
+            // For normal fields, we ensure the final state is saved on blur
+            // This catches the case where debounce might be pending or user tabbed away fast
+			if (value !== row[field]) {
+                handleChangeImmediate(field, value);
+            }
 		}
 	}
-
-    function handleTextInput(e: Event, field: keyof TechRow) {
-        // Realtime typing uses debounce
-        const input = e.target as HTMLInputElement | HTMLTextAreaElement;
-        handleChange(field, input.value, true); 
-    }
 
 	function handleDateBlur(e: Event) {
 		activeField = null;
@@ -143,7 +145,7 @@
 		if (parsedDate.isValid()) {
 			const newDateStr = parsedDate.format('YYYY-MM-DD');
 			if (newDateStr !== row.date) {
-				handleChange('date', newDateStr);
+				handleChangeImmediate('date', newDateStr);
 			} else {
 				dateInput = parsedDate.format('D MMM');
 			}
@@ -201,7 +203,7 @@
 		const input = e.target as HTMLInputElement;
 		const formatted = formatTimeRange(input.value);
 		if (formatted !== row[field]) {
-			handleChange(field, formatted);
+			handleChangeImmediate(field, formatted);
 			input.value = formatted;
 		}
 	}
@@ -241,14 +243,12 @@
 	}
 
 	function handleEventNameChange(e: Event) {
-        // We use handleTextInput for debouncing while typing
-        // This function was likely used for Blur, we can keep it for specific formatting on Blur
 		const input = e.target as HTMLTextAreaElement;
 		let val = input.value ? input.value.trim().replace(/\n\s*\n/g, '\n') : '';
 		if (val.length > 0) val = val.charAt(0).toUpperCase() + val.slice(1);
 		
         if (val !== row.event_name) {
-			handleChange('event_name', val); // Immediate update on blur/change
+			handleChangeImmediate('event_name', val); 
 			input.value = val;
 			input.style.height = 'auto';
 			input.style.height = input.scrollHeight + 'px';
@@ -271,7 +271,7 @@
 	}
 
 	function selectType(type: string) {
-		handleChange('type', type);
+		handleChangeImmediate('type', type);
 		dispatch('toggleDropdown', { id: row.id });
 	}
 

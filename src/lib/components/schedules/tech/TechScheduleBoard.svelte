@@ -23,7 +23,7 @@
 	export let rows: TechRow[] = [];
 	export let loading: boolean = false;
 
-	// --- FIX 1: ROBUST SAVING STATE ---
+	// --- SAVING STATE & WATCHDOG ---
 	let pendingSaves = 0;
 	export let saveStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
     let saveWatchdog: any;
@@ -31,15 +31,12 @@
 	$: {
 		if (pendingSaves > 0) {
             saveStatus = 'saving';
-            // Watchdog: If still saving after 8 seconds, force reset.
             clearTimeout(saveWatchdog);
+            // FIX: 5 Second Limit. If stuck, force a silent refresh.
             saveWatchdog = setTimeout(() => {
-                if (pendingSaves > 0) {
-                    console.warn('[TechBoard] Save stuck detected. Force resetting.');
-                    pendingSaves = 0;
-                    saveStatus = 'error';
-                }
-            }, 8000);
+                console.warn('[TechBoard] Save stuck > 5s. Triggering Silent Refresh.');
+                handleSilentRefresh();
+            }, 5000);
         }
 		else if (pendingSaves === 0 && saveStatus === 'saving') {
             saveStatus = 'success';
@@ -52,6 +49,38 @@
 			if (pendingSaves === 0) saveStatus = 'idle';
 		}, 2000);
 	}
+
+    // --- NEW: SILENT REFRESH ---
+    async function handleSilentRefresh() {
+        // 1. Reset counters immediately so UI unlocks
+        pendingSaves = 0;
+        saveStatus = 'idle';
+
+        // 2. Fetch latest data quietly
+        const { data, error } = await supabase
+            .from('schedule_techs')
+            .select('*')
+            .eq('year', year)
+            .order('sort_order', { ascending: true });
+
+        if (!error && data) {
+            // 3. Update rows but PRESERVE the cell the user is currently typing in
+            rows = data.map((serverRow) => {
+                // If we are editing this row right now, keep our local version
+                // so the text doesn't disappear under the cursor.
+                if (activeEdit && activeEdit.rowId === serverRow.id && activeEdit.field) {
+                    const f = activeEdit.field;
+                    // Check if we have that row in current state to grab local value
+                    const localRow = rows.find(r => r.id === serverRow.id);
+                    if (localRow) {
+                        return { ...serverRow, [f]: localRow[f] };
+                    }
+                }
+                return serverRow;
+            });
+            console.log('[TechBoard] Silent refresh complete.');
+        }
+    }
 
 	let activeEdit: { rowId: string; field: keyof TechRow } | null = null;
 	let channel: RealtimeChannel | null = null;
@@ -87,7 +116,6 @@
 	let hoveredColumnKey: string | null = null;
 	let gridContainer: HTMLDivElement;
 
-	// --- REALTIME SETUP ---
 	onMount(() => {
 		if (year) setupRealtime();
 	});
@@ -102,9 +130,6 @@
 		if (channel) supabase.removeChannel(channel);
 		const channelName = `tech-schedule-changes-${year}`;
 		
-        // --- FIX 2: NO FILTER ---
-        // We listen to ALL events on the table. This fixes the "Delete" bug 
-        // because we will now receive delete events even if Postgres strips the year column.
 		channel = supabase
 			.channel(channelName)
 			.on(
@@ -120,20 +145,13 @@
 	}
 
 	function handleRealtimeUpdate(payload: RealtimePostgresChangesPayload<TechRow>) {
-        // Since we removed the filter, we might get events for 2024 or 2026.
-        // We must check if the row is relevant to us inside this function.
-
 		if (payload.eventType === 'INSERT') {
-            // Only add if it belongs to THIS year
             if (payload.new.year !== year) return;
-
 			if (!rows.find((r) => r.id === payload.new.id)) {
 				rows = [...rows, payload.new];
 			}
 		} 
         else if (payload.eventType === 'UPDATE') {
-            // Only update if we actually have this row in our list
-            // (This inherently filters out other years)
             const exists = rows.find(r => r.id === payload.new.id);
             if (!exists) return; 
 
@@ -153,7 +171,6 @@
 			});
 		} 
         else if (payload.eventType === 'DELETE') {
-            // Safe to run on all deletes. If ID isn't in our array, nothing happens.
 			rows = rows.filter((r) => r.id !== payload.old.id);
 		}
 	}
@@ -181,13 +198,10 @@
 		const oldRow = rows[rowIndex];
 		const updatedRow = { ...oldRow, [field]: value };
 		
-		// Optimistic Update
 		rows = rows.map((r) => (r.id === id ? updatedRow : r));
 
 		pendingSaves++;
 
-        // --- FIX 3: TRY/FINALLY BLOCKS ---
-        // Ensures pendingSaves ALWAYS goes down, even if Supabase errors out.
         try {
             const updatePayload: Record<string, any> = {};
             updatePayload[field] = value;
@@ -198,7 +212,6 @@
                 throw error;
             } else {
                 if (!isRestore) {
-                    // Don't await history, but catch its errors
                     logHistory(id, 'UPDATE', { [field]: oldRow[field as keyof TechRow] }, { [field]: value })
                         .catch(err => console.error('[History] Failed to log:', err));
                 }
@@ -207,20 +220,17 @@
             console.error('[TechBoard] Update failed:', error);
             rows = rows.map((r) => (r.id === id ? oldRow : r)); // Revert
             saveStatus = 'error';
-            alert('Failed to save: ' + error.message);
+            // Alerting here is annoying if it's just a network blip, maybe silence it?
+            // alert('Failed to save: ' + error.message);
         } finally {
             pendingSaves--;
         }
 	}
 
-    // --- FIX 4: ROBUST HISTORY LOGGING ---
 	async function logHistory(rowId: string, action: 'UPDATE' | 'DELETE' | 'INSERT', oldData: any, newData: any) {
 		const { data: { user }, error: authError } = await supabase.auth.getUser();
 		
-        if (authError || !user) {
-            console.error('[History] Cannot log history: User not authenticated', authError);
-            return;
-        }
+        if (authError || !user) return;
 
 		const { error } = await supabase.from('schedule_techs_history').insert({
 			row_id: rowId,
@@ -230,9 +240,7 @@
 			changed_by: user.id
 		});
 
-        if (error) {
-             console.error('[History] DB Insert failed:', error);
-        }
+        if (error) console.error('[History] DB Insert failed:', error);
 	}
 
 	function handleBeforeUnload(e: BeforeUnloadEvent) {
@@ -255,7 +263,10 @@
 	async function handleRestore(event: CustomEvent) {
 		if (!userPermissions.canEditAll) return;
 		const { rowId, field, value } = event.detail;
+        // Ensure we pass true for isRestore so we don't create history loops
 		await updateCell(rowId, field, value, true);
+        
+        // Refresh history panel to show the restore action (optional, but good UX)
 		historyPanel = { ...historyPanel };
 	}
 
@@ -361,7 +372,6 @@
 		e.preventDefault();
 		const key = e.key.toLowerCase();
 		
-		// Copy / Cut Row
 		if (key === 'c' || key === 'x') {
 			clipboardData = { type: 'row', data: { ...row } };
 			if (key === 'x' && userPermissions.canEditAll) {
@@ -386,7 +396,6 @@
 			}
 		}
 
-		// Paste Row
 		if (key === 'v' && clipboardData && clipboardData.type === 'row' && userPermissions.canEditAll) {
 			const { id: _, sort_order: __, date: ___, year: ____, ...dataToPaste } = clipboardData.data;
 			rows = rows.map((r) => (r.id === row.id ? { ...r, ...dataToPaste } : r));
@@ -413,7 +422,6 @@
 		contextMenu.show = false; 
 		if (!targetRow) return;
 
-		// 1. Show History
 		if (action === 'showHistory' && targetField && targetField !== '__ROW__') {
 			historyPanel = {
 				open: true,
@@ -425,7 +433,6 @@
 			return;
 		}
 
-		// 2. Clear Contents
 		if (action === 'clear') {
 			const uiEmptyData = {
 				event_name: '', type: '', notes: '', ld: '', video: '', vj: '',
@@ -448,7 +455,6 @@
 			return;
 		}
 
-		// 3. Delete Row
 		if (action === 'delete') {
 			const previousRows = [...rows];
 			rows = rows.filter((r) => r.id !== targetRow.id);
@@ -469,7 +475,6 @@
 			return;
 		}
 
-		// 4. Insert / Duplicate
 		if (['addAbove', 'addBelow', 'duplicate'].includes(action)) {
 			const currentIndex = filteredRows.findIndex(r => r.id === targetRow.id);
 			if (currentIndex === -1) return;
@@ -513,8 +518,6 @@
 
                 if (error) throw error;
                 if (newRow) {
-                    // Important: Optimistic add. If realtime is fast, we might get duplicate
-                    // but our realtime handler handles duplicates safely.
 				    rows = [...rows, newRow];
 				    logHistory(newRow.id, 'INSERT', null, newRow);
                 }
