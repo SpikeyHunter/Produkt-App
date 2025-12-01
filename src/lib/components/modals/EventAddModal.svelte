@@ -456,11 +456,13 @@
 									<div class="flex-1 min-w-0">
 										<div class="flex items-center gap-2">
 											<p class="font-medium truncate">{event.event_name}</p>
-											<span
-												class="px-2 py-0.5 text-xs font-bold text-black bg-lime rounded-full flex-shrink-0"
-											>
-												Advanced
-											</span>
+											{#if event.isAdded}
+												<span
+													class="px-2 py-0.5 text-xs font-bold text-black bg-lime rounded-full flex-shrink-0"
+												>
+													Advanced
+												</span>
+											{/if}
 										</div>
 										<p class="text-sm opacity-70">
 											{formatEventDate(event.event_date)} • ID: {event.event_id}
@@ -567,10 +569,8 @@
 							<h3 class="text-xl font-bold text-white">
 								{isCustomEvent ? searchValue || 'Custom Event' : selectedEvent?.event_name}
 							</h3>
-							{#if selectedEvent}
-								<span
-									class="px-2.5 py-1 text-xs font-bold text-black bg-lime rounded-full"
-								>
+							{#if selectedEvent && selectedEvent.isAdded}
+								<span class="px-2.5 py-1 text-xs font-bold text-black bg-lime rounded-full">
 									Advanced
 								</span>
 							{/if}
