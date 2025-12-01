@@ -24,7 +24,6 @@
 	let typeButtonRef: HTMLButtonElement;
 	let dropdownPosition = { top: 0, left: 0, width: 0 };
 	const dispatch = createEventDispatcher();
-
 	const staffCols: (keyof TechRow)[] = ['ld', 'video', 'vj', 'sound', 'tech_sm'];
 
 	// --- Local Input State Management ---
@@ -32,7 +31,6 @@
 	let activeField: string | null = null;
 
 	$: if (row) syncInputsIfNeeded();
-
 	function syncInputsIfNeeded() {
 		if (activeField !== 'date') dateInput = dayjs(row.date).format('D MMM');
 	}
@@ -61,12 +59,10 @@
 		if (row.type === 'Hold') return 'color: #9ca3af; font-style: italic;';
 		return hasBackground ? 'color: rgba(0,0,0,0.95);' : 'color: white;';
 	})();
-
 	const cellBaseClass =
 		'w-full h-full bg-transparent px-1 border-0 focus:ring-1 focus:ring-lime outline-none text-[14px] placeholder-gray-500 font-normal leading-tight disabled:cursor-default disabled:text-opacity-80';
 	const stdBorder = 'border-r border-gray2/10 flex items-center';
 	const rangeBorder = 'border-r-2 border-r-gray2/30 flex items-center';
-
 	function isEditable(field: string): boolean {
 		if (isDeleteMode) return false;
 		if (userPermissions.role === 'viewer') return false;
@@ -80,9 +76,29 @@
 		dispatch('focus', { id: row.id, field });
 	}
 
-	function handleChange(field: keyof TechRow, value: any) {
+    // --- FIX 1: DEBOUNCE LOGIC ---
+    function debounce(func: Function, wait: number) {
+        let timeout: any;
+        return function (...args: any[]) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func(...args), wait);
+        };
+    }
+
+    // We use this specifically for text inputs to avoid spamming the DB
+    const dispatchDebouncedUpdate = debounce((id: string, field: string, value: any) => {
+        dispatch('update', { id, field, value });
+    }, 500);
+
+	function handleChange(field: keyof TechRow, value: any, useDebounce = false) {
 		if (!isEditable(field)) return;
-		if (row[field] !== value) dispatch('update', { id: row.id, field, value });
+		if (row[field] !== value) {
+            if (useDebounce) {
+                dispatchDebouncedUpdate(row.id, field, value);
+            } else {
+                dispatch('update', { id: row.id, field, value });
+            }
+        }
 	}
 
 	function handleGenericBlur(e: Event, field: keyof TechRow) {
@@ -97,13 +113,19 @@
 			else formatted = formatted.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
 
 			if (formatted !== row[field]) {
-				handleChange(field, formatted);
+				handleChange(field, formatted, false); // Blur is final, no debounce needed
 				input.value = formatted;
 			}
 		} else {
-			if (value !== row[field]) handleChange(field, value);
+			if (value !== row[field]) handleChange(field, value, false);
 		}
 	}
+
+    function handleTextInput(e: Event, field: keyof TechRow) {
+        // Realtime typing uses debounce
+        const input = e.target as HTMLInputElement | HTMLTextAreaElement;
+        handleChange(field, input.value, true); 
+    }
 
 	function handleDateBlur(e: Event) {
 		activeField = null;
@@ -163,7 +185,6 @@
 		let sH = s.h,
 			eH = e.h;
 		if (sH < 12 && sH > eH && eH < 12) sH += 12;
-
 		const fmt = (h: number, m: number) => {
 			const ap = h >= 12 && h < 24 ? 'PM' : 'AM';
 			let hh = h % 12;
@@ -220,11 +241,14 @@
 	}
 
 	function handleEventNameChange(e: Event) {
+        // We use handleTextInput for debouncing while typing
+        // This function was likely used for Blur, we can keep it for specific formatting on Blur
 		const input = e.target as HTMLTextAreaElement;
 		let val = input.value ? input.value.trim().replace(/\n\s*\n/g, '\n') : '';
 		if (val.length > 0) val = val.charAt(0).toUpperCase() + val.slice(1);
-		if (val !== row.event_name) {
-			handleChange('event_name', val);
+		
+        if (val !== row.event_name) {
+			handleChange('event_name', val); // Immediate update on blur/change
 			input.value = val;
 			input.style.height = 'auto';
 			input.style.height = input.scrollHeight + 'px';
@@ -354,6 +378,7 @@
 			readonly={!isEditable('event_name')}
 			value={row.event_name}
 			on:focus={() => handleFocus('event_name')}
+            on:input={(e) => handleTextInput(e, 'event_name')} 
 			on:blur={(e) => {
 				dispatch('blur');
 				handleEventNameChange(e);
@@ -398,6 +423,7 @@
 				readonly={!isEditable(f)}
 				style={getStaffFieldStyle(row[f], row.type)}
 				on:focus={() => handleFocus(f)}
+                on:input={(e) => handleTextInput(e, f)}
 				on:blur={(e) => handleGenericBlur(e, f)}
 				on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
 				on:contextmenu={(e) => handleContextMenu(e, f)}
@@ -411,6 +437,7 @@
 			readonly={!isEditable('dt')}
 			style={getStaffFieldStyle(row.dt, row.type)}
 			on:focus={() => handleFocus('dt')}
+            on:input={(e) => handleTextInput(e, 'dt')}
 			on:blur={(e) => handleGenericBlur(e, 'dt')}
 			on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
 			on:contextmenu={(e) => handleContextMenu(e, 'dt')}
@@ -423,6 +450,7 @@
 			readonly={!isEditable('artist_liaison')}
 			style={getStaffFieldStyle(row.artist_liaison, row.type)}
 			on:focus={() => handleFocus('artist_liaison')}
+            on:input={(e) => handleTextInput(e, 'artist_liaison')}
 			on:blur={(e) => handleGenericBlur(e, 'artist_liaison')}
 			on:keydown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
 			on:contextmenu={(e) => handleContextMenu(e, 'artist_liaison')}
@@ -434,6 +462,7 @@
 			value={row.notes || ''}
 			readonly={!isEditable('notes')}
 			on:focus={() => handleFocus('notes')}
+            on:input={(e) => handleTextInput(e, 'notes')}
 			on:blur={(e) => handleGenericBlur(e, 'notes')}
 			on:contextmenu={(e) => handleContextMenu(e, 'notes')}
 		/>
