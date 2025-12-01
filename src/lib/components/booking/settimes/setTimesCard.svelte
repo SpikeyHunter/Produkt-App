@@ -17,9 +17,7 @@
 	// Check if user has permission to edit set times
 	$: canEditSetTimes = $permissions.isAdmin || 
 		$permissions.hasPermission('Advance') || 
-		$permissions.hasPermission('Booking') || 
-		$permissions.hasPermission('Marketing') || 
-		$permissions.hasPermission('Production');
+		$permissions.hasPermission('Booking');
 
 	// Find the shared status of all artist entries.
 	$: sharedArtistStatus = (() => {
