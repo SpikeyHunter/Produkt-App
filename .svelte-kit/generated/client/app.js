@@ -54,7 +54,7 @@ export const dictionary = {
 		"/marketing/comptickets": [17],
 		"/marketing/eventsinfo": [18],
 		"/ncgapp/controlcenter": [19],
-		"/production/backline": [20],
+		"/production/backline": [~20],
 		"/production/emailtech": [21],
 		"/production/showbudget": [22],
 		"/schedules/stagemanager": [23],

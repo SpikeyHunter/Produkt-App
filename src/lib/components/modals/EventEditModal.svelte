@@ -52,7 +52,6 @@
 
 		// Initialize venue from event data
 		const eventVenue = event?.event_venue || event?.venue || '';
-
 		if (eventVenue) {
 			const knownVenue = venueOptions.find((v) => v.toLowerCase() === eventVenue.toLowerCase());
 			if (knownVenue) {
@@ -89,7 +88,6 @@
 				isCustomEvent = true;
 				hasLoadedEvents = true;
 			});
-
 		if (artistTypeOptions.includes(eventArtistType)) {
 			artistType = eventArtistType;
 			customArtistType = '';
@@ -124,7 +122,6 @@
 				.select('event_id, event_name, event_date, event_flyer')
 				.eq('event_status', 'LIVE')
 				.order('event_date', { ascending: true });
-
 			if (error) {
 				console.error('Error loading events:', error);
 				availableEvents = [];
@@ -133,10 +130,23 @@
 
 			// Apply Filter
 			const rawEvents = data || [];
+
+			// --- START OF FIX ---
+			const currentEventId = event?.id?.split('-')[0]; // Get the ID of the event being edited
+			const eventToKeep = rawEvents.find((e) => e.event_id.toString() === currentEventId); // Find the original event in the raw data
+
 			availableEvents = rawEvents.filter((e) => {
 				const lowerName = (e.event_name || '').toLowerCase();
+
+				// 1. Always keep the event being edited, even if its name contains an excluded keyword
+				if (eventToKeep && e.event_id === eventToKeep.event_id) {
+					return true;
+				}
+
+				// 2. Apply the exclusion filter to all other events
 				return !excludeKeywords.some((keyword) => lowerName.includes(keyword));
 			});
+			// --- END OF FIX ---
 		} catch (error) {
 			console.error('Error loading events:', error);
 			availableEvents = [];

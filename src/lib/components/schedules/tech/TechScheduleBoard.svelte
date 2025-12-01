@@ -120,8 +120,16 @@
 				(payload) => handleRealtimeUpdate(payload as RealtimePostgresChangesPayload<TechRow>)
 			)
 			.subscribe((status) => {
-				if (status === 'SUBSCRIBED') console.log('[TechBoard] Realtime connected');
-				if (status === 'CHANNEL_ERROR') console.error('[TechBoard] Realtime connection error');
+				if (status === 'SUBSCRIBED') {
+					console.log('[TechBoard] Realtime connected');
+				}
+				if (status === 'CHANNEL_ERROR') {
+					console.error('[TechBoard] Realtime connection error');
+					console.log('[TechBoard] Attempting to reconnect in 5 seconds...');
+					setTimeout(() => {
+						setupRealtime();
+					}, 5000);
+				}
 			});
 	}
 

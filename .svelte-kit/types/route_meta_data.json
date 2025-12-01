@@ -73,7 +73,9 @@
 	"/marketing/comptickets": [],
 	"/marketing/eventsinfo": [],
 	"/ncgapp/controlcenter": [],
-	"/production/backline": [],
+	"/production/backline": [
+		"src/routes/production/backline/+page.server.ts"
+	],
 	"/production/emailtech": [],
 	"/production/showbudget": [],
 	"/schedules/stagemanager": [],

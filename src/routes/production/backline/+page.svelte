@@ -18,11 +18,13 @@
 
 	// State for the toggle button
 	let showLive = true;
-
 	// allEvents stores the complete list from the server
 	let allEvents: EventAdvance[] = [];
 	// events stores the filtered list (live or past)
 	let events: EventAdvance[] = [];
+	
+	// Store event IDs needed for filtering once, globally
+	let existingEventIds = new Set<string>();
 
 	// Preview modal state
 	let showPreviewModal = false;
@@ -34,15 +36,32 @@
 		await loadEvents();
 	});
 
+	// Refactored to fetch all data concurrently for speed
 	async function loadEvents() {
 		try {
 			loading = true;
 			error = null;
 			console.log('Loading events from Supabase...');
 
-			allEvents = await fetchEventsAdvance();
-			await filterEventsByStatus();
-			console.log('Loaded all events:', allEvents);
+			// 1. Fetch both datasets concurrently (faster than sequential awaits)
+			const [fetchedAllEvents, eventsTableResult] = await Promise.all([
+				fetchEventsAdvance() as Promise<EventAdvance[]>,
+				supabase.from('events').select('event_id').not('event_id', 'is', null)
+			]);
+
+			if (eventsTableResult.error) {
+				throw new Error(eventsTableResult.error.message);
+			}
+
+			allEvents = fetchedAllEvents;
+			
+			// FIX 1: Ensure existingEventIds stores strings for consistency
+			existingEventIds = new Set(eventsTableResult.data.map((e: any) => String(e.event_id)));
+
+			// 2. Initial filter (Synchronous now)
+			filterEventsByStatus();
+			
+			console.log('Loaded all events and performed initial filter.');
 		} catch (err) {
 			console.error('Failed to load events:', err);
 			error = 'Failed to load events. Please try again.';
@@ -53,30 +72,21 @@
 		}
 	}
 
-	async function handleToggle(): Promise<void> {
+	function handleToggle(): void { // Now synchronous and fast
 		showLive = !showLive;
-		await filterEventsByStatus();
+		filterEventsByStatus();
 		console.log(`Toggled to ${showLive ? 'LIVE' : 'PAST'} events`);
 	}
 
-	async function filterEventsByStatus(): Promise<void> {
-		const { data: eventsTableData, error } = await supabase
-			.from('events')
-			.select('event_id')
-			.not('event_id', 'is', null);
-
-		if (error) {
-			console.error('Error fetching events table data:', error);
-			events = allEvents;
-			return;
-		}
-
-		const existingEventIds = new Set(eventsTableData.map((e: any) => e.event_id));
-
+	// This function is now synchronous and uses the pre-fetched existingEventIds
+	function filterEventsByStatus(): void {
 		if (showLive) {
 			events = allEvents.filter((event) => {
+				// FIX 2: Convert event.event_id to string for Set lookup (L84 error)
+				const eventIdString = event.event_id ? String(event.event_id) : null;
+				
 				// Custom events (not in events table) are always treated as live
-				if (!existingEventIds.has(event.event_id)) {
+				if (!eventIdString || !existingEventIds.has(eventIdString)) {
 					return true;
 				}
 
@@ -85,8 +95,11 @@
 			});
 		} else {
 			events = allEvents.filter((event) => {
+				// FIX 3: Convert event.event_id to string for Set lookup (L94 error)
+				const eventIdString = event.event_id ? String(event.event_id) : null;
+				
 				// Custom events are never shown in "past" view
-				if (!existingEventIds.has(event.event_id)) {
+				if (!eventIdString || !existingEventIds.has(eventIdString)) {
 					return false;
 				}
 
@@ -99,23 +112,30 @@
 			`Filtered for ${showLive ? 'LIVE' : 'PAST'} events. Found ${events.length} events.`
 		);
 	}
+	
+	// Helper function to safely compare dates, pushing undefined/null dates to the end.
+	const compareDatesSafely = (a: EventAdvance, b: EventAdvance, direction: 'asc' | 'desc'): number => {
+		// Use event_date (YYYY-MM-DD string) for reliable chronological sorting
+		const dateA = a.event_date; 
+		const dateB = b.event_date;
 
-	function parseEventDate(dateString: string): Date {
-		const currentYear = new Date().getFullYear();
+		// Handle missing dates first: Push any missing date to the end of the list.
+		if (!dateA && !dateB) return 0;
+		if (!dateA) return 1; 
+		if (!dateB) return -1;
 
-		try {
-			const date = new Date(dateString);
-			if (!isNaN(date.getTime())) {
-				return date;
-			}
-		} catch (e) {
-			// If that fails, try the original format
+		// Both dates are present (and strings), compare them directly
+		if (direction === 'asc') {
+			return dateA < dateB ? -1 : dateA > dateB ? 1 : 0;
+		} else { // 'desc'
+			return dateA > dateB ? -1 : dateA < dateB ? 1 : 0;
 		}
-
-		return new Date(`${dateString}, ${currentYear}`);
-	}
+	};
 
 	function sortEvents(eventsToSort: EventAdvance[], filter: FilterType): EventAdvance[] {
+		// Defensive check
+		if (!eventsToSort) return [];
+		
 		const sorted = [...eventsToSort];
 
 		const artistTypePriority = {
@@ -123,7 +143,6 @@
 			Support: 2,
 			Local: 3
 		};
-
 		const getArtistTypePriority = (artistType: string | null | undefined): number => {
 			if (!artistType) return 999;
 			return artistTypePriority[artistType as keyof typeof artistTypePriority] || 999;
@@ -135,23 +154,21 @@
 			case 'z-a':
 				return sorted.sort((a, b) => b.name.localeCompare(a.name));
 			case 'date-asc':
-				return sorted.sort(
-					(a, b) => parseEventDate(a.date).getTime() - parseEventDate(b.date).getTime()
-				);
+				// Use safe string comparison for ascending chronological order
+				return sorted.sort((a, b) => compareDatesSafely(a, b, 'asc'));
 			case 'date-desc':
-				return sorted.sort(
-					(a, b) => parseEventDate(b.date).getTime() - parseEventDate(a.date).getTime()
-				);
+				// Use safe string comparison for descending chronological order
+				return sorted.sort((a, b) => compareDatesSafely(a, b, 'desc'));
 			case 'none':
 			default:
 				return sorted.sort((a, b) => {
-					const dateA = parseEventDate(a.date).getTime();
-					const dateB = parseEventDate(b.date).getTime();
-
-					if (dateA !== dateB) {
-						return dateA - dateB;
+					// Use safe string comparison for the default chronological sort (ascending)
+					const dateComparison = compareDatesSafely(a, b, 'asc');
+					if (dateComparison !== 0) {
+						return dateComparison;
 					}
 
+					// Secondary sort by artist type priority for events on the same day
 					const priorityA = getArtistTypePriority(a.artist_type);
 					const priorityB = getArtistTypePriority(b.artist_type);
 					return priorityA - priorityB;
@@ -209,10 +226,8 @@
 <MainLayout pageTitle="Backline">
 	<div class="h-full overflow-auto">
 		<div class="page-container">
-			<!-- Top Controls Bar -->
 			<div class="fade-in {mounted ? 'mounted' : ''} mb-8" style="transition-delay: 0.1s;">
 				<div class="controls-container">
-					<!-- Search Bar -->
 					<div class="search-container">
 						<SearchBar
 							placeholder="Search an artist"
@@ -221,12 +236,10 @@
 						/>
 					</div>
 
-					<!-- Filter and Live/Past Toggle -->
 					<div class="buttons-container">
 						<div class="buttons-left">
 							<FilterButton bind:currentFilter on:filterChange={handleFilterChange} />
 
-							<!-- Live/Past Toggle Button -->
 							<button
 								class="h-7 px-4 flex items-center justify-center rounded-[14px] cursor-pointer transition-all duration-200 ease-in-out max-w-[50px] font-bold text-sm leading-[22px] {showLive
 									? 'bg-transparent border border-lime text-lime hover:!bg-lime hover:text-black'
@@ -243,7 +256,6 @@
 				</div>
 			</div>
 
-			<!-- Loading State -->
 			{#if loading}
 				<div class="flex flex-col items-center justify-center py-16 text-center">
 					<div class="w-8 h-8 mb-4 animate-spin">
@@ -260,7 +272,6 @@
 					<p class="text-gray2 text-base">Loading events...</p>
 				</div>
 			{:else if error}
-				<!-- Error State -->
 				<div class="flex flex-col items-center justify-center py-16 text-center">
 					<div class="w-16 h-16 mb-4 text-red-500">
 						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -290,7 +301,6 @@
 					</Button>
 				</div>
 			{:else}
-				<!-- Events Grid -->
 				<div class="fade-in {mounted ? 'mounted' : ''}" style="transition-delay: 0.2s;">
 					{#if filteredEvents.length > 0}
 						<div class="events-grid">
@@ -308,7 +318,6 @@
 							{/each}
 						</div>
 					{:else}
-						<!-- Empty State -->
 						<div class="flex flex-col items-center justify-center py-16 text-center">
 							<div class="w-16 h-16 mb-4 text-gray2">
 								<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -337,7 +346,6 @@
 	</div>
 </MainLayout>
 
-<!-- Preview Modal - Rendered outside MainLayout for proper z-index -->
 <PreviewModal
 	bind:isOpen={showPreviewModal}
 	fileName={previewFileName}

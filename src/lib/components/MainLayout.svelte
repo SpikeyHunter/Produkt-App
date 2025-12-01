@@ -10,7 +10,8 @@
 	// Props
 	// svelte-ignore unused-export-let
 	export let pageTitle: string | undefined = undefined;
-	export let requiredPermission: string | undefined = undefined;
+
+	// REMOVED: export let requiredPermission... (Handled in +layout.svelte now)
 
 	// Navigation state
 	let isNavExpanded = true;
@@ -25,7 +26,7 @@
 	interface SubMenuItem {
 		label: string;
 		route: string;
-		requiredPermission?: string; // Page permission
+		requiredPermission?: string; // Page/Sub-route specific permission
 	}
 
 	interface MenuItem {
@@ -34,8 +35,137 @@
 		icon: string;
 		subItems: SubMenuItem[];
 		route?: string;
-		requiredPermission?: string; // Section permission
+		requiredPermission?: string | string[]; // Section permission
 	}
+
+	// --- DATA ---
+	const icons = {
+		dashboard: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
+		calendar: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`,
+		setTimes: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
+		marketing: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>`,
+		booking: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>`,
+		advancing: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>`,
+		production: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>`,
+		settings: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
+		arrow: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`,
+		logout: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>`,
+		toggle: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>`,
+		schedules: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>`,
+		ncgapp: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>`,
+		sultan: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 24px; height: 24px;"><div style="width: 100%; height: 2px; background-color: currentColor;"></div><span style="font-family: sans-serif; font-weight: bold; font-size: 14px; line-height: 1; margin: 3px 0;">S+S</span><div style="width: 100%; height: 2px; background-color: currentColor;"></div></div>`
+	};
+
+	const menuItems: MenuItem[] = [
+		{
+			id: 'dashboard',
+			label: 'Dashboard',
+			icon: icons.dashboard,
+			route: '/dashboard',
+			subItems: []
+		},
+		{
+			id: 'calendar',
+			label: 'Calendar',
+			icon: icons.calendar,
+			route: '/calendar',
+			subItems: [],
+			requiredPermission: 'Admin'
+		},
+		{
+			id: 'settimes',
+			label: 'Set Times',
+			icon: icons.setTimes,
+			route: '/settimes',
+			subItems: [],
+			requiredPermission: ['Advance', 'Booking', 'Production', 'Marketing']
+		},
+		{
+			id: 'marketing',
+			label: 'Marketing',
+			icon: icons.marketing,
+			requiredPermission: 'Marketing',
+			subItems: [
+				{ label: 'Events Info', route: '/marketing/eventsinfo', requiredPermission: 'Marketing' },
+				{
+					label: 'Comp Tickets',
+					route: '/marketing/comptickets',
+					requiredPermission: 'CompTickets'
+				}
+			]
+		},
+		{
+			id: 'booking',
+			label: 'Booking',
+			icon: icons.booking,
+			requiredPermission: 'Booking',
+			subItems: [
+				{
+					label: 'Artist Availability',
+					route: '/booking/artistavailability',
+					requiredPermission: 'Booking'
+				},
+				{ label: 'Customers Database', route: '/booking/customers', requiredPermission: 'Booking' }
+			]
+		},
+		{
+			id: 'advancing',
+			label: 'Advancing',
+			icon: icons.advancing,
+			requiredPermission: 'Advance',
+			subItems: [
+				{ label: 'Advance Gathered', route: '/advancing/gathered', requiredPermission: 'Advance' },
+				{
+					label: 'Artist Liaison',
+					route: '/advancing/artistliaison',
+					requiredPermission: 'Advance'
+				},
+				{ label: 'Local Artists', route: '/advancing/localartists', requiredPermission: 'Advance' }
+			]
+		},
+		{
+			id: 'production',
+			label: 'Production',
+			icon: icons.production,
+			requiredPermission: 'Production',
+			subItems: [
+				{ label: 'Backline', route: '/production/backline', requiredPermission: 'Production' },
+				{ label: 'Show Budget', route: '/production/showbudget', requiredPermission: 'ShowBudget' },
+				{ label: 'Email Tech', route: '/production/emailtech', requiredPermission: 'Production' }
+			]
+		},
+		{
+			id: 'schedules',
+			label: 'Schedules',
+			icon: icons.schedules,
+			requiredPermission: 'Schedule',
+			subItems: [
+				{ label: 'Schedule Tech', route: '/schedules/tech', requiredPermission: 'Schedule' },
+				{
+					label: 'Stage Manager',
+					route: '/schedules/stagemanager',
+					requiredPermission: 'StageManager'
+				}
+			]
+		},
+		{
+			id: 'ncgapp',
+			label: 'NCG App',
+			icon: icons.ncgapp,
+			requiredPermission: 'NCGApp',
+			subItems: [
+				{ label: 'Control Center', route: '/ncgapp/controlcenter', requiredPermission: 'NCGApp' }
+			]
+		},
+		{
+			id: 'sultanshepard',
+			label: 'Sultan+Shepard',
+			icon: icons.sultan,
+			requiredPermission: 'sultanshepard',
+			route: '/sultanshepard/djshow',
+			subItems: []
+		}
+	];
 
 	// --- LIFECYCLE ---
 	onMount(() => {
@@ -68,156 +198,18 @@
 		activeSubMenu = null;
 	}
 
-	// Check page permission when initialized and profile changes
-	$: if ($authStore.isInitialized && requiredPermission) {
-		checkPageAccess($authStore.profile, requiredPermission);
-	}
+	// REMOVED: Reactive check on requiredPermission since +layout handles it now.
 
-	// Show all menu items but track which ones are accessible
-	$: visibleMenuItems = menuItems;
-
-	// --- DATA ---
-	const icons = {
-		dashboard: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
-		calendar: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>`,
-		setTimes: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`,
-		marketing: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"></path><path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"></path></svg>`,
-		booking: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>`,
-		advancing: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>`,
-		production: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"></path><path d="M2 17l10 5 10-5"></path><path d="M2 12l10 5 10-5"></path></svg>`,
-		dataEditor: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14,2 14,8 20,8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10,9 9,9 8,9"></polyline></svg>`,
-		settings: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
-		arrow: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`,
-		logout: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>`,
-		toggle: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>`
-	};
-
-	const menuItems: MenuItem[] = [
-		{
-			id: 'dashboard',
-			label: 'Dashboard',
-			icon: icons.dashboard,
-			route: '/dashboard',
-			subItems: []
-		},
-		{
-			id: 'calendar',
-			label: 'Calendar',
-			icon: icons.calendar,
-			route: '/calendar',
-			subItems: [],
-			requiredPermission: 'Admin'
-		},
-		{
-			id: 'settimes',
-			label: 'Set Times',
-			icon: icons.setTimes,
-			route: '/settimes',
-			subItems: []
-		},
-		{
-			id: 'marketing',
-			label: 'Marketing',
-			icon: icons.marketing,
-			requiredPermission: 'Marketing',
-			subItems: [
-				{ label: 'Events Info', route: '/marketing/eventsinfo', requiredPermission: 'EventsInfo' },
-				{
-					label: 'Comp Tickets',
-					route: '/marketing/comptickets',
-					requiredPermission: 'CompTickets'
-				}
-			]
-		},
-		{
-			id: 'booking',
-			label: 'Booking',
-			icon: icons.booking,
-			requiredPermission: 'Booking',
-			subItems: [
-				{ label: 'Artist Availability', route: '/booking/artistavailability' },
-				{ label: 'Customers Database', route: '/booking/customers' }
-			]
-		},
-		{
-			id: 'advancing',
-			label: 'Advancing',
-			icon: icons.advancing,
-			requiredPermission: 'Advance',
-			subItems: [
-				{ label: 'Advance Gathered', route: '/advancing/gathered' },
-				{ label: 'Artist Liaison', route: '/advancing/artistliaison' },
-				{ label: 'Local Artists', route: '/advancing/localartists' }
-			]
-		},
-		{
-			id: 'production',
-			label: 'Production',
-			icon: icons.production,
-			requiredPermission: 'Production',
-			subItems: [
-				{ label: 'Backline', route: '/production/backline' },
-				{ label: 'Show Budget', route: '/production/showbudget', requiredPermission: 'ShowBudget' },
-				{ label: 'Email Tech', route: '/production/emailtech' }
-			]
-		},
-		{
-			id: 'schedules',
-			label: 'Schedules',
-			icon: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>`,
-			requiredPermission: 'Schedule',
-			subItems: [
-				{ label: 'Schedule Tech', route: '/schedules/tech' },
-				{ label: 'Stage Manager', route: '/schedules/stagemanager', requiredPermission: 'StageManager' }
-			]
-		},
-		{
-			id: 'ncgapp',
-			label: 'NCG App',
-			icon: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>`,
-			requiredPermission: 'NCGApp',
-			subItems: [{ label: 'Control Center', route: '/ncgapp/controlcenter' }]
-		},
-		{
-			id: 'sultanshepard',
-			label: 'Sultan+Shepard',
-			icon: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 24px; height: 24px;"><div style="width: 100%; height: 2px; background-color: currentColor;"></div><span style="font-family: sans-serif; font-weight: bold; font-size: 14px; line-height: 1; margin: 3px 0;">S+S</span><div style="width: 100%; height: 2px; background-color: currentColor;"></div></div>`,
-			requiredPermission: 'sultanshepard',
-			route: '/sultanshepard/djshow',
-			subItems: []
-		}
-	];
+	// Filter menu items
+	$: visibleMenuItems = menuItems.filter((item) => hasMenuItemAccess(item, $authStore.profile));
 
 	// --- FUNCTIONS ---
-	/**
-	 * Check page access and redirect if no permission
-	 */
-	function checkPageAccess(profile: any, required: string) {
-		if (!profile) {
-			goto('/login');
-			return;
-		}
 
-		if (profile.role === 'Admin') {
-			return;
-		}
-
-		if (!hasPermission(required, profile)) {
-			goto('/dashboard');
-		}
-	}
-
-	/**
-	 * Check if user has permission (works for both section and page permissions)
-	 */
-	function hasPermission(requiredPermission: string | undefined, profile: any): boolean {
+	function hasPermission(requiredPermission: string | string[] | undefined, profile: any): boolean {
 		if (!requiredPermission) return true;
 		if (!profile) return false;
-
-		// Admins have access to everything
 		if (profile.role === 'Admin') return true;
 
-		// Get all user permissions - make sure we're getting the actual array values
 		const mainPerm = profile.main_permission ? [profile.main_permission] : [];
 		const secondaryPerms = Array.isArray(profile.secondary_permission)
 			? profile.secondary_permission
@@ -226,20 +218,33 @@
 
 		const userPermissions = [...mainPerm, ...secondaryPerms, ...pagePerms].filter(Boolean);
 
-		console.log('Checking permission:', requiredPermission, 'User permissions:', userPermissions);
-
-		return userPermissions.includes(requiredPermission);
+		if (Array.isArray(requiredPermission)) {
+			return requiredPermission.some((perm) => userPermissions.includes(perm));
+		} else {
+			return userPermissions.includes(requiredPermission);
+		}
 	}
 
-	/**
-	 * Check menu item access
-	 */
 	function hasMenuItemAccess(item: MenuItem, profile: any): boolean {
 		if (!profile) return item.id === 'dashboard';
 		if (profile.role === 'Admin') return true;
-		if (item.id === 'dashboard' || item.id === 'settimes') return true;
+		if (item.id === 'dashboard') return true;
 
-		return hasPermission(item.requiredPermission, profile);
+		if (item.subItems.length === 0) {
+			return hasPermission(item.requiredPermission, profile);
+		}
+
+		// Check if any sub-item is accessible.
+		// If ANY sub-item is accessible, we show the parent.
+		const hasAccessibleSubItem = item.subItems.some((sub) =>
+			hasPermission(sub.requiredPermission, profile)
+		);
+
+		// Also check the Main section permission (like "Marketing").
+		// Usually if they have a sub-permission, they should see the section.
+		const hasSectionPermission = hasPermission(item.requiredPermission, profile);
+
+		return hasSectionPermission || hasAccessibleSubItem;
 	}
 
 	function toggleNav() {
@@ -248,9 +253,8 @@
 	}
 
 	function handleMenuClick(item: MenuItem) {
-		if (!hasMenuItemAccess(item, $authStore.profile)) {
-			return;
-		}
+		// Guard against clicking headers that the user technically shouldn't access
+		if (!hasMenuItemAccess(item, $authStore.profile)) return;
 
 		if (item.route) {
 			navigateToRoute(item.route);
@@ -268,6 +272,7 @@
 	}
 
 	function handleSubMenuClick(subItem: SubMenuItem) {
+		// Strict check on sub-item click
 		if (!hasPermission(subItem.requiredPermission, $authStore.profile)) {
 			return;
 		}
@@ -292,10 +297,8 @@
 
 	function setActiveSubMenuFromRoute(pathname: string) {
 		if (!isNavExpanded || !visibleMenuItems || visibleMenuItems.length === 0) return;
-		const activeParent = visibleMenuItems.find(
-			(item) =>
-				item.subItems.some((sub) => pathname.startsWith(sub.route)) &&
-				hasMenuItemAccess(item, $authStore.profile)
+		const activeParent = visibleMenuItems.find((item) =>
+			item.subItems.some((sub) => pathname.startsWith(sub.route))
 		);
 		activeSubMenu = activeParent ? activeParent.id : null;
 	}
@@ -342,7 +345,7 @@
 				<div class="flex-1 nav-scroll-area flex flex-col">
 					<div class="flex-grow">
 						{#each visibleMenuItems as item, i (item.id)}
-							{@const hasAccess = hasMenuItemAccess(item, $authStore.profile)}
+							{@const hasSectionAccess = hasPermission(item.requiredPermission, $authStore.profile)}
 							<div
 								class="nav-item-container"
 								in:fly={playAnimations
@@ -352,27 +355,24 @@
 								<button
 									type="button"
 									class="nav-button"
-									class:active={isActive(item) && hasAccess}
-									class:blocked={!hasAccess}
+									class:active={isActive(item)}
+									class:blocked={!hasSectionAccess &&
+										item.subItems.length > 0 &&
+										!hasMenuItemAccess(item, $authStore.profile)}
 									on:click={() => handleMenuClick(item)}
 									aria-haspopup={item.subItems.length > 0}
-									aria-expanded={activeSubMenu === item.id && hasAccess}
-									disabled={!hasAccess}
+									aria-expanded={activeSubMenu === item.id}
 								>
 									<span class="icon">{@html item.icon}</span>
 									<span class="label">{item.label}</span>
 									{#if item.subItems.length > 0}
-										<span
-											class="arrow"
-											class:rotated={activeSubMenu === item.id && hasAccess}
-											class:blocked={!hasAccess}
-										>
+										<span class="arrow" class:rotated={activeSubMenu === item.id}>
 											{@html icons.arrow}
 										</span>
 									{/if}
 								</button>
 
-								{#if item.subItems.length > 0 && hasAccess}
+								{#if item.subItems.length > 0}
 									<div class="submenu-container" class:expanded={activeSubMenu === item.id}>
 										<div class="submenu-content">
 											{#each item.subItems as subItem (subItem.route)}
@@ -396,32 +396,10 @@
 								{/if}
 							</div>
 						{/each}
-
-						<div
-							class="nav-item-container"
-							in:fly={playAnimations
-								? {
-										y: 20,
-										duration: 400,
-										delay: visibleMenuItems.length * 50 + 200,
-										easing: quintOut
-									}
-								: { duration: 0 }}
-						></div>
 					</div>
 					<div class="mt-auto">
 						<div class="nav-separator"></div>
-						<div
-							class="nav-item-container"
-							in:fly={playAnimations
-								? {
-										y: 20,
-										duration: 400,
-										delay: (visibleMenuItems.length + 1) * 50 + 200,
-										easing: quintOut
-									}
-								: { duration: 0 }}
-						>
+						<div class="nav-item-container">
 							<button
 								type="button"
 								class="nav-button"
@@ -435,17 +413,7 @@
 								<span class="label">Settings</span>
 							</button>
 						</div>
-						<div
-							class="nav-item-container"
-							in:fly={playAnimations
-								? {
-										y: 20,
-										duration: 400,
-										delay: (visibleMenuItems.length + 2) * 50 + 200,
-										easing: quintOut
-									}
-								: { duration: 0 }}
-						>
+						<div class="nav-item-container">
 							<button type="button" class="nav-button" on:click={handleLogout} disabled={isLoading}>
 								<span class="icon">
 									{#if isLoading}
@@ -463,7 +431,6 @@
 				</div>
 			</div>
 		</nav>
-
 		<div class="main-content">
 			<main class="flex-1 overflow-y-auto overflow-x-hidden px-6 pb-4 pt-2">
 				<slot />
@@ -612,26 +579,16 @@
 		opacity: 0.4;
 		background-color: transparent;
 	}
-	.nav-button.blocked:hover {
-		background-color: transparent;
-		color: var(--text-tertiary);
-	}
-	.arrow.blocked {
-		opacity: 0.4;
-	}
 	.icon {
 		flex-shrink: 0;
 		margin-right: 1rem;
 		transition: margin-right var(--transition-duration) var(--transition-easing);
 	}
-
-	/* Add this new rule to prevent image distortion */
 	.icon :global(img) {
 		transition: none;
 		image-rendering: -webkit-optimize-contrast;
 		image-rendering: crisp-edges;
 	}
-
 	.navbar.collapsed .icon {
 		margin-right: 0;
 	}
@@ -696,10 +653,6 @@
 		color: var(--text-tertiary);
 		cursor: not-allowed;
 		opacity: 0.4;
-	}
-	.submenu-button.blocked:hover {
-		background-color: transparent;
-		color: var(--text-tertiary);
 	}
 	:global(html) {
 		scrollbar-width: auto;
