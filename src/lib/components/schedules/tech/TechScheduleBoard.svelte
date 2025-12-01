@@ -23,13 +23,28 @@
 	export let rows: TechRow[] = [];
 	export let loading: boolean = false;
 
-	// --- FIX 1: PENDING QUEUE (Prevents "Saving Loop") ---
+	// --- FIX 1: ROBUST SAVING STATE ---
 	let pendingSaves = 0;
 	export let saveStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
+    let saveWatchdog: any;
 
 	$: {
-		if (pendingSaves > 0) saveStatus = 'saving';
-		else if (pendingSaves === 0 && saveStatus === 'saving') saveStatus = 'success';
+		if (pendingSaves > 0) {
+            saveStatus = 'saving';
+            // Watchdog: If still saving after 8 seconds, force reset.
+            clearTimeout(saveWatchdog);
+            saveWatchdog = setTimeout(() => {
+                if (pendingSaves > 0) {
+                    console.warn('[TechBoard] Save stuck detected. Force resetting.');
+                    pendingSaves = 0;
+                    saveStatus = 'error';
+                }
+            }, 8000);
+        }
+		else if (pendingSaves === 0 && saveStatus === 'saving') {
+            saveStatus = 'success';
+            clearTimeout(saveWatchdog);
+        }
 	}
 
 	$: if (saveStatus === 'success') {
@@ -42,39 +57,15 @@
 	let channel: RealtimeChannel | null = null;
 
 	const COL_WIDTHS = {
-		index: '40px',
-		day: '80px',
-		date: '70px',
-		type: '130px',
-		event: '400px',
-		hours: '120px',
-		call: '120px',
-		ld: '90px',
-		video: '90px',
-		vj: '90px',
-		sound: '120px',
-		tsm: '120px',
-		dt: '90px',
-		liaison: '120px',
-		notes: '400px'
+		index: '40px', day: '80px', date: '70px', type: '130px', event: '400px',
+		hours: '120px', call: '120px', ld: '90px', video: '90px', vj: '90px',
+		sound: '120px', tsm: '120px', dt: '90px', liaison: '120px', notes: '400px'
 	};
 
 	const COL_FIELD_MAP: Record<string, keyof TechRow | '__ROW__' | null> = {
-		index: '__ROW__',
-		day: null,
-		date: 'date',
-		type: 'type',
-		event: 'event_name',
-		hours: 'op_hours',
-		call: 'crew_call',
-		ld: 'ld',
-		video: 'video',
-		vj: 'vj',
-		sound: 'sound',
-		tsm: 'tech_sm',
-		dt: 'dt',
-		liaison: 'artist_liaison',
-		notes: 'notes'
+		index: '__ROW__', day: null, date: 'date', type: 'type', event: 'event_name',
+		hours: 'op_hours', call: 'crew_call', ld: 'ld', video: 'video', vj: 'vj',
+		sound: 'sound', tsm: 'tech_sm', dt: 'dt', liaison: 'artist_liaison', notes: 'notes'
 	};
 
 	let columnRanges: { key: string; end: number }[] = [];
@@ -110,49 +101,59 @@
 	function setupRealtime() {
 		if (channel) supabase.removeChannel(channel);
 		const channelName = `tech-schedule-changes-${year}`;
-		console.log(`[TechBoard] Subscribing to channel: ${channelName}`);
+		
+        // --- FIX 2: NO FILTER ---
+        // We listen to ALL events on the table. This fixes the "Delete" bug 
+        // because we will now receive delete events even if Postgres strips the year column.
 		channel = supabase
 			.channel(channelName)
 			.on(
 				'postgres_changes',
-				{ event: '*', schema: 'public', table: 'schedule_techs', filter: `year=eq.${year}` },
+				{ event: '*', schema: 'public', table: 'schedule_techs' }, 
 				(payload) => handleRealtimeUpdate(payload as RealtimePostgresChangesPayload<TechRow>)
 			)
 			.subscribe((status) => {
-				if (status === 'SUBSCRIBED') console.log('[TechBoard] Realtime connected');
 				if (status === 'CHANNEL_ERROR') {
-					console.error('[TechBoard] Realtime connection error. Reconnecting...');
 					setTimeout(() => setupRealtime(), 5000);
 				}
 			});
 	}
 
 	function handleRealtimeUpdate(payload: RealtimePostgresChangesPayload<TechRow>) {
-		// --- FIX 2: NO BLOCKING CHECKS ---
-		// We process updates even if we are saving, to stay in sync.
-		
+        // Since we removed the filter, we might get events for 2024 or 2026.
+        // We must check if the row is relevant to us inside this function.
+
 		if (payload.eventType === 'INSERT') {
-			// Prevent duplicate rows if we created it locally already
+            // Only add if it belongs to THIS year
+            if (payload.new.year !== year) return;
+
 			if (!rows.find((r) => r.id === payload.new.id)) {
 				rows = [...rows, payload.new];
 			}
-		} else if (payload.eventType === 'UPDATE') {
+		} 
+        else if (payload.eventType === 'UPDATE') {
+            // Only update if we actually have this row in our list
+            // (This inherently filters out other years)
+            const exists = rows.find(r => r.id === payload.new.id);
+            if (!exists) return; 
+
 			rows = rows.map((r) => {
 				if (r.id !== payload.new.id) return r;
 				const incoming = payload.new;
 
-				// --- FIX 3: SMART MERGE ---
-				// If we are actively editing THIS specific cell, ignore the server update for THIS cell only.
+				// Smart Merge: Protect active edits
 				if (activeEdit && activeEdit.rowId === r.id && activeEdit.field) {
 					const fieldBeingEdited = activeEdit.field;
 					return { 
 						...incoming, 
-						[fieldBeingEdited]: r[fieldBeingEdited] // Keep local value
+						[fieldBeingEdited]: r[fieldBeingEdited] 
 					};
 				}
 				return incoming;
 			});
-		} else if (payload.eventType === 'DELETE') {
+		} 
+        else if (payload.eventType === 'DELETE') {
+            // Safe to run on all deletes. If ID isn't in our array, nothing happens.
 			rows = rows.filter((r) => r.id !== payload.old.id);
 		}
 	}
@@ -183,39 +184,55 @@
 		// Optimistic Update
 		rows = rows.map((r) => (r.id === id ? updatedRow : r));
 
-		// Queue
 		pendingSaves++;
 
-		const updatePayload: Record<string, any> = {};
-		updatePayload[field] = value;
+        // --- FIX 3: TRY/FINALLY BLOCKS ---
+        // Ensures pendingSaves ALWAYS goes down, even if Supabase errors out.
+        try {
+            const updatePayload: Record<string, any> = {};
+            updatePayload[field] = value;
 
-		const { error } = await supabase.from('schedule_techs').update(updatePayload).eq('id', id);
+            const { error } = await supabase.from('schedule_techs').update(updatePayload).eq('id', id);
 
-		// De-Queue
-		pendingSaves--;
-
-		if (error) {
-			console.error('[TechBoard] Update failed:', error);
-			rows = rows.map((r) => (r.id === id ? oldRow : r));
-			saveStatus = 'error';
-			alert('Failed to save changes: ' + error.message);
-		} else {
-			if (!isRestore) {
-				logHistory(id, 'UPDATE', { [field]: oldRow[field as keyof TechRow] }, { [field]: value });
-			}
-		}
+            if (error) {
+                throw error;
+            } else {
+                if (!isRestore) {
+                    // Don't await history, but catch its errors
+                    logHistory(id, 'UPDATE', { [field]: oldRow[field as keyof TechRow] }, { [field]: value })
+                        .catch(err => console.error('[History] Failed to log:', err));
+                }
+            }
+        } catch (error: any) {
+            console.error('[TechBoard] Update failed:', error);
+            rows = rows.map((r) => (r.id === id ? oldRow : r)); // Revert
+            saveStatus = 'error';
+            alert('Failed to save: ' + error.message);
+        } finally {
+            pendingSaves--;
+        }
 	}
 
+    // --- FIX 4: ROBUST HISTORY LOGGING ---
 	async function logHistory(rowId: string, action: 'UPDATE' | 'DELETE' | 'INSERT', oldData: any, newData: any) {
-		const { data: { user } } = await supabase.auth.getUser();
-		if (!user) return;
-		supabase.from('schedule_techs_history').insert({
+		const { data: { user }, error: authError } = await supabase.auth.getUser();
+		
+        if (authError || !user) {
+            console.error('[History] Cannot log history: User not authenticated', authError);
+            return;
+        }
+
+		const { error } = await supabase.from('schedule_techs_history').insert({
 			row_id: rowId,
 			action,
 			old_data: oldData,
 			new_data: newData,
 			changed_by: user.id
 		});
+
+        if (error) {
+             console.error('[History] DB Insert failed:', error);
+        }
 	}
 
 	function handleBeforeUnload(e: BeforeUnloadEvent) {
@@ -252,17 +269,19 @@
 		rows = rows.filter((r) => r.id !== id);
 		
 		pendingSaves++;
-		const { error } = await supabase.from('schedule_techs').delete().eq('id', id);
-		pendingSaves--;
-
-		if (error) {
+        try {
+		    const { error } = await supabase.from('schedule_techs').delete().eq('id', id);
+            if (error) throw error;
+            
+            await logHistory(id, 'DELETE', targetRow, null);
+        } catch (error: any) {
 			console.error('[TechBoard] Delete failed:', error);
 			rows = previousRows;
 			saveStatus = 'error';
 			alert('Failed to delete row: ' + error.message);
-		} else {
-			await logHistory(id, 'DELETE', targetRow, null);
-		}
+        } finally {
+		    pendingSaves--;
+        }
 	}
 
 	async function handleContextMenu(event: CustomEvent) {
@@ -354,14 +373,16 @@
 				rows = rows.map((r) => (r.id === row.id ? { ...r, ...uiEmptyData } : r));
 
 				pendingSaves++;
-				const { error } = await supabase.from('schedule_techs').update(dbEmptyData).eq('id', row.id);
-				pendingSaves--;
-
-				if (error) {
-					console.error('[TechBoard] Cut/Clear failed:', error);
+                try {
+				    const { error } = await supabase.from('schedule_techs').update(dbEmptyData).eq('id', row.id);
+                    if (error) throw error;
+                } catch (e: any) {
+					console.error('[TechBoard] Cut/Clear failed:', e);
 					saveStatus = 'error';
-					alert(error.message);
-				}
+					alert(e.message);
+                } finally {
+				    pendingSaves--;
+                }
 			}
 		}
 
@@ -371,24 +392,25 @@
 			rows = rows.map((r) => (r.id === row.id ? { ...r, ...dataToPaste } : r));
 
 			pendingSaves++;
-			const { error } = await supabase.from('schedule_techs').update(dataToPaste).eq('id', row.id);
-			pendingSaves--;
-			
-			if (error) {
-				console.error('[TechBoard] Paste failed:', error);
+            try {
+			    const { error } = await supabase.from('schedule_techs').update(dataToPaste).eq('id', row.id);
+                if (error) throw error;
+            } catch (e: any) {
+				console.error('[TechBoard] Paste failed:', e);
 				saveStatus = 'error';
-				alert(error.message);
-			}
+				alert(e.message);
+            } finally {
+			    pendingSaves--;
+            }
 		}
 	}
 
-	// --- FIX 4: COMPLETE MENU ACTIONS (Insert, Clear, Delete) ---
 	async function handleMenuAction(event: CustomEvent) {
 		const action = event.detail;
 		const targetRow = contextMenu.row;
 		const targetField = contextMenu.field;
 		
-		contextMenu.show = false; // Close immediately
+		contextMenu.show = false; 
 		if (!targetRow) return;
 
 		// 1. Show History
@@ -413,14 +435,16 @@
 			rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
 
 			pendingSaves++;
-			const { error } = await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
-			pendingSaves--;
-
-			if (error) {
-				console.error('Clear failed:', error);
+            try {
+			    const { error } = await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
+                if (error) throw error;
+            } catch (e: any) {
+				console.error('Clear failed:', e);
 				saveStatus = 'error'; 
-				alert('Failed to clear: ' + error.message);
-			}
+				alert('Failed to clear: ' + e.message);
+            } finally {
+			    pendingSaves--;
+            }
 			return;
 		}
 
@@ -430,23 +454,23 @@
 			rows = rows.filter((r) => r.id !== targetRow.id);
 
 			pendingSaves++;
-			const { error } = await supabase.from('schedule_techs').delete().eq('id', targetRow.id);
-			pendingSaves--;
-
-			if (error) {
-				console.error('Delete failed:', error);
+            try {
+			    const { error } = await supabase.from('schedule_techs').delete().eq('id', targetRow.id);
+                if (error) throw error;
+				logHistory(targetRow.id, 'DELETE', targetRow, null);
+            } catch (e: any) {
+				console.error('Delete failed:', e);
 				rows = previousRows;
 				saveStatus = 'error';
-				alert('Failed to delete: ' + error.message);
-			} else {
-				logHistory(targetRow.id, 'DELETE', targetRow, null);
-			}
+				alert('Failed to delete: ' + e.message);
+            } finally {
+			    pendingSaves--;
+            }
 			return;
 		}
 
-		// 4. Insert / Duplicate (Calculating Sort Order)
+		// 4. Insert / Duplicate
 		if (['addAbove', 'addBelow', 'duplicate'].includes(action)) {
-			// Find index in FILTERED (Sorted) list
 			const currentIndex = filteredRows.findIndex(r => r.id === targetRow.id);
 			if (currentIndex === -1) return;
 
@@ -455,7 +479,6 @@
 
 			if (action === 'addAbove') {
 				const prevRow = filteredRows[currentIndex - 1];
-				// If first row or different date, subtract 1.0. Else average.
 				if (!prevRow || prevRow.date !== targetRow.date) {
 					newSortOrder = targetRow.sort_order - 1.0; 
 				} else {
@@ -464,49 +487,44 @@
 			} 
 			else if (action === 'addBelow' || action === 'duplicate') {
 				const nextRow = filteredRows[currentIndex + 1];
-				// If last row or different date, add 1.0. Else average.
 				if (!nextRow || nextRow.date !== targetRow.date) {
 					newSortOrder = targetRow.sort_order + 1.0;
 				} else {
 					newSortOrder = (targetRow.sort_order + nextRow.sort_order) / 2;
 				}
 			}
-
-			// --- FIX: SEPARATE DATA PREPARATION ---
-			// We separate the logic because 'duplicate' needs to remove an ID,
-			// but 'addAbove/Below' creates a fresh object without an ID.
 			
 			let dataToInsert: any; 
-
 			if (action === 'duplicate') {
 				// eslint-disable-next-line @typescript-eslint/no-unused-vars
 				const { id: _ignore, ...rest } = targetRow;
 				dataToInsert = rest;
 			} else {
-				dataToInsert = {
-					date: newDate,
-					year: year,
-					type: '',
-					event_name: ''
-				};
+				dataToInsert = { date: newDate, year: year, type: '', event_name: '' };
 			}
 			
 			pendingSaves++;
-			const { data: newRow, error } = await supabase
-				.from('schedule_techs')
-				.insert({ ...dataToInsert, sort_order: newSortOrder })
-				.select()
-				.single();
-			pendingSaves--;
+            try {
+			    const { data: newRow, error } = await supabase
+				    .from('schedule_techs')
+				    .insert({ ...dataToInsert, sort_order: newSortOrder })
+				    .select()
+				    .single();
 
-			if (error) {
-				console.error('Insert failed:', error);
+                if (error) throw error;
+                if (newRow) {
+                    // Important: Optimistic add. If realtime is fast, we might get duplicate
+                    // but our realtime handler handles duplicates safely.
+				    rows = [...rows, newRow];
+				    logHistory(newRow.id, 'INSERT', null, newRow);
+                }
+            } catch (e: any) {
+				console.error('Insert failed:', e);
 				saveStatus = 'error';
-				alert(error.message);
-			} else if (newRow) {
-				rows = [...rows, newRow];
-				logHistory(newRow.id, 'INSERT', null, newRow);
-			}
+				alert(e.message);
+            } finally {
+			    pendingSaves--;
+            }
 		}
 	}
 
