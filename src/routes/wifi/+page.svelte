@@ -32,15 +32,13 @@
 	}
 
 	onMount(() => {
-		addLog('App mounted. Applying Videotron Fix...');
+		addLog('App mounted. Applying Auth Text Fix...');
 		const urlParams = new URLSearchParams(window.location.search);
 		
 		redirectUrl = urlParams.get('url') || urlParams.get('original_url') || 'https://www.google.com';
 		ssid = urlParams.get('ssid') || urlParams.get('essid') || '';
 		
-		// --- THE FIX ---
-		// Your certificate is specifically for 'login.serviceswifi.com'
-		// We must use this EXACT domain so the phone trusts the connection.
+		// Target the Videotron Controller
 		switchUrl = 'https://login.serviceswifi.com/cgi-bin/login';
 		
 		addLog(`SSID: ${ssid}`);
@@ -74,10 +72,13 @@
 				submitMessage = 'Registration Successful!';
 				addLog('Database Saved.');
 				
-				// Build the handshake URL with the CORRECT domain
-				arubaHandshake = `${switchUrl}?cmd=authenticate&user=${formData.email}&password=${formData.email}&url=${encodeURIComponent(redirectUrl)}`;
+				// --- THE FIX ---
+				// Instead of sending the email (which Aruba rejects), 
+				// we send the "Secret Word" we configured in the Profile.
+				// cmd=authenticate & authtext=connect
+				arubaHandshake = `${switchUrl}?cmd=authenticate&authtext=connect&url=${encodeURIComponent(redirectUrl)}`;
 				
-				addLog(`Handshake URL created.`);
+				addLog(`Handshake URL created with Secret.`);
 				showAuthButton = true; 
 
 			} else {
