@@ -18,12 +18,13 @@
 	let isSubmitting = false;
 	let submitMessage = '';
 	let isSuccess = false;
-	let showAuthButton = false; // NEW: Controls the manual button
+	let showAuthButton = false;
 	
+	// Variables
 	let redirectUrl = '';
 	let ssid = '';
 	let switchUrl = '';
-	let arubaHandshake = ''; // Store the final URL
+	let arubaHandshake = '';
 	
 	// Debug Logs
 	let logs: string[] = [];
@@ -33,17 +34,19 @@
 	}
 
 	onMount(() => {
-		addLog('App mounted. Reading params...');
+		addLog('App mounted. Applying IP Fix...');
 		const urlParams = new URLSearchParams(window.location.search);
 		
 		redirectUrl = urlParams.get('url') || urlParams.get('original_url') || 'https://www.google.com';
 		ssid = urlParams.get('ssid') || urlParams.get('essid') || '';
 		
-		// If Aruba provided a switch_url, use it. Otherwise default to the standard one.
-		switchUrl = urlParams.get('switch_url') || 'https://securelogin.arubanetworks.com/cgi-bin/login';
+		// --- THE FIX: FORCE IP ADDRESS ---
+		// We ignore the domain name because it causes DNS errors.
+		// 172.31.98.1 is the universal default for Aruba Instant.
+		switchUrl = 'https://172.31.98.1/cgi-bin/login';
 		
 		addLog(`SSID: ${ssid}`);
-		addLog(`Switch: ${switchUrl}`);
+		addLog(`Target Switch: ${switchUrl} (Hardcoded IP)`);
 	});
 
 	async function handleSubmit() {
@@ -69,16 +72,17 @@
 			
 			if (response.ok || response.status === 409) {
 				isSuccess = true;
-				isSubmitting = false; // Stop the spinner
+				isSubmitting = false;
 				submitMessage = 'Registration Successful!';
 				addLog('Database Saved.');
 				
-				// Build the handshake URL
+				// Build the handshake URL using the IP address
+				// We reuse the email as the user/password
 				arubaHandshake = `${switchUrl}?cmd=authenticate&user=${formData.email}&password=${formData.email}&url=${encodeURIComponent(redirectUrl)}`;
 				
-				addLog(`Target: ${arubaHandshake}`);
+				addLog(`Handshake URL created.`);
 				
-				// REVEAL THE BUTTON instead of auto-redirecting
+				// Show the button
 				showAuthButton = true; 
 
 			} else {
@@ -93,7 +97,7 @@
 	}
 
 	function finalizeLogin() {
-		addLog('User clicked Finish. Redirecting...');
+		addLog(`Connecting to: ${arubaHandshake}`);
 		window.location.href = arubaHandshake;
 	}
 	
@@ -162,7 +166,7 @@
 					TAP TO CONNECT INTERNET
 				</button>
 				
-				<p class="text-xs text-gray-400 mt-4 break-all">Target: {arubaHandshake}</p>
+				<p class="text-xs text-gray-400 mt-4 break-all opacity-50">Target IP: 172.31.98.1</p>
 			</div>
 		{/if}
 
