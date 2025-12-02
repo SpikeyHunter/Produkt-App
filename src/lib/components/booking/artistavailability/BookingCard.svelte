@@ -1,4 +1,3 @@
-<!-- /src/lib/components/booking/artistavailability/BookingCard.svelte -->
 <script lang="ts">
 	import type { BookingEvent } from '$lib/types/booking';
 
@@ -9,14 +8,11 @@
 
 	function formatDate(dateString: string | null | undefined): string {
 		if (!dateString) return 'TBA';
-
 		// Extract just the date part (YYYY-MM-DD)
 		const datePart = dateString.split('T')[0];
 		const [year, month, day] = datePart.split('-');
-
 		// Create date object for formatting only
 		const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
-
 		return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
 	}
 
@@ -26,9 +22,20 @@
 		}
 	}
 
-	function getSourceColor(source: string | undefined): string {
+	function getSourceColor(source: string | undefined, city: string | undefined | null): string {
 		if (!source) return '#BDBDBB';
 		const normalizedSource = source.toLowerCase().replace(/\s+/g, '');
+		const normalizedCity = city?.toLowerCase() || '';
+
+		// Igloofest Logic
+		if (normalizedSource.includes('igloofest')) {
+			if (normalizedSource.includes('montreal') || normalizedCity === 'montreal') return '#ebf309ff'; // Yellow
+			if (normalizedSource.includes('gatineau') || normalizedCity === 'gatineau') return '#E879F9'; // Magenta
+			if (normalizedSource.includes('quebec') || normalizedCity === 'quebec') return '#22D3EE'; // Cyan
+			if (normalizedSource.includes('edmonton') || normalizedCity === 'edmonton') return '#EF4444'; // Red (like Tixr)
+			return '#EAB308'; // Default Yellow
+		}
+
 		switch (normalizedSource) {
 			case 'tixr':
 				return '#FCA5A5';
@@ -54,7 +61,6 @@
 	class="bg-navbar rounded-2xl p-2.5 transition-all duration-200 group border border-gray1 w-[320px] h-[200px] text-left hover:border-lime hover:scale-[1.02] hover:shadow-xl cursor-pointer"
 >
 	<div class="flex gap-4 h-full">
-		<!-- Left side: Poster and Date -->
 		<div class="w-[100px] flex flex-col flex-shrink-0 gap-2">
 			<div
 				class="w-[100px] flex-1 rounded-xl {data.flyer_image_url
@@ -95,14 +101,13 @@
 			</div>
 		</div>
 
-		<!-- Right side: Details -->
 		<div class="flex-1 flex flex-col min-w-0 overflow-hidden h-full">
 			<div class="flex-1 min-w-0 pr-2 overflow-hidden">
 				{#if data.source}
 					<div class="mb-2">
 						<span
 							class="px-2 py-1 rounded-2xl text-xs font-bold inline-block"
-							style="background-color: {getSourceColor(data.source)}; color: #000000;"
+							style="background-color: {getSourceColor(data.source, data.city)}; color: #000000;"
 						>
 							{data.source}
 						</span>

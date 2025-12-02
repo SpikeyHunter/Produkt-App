@@ -1,4 +1,3 @@
-<!-- /src/routes/booking/artistavailability/+page.svelte -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import MainLayout from '$lib/components/MainLayout.svelte';
@@ -9,6 +8,8 @@
 	import type { BookingFilters, BookingArtist, BookingEvent } from '$lib/types/booking';
 
 	const PAGE_SIZE = 21;
+    // --- AUTO SYNC CONFIG ---
+    const SYNC_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 	let items: (BookingArtist | BookingEvent)[] = [];
 	let totalCount = 0;
@@ -16,9 +17,9 @@
 	let isLoading = false;
 	let hasMore = true;
 	let mounted = false;
-
 	let isModalOpen = false;
 	let selectedArtist: BookingArtist | null = null;
+    let controlPanel: ControlPanel; // ref
 
 	let filters: BookingFilters = {
 		viewType: 'event',
@@ -32,8 +33,24 @@
 
 	onMount(() => {
 		loadInitialItems();
+        checkAutoSync();
 		setTimeout(() => (mounted = true), 100);
 	});
+
+    function checkAutoSync() {
+        const lastSync = localStorage.getItem('last_booking_sync');
+        const now = Date.now();
+        
+        if (!lastSync || (now - parseInt(lastSync) > SYNC_COOLDOWN_MS)) {
+            console.log('Triggering background sync...');
+            if (controlPanel) {
+                controlPanel.triggerAutoSync();
+                localStorage.setItem('last_booking_sync', now.toString());
+            }
+        } else {
+            console.log('Sync cooldown active. Next sync in:', ((SYNC_COOLDOWN_MS - (now - parseInt(lastSync))) / 60000).toFixed(0), 'mins');
+        }
+    }
 
 	async function loadInitialItems() {
 		currentPage = 1;
@@ -41,12 +58,17 @@
 		isLoading = true;
 		items = [];
 
-		const result = await fetchArtistEvents(filters, searchTerm, currentPage, PAGE_SIZE);
-
-		items = result.items;
-		totalCount = result.totalCount;
-		hasMore = items.length < totalCount;
-		isLoading = false;
+        try {
+		    const result = await fetchArtistEvents(filters, searchTerm, currentPage, PAGE_SIZE);
+		    items = result.items;
+		    totalCount = result.totalCount;
+		    hasMore = items.length < totalCount;
+        } catch (e) {
+            console.error("Error loading items:", e);
+            // Prevents UI crash on 400 errors
+        } finally {
+		    isLoading = false;
+        }
 	}
 
 	async function loadMoreItems() {
@@ -54,10 +76,12 @@
 
 		currentPage++;
 		isLoading = true;
-		const result = await fetchArtistEvents(filters, searchTerm, currentPage, PAGE_SIZE);
-		items = [...items, ...result.items];
-		totalCount = result.totalCount;
-		hasMore = items.length < totalCount;
+        try {
+		    const result = await fetchArtistEvents(filters, searchTerm, currentPage, PAGE_SIZE);
+		    items = [...items, ...result.items];
+		    totalCount = result.totalCount;
+		    hasMore = items.length < totalCount;
+        } catch(e) { console.error("Error loading more:", e); }
 		isLoading = false;
 	}
 
@@ -90,9 +114,7 @@
 <MainLayout pageTitle="Artist Availability">
 	<div class="h-full overflow-hidden p-4">
 		<div class="h-full flex flex-col lg:flex-row gap-4">
-			<!-- Left Column -->
 			<div class="flex-1 min-w-0 flex flex-col gap-4">
-				<!-- Search Bar -->
 				<div class="bg-navbar border border-gray1 rounded-xl p-4">
 					<div class="relative">
 						<input
@@ -115,7 +137,6 @@
 					</div>
 				</div>
 
-				<!-- Grid -->
 				<div class="flex-1 min-h-0">
 					<BookingGrid
 						{items}
@@ -129,9 +150,9 @@
 				</div>
 			</div>
 
-			<!-- Right Column -->
-			<div class="w-full lg:w-[200px] lg:min-w-[200px] flex-shrink-0">
+			<div class="w-full lg:w-[320px] lg:min-w-[320px] flex-shrink-0">
 				<ControlPanel
+                    bind:this={controlPanel}
 					bind:filters
 					on:filtersChange={handleFiltersChange}
 					on:syncComplete={handleSyncComplete}

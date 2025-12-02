@@ -12,6 +12,12 @@
 	"/api/booking/evenko/cancel": [
 		"src/routes/api/booking/evenko/cancel/+server.ts"
 	],
+	"/api/booking/igloofest": [
+		"src/routes/api/booking/igloofest/+server.ts"
+	],
+	"/api/booking/igloofest/cancel": [
+		"src/routes/api/booking/igloofest/cancel/+server.ts"
+	],
 	"/api/booking/piknic": [
 		"src/routes/api/booking/piknic/+server.ts"
 	],
