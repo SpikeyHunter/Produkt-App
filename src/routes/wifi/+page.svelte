@@ -18,12 +18,12 @@
 	let isSubmitting = false;
 	let submitMessage = '';
 	let isSuccess = false;
+	let showAuthButton = false; // NEW: Controls the manual button
 	
-	// Variables to hold Aruba parameters
 	let redirectUrl = '';
 	let ssid = '';
-	let switchUrl = ''; // <--- NEW: The address of the Aruba Controller
-	let clientMac = '';
+	let switchUrl = '';
+	let arubaHandshake = ''; // Store the final URL
 	
 	// Debug Logs
 	let logs: string[] = [];
@@ -33,25 +33,17 @@
 	}
 
 	onMount(() => {
-		addLog('App mounted. Reading Aruba params...');
+		addLog('App mounted. Reading params...');
 		const urlParams = new URLSearchParams(window.location.search);
 		
-		// 1. Capture the destination (where the user wanted to go)
 		redirectUrl = urlParams.get('url') || urlParams.get('original_url') || 'https://www.google.com';
-		
-		// 2. Capture the WiFi Name
 		ssid = urlParams.get('ssid') || urlParams.get('essid') || '';
 		
-		// 3. Capture the Aruba Controller URL (The "Gatekeeper")
-		// Aruba usually sends 'switch_url', but if it's missing, we default to the standard address.
+		// If Aruba provided a switch_url, use it. Otherwise default to the standard one.
 		switchUrl = urlParams.get('switch_url') || 'https://securelogin.arubanetworks.com/cgi-bin/login';
 		
-		// 4. Capture Client MAC (useful for debugging)
-		clientMac = urlParams.get('mac') || 'unknown';
-
 		addLog(`SSID: ${ssid}`);
-		addLog(`Gatekeeper (Switch URL): ${switchUrl}`);
-		addLog(`Client MAC: ${clientMac}`);
+		addLog(`Switch: ${switchUrl}`);
 	});
 
 	async function handleSubmit() {
@@ -62,7 +54,6 @@
 		addLog('Saving to database...');
 
 		try {
-			// 1. Save to Supabase
 			const response = await fetch('/api/guests', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -74,33 +65,36 @@
 				})
 			});
 
-			// 2. Handle Response
 			const result = await response.json();
 			
 			if (response.ok || response.status === 409) {
 				isSuccess = true;
-				submitMessage = 'Registered! Authenticating with WiFi...';
-				addLog('Database Success. Initiating Aruba Handshake...');
+				isSubmitting = false; // Stop the spinner
+				submitMessage = 'Registration Successful!';
+				addLog('Database Saved.');
 				
-				// 3. THE FIX: Redirect to Aruba Controller to "Unlock" the internet
-				// We pass the email as the user/password to satisfy the "InternalServer" requirement.
-				const arubaHandshake = `${switchUrl}?cmd=authenticate&user=${formData.email}&password=${formData.email}&url=${encodeURIComponent(redirectUrl)}`;
+				// Build the handshake URL
+				arubaHandshake = `${switchUrl}?cmd=authenticate&user=${formData.email}&password=${formData.email}&url=${encodeURIComponent(redirectUrl)}`;
 				
-				addLog(`Handshake URL: ${arubaHandshake}`);
+				addLog(`Target: ${arubaHandshake}`);
+				
+				// REVEAL THE BUTTON instead of auto-redirecting
+				showAuthButton = true; 
 
-				setTimeout(() => {
-					window.location.href = arubaHandshake;
-				}, 1000);
 			} else {
 				throw new Error(result.error || 'Registration failed');
 			}
 		} catch (error: any) {
 			addLog(`ERROR: ${error.message}`);
-			submitMessage = `Connection failed: ${error.message}`;
+			submitMessage = `Error: ${error.message}`;
 			isSuccess = false;
-		} finally {
 			isSubmitting = false;
 		}
+	}
+
+	function finalizeLogin() {
+		addLog('User clicked Finish. Redirecting...');
+		window.location.href = arubaHandshake;
 	}
 	
 	function validateForm(): boolean {
@@ -132,32 +126,49 @@
 			{#if ssid}<p class="text-xs text-blue-600 mt-1 font-medium bg-blue-50 inline-block px-2 py-1 rounded">Network: {ssid}</p>{/if}
 		</div>
 
-		<form on:submit|preventDefault={handleSubmit} class="space-y-5">
-			<div class="grid grid-cols-2 gap-4">
-				<div>
-					<label for="firstName" class="block text-sm font-medium text-gray-700 mb-1">First Name</label>
-					<input type="text" id="firstName" bind:value={formData.firstName} class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" required placeholder="John">
+		{#if !showAuthButton}
+			<!-- FORM STEP -->
+			<form on:submit|preventDefault={handleSubmit} class="space-y-5">
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label for="firstName" class="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+						<input type="text" id="firstName" bind:value={formData.firstName} class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" required placeholder="John">
+					</div>
+					<div>
+						<label for="lastName" class="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+						<input type="text" id="lastName" bind:value={formData.lastName} class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" required placeholder="Doe">
+					</div>
 				</div>
 				<div>
-					<label for="lastName" class="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-					<input type="text" id="lastName" bind:value={formData.lastName} class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" required placeholder="Doe">
+					<label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+					<input type="email" id="email" bind:value={formData.email} class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" required placeholder="john@example.com">
 				</div>
+				<div>
+					<label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+					<input type="tel" id="phone" value={formData.phone} on:input={formatPhoneInput} class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" required placeholder="123-456-7890">
+				</div>
+				<button type="submit" disabled={isSubmitting} class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition duration-200 disabled:opacity-70">
+					{isSubmitting ? 'Registering...' : 'Continue'}
+				</button>
+			</form>
+		{:else}
+			<!-- SUCCESS STEP - MANUAL BUTTON -->
+			<div class="text-center">
+				<div class="text-green-600 text-5xl mb-4">✓</div>
+				<h2 class="text-xl font-bold text-gray-800 mb-2">Registered!</h2>
+				<p class="text-gray-600 mb-6">Click below to activate your internet.</p>
+				
+				<button on:click={finalizeLogin} class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg transform transition hover:scale-105">
+					TAP TO CONNECT INTERNET
+				</button>
+				
+				<p class="text-xs text-gray-400 mt-4 break-all">Target: {arubaHandshake}</p>
 			</div>
-			<div>
-				<label for="email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-				<input type="email" id="email" bind:value={formData.email} class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" required placeholder="john@example.com">
-			</div>
-			<div>
-				<label for="phone" class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-				<input type="tel" id="phone" value={formData.phone} on:input={formatPhoneInput} class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" required placeholder="123-456-7890">
-			</div>
-			<button type="submit" disabled={isSubmitting} class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition duration-200 disabled:opacity-70">
-				{isSubmitting ? 'Authenticating...' : 'Connect to WiFi'}
-			</button>
-			{#if submitMessage}
-				<div class="p-3 rounded-lg text-sm text-center {isSuccess ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">{submitMessage}</div>
-			{/if}
-		</form>
+		{/if}
+
+		{#if submitMessage && !showAuthButton}
+			<div class="mt-4 p-3 rounded-lg text-sm text-center {isSuccess ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">{submitMessage}</div>
+		{/if}
 	</div>
 
 	<!-- DEBUG LOGS -->
