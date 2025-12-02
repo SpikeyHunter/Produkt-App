@@ -9,27 +9,41 @@ interface GuestData {
 	phone: string;
 	timestamp: string;
 	redirectUrl?: string;
+	ssid?: string; // We now expect this from the frontend
 }
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const guestData: GuestData = await request.json();
 		
-		// Validate required fields
-		if (!guestData.firstName || !guestData.lastName || !guestData.email || !guestData.phone) {
+		// 1. Validation
+		if (!guestData.firstName || !guestData.lastName || !guestData.email) {
 			return json({ error: 'Missing required fields' }, { status: 400 });
 		}
 		
-		// Validate email format
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 		if (!emailRegex.test(guestData.email)) {
 			return json({ error: 'Invalid email format' }, { status: 400 });
 		}
 		
-		// Clean phone number (remove formatting)
+		// 2. Map WiFi Name (SSID) to Network Column
+		// Logic: "NCG Wifi" > NCG, "NCG Corpo Wifi" > Corpo
+		let networkName = 'Unknown';
+		const ssid = (guestData.ssid || '').trim();
+
+		if (ssid === 'NCG Corpo Wifi') {
+			networkName = 'Corpo';
+		} else if (ssid === 'NCG Wifi') {
+			networkName = 'NCG';
+		} else if (ssid.length > 0) {
+			networkName = ssid; // Fallback to storing the raw name if it doesn't match
+		}
+
+		// 3. Clean phone
 		const cleanPhone = guestData.phone.replace(/[\s\-\(\)]/g, '');
 		
-		// Save to Supabase
+		// 4. Insert into Supabase
+		// We use the anon key here, so the SQL RLS policy MUST allow public inserts.
 		const { data, error } = await supabase
 			.from('wifi_guests')
 			.insert([
@@ -40,31 +54,22 @@ export const POST: RequestHandler = async ({ request }) => {
 					phone: cleanPhone,
 					registered_at: guestData.timestamp,
 					redirect_url: guestData.redirectUrl,
-					ip_address: request.headers.get('x-forwarded-for') || 
-					           request.headers.get('x-real-ip') || 
-					           'unknown'
+					network_name: networkName, // <--- New Mapped Column
+					ip_address: request.headers.get('x-forwarded-for') || 'unknown'
 				}
 			])
 			.select();
 		
 		if (error) {
 			console.error('Supabase error:', error);
-			
-			// Handle duplicate email
-			if (error.code === '23505' && error.message.includes('email')) {
-				return json({ error: 'Email already registered' }, { status: 409 });
+			// If email exists, we still want to return success to the user so they get redirected
+			if (error.code === '23505') {
+				return json({ message: 'Welcome back' }, { status: 409 }); 
 			}
-			
-			return json({ error: 'Database error occurred' }, { status: 500 });
+			return json({ error: 'Database error' }, { status: 500 });
 		}
 		
-		console.log('Guest registered successfully:', data);
-		
-		return json({ 
-			success: true, 
-			message: 'Guest registered successfully',
-			id: data[0]?.id 
-		});
+		return json({ success: true, id: data?.[0]?.id });
 		
 	} catch (error) {
 		console.error('Registration error:', error);
