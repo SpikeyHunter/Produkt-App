@@ -20,13 +20,11 @@
 	let isSuccess = false;
 	let showAuthButton = false;
 	
-	// Variables
 	let redirectUrl = '';
 	let ssid = '';
 	let switchUrl = '';
 	let arubaHandshake = '';
 	
-	// Debug Logs
 	let logs: string[] = [];
 	function addLog(msg: string) {
 		const time = new Date().toLocaleTimeString();
@@ -34,19 +32,19 @@
 	}
 
 	onMount(() => {
-		addLog('App mounted. Applying IP Fix...');
+		addLog('App mounted. Applying Videotron Fix...');
 		const urlParams = new URLSearchParams(window.location.search);
 		
 		redirectUrl = urlParams.get('url') || urlParams.get('original_url') || 'https://www.google.com';
 		ssid = urlParams.get('ssid') || urlParams.get('essid') || '';
 		
-		// --- THE FIX: FORCE IP ADDRESS ---
-		// We ignore the domain name because it causes DNS errors.
-		// 172.31.98.1 is the universal default for Aruba Instant.
-		switchUrl = 'https://172.31.98.1/cgi-bin/login';
+		// --- THE FIX ---
+		// Your certificate is specifically for 'login.serviceswifi.com'
+		// We must use this EXACT domain so the phone trusts the connection.
+		switchUrl = 'https://login.serviceswifi.com/cgi-bin/login';
 		
 		addLog(`SSID: ${ssid}`);
-		addLog(`Target Switch: ${switchUrl} (Hardcoded IP)`);
+		addLog(`Target: ${switchUrl}`);
 	});
 
 	async function handleSubmit() {
@@ -76,13 +74,10 @@
 				submitMessage = 'Registration Successful!';
 				addLog('Database Saved.');
 				
-				// Build the handshake URL using the IP address
-				// We reuse the email as the user/password
+				// Build the handshake URL with the CORRECT domain
 				arubaHandshake = `${switchUrl}?cmd=authenticate&user=${formData.email}&password=${formData.email}&url=${encodeURIComponent(redirectUrl)}`;
 				
 				addLog(`Handshake URL created.`);
-				
-				// Show the button
 				showAuthButton = true; 
 
 			} else {
@@ -91,7 +86,6 @@
 		} catch (error: any) {
 			addLog(`ERROR: ${error.message}`);
 			submitMessage = `Error: ${error.message}`;
-			isSuccess = false;
 			isSubmitting = false;
 		}
 	}
@@ -131,7 +125,6 @@
 		</div>
 
 		{#if !showAuthButton}
-			<!-- FORM STEP -->
 			<form on:submit|preventDefault={handleSubmit} class="space-y-5">
 				<div class="grid grid-cols-2 gap-4">
 					<div>
@@ -156,7 +149,6 @@
 				</button>
 			</form>
 		{:else}
-			<!-- SUCCESS STEP - MANUAL BUTTON -->
 			<div class="text-center">
 				<div class="text-green-600 text-5xl mb-4">✓</div>
 				<h2 class="text-xl font-bold text-gray-800 mb-2">Registered!</h2>
@@ -166,7 +158,7 @@
 					TAP TO CONNECT INTERNET
 				</button>
 				
-				<p class="text-xs text-gray-400 mt-4 break-all opacity-50">Target IP: 172.31.98.1</p>
+				<p class="text-xs text-gray-400 mt-4 break-all opacity-50">Target: login.serviceswifi.com</p>
 			</div>
 		{/if}
 
@@ -175,7 +167,6 @@
 		{/if}
 	</div>
 
-	<!-- DEBUG LOGS -->
 	<div class="w-full max-w-md bg-black text-green-400 p-4 rounded-lg text-xs font-mono overflow-auto h-48 shadow-xl border border-gray-800">
 		<div class="font-bold border-b border-gray-700 mb-2 pb-1 text-white">DEBUG LOGS</div>
 		{#each logs as log}<div class="mb-1 border-b border-gray-900 pb-1">{log}</div>{/each}
