@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	const CONTROLLER_URL = 'https://login.serviceswifi.com/cgi-bin/login';
+	const CONTROLLER_URL = 'http://login.serviceswifi.com/cgi-bin/login';
 	const RADIUS_USER = 'guest';
 	const RADIUS_PASS = 'connect';
 
