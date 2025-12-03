@@ -100,7 +100,7 @@ export const driverContactMap: { [key: string]: string } = {
 };
 
 // Vehicle information for ground transfers
-export const vehicleInfo = 'Chevrolet Tahoe, Black SUV, FSN4714';
+export const vehicleInfo = 'Chevrolet Suburban, Black SUV, 8 Passenger';
 
 // **NEW**: Hotel address mapping
 export const hotelAddressMap: { [key: string]: string } = {
