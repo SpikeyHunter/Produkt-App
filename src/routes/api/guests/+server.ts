@@ -1,79 +1,25 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { supabase } from '$lib/supabase.js';
 
-interface GuestData {
-	firstName: string;
-	lastName: string;
-	email: string;
-	phone: string;
-	timestamp: string;
-	redirectUrl?: string;
-	ssid?: string;
-}
+// This is a "Dummy" endpoint since you requested NO Data Collection.
+// It will simply log the attempt to the server console and return success.
 
 export const POST: RequestHandler = async ({ request }) => {
 	try {
-		const guestData: GuestData = await request.json();
+		const body = await request.json();
 		
-		console.log("Received payload:", guestData); // Server-side log
+		// Log that someone tried to connect (visible in Vercel/Server logs)
+		console.log('Connection Attempt (No DB Save):', {
+			ssid: body.ssid || 'Unknown',
+			timestamp: new Date().toISOString()
+		});
 
-		// 1. Validation
-		if (!guestData.firstName || !guestData.lastName || !guestData.email) {
-			return json({ error: 'Missing required fields (Name or Email)' }, { status: 400 });
-		}
+		// Return success immediately so the frontend can proceed
+		return json({ success: true, status: 'skipped_db' });
 		
-		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-		if (!emailRegex.test(guestData.email)) {
-			return json({ error: 'Invalid email format' }, { status: 400 });
-		}
-		
-		// 2. Map WiFi Name
-		let networkName = 'Unknown';
-		const ssid = (guestData.ssid || '').trim();
-
-		if (ssid === 'NCG Corpo Wifi') {
-			networkName = 'Corpo';
-		} else if (ssid === 'NCG Wifi') {
-			networkName = 'NCG';
-		} else if (ssid.length > 0) {
-			networkName = ssid;
-		}
-
-		// 3. Clean phone
-		const cleanPhone = guestData.phone.replace(/[\s\-\(\)]/g, '');
-		
-		// 4. Insert into Supabase
-		const { data, error } = await supabase
-			.from('wifi_guests')
-			.insert([
-				{
-					first_name: guestData.firstName.trim(),
-					last_name: guestData.lastName.trim(),
-					email: guestData.email.toLowerCase().trim(),
-					phone: cleanPhone,
-					registered_at: guestData.timestamp,
-					redirect_url: guestData.redirectUrl,
-					network_name: networkName,
-					ip_address: request.headers.get('x-forwarded-for') || 'unknown'
-				}
-			])
-			.select();
-		
-		if (error) {
-			console.error('Supabase error:', error);
-			if (error.code === '23505') {
-				return json({ message: 'Welcome back (Email exists)' }, { status: 409 }); 
-			}
-			// Return the ACTUAL database error to the frontend for debugging
-			return json({ error: `DB Error: ${error.message}` }, { status: 500 });
-		}
-		
-		return json({ success: true, id: data?.[0]?.id });
-		
-	} catch (error: any) {
-		console.error('Registration error:', error);
-		// Return the ACTUAL server error
-		return json({ error: `Server Error: ${error.message || 'Unknown'}` }, { status: 500 });
+	} catch (error) {
+		console.error('Server error:', error);
+		// Even if it fails, return success so the user gets WiFi
+		return json({ success: true });
 	}
 };

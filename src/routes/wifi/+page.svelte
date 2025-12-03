@@ -5,9 +5,11 @@
 	let urlParams: any = {};
 	let targetUrl = '';
 	
-	// Configuration (Based on our findings)
-	const SWITCH_DOMAIN = 'https://login.serviceswifi.com/cgi-bin/login';
-	const AUTH_TEXT = 'connect'; // The secret word you set in Aruba Profile
+	// --- CONFIGURATION ---
+	// 1. Target the Videotron Controller (Matches the Certificate)
+	const CONTROLLER_URL = 'https://login.serviceswifi.com/cgi-bin/login';
+	// 2. The "Password" you set in the Aruba Profile (Authentication Text)
+	const SECRET_WORD = 'connect';
 
 	function addLog(msg: string) {
 		const time = new Date().toLocaleTimeString();
@@ -15,31 +17,31 @@
 	}
 
 	onMount(() => {
-		addLog('--- DIAGNOSTIC MODE STARTED ---');
+		addLog('--- SYSTEM STARTED ---');
 		
-		// 1. Dump all URL parameters to screen
+		// 1. Read URL Parameters from Aruba
 		const params = new URLSearchParams(window.location.search);
 		urlParams = Object.fromEntries(params.entries());
 		
-		addLog(`Full URL: ${window.location.href}`);
-		addLog(`Detected Params: ${JSON.stringify(urlParams)}`);
+		addLog(`Detected SSID: ${urlParams.ssid || urlParams.essid || 'Unknown'}`);
+		addLog(`Client MAC: ${urlParams.mac || 'Unknown'}`);
 
-		// 2. Determine Redirection
+		// 2. Determine where the user initially wanted to go
 		const originalUrl = params.get('url') || params.get('original_url') || 'https://www.google.com';
 		
-		// 3. Construct the Handshake
-		// We hardcode the Videotron domain because we know the IP fails the cert check
-		targetUrl = `${SWITCH_DOMAIN}?cmd=authenticate&authtext=${AUTH_TEXT}&url=${encodeURIComponent(originalUrl)}`;
+		// 3. Build the "Unlock" URL
+		// We use 'authtext' instead of 'user/password' because you chose Authentication Text in the profile.
+		targetUrl = `${CONTROLLER_URL}?cmd=authenticate&authtext=${SECRET_WORD}&url=${encodeURIComponent(originalUrl)}`;
 		
-		addLog('--- READY ---');
-		addLog(`Target Handshake: ${targetUrl}`);
+		addLog('--- READY TO CONNECT ---');
+		addLog(`Target: ${CONTROLLER_URL}`);
 	});
 
-	function attemptConnection() {
-		addLog('Attempting connection...');
+	function connectInternet() {
+		addLog('Initiating handshake...');
 		addLog(`Redirecting to: ${targetUrl}`);
 		
-		// Small delay so you can read the log before it vanishes
+		// Small delay so you can read the log before the browser jumps
 		setTimeout(() => {
 			window.location.href = targetUrl;
 		}, 1000);
@@ -47,48 +49,51 @@
 </script>
 
 <svelte:head>
-	<title>WiFi Diagnostic</title>
+	<title>WiFi Access</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 </svelte:head>
 
-<main class="min-h-screen bg-black text-green-400 p-4 font-mono text-sm flex flex-col gap-4">
+<main class="min-h-screen bg-gray-900 text-gray-100 p-6 font-mono flex flex-col items-center">
 	
-	<!-- Header -->
-	<div class="border-b border-green-800 pb-2 mb-2">
-		<h1 class="text-xl font-bold text-white">NETWORK DIAGNOSTIC</h1>
-		<p class="opacity-70">NCG Wifi Debugger</p>
-	</div>
-
-	<!-- Status Board -->
-	<div class="grid grid-cols-2 gap-2 text-xs">
-		<div class="bg-gray-900 p-2 rounded border border-gray-700">
-			<span class="text-gray-500 block">SSID</span>
-			<span class="text-white text-lg">{urlParams.ssid || urlParams.essid || 'UNKNOWN'}</span>
+	<div class="w-full max-w-md space-y-6">
+		<!-- HEADER -->
+		<div class="text-center border-b border-gray-700 pb-4">
+			<h1 class="text-2xl font-bold text-white tracking-wider">NCG WIFI</h1>
+			<p class="text-sm text-gray-400 mt-1">One-Click Access</p>
 		</div>
-		<div class="bg-gray-900 p-2 rounded border border-gray-700">
-			<span class="text-gray-500 block">MAC Address</span>
-			<span class="text-white">{urlParams.mac || 'UNKNOWN'}</span>
-		</div>
-		<div class="bg-gray-900 p-2 rounded border border-gray-700 col-span-2">
-			<span class="text-gray-500 block">Switch URL (From URL)</span>
-			<span class="text-white">{urlParams.switch_url || 'Not Provided (Using Hardcoded)'}</span>
-		</div>
-	</div>
 
-	<!-- Action Button -->
-	<button 
-		on:click={attemptConnection}
-		class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded shadow-lg text-lg animate-pulse"
-	>
-		TEST CONNECTION
-	</button>
+		<!-- BIG BUTTON -->
+		<button 
+			on:click={connectInternet}
+			class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-6 rounded-xl shadow-lg transform transition active:scale-95 text-xl flex flex-col items-center justify-center gap-1"
+		>
+			<span>CONNECT NOW</span>
+			<span class="text-xs font-normal opacity-70">No registration required</span>
+		</button>
 
-	<!-- Console Output -->
-	<div class="flex-1 bg-gray-900 rounded p-2 overflow-auto border border-gray-800" style="min-height: 300px;">
-		<div class="text-gray-500 mb-2 border-b border-gray-800 pb-1">LIVE LOGS:</div>
-		{#each logs as log}
-			<div class="mb-1 font-mono break-all hover:bg-gray-800 p-1 rounded">{log}</div>
-		{/each}
+		<!-- LOGS CONTAINER -->
+		<div class="bg-black rounded-lg border border-gray-700 p-4 shadow-inner mt-8">
+			<div class="flex justify-between items-center mb-2 border-b border-gray-800 pb-2">
+				<span class="text-xs font-bold text-gray-500">SYSTEM LOGS</span>
+				<span class="text-[10px] text-gray-600">Live</span>
+			</div>
+			
+			<div class="h-64 overflow-y-auto space-y-2 text-xs font-mono">
+				{#each logs as log}
+					<div class="break-all border-l-2 border-blue-900 pl-2 py-1 hover:bg-gray-900">
+						{log}
+					</div>
+				{/each}
+				{#if logs.length === 0}
+					<div class="text-gray-600 italic">Waiting for activity...</div>
+				{/if}
+			</div>
+		</div>
+
+		<!-- DEBUG INFO -->
+		<div class="text-[10px] text-gray-600 text-center">
+			Targeting: login.serviceswifi.com | Auth: Text
+		</div>
 	</div>
 
 </main>
