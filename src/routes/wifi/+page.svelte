@@ -6,10 +6,14 @@
 	let targetUrl = '';
 	
 	// --- CONFIGURATION ---
-	// 1. Target the Videotron Controller (Matches the Certificate)
+	// 1. Target the Videotron/Aruba Controller
 	const CONTROLLER_URL = 'https://login.serviceswifi.com/cgi-bin/login';
-	// 2. The "Password" you set in the Aruba Profile (Authentication Text)
-	const SECRET_WORD = 'connect';
+
+	// 2. RADIUS CREDENTIALS
+	// Since you want a "One-Click" experience with RADIUS, you must hardcode 
+	// a generic user here, and create this EXACT user in your RADIUS/Local DB.
+	const RADIUS_USER = 'guest';
+	const RADIUS_PASS = 'connect'; 
 
 	function addLog(msg: string) {
 		const time = new Date().toLocaleTimeString();
@@ -27,14 +31,16 @@
 		addLog(`Client MAC: ${urlParams.mac || 'Unknown'}`);
 
 		// 2. Determine where the user initially wanted to go
+		// Default to Google if no specific URL was requested
 		const originalUrl = params.get('url') || params.get('original_url') || 'https://www.google.com';
 		
-		// 3. Build the "Unlock" URL
-		// We use 'authtext' instead of 'user/password' because you chose Authentication Text in the profile.
-		targetUrl = `${CONTROLLER_URL}?cmd=authenticate&authtext=${SECRET_WORD}&url=${encodeURIComponent(originalUrl)}`;
+		// 3. Build the "Unlock" URL for RADIUS
+		// STRUCTURE: cmd=authenticate & user=... & password=... & url=...
+		targetUrl = `${CONTROLLER_URL}?cmd=authenticate&user=${RADIUS_USER}&password=${RADIUS_PASS}&url=${encodeURIComponent(originalUrl)}`;
 		
 		addLog('--- READY TO CONNECT ---');
 		addLog(`Target: ${CONTROLLER_URL}`);
+		addLog(`Auth Mode: RADIUS (User: ${RADIUS_USER})`);
 	});
 
 	function connectInternet() {
@@ -56,13 +62,11 @@
 <main class="min-h-screen bg-gray-900 text-gray-100 p-6 font-mono flex flex-col items-center">
 	
 	<div class="w-full max-w-md space-y-6">
-		<!-- HEADER -->
 		<div class="text-center border-b border-gray-700 pb-4">
 			<h1 class="text-2xl font-bold text-white tracking-wider">NCG WIFI</h1>
 			<p class="text-sm text-gray-400 mt-1">One-Click Access</p>
 		</div>
 
-		<!-- BIG BUTTON -->
 		<button 
 			on:click={connectInternet}
 			class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-6 rounded-xl shadow-lg transform transition active:scale-95 text-xl flex flex-col items-center justify-center gap-1"
@@ -71,7 +75,6 @@
 			<span class="text-xs font-normal opacity-70">No registration required</span>
 		</button>
 
-		<!-- LOGS CONTAINER -->
 		<div class="bg-black rounded-lg border border-gray-700 p-4 shadow-inner mt-8">
 			<div class="flex justify-between items-center mb-2 border-b border-gray-800 pb-2">
 				<span class="text-xs font-bold text-gray-500">SYSTEM LOGS</span>
@@ -90,9 +93,8 @@
 			</div>
 		</div>
 
-		<!-- DEBUG INFO -->
 		<div class="text-[10px] text-gray-600 text-center">
-			Targeting: login.serviceswifi.com | Auth: Text
+			Targeting: login.serviceswifi.com | Auth: RADIUS
 		</div>
 	</div>
 
