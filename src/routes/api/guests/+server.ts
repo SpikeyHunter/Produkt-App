@@ -1,25 +1,65 @@
+// FILE: src/routes/api/register/+server.ts
 import { json } from '@sveltejs/kit';
+import { supabase } from '$lib/supabase';
 import type { RequestHandler } from './$types';
 
-// This is a "Dummy" endpoint since you requested NO Data Collection.
-// It will simply log the attempt to the server console and return success.
+export const POST: RequestHandler = async ({ request, getClientAddress }) => {
+    console.log("🚀 Registration API called (New Version)");
 
-export const POST: RequestHandler = async ({ request }) => {
-	try {
-		const body = await request.json();
-		
-		// Log that someone tried to connect (visible in Vercel/Server logs)
-		console.log('Connection Attempt (No DB Save):', {
-			ssid: body.ssid || 'Unknown',
-			timestamp: new Date().toISOString()
-		});
+    try {
+        const body = await request.json();
+        
+        // 1. SAFE DATA EXTRACTION (This prevents the crash)
+        // We use || '' to ensure we never check .length on undefined
+        const firstName = body.first_name || body.firstName || '';
+        const lastName = body.last_name || body.lastName || '';
+        const email = body.email || '';
+        const phone = body.phone || null;
+        
+        console.log(`📝 Registration attempt for: ${email}`);
 
-		// Return success immediately so the frontend can proceed
-		return json({ success: true, status: 'skipped_db' });
-		
-	} catch (error) {
-		console.error('Server error:', error);
-		// Even if it fails, return success so the user gets WiFi
-		return json({ success: true });
-	}
+        // 2. Validate using the safe variables
+        if (!firstName || !lastName || !email) {
+            console.error("❌ Missing required fields");
+            return json({ success: false, error: "Missing required fields" }, { status: 400 });
+        }
+
+        // 3. Get IP Address
+        let clientIp = request.headers.get('x-forwarded-for') || getClientAddress();
+        if (clientIp && clientIp.includes(',')) {
+            clientIp = clientIp.split(',')[0].trim();
+        }
+
+        // 4. Determine Network Name
+        let netName = 'NCG';
+        if (body.ssid === 'NCG-Corpo-Wifi') netName = 'CORPO';
+
+        // 5. Insert into Supabase
+        const { error } = await supabase
+            .from('wifi_guests') 
+            .insert({
+                first_name: firstName,
+                last_name: lastName,
+                email: email,
+                phone: phone,
+                network_name: netName,
+                redirect_url: body.redirect_url,
+                ip_address: clientIp,
+                tos_accepted: body.tos_accepted || false,
+                marketing_consent: body.marketing_consent || false,
+                registered_at: new Date().toISOString()
+            });
+
+        if (error) {
+            console.error('💥 Supabase Error:', error);
+            return json({ success: true, saved: false, error: error.message });
+        }
+
+        console.log('✅ Data saved successfully');
+        return json({ success: true, saved: true });
+
+    } catch (err: any) {
+        console.error('💥 Unexpected Server Error:', err);
+        return json({ success: true, saved: false, error: err.message });
+    }
 };
