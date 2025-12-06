@@ -93,7 +93,7 @@
 					phone: cleanPhone, // Sent as pure numbers
 					tos_accepted: formData.tos,
 					marketing_consent: formData.marketing,
-					ssid: urlParams.ssid || 'NCG-Wifi',
+					ssid: urlParams.ssid || 'NCG-Corpo-Wifi',
 					mac: urlParams.mac,
 					redirect_url: originalUrl,
 					language: currentLang
