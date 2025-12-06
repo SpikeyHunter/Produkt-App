@@ -31,8 +31,14 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
         }
 
         // 4. Determine Network Name
-        let netName = 'NCG';
-        if (body.ssid === 'NCG-Corpo-Wifi') netName = 'CORPO';
+        let netName = 'NCG'; // Default fallback
+        const ssid = body.ssid || ''; // Safe extraction prevents undefined errors
+
+        if (ssid === 'NCG-Corpo-Wifi') {
+            netName = 'CORPO';
+        } else if (ssid === 'NCG-Wifi') {
+            netName = 'NCG';
+        }
 
         // 5. Insert into Supabase
         const { error } = await supabase
