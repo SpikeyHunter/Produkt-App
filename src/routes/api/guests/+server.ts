@@ -1,4 +1,4 @@
-// FILE: src/routes/api/register/+server.ts
+// FILE: src/routes/api/guest/+server.ts
 import { json } from '@sveltejs/kit';
 import { supabase } from '$lib/supabase';
 import type { RequestHandler } from './$types';
@@ -14,7 +14,8 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
         const firstName = body.first_name || body.firstName || '';
         const lastName = body.last_name || body.lastName || '';
         const email = body.email || '';
-        const phone = body.phone || null;
+        const rawPhone = body.phone || '';
+        const phone = rawPhone.trim().length > 0 ? rawPhone : null;
         
         console.log(`📝 Registration attempt for: ${email}`);
 
