@@ -11,7 +11,6 @@
 		email: '',
 		phone: '',
 		tos: false,
-		marketing: false
 	};
 
 	let urlParams: any = {};
@@ -28,10 +27,12 @@
 			lname: 'Nom *',
 			email: 'Adresse courriel *',
 			phone: 'Numéro de téléphone',
-			agree: "J'accepte les",
-			tosLink: "Conditions d'utilisation",
-			marketing:
-				'Je souhaite recevoir des courriels promotionnels de New City Gas',
+            // NEW TEXT PARTS
+			termStart: "J'ai lu et j'accepte les",
+			termLink: "Conditions d'utilisation",
+			termMid: "du service Wi-Fi de New City Gas ainsi que les conditions contenues dans notre",
+            privacyLink: "Politique de confidentialité",
+            termEnd: "Je consens également à recevoir des infolettres de New City Gas, incluant ses événements et activités. Vous pouvez vous désabonner en tout temps en cliquant sur le lien de désabonnement au bas des courriels reçus.",
 			connect: 'Se Connecter',
 			connecting: 'Connexion en cours...',
 			modalTitle: 'Conditions & Confidentialité',
@@ -44,9 +45,12 @@
 			lname: 'Last Name *',
 			email: 'Email Address *',
 			phone: 'Phone Number',
-			agree: 'I agree to the',
-			tosLink: 'Terms of Service',
-			marketing: 'I want to receive promotional emails from New City Gas',
+            // NEW TEXT PARTS
+			termStart: 'I have read and agree to the',
+			termLink: 'Terms of Service',
+			termMid: 'of use for New City Gas Wi-Fi service as well as the terms contained in our',
+            privacyLink: 'Privacy Policy',
+            termEnd: 'I also consent to receive newsletters from New City Gas, including its events and activities. You may unsubscribe at any time by clicking the unsubscribe link at the bottom of the received emails.',
 			connect: 'Connect',
 			connecting: 'Connecting...',
 			modalTitle: 'Terms & Privacy',
@@ -92,7 +96,6 @@
 					email: formData.email,
 					phone: cleanPhone, // Sent as pure numbers
 					tos_accepted: formData.tos,
-					marketing_consent: formData.marketing,
 					ssid: urlParams.ssid || 'NCG-Corpo-Wifi',
 					mac: urlParams.mac,
 					redirect_url: originalUrl,
@@ -193,36 +196,11 @@
 			</div>
 
 			<div class="pt-2 space-y-3">
-			
 				<label class="flex items-start gap-3 cursor-pointer group">
-					<div class="relative flex items-center">
-						<input
-							type="checkbox"
-							bind:checked={formData.marketing}
-							class="peer h-5 w-5 cursor-pointer appearance-none rounded border border-gray1 bg-navbar transition-all checked:border-[#844CE5] checked:bg-[#844CE5]"
-						/>
-						<svg
-							class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none opacity-0 peer-checked:opacity-100 text-white"
-							viewBox="0 0 14 14"
-							fill="none"
-						>
-							<path
-								d="M3 8L6 11L11 3.5"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							/>
-						</svg>
-					</div>
-					<span class="text-sm text-gray2">{t[currentLang].marketing}</span>
-				</label>
-				<label class="flex items-start gap-3 cursor-pointer group">
-					<div class="relative flex items-center">
-						<input
+					<div class="relative flex items-center mt-1"> <input
 							type="checkbox"
 							bind:checked={formData.tos}
-							class="peer h-5 w-5 cursor-pointer appearance-none rounded border border-gray1 bg-navbar transition-all checked:border-[#844CE5] checked:bg-[#844CE5]"
+							class="peer h-5 w-5 min-w-[1.25rem] cursor-pointer appearance-none rounded border border-gray1 bg-navbar transition-all checked:border-[#844CE5] checked:bg-[#844CE5]"
 						/>
 						<svg
 							class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none opacity-0 peer-checked:opacity-100 text-white"
@@ -238,13 +216,22 @@
 							/>
 						</svg>
 					</div>
-					<span class="text-sm text-gray2">
-						{t[currentLang].agree}
+					<span class="text-xs text-gray2 leading-relaxed">
+						{t[currentLang].termStart}
 						<button
 							on:click|stopPropagation={() => (showTosModal = true)}
 							class="text-[#844CE5] underline hover:text-white transition-colors"
-							>{t[currentLang].tosLink}</button
 						>
+							{t[currentLang].termLink}
+						</button>
+                        {t[currentLang].termMid}
+                        <button
+							on:click|stopPropagation={() => (showTosModal = true)}
+							class="text-[#844CE5] underline hover:text-white transition-colors"
+						>
+							{t[currentLang].privacyLink}
+						</button>
+                        {t[currentLang].termEnd}
 					</span>
 				</label>
 			</div>

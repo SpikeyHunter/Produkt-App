@@ -53,7 +53,6 @@ export const POST: RequestHandler = async ({ request, getClientAddress }) => {
                 redirect_url: body.redirect_url,
                 ip_address: clientIp,
                 tos_accepted: body.tos_accepted || false,
-                marketing_consent: body.marketing_consent || false,
                 registered_at: new Date().toISOString()
             });
 
