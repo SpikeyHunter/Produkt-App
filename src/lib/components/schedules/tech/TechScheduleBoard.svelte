@@ -284,9 +284,47 @@
 		});
 	}
 
+    // --- CLIPBOARD HELPERS ---
+    function performCopy(row: TechRow) {
+        clipboardData = { type: 'row', data: { ...row } };
+    }
+
+    async function performPaste(targetRow: TechRow) {
+        if (!userPermissions.canEditAll) return;
+        if (!clipboardData || clipboardData.type !== 'row') return;
+
+        const { id: _, sort_order: __, date: ___, year: ____, calendar_event_id: _____, ...dataToPaste } = clipboardData.data;
+        rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...dataToPaste } : r));
+        
+        const { error } = await supabase.from('schedule_techs').update(dataToPaste).eq('id', targetRow.id);
+        if (error) {
+            console.error('[TechBoard] Paste failed:', error);
+            saveStatus = 'error';
+            alert('Paste failed');
+        }
+    }
+
+    async function performCut(targetRow: TechRow) {
+        if (!userPermissions.canEditAll) return;
+        performCopy(targetRow);
+        
+        const uiEmptyData = {
+            event_name: '', type: '', notes: '', ld: '', video: '', vj: '',
+            sound: '', tech_sm: '', dt: '', artist_liaison: '', op_hours: '', crew_call: ''
+        };
+        const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
+
+        rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
+
+        const { error } = await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
+        if (error) {
+             console.error('[TechBoard] Cut failed:', error);
+             saveStatus = 'error';
+        }
+    }
+
 	// --- ROW ACTIONS ---
 	async function handleRowDelete(event: CustomEvent) {
-		// FIXED: Check permission ONLY (removed !isDeleteMode check so context menu works)
 		if (!userPermissions.canEditAll) return;
 		
 		const { id } = event.detail;
@@ -307,7 +345,6 @@
 	}
 
 	// --- CONTEXT MENU & KEYS ---
-    // (Standard handlers for copy/paste/menu actions)
 	async function handleContextMenu(event: CustomEvent) {
 		if (userPermissions.role === 'viewer') return;
 		const { e, row, field } = event.detail;
@@ -342,7 +379,6 @@
 		hoveredColumnKey = foundCol ? foundCol.key : null;
 	}
 
-    // Refactored helper to get target from keyboard focus
 	function getTargetFromFocus() {
 		const activeEl = document.activeElement as HTMLElement;
 		if (!activeEl || !gridContainer || !gridContainer.contains(activeEl)) return null;
@@ -365,7 +401,6 @@
         
         let target = getTargetFromFocus();
         if (!target) {
-             // Fallback to hover
              if (hoveredRowId && hoveredColumnKey) {
                  const found = columnRanges.find((c) => c.key === hoveredColumnKey);
                  const field = found ? (COL_FIELD_MAP[found.key] as string) : null;
@@ -376,21 +411,93 @@
         const row = rows.find(r => r.id === target.rowId);
         if(!row) return;
 
-        // Clipboard logic (same as before)
-        // ... 
+        const key = e.key.toLowerCase();
+        if (key === 'c') performCopy(row);
+        if (key === 'x') performCut(row);
+        if (key === 'v') performPaste(row);
 	}
 
 	async function handleMenuAction(event: CustomEvent) {
         const action = event.detail;
 		const targetRow = contextMenu.row;
+		const targetField = contextMenu.field; // Restore field access
 		contextMenu.show = false;
         if(!targetRow) return;
         
-        // FIXED: Route 'delete' action to the handler
+        // FULL LOGIC RESTORED HERE
+        if (action === 'copy') performCopy(targetRow);
+        if (action === 'cut') performCut(targetRow);
+        if (action === 'paste') performPaste(targetRow);
+        
         if (action === 'delete') {
             handleRowDelete({ detail: { id: targetRow.id } } as any);
         }
-        // ... (other actions like history, clear, etc.)
+
+        if (action === 'showHistory' && targetField && targetField !== '__ROW__') {
+			historyPanel = {
+				open: true,
+				rowId: targetRow.id,
+				rowIndex: filteredRows.findIndex((r) => r.id === targetRow.id),
+				field: targetField,
+				date: targetRow.date
+			};
+			return;
+		}
+
+        if (action === 'clear') {
+            const uiEmptyData = {
+                event_name: '', type: '', notes: '', ld: '', video: '', vj: '',
+                sound: '', tech_sm: '', dt: '', artist_liaison: '', op_hours: '', crew_call: ''
+            };
+            const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
+            rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
+            await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
+            return;
+        }
+        
+        if (['addAbove', 'addBelow', 'duplicate'].includes(action)) {
+             const currentIndex = filteredRows.findIndex((r) => r.id === targetRow.id);
+			if (currentIndex === -1) return;
+			let newSortOrder = 0;
+			let newDate = targetRow.date;
+			
+            if (action === 'addAbove') {
+				const prevRow = filteredRows[currentIndex - 1];
+				if (!prevRow || prevRow.date !== targetRow.date) {
+					newSortOrder = targetRow.sort_order - 1.0;
+				} else {
+					newSortOrder = (prevRow.sort_order + targetRow.sort_order) / 2;
+				}
+			} else if (action === 'addBelow' || action === 'duplicate') {
+				const nextRow = filteredRows[currentIndex + 1];
+				if (!nextRow || nextRow.date !== targetRow.date) {
+					newSortOrder = targetRow.sort_order + 1.0;
+				} else {
+					newSortOrder = (targetRow.sort_order + nextRow.sort_order) / 2;
+				}
+			}
+
+			let dataToInsert: any;
+			if (action === 'duplicate') {
+				const { id: _ignore, calendar_event_id: _ignore2, ...rest } = targetRow;
+				dataToInsert = rest;
+			} else {
+				dataToInsert = { date: newDate, year: year, type: '', event_name: '' };
+			}
+			
+            const { data: newRow, error } = await supabase
+                .from('schedule_techs')
+                .insert({ ...dataToInsert, sort_order: newSortOrder })
+                .select()
+                .single();
+
+            if (error) {
+                alert(error.message);
+            } else if (newRow) {
+                rows = [...rows, newRow];
+                logHistory(newRow.id, 'INSERT', null, newRow);
+            }
+        }
     }
 
 	function handleRowDropdownToggle(id: string) {
