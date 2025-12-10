@@ -1,561 +1,485 @@
 // src/lib/utils/passport/ocrUtils.ts
 import { countryMappings } from './countryMappings';
 import { passportNumberPatterns } from './patterns';
+import { countries } from './countries'; // Ensure this matches your countries file export
 
 export interface DetectedPassportInfo {
-  givenName?: string;
-  lastName?: string;
-  dateOfBirth?: string;
-  country?: string; // This will be used for both citizenship and country of birth
-  country_birth?: string;
-  passportNumber?: string;
+	givenName?: string;
+	lastName?: string;
+	dateOfBirth?: string;
+	country?: string;
+	country_birth?: string;
+	passportNumber?: string;
 }
 
 export interface NameHints {
-  expectedFirstName?: string;
-  expectedLastName?: string;
+	expectedFirstName?: string;
+	expectedLastName?: string;
 }
 
-// Parse Google credentials from environment
+// --- Credentials Management ---
+
 export function getGoogleCredentials(credentialsString?: string) {
-  try {
-    const credentials = parseCredentials(credentialsString || '{}');
-    
-    // Validate required fields
-    const requiredFields = ['type', 'project_id', 'private_key', 'client_email'];
-    for (const field of requiredFields) {
-      if (!credentials[field]) {
-        throw new Error(`Missing required field: ${field}`);
-      }
-    }
-    
-    console.log('✅ Google credentials parsed successfully');
-    console.log('🔌 Project ID:', credentials.project_id);
-    console.log('📧 Client email:', credentials.client_email);
-    
-    return credentials;
-  } catch (err) {
-    console.error('❌ Error parsing Google credentials:', err);
-    return null;
-  }
+	try {
+		const credentials = parseCredentials(credentialsString || '{}');
+		const requiredFields = ['type', 'project_id', 'private_key', 'client_email'];
+		for (const field of requiredFields) {
+			if (!credentials[field]) throw new Error(`Missing required field: ${field}`);
+		}
+		return credentials;
+	} catch (err) {
+		console.error('❌ Error parsing Google credentials:', err);
+		return null;
+	}
 }
 
 function parseCredentials(credentialsString: string) {
-  let credentials;
-  try {
-    credentials = JSON.parse(credentialsString);
-  } catch (parseError) {
-    console.log('Initial parse failed, attempting to fix credentials format...');
-    
-    let fixed = credentialsString.trim();
-    if (fixed.startsWith('"') && fixed.endsWith('"')) {
-      fixed = fixed.slice(1, -1);
-    }
-    
-    fixed = fixed.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-    credentials = JSON.parse(fixed);
-  }
-  
-  // Ensure private key has proper newlines
-  if (credentials.private_key) {
-    if (credentials.private_key.includes('\\n')) {
-      credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
-    }
-    
-    if (!credentials.private_key.includes('BEGIN PRIVATE KEY')) {
-      throw new Error('Invalid private key format');
-    }
-  }
-  
-  return credentials;
+	let credentials;
+	try {
+		credentials = JSON.parse(credentialsString);
+	} catch (parseError) {
+		let fixed = credentialsString.trim();
+		if (fixed.startsWith('"') && fixed.endsWith('"')) fixed = fixed.slice(1, -1);
+		fixed = fixed.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+		credentials = JSON.parse(fixed);
+	}
+	if (credentials.private_key && credentials.private_key.includes('\\n')) {
+		credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+	}
+	return credentials;
 }
 
-// Helper to clean and format names from OCR
-function cleanOCRName(name: string): string {
-  if (!name) return '';
-  
-  // Remove common field labels that might be included
-  const labelsToRemove = [
-    'given names?',
-    'first names?',
-    'prénoms?',
-    'nombres?',
-    'nome',
-    'vorname',
-    'nationality',
-    'nationalité',
-    'ciudadanía',
-    'nazionalità',
-    'staatsangehörigkeit',
-    'surname',
-    'last names?',
-    'family names?',
-    'nom',
-    'apellidos?',
-    'cognome',
-    'nachname',
-    '姓',
-    '名'
-  ];
-  
-  let cleanedName = name;
-  
-  // Remove field labels
-  const labelPattern = new RegExp(`\\b(${labelsToRemove.join('|')})\\b`, 'gi');
-  cleanedName = cleanedName.replace(labelPattern, '').trim();
-  
-  // Remove any remaining colons or special characters at the start
-  cleanedName = cleanedName.replace(/^[:：\s]+/, '');
-  
-  // Convert to proper case (first letter capital, rest lowercase)
-  cleanedName = cleanedName.split(/\s+/)
-    .filter(word => word.length > 0)
-    .map(word => {
-      // Keep certain words uppercase (like middle initials)
-      if (word.length === 1 || (word.length === 2 && word.endsWith('.'))) {
-        return word.toUpperCase();
-      }
-      // Handle hyphenated names
-      if (word.includes('-')) {
-        return word.split('-')
-          .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-          .join('-');
-      }
-      // Handle apostrophes (O'Brien, D'Angelo)
-      if (word.includes("'")) {
-        const parts = word.split("'");
-        return parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase() + 
-               "'" + (parts[1] ? parts[1].charAt(0).toUpperCase() + parts[1].slice(1).toLowerCase() : '');
-      }
-      // Standard proper case
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(' ');
-  
-  return cleanedName;
-}
+// --- Main Parsing Logic ---
 
-// Enhanced passport text parser
 export function parsePassportText(text: string, nameHints?: NameHints): DetectedPassportInfo {
-  const detectedInfo: DetectedPassportInfo = {};
-  const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-  
-  console.log('🔍 Parsing', lines.length, 'lines of text...');
+	console.log('🔍 Starting Smart Passport Parsing...');
 
-  // Extract names
-  const names = extractNames(text, lines, nameHints);
-  if (names.givenName) detectedInfo.givenName = names.givenName;
-  if (names.lastName) detectedInfo.lastName = names.lastName;
+	// 1. Try MRZ (Machine Readable Zone) Parsing First
+	// This is the "Silver Bullet" - if this works, we ignore the visual text garbage.
+	const mrzData = parseMRZ(text);
+	if (mrzData && mrzData.passportNumber && mrzData.lastName) {
+		console.log('✅ MRZ Detection Successful - Using strict data');
 
-  // Extract passport number
-  const passportNumber = extractPassportNumber(text);
-  if (passportNumber) detectedInfo.passportNumber = passportNumber;
+		// If MRZ gave us a country code (e.g., USA), normalize it to full name (United States)
+		if (mrzData.country) {
+			mrzData.country = normalizeCountry(mrzData.country);
+			mrzData.country_birth = mrzData.country;
+		}
+		return mrzData;
+	}
 
-  // Extract country - will be used for both citizenship and country of birth
-  const country = extractCountry(text);
-  if (country) {
-    detectedInfo.country = country;
-    detectedInfo.country_birth = country; // Set both to the same value
-  }
+	// 2. Fallback: Visual Text Parsing
+	// Only runs if MRZ fails. We apply stricter cleaning here.
+	console.log('⚠️ MRZ not found or incomplete, falling back to visual text parsing...');
 
-  // Extract date of birth
-  const dateOfBirth = extractDateOfBirth(text);
-  if (dateOfBirth) detectedInfo.dateOfBirth = dateOfBirth;
+	const detectedInfo: DetectedPassportInfo = {};
+	const lines = text
+		.split('\n')
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0);
 
-  // Try MRZ parsing if we haven't found all info
-  if (!detectedInfo.passportNumber || !detectedInfo.lastName || !detectedInfo.givenName || !detectedInfo.dateOfBirth) {
-    const mrzData = tryMRZParsing(lines);
-    
-    // Only use MRZ data if we haven't found better data already
-    Object.keys(mrzData).forEach(key => {
-      if (!detectedInfo[key as keyof DetectedPassportInfo] && mrzData[key as keyof DetectedPassportInfo]) {
-        (detectedInfo as any)[key] = (mrzData as any)[key];
-        // If country is set from MRZ, also set country_birth
-        if (key === 'country' && mrzData.country) {
-          detectedInfo.country_birth = mrzData.country;
-        }
-      }
-    });
-  }
+	// Extract and Clean Names
+	const names = extractNames(text, lines, nameHints);
+	if (names.givenName) detectedInfo.givenName = names.givenName;
+	if (names.lastName) detectedInfo.lastName = names.lastName;
 
-  return detectedInfo;
+	// Extract Passport Number
+	const passportNumber = extractPassportNumber(text);
+	if (passportNumber) detectedInfo.passportNumber = passportNumber;
+
+	// Extract and Normalize Country
+	const rawCountry = extractCountry(text);
+	if (rawCountry) {
+		const normalized = normalizeCountry(rawCountry);
+		detectedInfo.country = normalized;
+		detectedInfo.country_birth = normalized;
+	}
+
+	// Extract DOB
+	const dateOfBirth = extractDateOfBirth(text);
+	if (dateOfBirth) detectedInfo.dateOfBirth = dateOfBirth;
+
+	return detectedInfo;
 }
 
-// Extract names with better handling of multiple names
-function extractNames(text: string, lines: string[], nameHints?: NameHints): Partial<DetectedPassportInfo> {
-  const result: Partial<DetectedPassportInfo> = {};
-  
-  // First try with name hints
-  if (nameHints) {
-    const hintBasedNames = findNamesWithHints(text, nameHints);
-    if (hintBasedNames.givenName) result.givenName = hintBasedNames.givenName;
-    if (hintBasedNames.lastName) result.lastName = hintBasedNames.lastName;
-  }
-  
-  // If not found with hints, try pattern-based extraction
-  if (!result.givenName || !result.lastName) {
-    const patternNames = findNamesWithPatterns(text, lines);
-    if (!result.givenName && patternNames.givenName) result.givenName = patternNames.givenName;
-    if (!result.lastName && patternNames.lastName) result.lastName = patternNames.lastName;
-  }
-  
-  return result;
+// --- MRZ Parsing (The "Silver Bullet") ---
+
+function parseMRZ(text: string): DetectedPassportInfo | null {
+	const lines = text.split('\n').map((l) => l.trim().replace(/\s/g, '')); // Remove whitespace for MRZ
+	// Look for lines containing '<<' and standard length (usually 44 chars, sometimes 30)
+	const mrzLines = lines.filter((line) => line.includes('<<') && line.length > 28);
+
+	if (mrzLines.length < 2) return null;
+
+	// Typically the last two lines are the MRZ
+	const bottomLine = mrzLines[mrzLines.length - 1]; // Contains ID, DOB, Expiry
+	const topLine = mrzLines[mrzLines.length - 2]; // Contains Name, Country
+
+	try {
+		const info: DetectedPassportInfo = {};
+
+		// 1. Parse Top Line: P<USA[SURNAME]<<[GIVEN_NAMES]
+		// Country is usually chars 2-5 (3 letters)
+		const countryCode = topLine.substring(2, 5).replace(/</g, '');
+		info.country = mapCountryCodeToName(countryCode);
+		info.country_birth = info.country;
+
+		// Names are after char 5
+		const nameSection = topLine.substring(5);
+		const [rawSurname, rawGiven] = nameSection.split('<<');
+
+		if (rawSurname) {
+			info.lastName = formatNameFromMRZ(rawSurname);
+		}
+		if (rawGiven) {
+			info.givenName = formatNameFromMRZ(rawGiven);
+		}
+
+		// 2. Parse Bottom Line: [PASSPORT_NO]...[DOB]...
+		// Passport Num: chars 0-9
+		let passportNum = bottomLine.substring(0, 9).replace(/</g, '');
+		info.passportNumber = passportNum;
+
+		// DOB: chars 13-19 (YYMMDD)
+		const dobStr = bottomLine.substring(13, 19);
+		if (/^\d{6}$/.test(dobStr)) {
+			info.dateOfBirth = parseMRZDate(dobStr);
+		}
+
+		return info;
+	} catch (e) {
+		console.error('Error parsing MRZ lines:', e);
+		return null;
+	}
 }
 
-// Find names using hints
-function findNamesWithHints(text: string, nameHints: NameHints): Partial<DetectedPassportInfo> {
-  const result: Partial<DetectedPassportInfo> = {};
-  
-  // Helper to find all parts of a name (handles multiple names)
-  const findFullName = (expectedName: string, textToSearch: string): string | null => {
-    const words = expectedName.split(' ').filter(w => w.length > 0);
-    const upperText = textToSearch.toUpperCase();
-    
-    // Try to find all parts of the name
-    const foundParts: string[] = [];
-    let searchText = upperText;
-    
-    for (const word of words) {
-      const upperWord = word.toUpperCase();
-      if (searchText.includes(upperWord)) {
-        foundParts.push(word);
-        // Mark this word as found to avoid duplicates
-        searchText = searchText.replace(upperWord, '###');
-      }
-    }
-    
-    // If we found at least one part, try to find the complete name
-    if (foundParts.length > 0) {
-      // Look for the complete name in the original text
-      const namePattern = new RegExp(
-        foundParts.map(part => `${part}\\s*`).join('') + '(?:[A-Z][a-z]+\\s*)*',
-        'i'
-      );
-      const match = textToSearch.match(namePattern);
-      if (match) {
-        return cleanOCRName(match[0].trim());
-      }
-      
-      // Return what we found
-      return cleanOCRName(foundParts.join(' '));
-    }
-    
-    return null;
-  };
-  
-  if (nameHints.expectedLastName) {
-    const lastName = findFullName(nameHints.expectedLastName, text);
-    if (lastName) {
-      result.lastName = lastName;
-      console.log('✅ Found last name:', result.lastName);
-    }
-  }
-  
-  if (nameHints.expectedFirstName) {
-    // For given names, we might have multiple names (first + middle)
-    const givenName = findFullName(nameHints.expectedFirstName, text);
-    if (givenName) {
-      // Check if there are additional given names nearby
-      const givenNameIndex = text.toUpperCase().indexOf(givenName.toUpperCase());
-      if (givenNameIndex !== -1) {
-        // Look for additional names after the found name
-        const afterText = text.substring(givenNameIndex + givenName.length, givenNameIndex + givenName.length + 50);
-        const additionalNameMatch = afterText.match(/^\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
-        
-        if (additionalNameMatch && !result.lastName?.includes(additionalNameMatch[1])) {
-          result.givenName = cleanOCRName(`${givenName} ${additionalNameMatch[1]}`);
-        } else {
-          result.givenName = givenName;
-        }
-      } else {
-        result.givenName = givenName;
-      }
-      console.log('✅ Found given name(s):', result.givenName);
-    }
-  }
-  
-  return result;
+function formatNameFromMRZ(name: string): string {
+	// Replace single filler chars (<) with space, trim, and title case
+	const cleaned = name.replace(/</g, ' ').trim();
+	return cleanOCRName(cleaned);
 }
 
-// Find names using patterns
-function findNamesWithPatterns(text: string, lines: string[]): Partial<DetectedPassportInfo> {
-  const result: Partial<DetectedPassportInfo> = {};
-  
-  // Surname patterns
-  const surnamePatterns = [
-    /(?:Surname|Nom|Apellidos?|Cognome|Nachname|姓)\s*[:：]\s*([A-Z][A-Z\s'-]+)/i,
-    /(?:Last\s+Name|Family\s+Name)\s*[:：]\s*([A-Z][A-Z\s'-]+)/i
-  ];
-  
-  // Given name patterns
-  const givenNamePatterns = [
-    /(?:Given\s+Names?|Prénoms?|Nombres?|Nome|Vorname|名)\s*[:：]\s*([A-Z][A-Z\s'-]+)/i,
-    /(?:First\s+Name)\s*[:：]\s*([A-Z][A-Z\s'-]+)/i
-  ];
-
-  // Try surname patterns
-  for (const pattern of surnamePatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      result.lastName = cleanOCRName(match[1].trim());
-      console.log('✅ Found last name from pattern:', result.lastName);
-      break;
-    }
-  }
-
-  // Try given name patterns
-  for (const pattern of givenNamePatterns) {
-    const match = text.match(pattern);
-    if (match) {
-      result.givenName = cleanOCRName(match[1].trim());
-      console.log('✅ Found given name from pattern:', result.givenName);
-      break;
-    }
-  }
-  
-  return result;
+function mapCountryCodeToName(code: string): string {
+	// Map common 3-letter codes to your system's names
+	const map: Record<string, string> = {
+		USA: 'United States',
+		GBR: 'United Kingdom',
+		CAN: 'Canada',
+		AUS: 'Australia',
+		DEU: 'Germany',
+		FRA: 'France',
+		ITA: 'Italy',
+		ESP: 'Spain',
+		NLD: 'Netherlands',
+		IRL: 'Ireland',
+		NZL: 'New Zealand'
+		// Fallback: if strictly 3 letters, return it, otherwise empty
+	};
+	return map[code] || (countries.find((c) => c.substring(0, 3).toUpperCase() === code) ? code : '');
 }
 
-// Extract passport number with enhanced patterns and logic
-function extractPassportNumber(text: string): string | null {
-	for (const pattern of passportNumberPatterns) { 
-		const match = pattern.exec(text);
+// --- Visual Text Helpers (Cleaners) ---
 
-		if (match) {
-			// Prioritize a capturing group if it exists (match[1]), otherwise use the full match (match[0])
-			let potentialNumber = match[1] || match[0];
+function normalizeCountry(rawCountry: string): string {
+	const upper = rawCountry.toUpperCase();
 
-			// Clean the result to ensure it's purely alphanumeric
-			potentialNumber = potentialNumber.replace(/[^A-Z0-9]/gi, '');
+	// 1. Handle specific "Bad" inputs
+	if (upper.includes('UNITED STATES') || upper.includes('USA') || upper.includes('AMERICA')) {
+		return 'United States';
+	}
+	if (upper.includes('UNITED KINGDOM') || upper.includes('GREAT BRITAIN') || upper.includes('UK')) {
+		return 'United Kingdom';
+	}
 
-			// Skip potential matches that are likely dates or other false positives
-			if (/\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}/.test(potentialNumber)) continue;
-			if (/\d{4}[-\/]\d{1,2}[-\/]\d{1,2}/.test(potentialNumber)) continue;
-			if (/JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC/i.test(potentialNumber)) continue;
+	// 2. Try to find exact match in your valid countries list
+	const exactMatch = countries.find((c) => c.toLowerCase() === rawCountry.toLowerCase());
+	if (exactMatch) return exactMatch;
 
-			// Final validation for typical passport number length
-			if (potentialNumber.length >= 6 && potentialNumber.length <= 12) {
-				console.log('✅ Found passport number:', potentialNumber);
-				return potentialNumber;
+	// 3. Fuzzy match: if valid country is contained in the raw string
+	// (e.g. "Republic of France" -> "France")
+	for (const validCountry of countries) {
+		if (upper.includes(validCountry.toUpperCase())) {
+			return validCountry;
+		}
+	}
+
+	return rawCountry; // Return raw if no normalization found
+}
+
+function cleanOCRName(name: string): string {
+	if (!name) return '';
+
+	// Expanded garbage list
+	const garbage = [
+		'given names?',
+		'first names?',
+		'prénoms?',
+		'nombres?',
+		'nome',
+		'vorname',
+		'nationality',
+		'nationalité',
+		'ciudadanía',
+		'nazionalità',
+		'staatsangehörigkeit',
+		'surname',
+		'last names?',
+		'family names?',
+		'nom',
+		'apellidos?',
+		'cognome',
+		'nachname',
+		'place of birth',
+		'date of birth',
+		'sex',
+		'authority',
+		'type',
+		'code',
+		'passport no',
+		'p<',
+		'usa',
+		'united states',
+		'people' // Prevent country stuff leaking into names
+	];
+
+	let cleaned = name;
+
+	// 1. Remove garbage phrases (case insensitive)
+	const pattern = new RegExp(`\\b(${garbage.join('|')})\\b`, 'gi');
+	cleaned = cleaned.replace(pattern, '').trim();
+
+	// 2. Remove special chars at start
+	cleaned = cleaned.replace(/^[:：\s\d<]+/, '');
+
+	// 3. Remove content in parentheses (often "née...")
+	cleaned = cleaned.replace(/\([^)]*\)/g, '');
+
+	// 4. Proper Case Conversion
+	return cleaned
+		.split(/\s+/)
+		.filter((w) => w.length > 0)
+		.map((word) => {
+			if (word.length === 1 || (word.length === 2 && word.endsWith('.'))) return word.toUpperCase(); // Initials
+			if (word.includes('-')) {
+				return word
+					.split('-')
+					.map((p) => capitalize(p))
+					.join('-');
 			}
+			if (word.includes("'")) {
+				const [a, b] = word.split("'");
+				return `${capitalize(a)}'${b ? capitalize(b) : ''}`;
+			}
+			return capitalize(word);
+		})
+		.join(' ');
+}
+
+function capitalize(s: string) {
+	return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+// --- Visual Extraction Functions (Existing logic with tweaks) ---
+
+function extractNames(
+	text: string,
+	lines: string[],
+	nameHints?: NameHints
+): Partial<DetectedPassportInfo> {
+	const result: Partial<DetectedPassportInfo> = {};
+
+	// 1. Hint-based extraction (Best for visual text)
+	if (nameHints) {
+		const hintNames = findNamesWithHints(text, nameHints);
+		if (hintNames.givenName) result.givenName = hintNames.givenName;
+		if (hintNames.lastName) result.lastName = hintNames.lastName;
+	}
+
+	// 2. Pattern-based extraction (Fallback)
+	if (!result.givenName || !result.lastName) {
+		const patternNames = findNamesWithPatterns(text);
+		if (!result.givenName && patternNames.givenName) result.givenName = patternNames.givenName;
+		if (!result.lastName && patternNames.lastName) result.lastName = patternNames.lastName;
+	}
+
+	return result;
+}
+
+function findNamesWithHints(text: string, nameHints: NameHints): Partial<DetectedPassportInfo> {
+	const result: Partial<DetectedPassportInfo> = {};
+
+	const findMatch = (target: string) => {
+		if (!target) return null;
+		const parts = target
+			.toUpperCase()
+			.split(' ')
+			.filter((p) => p.length > 1);
+
+		// Look for lines containing the name parts
+		const lines = text.split('\n');
+		for (const line of lines) {
+			const upperLine = line.toUpperCase();
+			if (parts.every((p) => upperLine.includes(p))) {
+				return cleanOCRName(line); // Clean the whole line found
+			}
+		}
+		return null;
+	};
+
+	if (nameHints.expectedLastName) {
+		const found = findMatch(nameHints.expectedLastName);
+		if (found) result.lastName = found;
+	}
+	if (nameHints.expectedFirstName) {
+		const found = findMatch(nameHints.expectedFirstName);
+		if (found) result.givenName = found;
+	}
+
+	return result;
+}
+
+function findNamesWithPatterns(text: string): Partial<DetectedPassportInfo> {
+	const result: Partial<DetectedPassportInfo> = {};
+	const surnamePatterns = [
+		/(?:Surname|Nom|Apellidos|Cognome|Nachname)\s*[:：]?\s*([A-Z\s'-]+)/i,
+		/([A-Z\s'-]+)\s*<<+/ // MRZ-style fallback in visual text
+	];
+	const givenPatterns = [/(?:Given Names?|Prénoms|Nombres|Nome|Vorname)\s*[:：]?\s*([A-Z\s'-]+)/i];
+
+	for (const p of surnamePatterns) {
+		const m = text.match(p);
+		if (m) {
+			result.lastName = cleanOCRName(m[1]);
+			break;
+		}
+	}
+	for (const p of givenPatterns) {
+		const m = text.match(p);
+		if (m) {
+			result.givenName = cleanOCRName(m[1]);
+			break;
+		}
+	}
+	return result;
+}
+
+function extractPassportNumber(text: string): string | null {
+	for (const pattern of passportNumberPatterns) {
+		const match = pattern.exec(text);
+		if (match) {
+			let num = match[1] || match[0];
+			num = num.replace(/[^A-Z0-9]/gi, '');
+			// Basic validity checks
+			if (num.length >= 6 && num.length <= 12 && !/JAN|FEB|MAR|APR/.test(num)) {
+				console.log('✅ Found passport number:', num);
+				return num;
+			}
+		}
+	}
+	return null;
+}
+
+function extractCountry(text: string): string | null {
+	// 1. Try mapping patterns first (e.g. looking for "USA")
+	for (const { patterns, country } of countryMappings) {
+		if (patterns.some((pattern: RegExp) => pattern.test(text))) {
+			return country;
+		}
+	}
+
+	// 2. Scan for full country names from the imported list
+	const upperText = text.toUpperCase();
+	for (const country of countries) {
+		if (upperText.includes(country.toUpperCase())) {
+			return country;
 		}
 	}
 
 	return null;
 }
 
-// Extract country
-function extractCountry(text: string): string | null {
-  for (const { patterns, country } of countryMappings) {
-    if (patterns.some((pattern: RegExp) => pattern.test(text))) {
-      console.log('✅ Found country:', country);
-      return country;
-    }
-  }
-  
-  return null;
-}
-
-// Extract date of birth
 function extractDateOfBirth(text: string): string | null {
-  const datePatterns = [
-    // DD MMM YYYY format
-    {
-      pattern: /(\d{1,2})\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{4})/i,
-      parser: (match: RegExpMatchArray) => parseDateWithMonth(match[1], match[2], match[3])
-    },
-    // DD/MM/YYYY or DD-MM-YYYY
-    {
-      pattern: /(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/,
-      parser: (match: RegExpMatchArray) => {
-        const day = match[1].padStart(2, '0');
-        const month = match[2].padStart(2, '0');
-        const year = match[3];
-        const monthNum = parseInt(month);
-        const dayNum = parseInt(day);
-        if (monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31) {
-          return `${year}-${month}-${day}`;
-        }
-        return null;
-      }
-    },
-    // YYYY-MM-DD or YYYY/MM/DD
-    {
-      pattern: /(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/,
-      parser: (match: RegExpMatchArray) => {
-        const year = match[1];
-        const month = match[2].padStart(2, '0');
-        const day = match[3].padStart(2, '0');
-        const monthNum = parseInt(month);
-        const dayNum = parseInt(day);
-        if (monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31) {
-          return `${year}-${month}-${day}`;
-        }
-        return null;
-      }
-    },
-    // DD.MM.YYYY
-    {
-      pattern: /(\d{2})\.(\d{2})\.(\d{4})/,
-      parser: (match: RegExpMatchArray) => `${match[3]}-${match[2]}-${match[1]}`
-    }
-  ];
+	// Reuse existing patterns
+	const datePatterns = [
+		{
+			pattern: /(\d{1,2})\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s*(\d{4})/i,
+			parser: (m: any) => parseDateWithMonth(m[1], m[2], m[3])
+		},
+		{
+			pattern: /(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/,
+			parser: (m: any) => formatDate(m[3], m[2], m[1])
+		},
+		{
+			pattern: /(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/,
+			parser: (m: any) => formatDate(m[1], m[2], m[3])
+		}
+	];
 
-  // Look for date of birth - search near DOB indicators first
-  const dobIndicators = /(?:date\s*of\s*birth|dob|born|birth|né|née|geboren|nacido|nato|生年月日)/i;
-  const dobMatch = text.match(dobIndicators);
-  
-  if (dobMatch) {
-    // Search for date near the DOB indicator
-    const searchStart = Math.max(0, dobMatch.index! - 50);
-    const searchEnd = Math.min(text.length, dobMatch.index! + 100);
-    const nearbyText = text.substring(searchStart, searchEnd);
-    
-    for (const { pattern, parser } of datePatterns) {
-      const match = nearbyText.match(pattern);
-      if (match) {
-        const parsed = parser(match);
-        if (parsed && isValidBirthDate(parsed)) {
-          console.log('✅ Found date of birth (near indicator):', parsed);
-          return parsed;
-        }
-      }
-    }
-  }
+	const dobIndicators = /(?:date\s*of\s*birth|dob|born|birth|né|née|geboren)/i;
+	const dobMatch = text.match(dobIndicators);
 
-  // If no date found near DOB indicator, search entire text
-  for (const { pattern, parser } of datePatterns) {
-    const matches = text.match(new RegExp(pattern, 'g'));
-    if (matches) {
-      for (const matchStr of matches) {
-        const match = matchStr.match(pattern);
-        if (match) {
-          const parsed = parser(match);
-          if (parsed && isValidBirthDate(parsed)) {
-            console.log('✅ Found date of birth:', parsed);
-            return parsed;
-          }
-        }
-      }
-    }
-  }
-  
-  return null;
+	// Search strategy: Near indicator first, then global
+	if (dobMatch) {
+		const context = text.substring(
+			Math.max(0, dobMatch.index! - 20),
+			Math.min(text.length, dobMatch.index! + 100)
+		);
+		for (const { pattern, parser } of datePatterns) {
+			const m = context.match(pattern);
+			if (m && isValidBirthDate(parser(m))) return parser(m);
+		}
+	}
+
+	for (const { pattern, parser } of datePatterns) {
+		const matches = text.match(new RegExp(pattern, 'g'));
+		if (matches) {
+			for (const mStr of matches) {
+				const m = mStr.match(pattern);
+				if (m && isValidBirthDate(parser(m))) return parser(m);
+			}
+		}
+	}
+	return null;
 }
 
-// Try MRZ parsing
-function tryMRZParsing(lines: string[]): DetectedPassportInfo {
-  const mrzLines = lines.filter(line => 
-    line.includes('<<') || 
-    (line.length > 30 && line.match(/^[A-Z0-9<]+$/))
-  );
+// --- Date Helpers ---
 
-  if (mrzLines.length >= 2) {
-    console.log('🔍 Found MRZ lines, parsing...');
-    return parseMRZ(mrzLines);
-  }
-  
-  return {};
-}
-
-// Parse MRZ (Machine Readable Zone) data
-function parseMRZ(mrzLines: string[]): DetectedPassportInfo {
-  const info: DetectedPassportInfo = {};
-  
-  if (mrzLines.length >= 2) {
-    const line1 = mrzLines[0];
-    const line2 = mrzLines[1];
-    
-    // Parse first MRZ line for names
-    if (line1.includes('<<')) {
-      const parts = line1.split('<<');
-      if (parts.length >= 2) {
-        // Extract last name (after country code, before <<)
-        const beforeDoubleArrow = parts[0];
-        const lastNameMatch = beforeDoubleArrow.match(/[A-Z]{3}([A-Z]+)$/);
-        if (lastNameMatch) {
-          info.lastName = cleanOCRName(lastNameMatch[1].replace(/</g, ' ').trim());
-        }
-        
-        // Extract given names (after <<)
-        const givenNamePart = parts[1];
-        if (givenNamePart) {
-          const givenNames = givenNamePart.split('<').filter(name => name.length > 0);
-          if (givenNames.length > 0) {
-            info.givenName = givenNames.map(name => cleanOCRName(name)).join(' ');
-          }
-        }
-      }
-    }
-    
-    // Parse second MRZ line
-    if (line2.length >= 20) {
-      // Extract passport number (first 9 characters)
-      const passportMatch = line2.match(/^([A-Z0-9]{9})/);
-      if (passportMatch) {
-        info.passportNumber = passportMatch[1].replace(/</g, '');
-      }
-      
-      // Extract date of birth (positions 13-19, YYMMDD format)
-      if (line2.length >= 19) {
-        const dobMatch = line2.substring(13, 19).match(/(\d{6})/);
-        if (dobMatch) {
-          info.dateOfBirth = parseMRZDate(dobMatch[1]);
-        }
-      }
-    }
-  }
-  
-  return info;
-}
-
-function parseMRZDate(mrzDate: string): string {
-  if (mrzDate.length !== 6) return '';
-  
-  const year = parseInt(mrzDate.substring(0, 2));
-  const month = mrzDate.substring(2, 4);
-  const day = mrzDate.substring(4, 6);
-  
-  // Determine century
-  const currentYear = new Date().getFullYear();
-  const currentCentury = Math.floor(currentYear / 100) * 100;
-  const currentYearInCentury = currentYear % 100;
-  
-  let fullYear: number;
-  if (year <= currentYearInCentury + 10) {
-    fullYear = currentCentury + year;
-  } else {
-    fullYear = currentCentury - 100 + year;
-  }
-  
-  return `${fullYear}-${month}-${day}`;
+function parseMRZDate(dateStr: string): string {
+	if (dateStr.length !== 6) return '';
+	const yy = parseInt(dateStr.substring(0, 2));
+	const mm = dateStr.substring(2, 4);
+	const dd = dateStr.substring(4, 6);
+	// Pivot year strategy: >50 = 19xx, <=50 = 20xx
+	const fullYear = yy > 50 ? 1900 + yy : 2000 + yy;
+	return `${fullYear}-${mm}-${dd}`;
 }
 
 function parseDateWithMonth(day: string, monthName: string, year: string): string {
-  const months: Record<string, string> = {
-    'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04',
-    'MAY': '05', 'JUN': '06', 'JUL': '07', 'AUG': '08',
-    'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'
-  };
-  
-  const month = months[monthName.toUpperCase()] || '01';
-  return `${year}-${month}-${day.padStart(2, '0')}`;
+	const months: Record<string, string> = {
+		JAN: '01',
+		FEB: '02',
+		MAR: '03',
+		APR: '04',
+		MAY: '05',
+		JUN: '06',
+		JUL: '07',
+		AUG: '08',
+		SEP: '09',
+		OCT: '10',
+		NOV: '11',
+		DEC: '12'
+	};
+	return `${year}-${months[monthName.toUpperCase()] || '01'}-${day.padStart(2, '0')}`;
+}
+
+function formatDate(year: string, month: string, day: string): string {
+	return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 }
 
 function isValidBirthDate(dateStr: string): boolean {
-  const date = new Date(dateStr);
-  const now = new Date();
-  
-  if (isNaN(date.getTime())) return false;
-  if (date > now) return false;
-  
-  const oldestDate = new Date();
-  oldestDate.setFullYear(oldestDate.getFullYear() - 120);
-  if (date < oldestDate) return false;
-  
-  const futureDate = new Date();
-  futureDate.setFullYear(futureDate.getFullYear() + 1);
-  if (date > futureDate) return false;
-  
-  return true;
+	const date = new Date(dateStr);
+	const now = new Date();
+	if (isNaN(date.getTime()) || date > now) return false;
+	if (date.getFullYear() < 1900) return false;
+	return true;
 }

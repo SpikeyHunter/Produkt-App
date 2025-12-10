@@ -19,6 +19,12 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 	const techRider = parseJson(event.tech_rider);
 	const sfxRider = parseJson(event.sfx_rider);
 	const hospoRider = parseJson(event.hospo_rider);
+	
+	// Handle guestlist parsing safely
+	let guestlist = event.guestlist;
+	if (typeof guestlist === 'string') {
+		guestlist = parseJson(guestlist);
+	}
 
 	const parts: { text: string[]; html: string[] } = { text: [], html: [] };
 
@@ -32,8 +38,9 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 		const techText: string[] = [];
 		const techHtml: string[] = [];
 
-		techText.push('Backline confirmed:');
-		techHtml.push('<strong><u>Backline confirmed:</u></strong>');
+		// Header matching your request
+		techText.push('Backline Confirmed:');
+		techHtml.push('<strong><u>Backline Confirmed:</u></strong>');
 
 		if (techRider.selected_mixer) {
 			techText.push(`- 1x ${techRider.selected_mixer}`);
@@ -47,7 +54,6 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 			}
 		}
 
-		// **FIX: Added logic for "Other Requests"**
 		if (techRider.other) {
 			techRider.other.forEach((req: { text: string }) => {
 				if (req.text && req.text.trim()) {
@@ -62,28 +68,40 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 	}
 
 	// --- SFX ---
-	if (
-		sfxRider &&
-		(sfxRider.cryo_jets?.enabled || sfxRider.sparkulars?.enabled || sfxRider.lasers?.enabled)
-	) {
+	// Check standard toggles AND the 'other' array
+	const hasSfxOther = sfxRider?.other && Array.isArray(sfxRider.other) && sfxRider.other.length > 0;
+	const hasStandardSfx = sfxRider && (sfxRider.cryo_jets?.enabled || sfxRider.sparkulars?.enabled || sfxRider.lasers?.enabled);
+
+	if (hasStandardSfx || hasSfxOther) {
 		const sfxText: string[] = [];
 		const sfxHtml: string[] = [];
 
 		sfxText.push('SFX:');
 		sfxHtml.push('<strong><u>SFX:</u></strong>');
 
-		if (sfxRider.sparkulars?.enabled) {
+		if (sfxRider?.sparkulars?.enabled) {
 			sfxText.push(`- ${sfxRider.sparkulars.qty}x Sparkulars - ${sfxRider.sparkulars.duration}sec`);
 			sfxHtml.push(`- ${sfxRider.sparkulars.qty}x Sparkulars - ${sfxRider.sparkulars.duration}sec`);
 		}
-		if (sfxRider.cryo_jets?.enabled) {
+		if (sfxRider?.cryo_jets?.enabled) {
 			sfxText.push(`- ${sfxRider.cryo_jets.qty}x Co2 - ${sfxRider.cryo_jets.duration}sec`);
 			sfxHtml.push(`- ${sfxRider.cryo_jets.qty}x Co2 - ${sfxRider.cryo_jets.duration}sec`);
 		}
-		if (sfxRider.lasers?.enabled) {
+		if (sfxRider?.lasers?.enabled) {
 			sfxText.push(`- ${sfxRider.lasers.qty}x Lasers`);
 			sfxHtml.push(`- ${sfxRider.lasers.qty}x Lasers`);
 		}
+		
+		// Add custom SFX items (e.g., "2x Laser" from the other array)
+		if (hasSfxOther) {
+			sfxRider.other.forEach((item: any) => {
+				if (item.text) {
+					sfxText.push(`- ${item.text}`);
+					sfxHtml.push(`- ${item.text}`);
+				}
+			});
+		}
+
 		parts.text.push(sfxText.join('\n'));
 		parts.html.push(sfxHtml.join('<br>'));
 	}
@@ -95,19 +113,38 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 
 		hospoText.push('Hospitality Rider:');
 		hospoHtml.push('<strong><u>Hospitality Rider:</u></strong>');
-		hospoText.push(`${event.event_venue || 'Venue'} will provide:`);
-		hospoHtml.push(`${event.event_venue || 'Venue'} will provide:`);
+		
+		const venueName = event.event_venue || 'Venue';
+		hospoText.push(`${venueName} will provide:`);
+		hospoHtml.push(`${venueName} will provide:`);
+		
 		hospoText.push('- 1x shared green room');
 		hospoHtml.push('- 1x shared green room');
 
-		const selectedSpirits = Object.entries(hospoRider.spirits || {}).filter(
-			([, item]: [string, any]) => item.selected
-		);
-		selectedSpirits.forEach(([name, item]: [string, any]) => {
-			const line = `- ${item.qty || 1}x ${name}`;
-			hospoText.push(line);
-			hospoHtml.push(line);
-		});
+		// Helper to process a category of drinks
+		const processCategory = (category: any) => {
+			if (!category) return;
+			Object.entries(category).forEach(([name, item]: [string, any]) => {
+				if (item.selected) {
+					const line = `- ${item.qty || 1}x ${name}`;
+					hospoText.push(line);
+					hospoHtml.push(line);
+				}
+			});
+		};
+
+		// 1. Process Spirits
+		processCategory(hospoRider.spirits);
+		
+		// 2. Process Beers/Wine/Juice (Nested structure)
+		if (hospoRider.beers_wine) {
+			processCategory(hospoRider.beers_wine.beers);
+			processCategory(hospoRider.beers_wine.wine);
+			processCategory(hospoRider.beers_wine.juice);
+		}
+
+		// 3. Process Other Drinks (Water, Red Bull, etc.)
+		processCategory(hospoRider.other_drinks);
 
 		if (hospoRider.base?.regular_drinks) {
 			const line = '- Beers, RedBull, Water, Coconut water, Soft drinks';
@@ -120,7 +157,7 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 			hospoHtml.push(line);
 		}
 
-		// Add the static food buyout line from your request
+		// Food Buyout
 		const buyoutLine = '- Food Buyout: 50$CAD cash';
 		hospoText.push(buyoutLine);
 		hospoHtml.push(buyoutLine);
@@ -130,14 +167,20 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 	}
 
 	// --- Guestlist ---
+	// Default to 0 if undefined, matching the exact numbers from the data columns
+	const gaCount = guestlist?.ga || 0;
+	const vipCount = guestlist?.vip || 0;
+
 	const guestlistText = [
 		'Guestlist:',
-		'- You can have 10x VIP and 10x GA guest. Names need to be sent by email or to DOS contact before 7pm on day of show.'
+		`- You can have ${vipCount}x VIP and ${gaCount}x GA guest. Names need to be sent by email or to DOS contact before 7pm on day of show.`
 	].join('\n');
+	
 	const guestlistHtml = [
 		'<strong><u>Guestlist:</u></strong>',
-		'- You can have 10x VIP and 10x GA guest. Names need to be sent by email or to DOS contact before 7pm on day of show.'
+		`- You can have ${vipCount}x VIP and ${gaCount}x GA guest. Names need to be sent by email or to DOS contact before 7pm on day of show.`
 	].join('<br>');
+
 	parts.text.push(guestlistText);
 	parts.html.push(guestlistHtml);
 
