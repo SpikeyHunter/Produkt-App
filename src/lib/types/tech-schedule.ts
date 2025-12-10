@@ -15,6 +15,8 @@ export interface TechRow {
   dt: string;
   artist_liaison: string;
   notes: string;
+  // --- ADD THIS LINE ---
+  calendar_event_id?: string | null; 
 }
 
 export type TechRowColumn = keyof TechRow;
@@ -33,7 +35,7 @@ export const EVENT_COLORS: Record<string, string> = {
   'Demontage': '#f8a679ff',
   'Other': 'transparent',
   'Hold': 'transparent',
-  'Canceled': '#ff0000', // Special handling in logic
+  'Canceled': '#ff0000',
   '': 'transparent'
 };
 

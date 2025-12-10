@@ -21,20 +21,13 @@
 	let isLoading = true;
 
 	// Permissions State
-	let userPermissions = {
-		role: 'viewer',
-		canAddYear: false,
-		canEditAll: false,
-		allowedColumns: [] as string[]
-	};
-
+	let userPermissions = { role: 'viewer', canAddYear: false, canEditAll: false, allowedColumns: [] as string[] };
+	
 	// CACHE & LOADING STATE
 	let scheduleCache: Record<number, TechRow[]> = {};
 	let currentRows: TechRow[] = [];
 	let isScheduleLoading = false;
-	// Fix: Request ID to prevent race conditions (e.g. clicking 2024 then 2025 quickly)
 	let loadRequestId = 0;
-
 	// Saving Status tracking from child
 	let saveStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
 
@@ -79,7 +72,6 @@
 
 		const currentY = dayjs().year();
 		if (years.includes(currentY)) {
-			// Use the safe switch function instead of direct assignment
 			switchYear(currentY);
 			viewMode = 'current';
 		} else if (years.length > 0) {
@@ -92,36 +84,35 @@
 	async function switchYear(year: number) {
 		if (selectedYear === year) return;
 
-		// 1. Force Save: If user is typing, force the field to blur/save BEFORE destroying the view
+		// 1. Force Save: Blur active element
 		if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
 			document.activeElement.blur();
-			await tick(); // Wait for the blur event handlers to run
+			await tick(); 
 		}
 
-		// 2. Snapshot current state to cache so we don't lose edits visually
+		// 2. Snapshot cache
 		if (selectedYear && currentRows.length > 0) {
 			scheduleCache[selectedYear] = currentRows;
 		}
 
-		// 3. Update Selection
+		// 3. HARD RESET EVERYTHING
+		currentRows = []; 
+		saveStatus = 'idle';
+		isDeleteMode = false; // Reset delete mode on switch
+		
+		// 4. Update Selection
 		selectedYear = year;
-		isDeleteMode = false;
-
-		// 4. Load Data Safely
+		
+		// 5. Load Data
 		loadScheduleForYear(year);
 	}
 
 	async function loadScheduleForYear(year: number) {
-		// Increment Request ID: Only the latest request will be allowed to update the UI
 		const requestId = ++loadRequestId;
-
-		// 1. Instant Load from Cache
 		if (scheduleCache[year]) {
 			currentRows = scheduleCache[year];
-			// Don't set loading true if we have cache, just fetch silently to update
 			fetchDataForYear(year, requestId, true);
 		} else {
-			// 2. No cache, show loading
 			isScheduleLoading = true;
 			currentRows = [];
 			fetchDataForYear(year, requestId, false);
@@ -136,24 +127,15 @@
 			.order('date', { ascending: true })
 			.order('sort_order', { ascending: true });
 
-		// Race Condition Check: If user switched tabs while this was loading, IGNORE this result
-		if (requestId !== loadRequestId) {
-			return;
-		}
+		if (requestId !== loadRequestId) return;
 
 		if (!error && data) {
 			scheduleCache[year] = data;
-			// Only update currentRows if we are still on that year (double check)
 			if (selectedYear === year) {
 				currentRows = data;
 			}
-		} else if (error) {
-			console.error('Error loading schedule:', error);
 		}
-
-		if (!isSilent) {
-			isScheduleLoading = false;
-		}
+		if (!isSilent) isScheduleLoading = false;
 	}
 
 	async function fetchUserPermissions(userId: string) {
@@ -164,7 +146,6 @@
 			.single();
 
 		if (error || !data) return;
-
 		const main = data.main_permission;
 
 		let secondary: string[] = [];
@@ -255,13 +236,11 @@
 		let from = 0;
 		const limit = 1000;
 		let keepFetching = true;
-
 		while (keepFetching) {
 			const { data, error } = await supabase
 				.from('schedule_techs')
 				.select('year')
 				.range(from, from + limit - 1);
-
 			if (error || !data || data.length === 0) {
 				keepFetching = false;
 			} else {
@@ -309,7 +288,6 @@
 		viewMode === 'current'
 			? years.filter((y) => y >= dayjs().year()).sort((a, b) => a - b)
 			: years.filter((y) => y < dayjs().year()).sort((a, b) => b - a);
-
 	$: if (viewMode) {
 		const currentSelectionInList = selectedYear && displayedYears.includes(selectedYear);
 		if (!currentSelectionInList) {
@@ -380,7 +358,7 @@
 									{/if}
 								</div>
 
-								{#if userPermissions.role === 'production'}
+                                {#if userPermissions.role === 'production'}
 									<button
 										class="flex items-center justify-center p-2 rounded-full transition-all duration-200 hover:cursor-pointer hover:scale-110 focus:outline-none {isDeleteMode
 											? 'bg-problem/10 hover:bg-problem/20'
