@@ -19,8 +19,7 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 	const techRider = parseJson(event.tech_rider);
 	const sfxRider = parseJson(event.sfx_rider);
 	const hospoRider = parseJson(event.hospo_rider);
-	
-	// Handle guestlist parsing safely
+
 	let guestlist = event.guestlist;
 	if (typeof guestlist === 'string') {
 		guestlist = parseJson(guestlist);
@@ -38,7 +37,6 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 		const techText: string[] = [];
 		const techHtml: string[] = [];
 
-		// Header matching your request
 		techText.push('Backline Confirmed:');
 		techHtml.push('<strong><u>Backline Confirmed:</u></strong>');
 
@@ -68,9 +66,10 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 	}
 
 	// --- SFX ---
-	// Check standard toggles AND the 'other' array
 	const hasSfxOther = sfxRider?.other && Array.isArray(sfxRider.other) && sfxRider.other.length > 0;
-	const hasStandardSfx = sfxRider && (sfxRider.cryo_jets?.enabled || sfxRider.sparkulars?.enabled || sfxRider.lasers?.enabled);
+	const hasStandardSfx =
+		sfxRider &&
+		(sfxRider.cryo_jets?.enabled || sfxRider.sparkulars?.enabled || sfxRider.lasers?.enabled);
 
 	if (hasStandardSfx || hasSfxOther) {
 		const sfxText: string[] = [];
@@ -91,8 +90,7 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 			sfxText.push(`- ${sfxRider.lasers.qty}x Lasers`);
 			sfxHtml.push(`- ${sfxRider.lasers.qty}x Lasers`);
 		}
-		
-		// Add custom SFX items (e.g., "2x Laser" from the other array)
+
 		if (hasSfxOther) {
 			sfxRider.other.forEach((item: any) => {
 				if (item.text) {
@@ -113,15 +111,14 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 
 		hospoText.push('Hospitality Rider:');
 		hospoHtml.push('<strong><u>Hospitality Rider:</u></strong>');
-		
+
 		const venueName = event.event_venue || 'Venue';
 		hospoText.push(`${venueName} will provide:`);
 		hospoHtml.push(`${venueName} will provide:`);
-		
+
 		hospoText.push('- 1x shared green room');
 		hospoHtml.push('- 1x shared green room');
 
-		// Helper to process a category of drinks
 		const processCategory = (category: any) => {
 			if (!category) return;
 			Object.entries(category).forEach(([name, item]: [string, any]) => {
@@ -133,17 +130,14 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 			});
 		};
 
-		// 1. Process Spirits
 		processCategory(hospoRider.spirits);
-		
-		// 2. Process Beers/Wine/Juice (Nested structure)
+
 		if (hospoRider.beers_wine) {
 			processCategory(hospoRider.beers_wine.beers);
 			processCategory(hospoRider.beers_wine.wine);
 			processCategory(hospoRider.beers_wine.juice);
 		}
 
-		// 3. Process Other Drinks (Water, Red Bull, etc.)
 		processCategory(hospoRider.other_drinks);
 
 		if (hospoRider.base?.regular_drinks) {
@@ -157,7 +151,6 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 			hospoHtml.push(line);
 		}
 
-		// Food Buyout
 		const buyoutLine = '- Food Buyout: 50$CAD cash';
 		hospoText.push(buyoutLine);
 		hospoHtml.push(buyoutLine);
@@ -167,7 +160,6 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 	}
 
 	// --- Guestlist ---
-	// Default to 0 if undefined, matching the exact numbers from the data columns
 	const gaCount = guestlist?.ga || 0;
 	const vipCount = guestlist?.vip || 0;
 
@@ -175,7 +167,7 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 		'Guestlist:',
 		`- You can have ${vipCount}x VIP and ${gaCount}x GA guest. Names need to be sent by email or to DOS contact before 7pm on day of show.`
 	].join('\n');
-	
+
 	const guestlistHtml = [
 		'<strong><u>Guestlist:</u></strong>',
 		`- You can have ${vipCount}x VIP and ${gaCount}x GA guest. Names need to be sent by email or to DOS contact before 7pm on day of show.`
@@ -184,9 +176,45 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 	parts.text.push(guestlistText);
 	parts.html.push(guestlistHtml);
 
-	// --- Final Assembly ---
 	const fullText = parts.text.join('\n\n');
 	const fullHtml = `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9pt;">${parts.html.join('<br><br>')}</div>`;
 
 	return { text: fullText, html: fullHtml };
+}
+
+export function generateCOIMessage() {
+	// Text version: Indented with spaces
+	const text = [
+		'COI Requirements',
+		'   New City Gas',
+		'   7350121 Canada Inc',
+		'   950 ottawa Street',
+		'   Montreal, Quebec',
+		'   H3C 1S4',
+		'', // Empty line
+		'Photographers & Videographers',
+		"Filming and photography by 3rd parties is only permitted at New City Gas with Produkt's prior written consent. Unless listed as an additional insured on Artist/Company’s policy, independent contractors must carry valid general liability insurance with a limit of no less than $1MM. Produkt & New City Gas will not be held responsible for loss, theft, or damage of equipment."
+	].join('\n');
+
+	// HTML version: Indented with div, explicit breaks added
+	const addressBlock = [
+		'New City Gas',
+		'7350121 Canada Inc',
+		'950 ottawa Street',
+		'Montreal, Quebec',
+		'H3C 1S4'
+	].join('<br>');
+
+	const htmlParts = [
+		'<strong><u>COI Requirements</u></strong>',
+		`<div style="margin-left: 20px;">${addressBlock}</div>`,
+		'<br>',
+		'<strong>Photographers & Videographers</strong>',
+		'<br>', // FIX: Added this break so "Filming..." starts on a new line
+		"Filming and photography by 3rd parties is only permitted at New City Gas with Produkt's prior written consent. Unless listed as an additional insured on Artist/Company’s policy, independent contractors must carry valid general liability insurance with a limit of no less than $1MM. Produkt & New City Gas will not be held responsible for loss, theft, or damage of equipment."
+	];
+
+	const html = `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9pt;">${htmlParts.join('')}</div>`;
+
+	return { text, html };
 }
