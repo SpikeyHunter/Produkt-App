@@ -22,7 +22,6 @@
 
 	// Permissions State
 	let userPermissions = { role: 'viewer', canAddYear: false, canEditAll: false, allowedColumns: [] as string[] };
-	
 	// CACHE & LOADING STATE
 	let scheduleCache: Record<number, TechRow[]> = {};
 	let currentRows: TechRow[] = [];
@@ -30,7 +29,6 @@
 	let loadRequestId = 0;
 	// Saving Status tracking from child
 	let saveStatus: 'idle' | 'saving' | 'success' | 'error' = 'idle';
-
 	// Guest Auth State
 	let isGuestAuthenticated = false;
 	let passwordInput = '';
@@ -70,24 +68,54 @@
 		await fetchAllYears();
 		isLoading = false;
 
+        // --- NEW: URL RESTORATION LOGIC ---
+        const params = new URLSearchParams(window.location.search);
+        const savedYear = params.get('year') ? parseInt(params.get('year')!) : null;
+        const savedView = params.get('view') as 'current' | 'past' | null;
+
+        // Restore View Mode
+        if (savedView && ['current', 'past'].includes(savedView)) {
+            viewMode = savedView;
+        }
+
+        // Restore Year (if valid) or fallback to default
 		const currentY = dayjs().year();
-		if (years.includes(currentY)) {
+        
+        if (savedYear && years.includes(savedYear)) {
+            switchYear(savedYear);
+        } else if (years.includes(currentY)) {
 			switchYear(currentY);
 			viewMode = 'current';
+            updateUrl(); // Sync default to URL
 		} else if (years.length > 0) {
 			const maxYear = years.sort((a, b) => b - a)[0];
 			switchYear(maxYear);
+            updateUrl(); // Sync default to URL
 		}
 	});
+
+    // --- NEW: URL SYNC HELPER ---
+    function updateUrl() {
+        const url = new URL(window.location.href);
+        if (selectedYear) url.searchParams.set('year', selectedYear.toString());
+        if (viewMode) url.searchParams.set('view', viewMode);
+        
+        // Update URL without reloading the page
+        goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
+    }
+
+    function toggleViewMode() {
+        viewMode = viewMode === 'current' ? 'past' : 'current';
+        updateUrl();
+    }
 
 	// --- CRITICAL FIX: Safe Switching Logic ---
 	async function switchYear(year: number) {
 		if (selectedYear === year) return;
-
 		// 1. Force Save: Blur active element
 		if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
 			document.activeElement.blur();
-			await tick(); 
+			await tick();
 		}
 
 		// 2. Snapshot cache
@@ -96,14 +124,17 @@
 		}
 
 		// 3. HARD RESET EVERYTHING
-		currentRows = []; 
+		currentRows = [];
 		saveStatus = 'idle';
 		isDeleteMode = false; // Reset delete mode on switch
 		
 		// 4. Update Selection
 		selectedYear = year;
-		
-		// 5. Load Data
+        
+        // 5. Update URL
+        updateUrl();
+
+		// 6. Load Data
 		loadScheduleForYear(year);
 	}
 
@@ -126,7 +157,6 @@
 			.eq('year', year)
 			.order('date', { ascending: true })
 			.order('sort_order', { ascending: true });
-
 		if (requestId !== loadRequestId) return;
 
 		if (!error && data) {
@@ -144,7 +174,6 @@
 			.select('main_permission, secondary_permission')
 			.eq('id', userId)
 			.single();
-
 		if (error || !data) return;
 		const main = data.main_permission;
 
@@ -320,7 +349,7 @@
 									<div class="mr-2">
 										<button
 											class="px-5 py-2 text-sm font-bold rounded-t-lg hover:cursor-pointer transition-colors border-t border-x bg-transparent border-gray2/30 hover:bg-white/5 text-gray2/50 uppercase"
-											on:click={() => (viewMode = viewMode === 'current' ? 'past' : 'current')}
+											on:click={toggleViewMode}
 										>
 											{viewMode}
 										</button>
@@ -444,7 +473,8 @@
 											<path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
 											<path
 												fill-rule="evenodd"
-												d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 8.201 2.665 9.336 6.41.147.481.147.99 0 1.472C18.201 14.335 14.257 17 10 17c-4.257 0-8.201-2.665-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+												d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 
+8.201 2.665 9.336 6.41.147.481.147.99 0 1.472C18.201 14.335 14.257 17 10 17c-4.257 0-8.201-2.665-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
 												clip-rule="evenodd"
 											/>
 										</svg>
@@ -514,7 +544,7 @@
 							<div class="mr-2">
 								<button
 									class="px-5 py-2 text-sm font-bold rounded-t-lg hover:cursor-pointer transition-colors border-t border-x bg-transparent border-gray2/30 hover:bg-white/5 text-gray2/50 uppercase"
-									on:click={() => (viewMode = viewMode === 'current' ? 'past' : 'current')}
+									on:click={toggleViewMode}
 								>
 									{viewMode}
 								</button>
@@ -569,7 +599,8 @@
 									class="w-4 h-4"
 									><path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" /><path
 										fill-rule="evenodd"
-										d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 8.201 2.665 9.336 6.41.147.481.147.99 0 1.472C18.201 14.335 14.257 17 10 17c-4.257 0-8.201-2.665-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+										d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 
+8.201 2.665 9.336 6.41.147.481.147.99 0 1.472C18.201 14.335 14.257 17 10 17c-4.257 0-8.201-2.665-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
 										clip-rule="evenodd"
 									/></svg
 								>
@@ -625,7 +656,8 @@
 						bind:value={passwordInput}
 						on:keydown={handleKeydown}
 						use:focusInput
-						class="w-full bg-black/30 border border-gray2/20 rounded-xl px-4 py-3 text-white text-center focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime transition-all placeholder-gray2/50"
+						class="w-full bg-black/30 
+border border-gray2/20 rounded-xl px-4 py-3 text-white text-center focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime transition-all placeholder-gray2/50"
 					/>
 					{#if passwordError}<p
 							class="text-red-500 text-xs text-center font-bold animate-in fade-in slide-in-from-top-1"
