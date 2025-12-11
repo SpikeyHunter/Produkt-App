@@ -15,13 +15,14 @@
 	import { PDFDocument } from 'pdf-lib';
 	import { suggestJobInfo } from '$lib/services/aiService.js';
 	import { onMount } from 'svelte';
-	
+
 	onMount(() => {
 		// Preload fonts to ensure they're ready for PDF generation
 		document.fonts.ready.then(() => {
 			console.log('Fonts loaded');
 		});
 	});
+
 	interface SimpleImmigrationInfo {
 		letter_type: string;
 		visa_required: boolean;
@@ -37,7 +38,6 @@
 
 	export let isOpen = false;
 	export let event: EventAdvance | null = null;
-
 	const dispatch = createEventDispatcher<{ save: { event: EventAdvance }; close: void }>();
 
 	let people: Person[] = [];
@@ -82,7 +82,6 @@
 	$: parsedRoles = typeof rolesData === 'string' ? JSON.parse(rolesData || '[]') : rolesData || [];
 	$: currentRole = parsedRoles.find((r: Person) => r.id === currentPerson?.id);
 	$: isArtist = currentRole?.role === 'Artist';
-
 	$: biographyExists = event?.artist_bio === true && event?.artist_bio_url;
 	$: biographyUrl = event?.artist_bio_url;
 
@@ -95,34 +94,41 @@
 	$: currentDeparture = parsedGroundInfo.departures?.find((d: any) =>
 		d.assignedRoles?.includes(`${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`)
 	);
-
 	$: hasPromoterLetters = Array.from(immigrationInfos.values()).some(
 		(info) => info.letter_type === 'Promoter Letter'
 	);
 	$: stayDuration = 2;
-
 	$: formattedFee = (() => {
 		const amount = currentImmigrationInfo?.artist_fee;
 		const currency = currentImmigrationInfo?.artist_fee_currency || 'USD';
 		if (amount === null || amount === undefined || amount === '') return '';
+		
 		const num = Number(amount);
 		if (isNaN(num)) return amount;
-		const formatted = new Intl.NumberFormat('en-US').format(num);
+
+		// Check if the number has decimals (e.g. 2817.5)
+		const hasDecimals = num % 1 !== 0;
+
+		// If it has decimals, force 2 decimal places. If it's a whole number, show 0 decimals.
+		const formatted = new Intl.NumberFormat('en-US', {
+			minimumFractionDigits: hasDecimals ? 2 : 0,
+			maximumFractionDigits: 2
+		}).format(num);
+
 		return currency === 'CAD' ? `${formatted} CAD` : formatted;
 	})();
-
 	$: letterInfoIsFilled = !!(
 		currentImmigrationInfo?.gender &&
 		currentImmigrationInfo?.letter_type === 'Promoter Letter' &&
 		(isArtist ? currentImmigrationInfo?.artist_fee : true) // Remove fee requirement for crew
 	);
-
 	$: formattedDob = (() => {
 		if (!currentPassportInfo?.dateOfBirth) return '';
 		const date = new Date(currentPassportInfo.dateOfBirth);
 		return date.toISOString().split('T')[0];
 	})();
 
+	// UPDATED: Prioritize event_date to ensure year is correct
 	$: formattedArrivalDate = (() => {
 		const rawDate = event?.event_date || event?.date;
 		if (!rawDate) return '';
@@ -160,7 +166,12 @@
 		console.log('DEBUG: artistLetterData =', artistLetterData);
 	}
 	$: crewLetterData = !isArtist ? (promoterLetterRenderData as PromoterLetterCrewData) : null;
+
+	// UPDATED: Use event_date for letter generation
 	$: promoterLetterRenderData = (() => {
+		// Use event_date as the primary source for the event date
+		const primaryEventDate = event?.event_date || event?.date;
+
 		if (isArtist) {
 			// Return existing PromoterLetterData for artists
 			const data: PromoterLetterData = {
@@ -191,17 +202,17 @@
 							month: 'long',
 							day: 'numeric'
 						})
-					: event?.date
-						? new Date(event.date).toLocaleDateString('en-US', {
+					: primaryEventDate
+						? new Date(primaryEventDate).toLocaleDateString('en-US', {
 								year: 'numeric',
 								month: 'long',
 								day: 'numeric'
 							})
 						: '',
-				performanceDate: event?.date || '',
+				performanceDate: primaryEventDate ? String(primaryEventDate) : '', // Send raw date string to component
 				showDuration: 2,
 				paymentCurrency: currentImmigrationInfo?.artist_fee_currency || 'USD',
-				paymentAmount: formattedFee.replace(' CAD', ''), // CHANGE THIS LINE to remove CAD suffix
+				paymentAmount: formattedFee.replace(' CAD', ''), // remove CAD suffix
 				stayDurationDays: stayDuration,
 				letterDate: new Date().toLocaleDateString('en-US', {
 					year: 'numeric',
@@ -230,15 +241,15 @@
 				crewCitizenship: normalizeCountry(currentPassportInfo?.country || ''),
 				passportNumber: currentPassportInfo?.passportNumber || '',
 				artistName: event?.artist_name || '',
-				performanceDate: event?.date || '',
+				performanceDate: primaryEventDate ? String(primaryEventDate) : '',
 				arrivalDate: currentArrival?.date
 					? new Date(currentArrival.date).toLocaleDateString('en-US', {
 							year: 'numeric',
 							month: 'long',
 							day: 'numeric'
 						})
-					: event?.date
-						? new Date(event.date).toLocaleDateString('en-US', {
+					: primaryEventDate
+						? new Date(primaryEventDate).toLocaleDateString('en-US', {
 								year: 'numeric',
 								month: 'long',
 								day: 'numeric'
@@ -293,16 +304,15 @@
 		}
 	}
 
-	function handleFeeInput(value: string) {
-		// Remove all non-alphanumeric characters except numbers
-		const cleanValue = value.replace(/[^0-9CADcad]/g, '');
+function handleFeeInput(value: string) {
+		// Remove all non-alphanumeric characters except numbers AND dots
+		const cleanValue = value.replace(/[^0-9CADcad.]/g, ''); // Added '.' inside the brackets
 
 		// Check if CAD is in the input
 		const hasCAD = /cad/i.test(cleanValue);
 
 		// Extract just the numbers
 		const numbers = cleanValue.replace(/[CADcad]/g, '');
-
 		// Set the fee and currency
 		handleUpdateField('artist_fee', numbers);
 		handleUpdateField('artist_fee_currency', hasCAD ? 'CAD' : 'USD');
@@ -320,7 +330,6 @@
 			Photographer: 'Photographer',
 			Videographer: 'Videographer'
 		};
-
 		// If it's a predefined role, use the mapping
 		if (role && jobTitleMap[role as keyof typeof jobTitleMap]) {
 			return jobTitleMap[role as keyof typeof jobTitleMap];
@@ -329,7 +338,6 @@
 		// For custom roles, use custom job title if provided, otherwise use role name
 		return customJobTitle || role || 'Unknown';
 	};
-
 	const getJobDescription = (role: string | undefined) => {
 		const descriptions = {
 			Artist: 'Provides music and plays music',
@@ -342,7 +350,6 @@
 			Photographer: 'Captures and produces photographic content',
 			Videographer: 'Records and produces video content'
 		};
-
 		if (role && descriptions[role as keyof typeof descriptions]) {
 			return descriptions[role as keyof typeof descriptions];
 		}
@@ -406,7 +413,6 @@
 		if (!currentPerson || !currentPassportInfo || !currentImmigrationInfo) return;
 
 		isGeneratingImmForm = true;
-
 		try {
 			const formUrl = '/pdf/IMM5686E_Template_Empty.pdf';
 			const existingPdfBytes = await fetch(formUrl).then((res) => res.arrayBuffer());
@@ -430,7 +436,6 @@
 				Total_Duration: `${stayDuration}`,
 				Job_Description: getJobDescription(currentRole?.role)
 			};
-
 			for (const [fieldName, value] of Object.entries(fields)) {
 				try {
 					const field = form.getTextField(fieldName);
@@ -452,12 +457,10 @@
 
 			const fileName = `IMM5686E_${currentPassportInfo.givenName} ${currentPassportInfo.lastName}.pdf`;
 			const filePath = `IMM5686E/${fileName}`;
-
 			const { error: uploadError } = await supabase.storage
 				.from('documents')
 				.upload(filePath, pdfBlob, { upsert: true });
 			if (uploadError) throw uploadError;
-
 			const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
 
 			handleUpdateField('letter_url', urlData.publicUrl);
@@ -578,7 +581,6 @@
 		if (!event) return { isValid: false, missingDocs: ['Event data missing'] };
 
 		const missingDocs: string[] = [];
-
 		// Check for contract
 		if (!event.contract || !event.contract_url) {
 			missingDocs.push('Contract');
@@ -594,7 +596,6 @@
 				missingDocs.push(`Passport for ${personName}`);
 			}
 		});
-
 		// Check for IMM forms for all people
 		for (const [personId, info] of immigrationInfos) {
 			const passportInfo = parsedPassportInfo.find((p: any) => p.id === personId);
@@ -612,7 +613,6 @@
 			const role = parsedRoles.find((r: Person) => r.id === person.id);
 			return role?.role === 'Artist';
 		});
-
 		artistPeople.forEach((artist) => {
 			const passportInfo = parsedPassportInfo.find((p: any) => p.id === artist.id);
 			const artistName = passportInfo
@@ -624,7 +624,6 @@
 				missingDocs.push(`Biography for ${artistName}`);
 			}
 		});
-
 		return {
 			isValid: missingDocs.length === 0,
 			missingDocs
@@ -667,10 +666,10 @@
 				const role = parsedRoles.find((r: Person) => r.id === person.id);
 				return role?.role === 'Artist';
 			});
-
 			const artistPassportInfo = artistPerson
 				? parsedPassportInfo.find((p: any) => p.id === artistPerson.id)
-				: parsedPassportInfo[0]; // Fallback to first person if no artist found
+				: parsedPassportInfo[0];
+			// Fallback to first person if no artist found
 
 			const fullLegalName = artistPassportInfo
 				? `${artistPassportInfo.givenName} ${artistPassportInfo.lastName}`
@@ -688,7 +687,6 @@
 					return `${fullName} - ${role}`;
 				})
 				.join('<br>');
-
 			const attachments = [];
 
 			// Add passport images converted to PDF
@@ -700,11 +698,9 @@
 
 						const { default: jsPDF } = await import('jspdf');
 						const pdf = new jsPDF();
-
 						const img = new Image();
 						const canvas = document.createElement('canvas');
 						const ctx = canvas.getContext('2d');
-
 						await new Promise<void>((resolve, reject) => {
 							img.onload = () => {
 								canvas.width = img.width;
@@ -738,7 +734,6 @@
 									content: pdfBase64,
 									contentType: 'application/pdf'
 								});
-
 								resolve();
 							};
 
@@ -775,7 +770,6 @@
 												: `Promoter Letter_Crew - ${passportInfo.givenName} ${passportInfo.lastName}.pdf`;
 										})()
 									: `IMM5686E_${passportInfo.givenName} ${passportInfo.lastName}.pdf`;
-
 							attachments.push({
 								filename: fileName,
 								content: base64.split(',')[1],
@@ -849,7 +843,6 @@
 							const img = new Image();
 							const canvas = document.createElement('canvas');
 							const ctx = canvas.getContext('2d');
-
 							await new Promise<void>((resolve, reject) => {
 								img.onload = () => {
 									canvas.width = img.width;
@@ -883,7 +876,6 @@
 										content: pdfBase64,
 										contentType: 'application/pdf'
 									});
-
 									resolve();
 								};
 
@@ -905,7 +897,8 @@ To: IRCC.IMWU-UMIT.IRCC@cic.gc.ca
 CC: janie@produkt.ca, allanah@produkt.ca
 Subject: WP Exemption for ${fullLegalName} AKA ${artistName} at New City Gas ${formattedEventDate}
 MIME-Version: 1.0
-Content-Type: multipart/mixed; boundary="${boundary}"
+Content-Type: multipart/mixed;
+boundary="${boundary}"
 
 --${boundary}
 Content-Type: text/html; charset=UTF-8
@@ -918,10 +911,12 @@ Content-Transfer-Encoding: 8bit
 <p>Please find attached WP exemption request for <strong>${fullLegalName} AKA ${artistName} at New City Gas ${formattedEventDate}</strong></p>
 
 <p>Here is the list of documents:<br>
-<strong>1. Performers' passport ID page</strong><br>
+<strong>1.
+Performers' passport ID page</strong><br>
 <strong>2. Service contract between Performer and 4427319 Canada inc.</strong><br>
 <strong>3. Invitation Letter</strong><br>
-<strong>4. Biography</strong></p>
+<strong>4.
+Biography</strong></p>
 
 <p><strong>Travelling party:</strong><br>
 ${travellingParty}</p>
@@ -945,7 +940,6 @@ ${att.content}
 	)
 	.join('')}
 --${boundary}--`;
-
 			const emlBlob = new Blob([emlContent], { type: 'message/rfc822' });
 			const url = URL.createObjectURL(emlBlob);
 			const link = document.createElement('a');
@@ -975,7 +969,6 @@ ${att.content}
 	}
 	async function handleGenerateAndUploadPDF() {
 		if (!letterInfoIsFilled || !currentPerson || !currentPassportInfo) return;
-
 		console.log('Starting PDF generation...');
 		console.log('isArtist:', isArtist);
 		console.log('artistLetterData:', artistLetterData);
@@ -984,7 +977,6 @@ ${att.content}
 		isGeneratingPdf = true;
 		showLetterPreview = true;
 		await tick();
-
 		await new Promise((resolve) => setTimeout(resolve, 2000));
 		const html2pdf = (await import('html2pdf.js')).default;
 
@@ -994,7 +986,6 @@ ${att.content}
 		console.log('Looking for element:', elementId);
 		console.log('Element found:', !!element);
 		console.log('Element innerHTML length:', element?.innerHTML.length || 0);
-
 		if (!element) {
 			console.error(`PDF preview element ${elementId} not found.`);
 			isGeneratingPdf = false;
@@ -1005,7 +996,7 @@ ${att.content}
 		try {
 			const pdfBlob = await html2pdf()
 				.set({
-					margin: 0.5,
+					margin: 0, // IMPORTANT: Set to 0 because the component itself has padding
 					filename: 'Promoter Letter.pdf',
 					image: { type: 'jpeg' as const, quality: 0.98 },
 					html2canvas: {
@@ -1024,24 +1015,21 @@ ${att.content}
 						logging: false
 					},
 					jsPDF: {
-						unit: 'in',
-						format: [8.5, 11],
+						unit: 'px',
+						format: [816, 1056],
 						orientation: 'portrait' as const
 					}
 				})
 				.from(element)
 				.output('blob');
-
 			const fileName = isArtist
 				? `Promoter Letter_Artist - ${currentPassportInfo.givenName} ${currentPassportInfo.lastName}.pdf`
 				: `Promoter Letter_Crew - ${currentPassportInfo.givenName} ${currentPassportInfo.lastName}.pdf`;
 			const filePath = `promoter_letters/${fileName}`;
-
 			const { error: uploadError } = await supabase.storage
 				.from('documents')
 				.upload(filePath, pdfBlob, { upsert: true });
 			if (uploadError) throw uploadError;
-
 			const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
 
 			handleUpdateField('letter_url', urlData.publicUrl);
@@ -1088,7 +1076,6 @@ ${att.content}
 		try {
 			const { error } = await supabase.storage.from(bucketName).remove([pathToDelete]);
 			if (error) throw error;
-
 			handleUpdateField('letter_url', '');
 			handleUpdateField('letter_path', '');
 
@@ -1116,7 +1103,6 @@ ${att.content}
 		).length;
 		const passportFiles = parsedPassportInfo.filter((p: any) => p.passportImageUrl).length;
 		const totalFiles = immigrationFiles + passportFiles;
-
 		if (totalFiles === 0) {
 			alert('No files available to download');
 			return;
@@ -1139,7 +1125,6 @@ ${att.content}
 											: `Promoter Letter_Crew - ${passportInfo.givenName} ${passportInfo.lastName}.pdf`;
 									})()
 								: `IMM5686E_${passportInfo.givenName} ${passportInfo.lastName}.pdf`;
-
 						try {
 							await handleDirectDownload(info.letter_url, fileName);
 							downloadCount++;
@@ -1210,7 +1195,7 @@ ${att.content}
 	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+[cite_start][cite: 1] <svelte:window on:keydown={handleKeydown} />
 
 <Modal
 	bind:isOpen
@@ -1260,7 +1245,8 @@ ${att.content}
 										>
 										<div
 											class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-2 py-1 bg-black text-white text-xs
-											rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+											rounded opacity-0 group-hover:opacity-100 transition-opacity
+											pointer-events-none"
 										>
 											Country: {currentPassportInfo?.country || 'No info available'}
 										</div>
@@ -1343,7 +1329,8 @@ ${att.content}
 											{:else if confirmDelete}
 												<svg
 													xmlns="http://www.w3.org/2000/svg"
-													class="w-4 h-4"
+													class="w-4
+													h-4"
 													fill="none"
 													viewBox="0 0 24 24"
 													stroke="currentColor"
@@ -1452,7 +1439,8 @@ ${att.content}
 													<path
 														stroke-linecap="round"
 														stroke-linejoin="round"
-														d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+														d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 
+														00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
 													/>
 												</svg>
 											{/if}
@@ -1530,7 +1518,6 @@ ${att.content}
 							</div>
 						{/if}
 
-						<!-- Show custom job title and description inputs for any custom roles -->
 						{#if currentPerson && !['Artist', 'Manager', 'Tour Manager', 'LD', 'VJ', 'Sound', 'Media', 'Photographer', 'Videographer'].includes(currentRole?.role)}
 							<div class="flex items-center gap-3 text-sm">
 								<span class="font-semibold min-w-[130px] text-gray3">Job Title</span>
@@ -1538,7 +1525,8 @@ ${att.content}
 									<input
 										type="text"
 										class="flex-1 bg-transparent border border-gray2 rounded-full px-3 py-1.5 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime text-sm"
-										placeholder="e.g. SFX Technician"
+										placeholder="e.g.
+										SFX Technician"
 										value={customJobTitle}
 										on:input={handleCustomJobTitleChange}
 									/>
@@ -1601,7 +1589,8 @@ ${att.content}
 						<button
 							on:click={handleEmailIRCC}
 							disabled={isGeneratingEmail}
-							class="px-4 py-2 rounded-3xl hover:cursor-pointer transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed {showSendAnyway
+							class="px-4 py-2 rounded-3xl
+							hover:cursor-pointer transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed {showSendAnyway
 								? 'bg-tentatif text-black hover:bg-yellow-400'
 								: 'bg-lime text-black hover:bg-green-400'}"
 							title={showSendAnyway
