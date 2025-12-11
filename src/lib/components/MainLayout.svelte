@@ -100,7 +100,8 @@
 			icon: icons.booking,
 			requiredPermission: 'Booking',
 			subItems: [
-				{
+			{ label: 'Compare Hub', route: '/booking/comparehub', requiredPermission: 'Booking' },	
+			{
 					label: 'Artist Availability',
 					route: '/booking/artistavailability',
 					requiredPermission: 'Booking'

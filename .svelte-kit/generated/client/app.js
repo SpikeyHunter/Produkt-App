@@ -31,7 +31,8 @@ export const nodes = [
 	() => import('./nodes/27'),
 	() => import('./nodes/28'),
 	() => import('./nodes/29'),
-	() => import('./nodes/30')
+	() => import('./nodes/30'),
+	() => import('./nodes/31')
 ];
 
 export const server_loads = [];
@@ -44,28 +45,29 @@ export const dictionary = {
 		"/advancing/localartists": [6],
 		"/auth/verify": [7],
 		"/booking/artistavailability": [8],
-		"/booking/customers": [9],
-		"/calendar": [10],
-		"/dashboard": [11],
-		"/letter": [12],
-		"/login/forgot-password": [13],
-		"/login/register": [14],
-		"/login/reset-confirmed": [15],
-		"/login/reset-password": [16],
-		"/marketing/comptickets": [17],
-		"/marketing/eventsinfo": [18],
-		"/ncgapp/controlcenter": [19],
-		"/production/backline": [~20],
-		"/production/emailtech": [21],
-		"/production/showbudget": [22],
-		"/schedules/stagemanager": [23],
-		"/schedules/tech": [24],
-		"/settimes": [25],
-		"/settings": [26],
-		"/sultanshepard/djshow": [27],
-		"/sultanshepard/djshow/[id]": [28],
-		"/wifi/corpo": [29],
-		"/wifi/ncg": [30]
+		"/booking/comparehub": [9],
+		"/booking/customers": [10],
+		"/calendar": [11],
+		"/dashboard": [12],
+		"/letter": [13],
+		"/login/forgot-password": [14],
+		"/login/register": [15],
+		"/login/reset-confirmed": [16],
+		"/login/reset-password": [17],
+		"/marketing/comptickets": [18],
+		"/marketing/eventsinfo": [19],
+		"/ncgapp/controlcenter": [20],
+		"/production/backline": [~21],
+		"/production/emailtech": [22],
+		"/production/showbudget": [23],
+		"/schedules/stagemanager": [24],
+		"/schedules/tech": [25],
+		"/settimes": [26],
+		"/settings": [27],
+		"/sultanshepard/djshow": [28],
+		"/sultanshepard/djshow/[id]": [29],
+		"/wifi/corpo": [30],
+		"/wifi/ncg": [31]
 	};
 
 export const hooks = {

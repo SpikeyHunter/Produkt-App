@@ -68,6 +68,7 @@
 	],
 	"/auth/verify": [],
 	"/booking/artistavailability": [],
+	"/booking/comparehub": [],
 	"/booking/customers": [],
 	"/calendar": [],
 	"/dashboard": [],
