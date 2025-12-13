@@ -8,6 +8,7 @@
 	import HistorySidePanel from './HistorySidePanel.svelte';
 	import dayjs from 'dayjs';
 	import customParseFormat from 'dayjs/plugin/customParseFormat';
+    import { syncRowToCalendar } from '$lib/services/calendar';
 
 	dayjs.extend(customParseFormat);
 
@@ -27,17 +28,14 @@
 	// --- STATE MANAGEMENT ---
 	let isMounted = false;
 	let channel: RealtimeChannel | null = null;
-	
-	// Active Edit Tracking
 	let activeEdit: { rowId: string; field: keyof TechRow } | null = null;
-	
-	// Presence Tracking
 	type PresenceState = Record<string, { user: string; color: string; field: string; rowId: string }>;
 	let remotePresences: PresenceState = {};
 	const USER_COLORS = ['#ffadad', '#ffd6a5', '#fdffb6', '#caffbf', '#9bf6ff', '#a0c4ff', '#bdb2ff', '#ffc6ff'];
 	
-	// --- SAVE QUEUE ---
-	let saveQueue: Array<{ id: string; field: string; value: any; isRestore: boolean }> = [];
+    // --- UPDATED SAVE QUEUE ---
+    // Now stores oldRow snapshot
+	let saveQueue: Array<{ id: string; field: string; value: any; isRestore: boolean; oldRow?: TechRow }> = [];
 	let isProcessingQueue = false;
 
 	// --- COLUMN CONFIG ---
@@ -79,10 +77,8 @@
             setupRealtime();
             loading = false;
 		}
-        // Listener for tab switching
         document.addEventListener("visibilitychange", handleVisibilityChange);
 	});
-
 	onDestroy(() => {
 		isMounted = false;
         if (typeof document !== 'undefined') {
@@ -94,9 +90,7 @@
 		}
 	});
 
-    // --- NUCLEAR OPTION: INSTANT PAGE RELOAD ---
     function handleVisibilityChange() {
-        // If the user is looking at the page (came back from another tab)
         if (!document.hidden) {
             console.log('[TechBoard] Tab active. Forcing full page reload.');
             window.location.reload();
@@ -108,21 +102,19 @@
 		if (channel) return; 
 
 		const channelName = `tech-schedule-${year}`;
-		
 		channel = supabase.channel(channelName, {
 			config: { 
 				presence: { key: userPermissions.role },
 				broadcast: { ack: true }
 			}
 		});
-
-        channel
+		channel
             .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_techs', filter: `year=eq.${year}` }, 
                 (payload) => handleRealtimePayload(payload as RealtimePostgresChangesPayload<TechRow>))
             .on('presence', { event: 'sync' }, () => {
                 const state = channel!.presenceState();
                 updateRemotePresences(state);
-            })
+             })
             .subscribe((status) => {
                 if (status === 'SUBSCRIBED') {
                     channel?.track({ user: 'Me', editing: null });
@@ -136,7 +128,6 @@
 			.select('*')
 			.eq('year', year)
 			.order('sort_order', { ascending: true });
-			
 		if (!error && data && isMounted) {
 			const newRows = data;
 			if (activeEdit) {
@@ -152,7 +143,6 @@
 		}
 	}
 
-	// --- HELPERS ---
 	function updateRemotePresences(state: any) {
 		const newPresences: PresenceState = {};
 		Object.keys(state).forEach(key => {
@@ -197,7 +187,6 @@
 		rows = newRows;
 	}
 
-	// --- SORTING ---
 	$: filteredRows = rows
 		.filter((row) => {
 			if (hidePastMonths && year === dayjs().year())
@@ -211,7 +200,6 @@
 			return a.sort_order - b.sort_order;
 		});
 
-	// --- EDITING ---
 	async function handleCellFocus(e: CustomEvent) {
 		const { id, field } = e.detail;
 		activeEdit = { rowId: id, field };
@@ -236,19 +224,22 @@
 		if (!canEdit) return;
 
 		const rowIndex = rows.findIndex((r) => r.id === id);
+        let oldRowSnapshot: TechRow | undefined;
+
 		if (rowIndex !== -1) {
+            // SNAPSHOT OLD ROW BEFORE UPDATE
+            oldRowSnapshot = { ...rows[rowIndex] };
+            
 			const updatedRow = { ...rows[rowIndex], [field]: value };
 			rows = rows.map((r) => (r.id === id ? updatedRow : r));
 		}
 
-		saveQueue.push({ id, field, value, isRestore });
+		saveQueue.push({ id, field, value, isRestore, oldRow: oldRowSnapshot });
 		if (!isProcessingQueue) processSaveQueue();
 	}
 
 	async function processSaveQueue() {
-		// Stop if queue empty OR if page is hidden (browser throttling)
 		if (isProcessingQueue || saveQueue.length === 0 || !isMounted || document.hidden) return;
-		
 		isProcessingQueue = true;
 		saveStatus = 'saving';
 
@@ -270,6 +261,19 @@
                 logHistory(task.id, 'UPDATE', { field: task.field }, { value: task.value });
             }
 
+            // --- GOOGLE CALENDAR SYNC ---
+            const CALENDAR_FIELDS = ['date', 'type', 'event_name', 'crew_call', 'ld', 'video', 'vj', 'sound', 'tech_sm', 'dt', 'artist_liaison', 'notes', 'op_hours'];
+            
+            if (CALENDAR_FIELDS.includes(task.field)) {
+                // Get the CURRENT (new) row from state
+                const newRow = rows.find(r => r.id === task.id);
+                if (newRow) {
+                    // Pass the new row AND the old row snapshot to the sync service
+                    // This allows the server to detect if Type changed
+                    syncRowToCalendar(newRow, 'UPDATE', task.oldRow);
+                }
+            }
+
             // SUCCESS
             if (saveQueue.length > 0) {
                 setTimeout(() => { 
@@ -286,14 +290,9 @@
 
         } catch (err: any) {
             console.error('Save failed:', err);
-            
-            // Re-queue the task
             saveQueue.unshift(task); 
-            
             saveStatus = 'error';
             isProcessingQueue = false;
-
-            // Retry after a delay IF visible
             if (!document.hidden) {
                 setTimeout(() => {
                     if (isMounted) processSaveQueue();
@@ -312,7 +311,6 @@
 		});
 	}
 
-	// --- CLIPBOARD HELPERS ---
 	function performCopy(row: TechRow) {
 		clipboardData = { type: 'row', data: { ...row } };
 	}
@@ -320,14 +318,21 @@
 	async function performPaste(targetRow: TechRow) {
 		if (!userPermissions.canEditAll) return;
 		if (!clipboardData || clipboardData.type !== 'row') return;
-		const { id: _, sort_order: __, date: ___, year: ____, calendar_event_id: _____, ...dataToPaste } = clipboardData.data;
+		
+        const { id: _, sort_order: __, date: ___, year: ____, calendar_event_id: _____, ...dataToPaste } = clipboardData.data;
 		rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...dataToPaste } : r));
-		const { error } = await supabase.from('schedule_techs').update(dataToPaste).eq('id', targetRow.id);
-		if (error) {
-			console.error('[TechBoard] Paste failed:', error);
+		
+        const { error } = await supabase.from('schedule_techs').update(dataToPaste).eq('id', targetRow.id);
+		
+        if (error) {
+			console.error('Paste failed:', error);
 			saveStatus = 'error';
-			alert('Paste failed');
-		}
+		} else {
+            // Paste is effectively an update
+            const updatedRow = rows.find(r => r.id === targetRow.id);
+            // We pass the targetRow as "oldRow" because that was the state before paste
+            if (updatedRow) syncRowToCalendar(updatedRow, 'UPDATE', targetRow);
+        }
 	}
 
 	async function performCut(targetRow: TechRow) {
@@ -340,14 +345,21 @@
 		};
 		const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
 		rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
-		const { error } = await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
-		if (error) {
-			console.error('[TechBoard] Cut failed:', error);
+		
+        const { error } = await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
+		
+        if (error) {
+			console.error('Cut failed:', error);
 			saveStatus = 'error';
-		}
+		} else {
+            // Cut means we effectively deleted the "Event" details
+            // We should treat this as a DELETE action for the calendar
+            if (targetRow.calendar_event_id) {
+                syncRowToCalendar(targetRow, 'DELETE', targetRow);
+            }
+        }
 	}
 
-	// --- ROW ACTIONS ---
 	async function handleRowDelete(event: CustomEvent) {
 		if (!userPermissions.canEditAll) return;
 		
@@ -365,10 +377,12 @@
 			alert('Delete failed');
 		} else {
 			logHistory(id, 'DELETE', targetRow, null);
+            if (targetRow.calendar_event_id) {
+                syncRowToCalendar(targetRow, 'DELETE', targetRow);
+            }
 		}
 	}
 
-	// --- CONTEXT MENU & KEYS ---
 	async function handleContextMenu(event: CustomEvent) {
 		if (userPermissions.role === 'viewer') return;
 		const { e, row, field } = event.detail;
@@ -474,6 +488,10 @@
 			const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
 			rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
 			await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
+            // SYNC CLEAR (DELETE EVENT)
+            if (targetRow.calendar_event_id) {
+                syncRowToCalendar(targetRow, 'DELETE', targetRow);
+            }
 			return;
 		}
 		
@@ -518,6 +536,9 @@
 			} else if (newRow) {
 				rows = [...rows, newRow];
 				logHistory(newRow.id, 'INSERT', null, newRow);
+                if (action === 'duplicate' && newRow.type) {
+                     syncRowToCalendar(newRow, 'INSERT');
+                }
 			}
 		}
 	}

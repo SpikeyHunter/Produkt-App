@@ -209,7 +209,7 @@ $: variantClasses =
         variant === 'slim'
             ? 'px-1.5 py-0.5 text-xs rounded-sm'
             : variant === 'outline'
-                ? 'px-2 py-0.5 text-xs rounded border-2 border-lime bg-transparent text-lime hover:bg-lime hover:text-black'
+                ? 'px-2 py-0.5 text-xs rounded-2xl border-2 border-lime bg-transparent text-lime hover:cursor-pointer hover:bg-lime/10 hover:text-black'
                 : 'bg-navbar border border-gray2 text-white text-xs rounded px-2 py-0.5 hover:border-lime !hover:cursor-pointer !hover:text-lime'; 
 </script>
 

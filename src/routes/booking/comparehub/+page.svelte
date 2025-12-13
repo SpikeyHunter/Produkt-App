@@ -14,7 +14,7 @@
 	import { fetchEventSalesStats, fetchAggregateSalesStats, fetchSalesForDate, fetchAggregateSalesForDate } from '$lib/services/compareService';
 	import { type CompareEventData, type SalesStats } from '$lib/types/compare';
 
-	const COLUMN_MIN_WIDTH = '300px'; 
+	const COLUMN_MIN_WIDTH = '290px'; 
 
 	let loading = true;
 	let allEvents: CompareEventData[] = [];
@@ -140,7 +140,7 @@
 </svelte:head>
 
 <MainLayout pageTitle="Compare Hub">
-	<div class="h-[calc(100vh-64px)] w-full bg-gray1 text-white overflow-x-auto overflow-y-hidden custom-scrollbar">
+	<div class="h-full w-full bg-gray1 text-white overflow-x-auto overflow-y-hidden custom-scrollbar">
 		<div class="flex flex-row p-6 gap-6 h-full items-start min-w-min">
 			<div class="flex gap-6 h-full">
 				{#each [0, 1, 2] as i}
@@ -179,7 +179,7 @@
 				{/each}
 			</div>
 
-			<div class="w-[340px] shrink-0 h-[810px]">
+			<div class="w-[340px] shrink-0 h-[760px]">
 				<EventsPanel 
 					events={availableEvents}
 					bind:currentFilter

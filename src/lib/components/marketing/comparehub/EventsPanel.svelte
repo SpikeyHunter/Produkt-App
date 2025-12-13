@@ -247,19 +247,19 @@
 	}
 </script>
 
-<aside class="w-[340px] bg-navbar rounded-3xl p-5 flex flex-col h-[810px] shadow-lg border border-gray1">
+<aside class="w-[340px] bg-navbar rounded-3xl p-5 flex flex-col h-[760px] shadow-lg border border-gray1">
 	
 	<div class="flex items-center justify-between mb-4">
 		<span class="text-xl font-bold text-white tracking-tight">Events</span>
-		<div class="flex bg-gray1 rounded-lg p-1 border border-gray2/20">
+		<div class="flex bg-gray1 rounded-2xl p-1 border border-gray2/20">
 			<button
-				class="px-4 py-1 text-xs rounded-md font-bold transition-all duration-200 {currentFilter === 'LIVE' ? 'bg-lime text-black shadow-sm' : 'text-gray2 hover:text-white'}"
+				class="px-4 py-1 text-xs rounded-2xl hover:cursor-pointer font-bold transition-all duration-200 {currentFilter === 'LIVE' ? 'bg-lime text-black shadow-sm' : 'text-gray2 hover:text-white'}"
 				on:click={() => (currentFilter = 'LIVE')}
 			>
 				Live
 			</button>
 			<button
-				class="px-4 py-1 text-xs rounded-md font-bold transition-all duration-200 {currentFilter === 'PAST' ? 'bg-lime text-black shadow-sm' : 'text-gray2 hover:text-white'}"
+				class="px-4 py-1 text-xs rounded-2xl hover:cursor-pointer font-bold transition-all duration-200 {currentFilter === 'PAST' ? 'bg-lime text-black shadow-sm' : 'text-gray2 hover:text-white'}"
 				on:click={() => (currentFilter = 'PAST')}
 			>
 				Past

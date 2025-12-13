@@ -58,7 +58,7 @@
 			<div>
 				<div class="flex justify-between items-end mb-1">
 					<span class="text-white text-lg">Current Revenue:</span>
-					<span class="text-xl {hasCompare && avgCompareStats ? getStatusColor(mainStats.gross_revenue, avgCompareStats.gross_revenue) : 'text-lime'}">
+					<span class="text-lg {hasCompare && avgCompareStats ? getStatusColor(mainStats.gross_revenue, avgCompareStats.gross_revenue) : 'text-lime'}">
 						{fmtMoney(mainStats.gross_revenue)}
 					</span>
 				</div>
@@ -81,7 +81,7 @@
 			<div>
 				<div class="flex justify-between items-end mb-1">
 					<span class="text-white text-base">Current Tickets:</span>
-					<span class="text-xl {hasCompare && avgCompareStats ? getStatusColor(mainStats.total_tickets, avgCompareStats.total_tickets) : 'text-lime'}">
+					<span class="text-lg {hasCompare && avgCompareStats ? getStatusColor(mainStats.total_tickets, avgCompareStats.total_tickets) : 'text-lime'}">
 						{fmtNum(mainStats.total_tickets)}
 					</span>
 				</div>
