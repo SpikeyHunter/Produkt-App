@@ -53,6 +53,23 @@
 	$: progress = currentEvent ? calculateAdvanceProgress(currentEvent) : 0;
 	$: progressWidth = `${progress}%`;
 
+	$: statusColors = (() => {
+		if (progress === 100) {
+			return { 
+				label: 'text-[var(--color-confirmed)]', 
+				bar: 'bg-[var(--color-confirmed)]' 
+			};
+		} else if (progress === 0) {
+			return { 
+				label: 'text-[var(--color-problem)]', 
+				bar: 'bg-[var(--color-problem)]' 
+			};
+		} else {
+			// Fallback to the props passed in (default is lime)
+			return { label: labelColor, bar: barColor };
+		}
+	})();
+
 	/**
 	 * Refresh progress from database
 	 * This is the key function that will be called from parent components
@@ -191,7 +208,7 @@
 <div class="flex items-center gap-3">
 	<!-- Progress Label -->
 	{#if showLabel}
-		<span class="{labelSize} font-normal {labelColor} transition-all duration-300">
+		<span class="{labelSize} font-normal {statusColors.label} transition-all duration-300">
 			{#if isRefreshing}
 				<span class="opacity-50">...</span>
 			{:else}
@@ -203,7 +220,7 @@
 	<!-- Progress Bar -->
 	<div class="flex-1 {maxWidth} {barHeight} {trackColor} rounded overflow-hidden relative">
 		<div
-			class="{barHeight} {barColor} transition-all duration-500 ease-out"
+			class="{barHeight} {statusColors.bar} transition-all duration-500 ease-out"
 			style="width: {progressWidth}"
 		></div>
 		

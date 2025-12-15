@@ -31,6 +31,27 @@
 		return null;
 	}
 
+	$: progressStyles = (() => {
+		// 1. Ensure progress is a number (handles strings like "100")
+		const p = parseInt(event.progress) || 0;
+
+		if (p === 100) {
+			// 2. Use [var(--name)] syntax to ensure it finds your CSS variables
+			return { 
+				label: 'text-[var(--color-confirmed)]', 
+				bar: 'bg-[var(--color-confirmed)]' 
+			};
+		} else if (p === 0) {
+			return { 
+				label: 'text-[var(--color-problem)]', 
+				bar: 'bg-[var(--color-problem)]' 
+			};
+		} else {
+			// Default lime (assuming 'lime' is configured in your Tailwind colors)
+			return { label: 'text-lime', bar: 'bg-lime' };
+		}
+	})();
+
 	// Function to extract date from custom event ID
 	function extractDateFromEventId(eventId) {
 		const eventIdStr = String(eventId);
@@ -404,8 +425,8 @@
 					labelSize="text-base"
 					barHeight="h-2"
 					maxWidth="max-w-none"
-					labelColor="text-lime"
-					barColor="bg-lime"
+					labelColor={progressStyles.label}
+					barColor={progressStyles.bar}
 					trackColor="bg-gray1"
 					on:progress-updated={handleProgressUpdate}
 					on:progress-error={handleProgressError}
@@ -433,11 +454,13 @@
 						{:else}
 							{#each smartTags as tag}
 								<span
-									class="tag-item {tag === 'Advance to start'
-										? 'bg-problem/20 border-problem text-problem'
-										: tag.includes('waiting')
-											? 'bg-tentatif/20 border-tentatif text-tentatif'
-											: 'bg-transparent border-lime text-lime'} 
+									class="tag-item {event.advance_status === 'Completed'
+										? 'bg-transparent border-[var(--color-confirmed)] text-[var(--color-confirmed)]'
+										: tag === 'Advance to start'
+											? 'bg-problem/20 border-problem text-problem'
+											: tag.includes('waiting')
+												? 'bg-tentatif/20 border-tentatif text-tentatif'
+												: 'bg-transparent border-lime text-lime'} 
 									        min-w-fit flex-shrink-0 cursor-pointer rounded-full border px-3 py-1 text-xs font-bold transition-all duration-200"
 								>
 									{tag}
