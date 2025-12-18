@@ -8,13 +8,14 @@
 	import { themeStore } from '$lib/stores/themeStore';
 	import '../app.css';
 
-	// Routes that require a logged-in user to access. 
-    // /schedules and /settimes are removed to allow public viewing for unauthenticated users.
+	// Routes that require a logged-in user to access.
+	// /schedules and /settimes are removed to allow public viewing for unauthenticated users.
 	const PROTECTED_ROUTES = [
 		'/dashboard',
 		'/advancing',
 		'/booking',
-		'/production',
+		'/production/showbudget', // <--- ADD THIS
+		'/production/emailtech',
 		'/marketing',
 		'/settings',
 		'/calendar',
@@ -33,26 +34,27 @@
 		'/calendar': 'Admin',
 		'/settings': 'Admin',
 		'/settimes': ['Advance', 'Booking', 'Production', 'Marketing'], // Any of these
-		
+
 		// --- Sections with Inheritance ---
-		'/advancing': 'Advance',           // Covers /advancing/gathered, /advancing/artistliaison, etc.
-		'/booking': 'Booking',             // Covers /booking/artistavailability, etc.
-		
-		'/production': 'Production',       // Base permission for production
-		'/production/showbudget': 'ShowBudget', // EXCEPTION: Specific permission required
-		
-		'/marketing': 'Marketing',         // Base permission for marketing
+		'/advancing': 'Advance', // Covers /advancing/gathered, /advancing/artistliaison, etc.
+		'/booking': 'Booking', // Covers /booking/artistavailability, etc.
+
+		'/production/backline': [], // <--- ADD THIS LINE (Must be above or below '/production')
+		'/production': 'Production',
+		'/production/showbudget': 'ShowBudget',
+
+		'/marketing': 'Marketing', // Base permission for marketing
 		'/marketing/comptickets': 'CompTickets', // EXCEPTION: Specific permission required
-		
-		'/schedules': 'Schedule',          // Base permission for schedules (e.g., /schedules/tech)
+
+		'/schedules': 'Schedule', // Base permission for schedules (e.g., /schedules/tech)
 		'/schedules/stagemanager': 'StageManager', // EXCEPTION: Specific permission required
-		
+
 		'/ncgapp': 'NCGApp',
 		'/sultanshepard': 'sultanshepard'
 	};
-    
-    // Cache map keys for efficient lookup
-    const PERMISSION_MAP_KEYS = Object.keys(PERMISSION_MAP);
+
+	// Cache map keys for efficient lookup
+	const PERMISSION_MAP_KEYS = Object.keys(PERMISSION_MAP);
 
 	let isAuthInitialized = false;
 	let authSubscription: any;
@@ -62,7 +64,10 @@
 	 */
 	function hasPermission(requiredPermission: string | string[] | undefined, profile: any): boolean {
 		// If no specific permission defined (and user is logged in), allow access
-		if (!requiredPermission || (Array.isArray(requiredPermission) && requiredPermission.length === 0)) {
+		if (
+			!requiredPermission ||
+			(Array.isArray(requiredPermission) && requiredPermission.length === 0)
+		) {
 			return true;
 		}
 		if (!profile) return false;
@@ -70,9 +75,11 @@
 
 		// Consolidate permissions
 		const mainPerm = profile.main_permission ? [profile.main_permission] : [];
-		const secondaryPerms = Array.isArray(profile.secondary_permission) ? profile.secondary_permission : [];
+		const secondaryPerms = Array.isArray(profile.secondary_permission)
+			? profile.secondary_permission
+			: [];
 		const pagePerms = Array.isArray(profile.page_permissions) ? profile.page_permissions : [];
-		
+
 		const userPermissions = [...mainPerm, ...secondaryPerms, ...pagePerms].filter(Boolean);
 
 		if (Array.isArray(requiredPermission)) {
@@ -105,7 +112,7 @@
 			}
 		}
 
-		// If no route matched in the map, assume access is allowed for logged-in users 
+		// If no route matched in the map, assume access is allowed for logged-in users
 		// (since we only call this for routes in the map or dashboard)
 		return true;
 	}
@@ -120,15 +127,17 @@
 	// 2. Permission Guard (Runs only if logged in)
 	$: if ($authStore.isInitialized && $authStore.profile) {
 		const currentPath = $page.url.pathname;
-		
-        // Check if the current path is one of the routes that requires a permission check when logged in.
-        const requiresPermissionCheck = PERMISSION_MAP_KEYS.some((route) => currentPath.startsWith(route));
+
+		// Check if the current path is one of the routes that requires a permission check when logged in.
+		const requiresPermissionCheck = PERMISSION_MAP_KEYS.some((route) =>
+			currentPath.startsWith(route)
+		);
 
 		if (requiresPermissionCheck) {
 			const allowed = hasAccessToRoute(currentPath, $authStore.profile);
 			if (!allowed) {
 				console.warn(`[Permission Guard] Access denied to "${currentPath}". Redirecting.`);
-				
+
 				// --- SPECIFIC REDIRECT LOGIC ---
 				if (currentPath.startsWith('/schedules/stagemanager')) {
 					// If trying to access stagemanager without permission, go to schedules base
@@ -146,7 +155,9 @@
 			isAuthInitialized = true;
 		});
 
-		const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+		const {
+			data: { subscription }
+		} = supabase.auth.onAuthStateChange(async (event, session) => {
 			const currentPath = $page.url.pathname;
 			const userIsLoggedIn = !!session?.user;
 
@@ -155,8 +166,8 @@
 				await goto('/');
 				return;
 			}
-            
-            // --- 2. LOGGED IN REDIRECT GUARD (Redirects logged-in users from public-only pages) ---
+
+			// --- 2. LOGGED IN REDIRECT GUARD (Redirects logged-in users from public-only pages) ---
 			if (userIsLoggedIn && PUBLIC_ONLY_ROUTES.includes(currentPath)) {
 				await goto('/dashboard');
 				return;
@@ -173,7 +184,9 @@
 {#if !isAuthInitialized}
 	<div class="flex h-screen bg-gray1 items-center justify-center">
 		<div class="text-center">
-			<div class="w-16 h-16 border-4 border-lime border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+			<div
+				class="w-16 h-16 border-4 border-lime border-t-transparent rounded-full animate-spin mx-auto mb-4"
+			></div>
 			<p class="text-gray2">Initializing...</p>
 		</div>
 	</div>
