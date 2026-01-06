@@ -48,23 +48,23 @@ export function formatDateForLetter(date: Date | string): string {
 }
 
 export function formatDateShort(date: Date | string): string {
-    // Parse the input date
     let dateObj: Date;
-    if (typeof date === 'string') {
+
+    // FIX: Manually split the string to avoid Timezone offsets completely.
+    if (typeof date === 'string' && date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const [y, m, d] = date.split('-').map(Number);
+        dateObj = new Date(y, m - 1, d); // Months are 0-indexed
+    } else if (typeof date === 'string') {
         dateObj = new Date(date);
     } else {
         dateObj = new Date(date.getTime());
     }
     
-    // Extract just the month and day (no year)
     const monthOptions: Intl.DateTimeFormatOptions = { month: 'long' };
     const month = dateObj.toLocaleDateString('en-US', monthOptions);
     const day = dateObj.getDate();
-    
-    // Get year from the *provided date*
     const year = dateObj.getFullYear();
     
-    // Rebuild as: Month Day, Year
     return `${month} ${day}, ${year}`;
 }
 
@@ -80,27 +80,12 @@ export function createDefaultLetterData(
 ): PromoterLetterData {
     const today = new Date();
     
-    // If eventDate is provided, parse it
-    let performanceDate = '';
-    let arrivalDate = '';
+    // We will store the single formatted date here
+    let formattedDate = '';
     
     if (eventDate) {
-        const eventDateObj = new Date(eventDate);
-        // Use the event's *actual* year, not the current year
-        const eventYear = eventDateObj.getFullYear();
-        
-        // Create performance date
-        const perfDate = new Date(eventYear, eventDateObj.getMonth(), eventDateObj.getDate());
-        performanceDate = formatDateShort(perfDate);
-        
-        if (explicitArrivalDate) {
-            // If an explicit arrival date is given, use it
-            arrivalDate = formatDateShort(new Date(explicitArrivalDate));
-        } else {
-            // Otherwise, fall back to the old logic (2 days before)
-            const arrDate = new Date(eventYear, eventDateObj.getMonth(), eventDateObj.getDate() - 2);
-            arrivalDate = formatDateShort(arrDate);
-        }
+        // Use the robust formatter on the event date
+        formattedDate = formatDateShort(eventDate);
     }
     
     return {
@@ -113,8 +98,11 @@ export function createDefaultLetterData(
         passportNumber: passportNumber || '',
         visaNumber: visaNumber || undefined,
         performanceName: eventName || '',
-        arrivalDate: arrivalDate,
-        performanceDate: performanceDate,
+        
+       // FIX: Force both dates to be exactly the same variable [cite: 1]
+        arrivalDate: formattedDate,
+        performanceDate: formattedDate,
+        
         showDuration: 2,
         paymentCurrency: paymentCurrency || 'USD',
         paymentAmount: paymentAmount || '3,000',
