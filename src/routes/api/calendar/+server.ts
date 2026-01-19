@@ -10,7 +10,7 @@ import timezone from 'dayjs/plugin/timezone';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const TIMEZONE = "America/Montreal"; //
+const TIMEZONE = "America/Montreal";
 
 const CALENDARS = {
   NCG: "c_280a6fe805ed760d8258723fd98f10a7523c66c17e2ec165a717cbc41f2a6d25@group.calendar.google.com",
@@ -40,7 +40,7 @@ function cleanArtistName(rawName: string): string {
     return rawName.trim();
 }
 
-// Helper: Parse Times with Default Fallbacks
+// Helper: Parse Times with Default Fallbacks (Montreal Time)
 function calculateEventTimes(dateStr: string, timeStr: string, eventType: string) {
     let start: dayjs.Dayjs | null = null;
     let end: dayjs.Dayjs | null = null;
@@ -51,7 +51,6 @@ function calculateEventTimes(dateStr: string, timeStr: string, eventType: string
         
         if (parts.length >= 2) {
             const parseSingleTime = (baseDate: string, t: string) => {
-                // Matches: 18:00, 18h00, 6pm, 6:30pm, 6
                 const match = t.match(/^(\d{1,2})(?:[:h](\d{2}))?\s*(am|pm)?$/i);
                 if (!match) return null;
 
@@ -59,11 +58,9 @@ function calculateEventTimes(dateStr: string, timeStr: string, eventType: string
                 const m = match[2] ? parseInt(match[2]) : 0;
                 const mer = match[3]?.toLowerCase();
 
-                // 12h to 24h conversion
                 if (mer === 'pm' && h < 12) h += 12;
                 if (mer === 'am' && h === 12) h = 0;
 
-                // Create Date in Montreal Timezone
                 return dayjs.tz(`${baseDate} ${h}:${m}`, "YYYY-MM-DD H:m", TIMEZONE);
             };
 
@@ -73,7 +70,6 @@ function calculateEventTimes(dateStr: string, timeStr: string, eventType: string
             if (s && e) {
                 start = s;
                 end = e;
-                // Handle overnight (e.g. 10pm - 3am)
                 if (end.isBefore(start)) {
                     end = end.add(1, 'day');
                 }
@@ -81,26 +77,48 @@ function calculateEventTimes(dateStr: string, timeStr: string, eventType: string
         }
     }
 
-    // 2. If parsing failed or empty, use DEFAULTS based on Type
+    // 2. Defaults if parsing failed
     if (!start || !end) {
         const base = dayjs.tz(dateStr, "YYYY-MM-DD", TIMEZONE);
         
         if (eventType === 'Corpo') {
-            // Default: 10AM - 4PM
             start = base.hour(10).minute(0);
             end = base.hour(16).minute(0);
         } else if (eventType === 'Moet City') {
-            // Default: 12PM - 8PM
             start = base.hour(12).minute(0);
             end = base.hour(20).minute(0);
         } else {
-            // Default (NCG, Tour, DSTRKT, etc.): 10PM - 3AM (+1)
             start = base.hour(22).minute(0);
             end = base.hour(3).minute(0).add(1, 'day');
         }
     }
 
     return { start, end };
+}
+
+// --- NEW: DUPLICATE CHECK HELPER ---
+async function findExistingEvent(calendar: any, calendarId: string, summary: string, dateStr: string) {
+    // Search window: The target date (00:00 to 23:59:59)
+    const timeMin = dayjs.tz(dateStr, TIMEZONE).startOf('day').toISOString();
+    const timeMax = dayjs.tz(dateStr, TIMEZONE).add(1, 'day').endOf('day').toISOString();
+
+    try {
+        const res = await calendar.events.list({
+            calendarId,
+            timeMin,
+            timeMax,
+            singleEvents: true,
+            q: summary // Let Google filter by text match first
+        });
+
+        const events = res.data.items || [];
+        // Double check exact summary match to avoid partial matches
+        // e.g. "Artist A" matching "Artist A Soundcheck"
+        return events.find((e: any) => e.summary === summary);
+    } catch (e) {
+        console.warn("Duplicate check failed, proceeding to insert:", e);
+        return null;
+    }
 }
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -137,7 +155,7 @@ export const POST: RequestHandler = async ({ request }) => {
     const calendarId = CALENDARS[targetKey];
     let resultId = record.calendar_event_id;
 
-    // 2. Handle DELETE Action
+    // 2. Handle DELETE
     if (type === 'DELETE') {
       if (old_record?.calendar_event_id) {
         try {
@@ -153,7 +171,7 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ success: true, action: "deleted" });
     }
 
-    // 3. Handle TYPE CHANGE
+    // 3. Handle TYPE CHANGE (Delete old, treat as new)
     if (type === 'UPDATE' && old_record && old_record.type !== record.type) {
         const oldKey = TYPE_MAP[old_record.type];
         if (oldKey && old_record.calendar_event_id) {
@@ -164,24 +182,22 @@ export const POST: RequestHandler = async ({ request }) => {
                 });
             } catch(e) {}
         }
-        resultId = null; // Treat as new insert
+        resultId = null; 
     }
 
-    // 4. Prepare Event Data (New Time Logic)
+    // 4. Prepare Event Data
     const dateStr = record.date;
     const artistName = cleanArtistName(record.event_name);
-    
-    // Calculate Times (Montreal Timezone aware)
     const { start, end } = calculateEventTimes(dateStr, record.op_hours, eventType);
+    const summary = `${artistName} - ${eventType}`;
 
-    let eventResource: any = {
-        summary: `${artistName} - ${eventType}`,
-        start: { dateTime: start.format() }, // format() includes offset (e.g., -05:00)
+    const eventResource: any = {
+        summary: summary,
+        start: { dateTime: start.format() },
         end: { dateTime: end.format() },
         description: "",
     };
 
-    // Build Description
     const descLines = [
         `CREW CALL: ${record.crew_call || "TBC"}`,
         `LD: ${record.ld || "-"}`,
@@ -197,7 +213,9 @@ export const POST: RequestHandler = async ({ request }) => {
     
     eventResource.description = descLines.join("\n");
 
-    // 5. Insert or Patch
+    // 5. INSERT / PATCH WITH DUPLICATE PREVENTION
+    
+    // A. Attempt Update if we have an ID
     if (resultId) {
         try {
             await calendar.events.patch({
@@ -206,16 +224,38 @@ export const POST: RequestHandler = async ({ request }) => {
                 requestBody: eventResource
             });
         } catch (e: any) {
-            if (e.code === 404) {
-                const res = await calendar.events.insert({ calendarId, requestBody: eventResource });
-                resultId = res.data.id;
+            // If 404 (Not Found), it was deleted externally. Clear ID and fall to step B.
+            if (e.code === 404 || e.code === 410) {
+                console.warn(`Event ${resultId} not found, checking for duplicate...`);
+                resultId = null; 
             } else {
-                throw e;
+                throw e; // Real error
             }
         }
-    } else {
-        const res = await calendar.events.insert({ calendarId, requestBody: eventResource });
-        resultId = res.data.id;
+    }
+
+    // B. If ID is null (New or Recovered), check for duplicates before inserting
+    if (!resultId) {
+        // Search for existing event with same name on same day
+        const duplicate = await findExistingEvent(calendar, calendarId, summary, dateStr);
+        
+        if (duplicate) {
+            // FOUND DUPLICATE: Adopt its ID and update it
+            console.log(`Duplicate found (${duplicate.id}). Updating instead of inserting.`);
+            resultId = duplicate.id;
+            await calendar.events.patch({
+                calendarId,
+                eventId: resultId,
+                requestBody: eventResource
+            });
+        } else {
+            // NO DUPLICATE: Insert new
+            const res = await calendar.events.insert({ 
+                calendarId, 
+                requestBody: eventResource 
+            });
+            resultId = res.data.id;
+        }
     }
 
     return json({ success: true, calendar_event_id: resultId });
