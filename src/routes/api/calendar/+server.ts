@@ -4,9 +4,9 @@ import type { RequestHandler } from './$types';
 import { GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY } from '$env/static/private';
 
 const CALENDARS = {
-  NCG: "c_484ae4400c7545a14a0a89cdd9566b403c2f5da08def3985f903fc79de7ba03f@group.calendar.google.com",
-  BAZART: "c_17396ec4626b47267da9a8e7905b6af60e7bf96f462c809401a8f084a62a6e27@group.calendar.google.com",
-  CORPO: "c_e7978807c1aeb0ce410631249d451ff433fabc7d1493be5ee01743256a3e5592@group.calendar.google.com",
+  NCG: "c_280a6fe805ed760d8258723fd98f10a7523c66c17e2ec165a717cbc41f2a6d25@group.calendar.google.com",
+  BAZART: "c_ae6602cd10978c57d5b2ce6f28b96a6a947dd8d51204e54391d466338b3b4394@group.calendar.google.com",
+  CORPO: "c_217ea3872706404045fb70101601a8c3bbdb4961227122b242735c64dde6310e@group.calendar.google.com",
 };
 
 const TYPE_MAP: Record<string, keyof typeof CALENDARS> = {
