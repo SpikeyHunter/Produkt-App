@@ -29,24 +29,65 @@
 	let isMounted = false;
 	let channel: RealtimeChannel | null = null;
 	let activeEdit: { rowId: string; field: keyof TechRow } | null = null;
-	type PresenceState = Record<string, { user: string; color: string; field: string; rowId: string }>;
+	type PresenceState = Record<
+		string,
+		{ user: string; color: string; field: string; rowId: string }
+	>;
 	let remotePresences: PresenceState = {};
-	const USER_COLORS = ['#ffadad', '#ffd6a5', '#fdffb6', '#caffbf', '#9bf6ff', '#a0c4ff', '#bdb2ff', '#ffc6ff'];
+	const USER_COLORS = [
+		'#ffadad',
+		'#ffd6a5',
+		'#fdffb6',
+		'#caffbf',
+		'#9bf6ff',
+		'#a0c4ff',
+		'#bdb2ff',
+		'#ffc6ff'
+	];
 	// --- UPDATED SAVE QUEUE ---
-    // Now stores oldRow snapshot
-	let saveQueue: Array<{ id: string; field: string;
-		value: any; isRestore: boolean; oldRow?: TechRow }> = [];
+	// Now stores oldRow snapshot
+	let saveQueue: Array<{
+		id: string;
+		field: string;
+		value: any;
+		isRestore: boolean;
+		oldRow?: TechRow;
+	}> = [];
 	let isProcessingQueue = false;
 	// --- COLUMN CONFIG ---
 	const COL_WIDTHS = {
-		index: '40px', day: '80px', date: '70px', type: '130px', event: '400px',
-		hours: '120px', call: '120px', ld: '90px', video: '90px', vj: '90px',
-		sound: '120px', tsm: '120px', dt: '90px', liaison: '120px', notes: '400px'
+		index: '40px',
+		day: '80px',
+		date: '70px',
+		type: '130px',
+		event: '400px',
+		hours: '120px',
+		call: '120px',
+		ld: '90px',
+		video: '90px',
+		vj: '90px',
+		sound: '120px',
+		tsm: '120px',
+		dt: '90px',
+		liaison: '120px',
+		notes: '400px'
 	};
 	const COL_FIELD_MAP: Record<string, keyof TechRow | '__ROW__' | null> = {
-		index: '__ROW__', day: null, date: 'date', type: 'type', event: 'event_name',
-		hours: 'op_hours', call: 'crew_call', ld: 'ld', video: 'video', vj: 'vj',
-		sound: 'sound', tsm: 'tech_sm', dt: 'dt', liaison: 'artist_liaison', notes: 'notes'
+		index: '__ROW__',
+		day: null,
+		date: 'date',
+		type: 'type',
+		event: 'event_name',
+		hours: 'op_hours',
+		call: 'crew_call',
+		ld: 'ld',
+		video: 'video',
+		vj: 'vj',
+		sound: 'sound',
+		tsm: 'tech_sm',
+		dt: 'dt',
+		liaison: 'artist_liaison',
+		notes: 'notes'
 	};
 	let columnRanges: { key: string; end: number }[] = [];
 	let accum = 0;
@@ -58,70 +99,137 @@
 	grid-template-columns: ${Object.values(COL_WIDTHS).join(' ')}; min-width: max-content;`;
 
 	// --- UI STATE ---
-	let contextMenu = { show: false, x: 0, y: 0, row: null as TechRow |
-	null, field: null as string | null };
-	let clipboardData: { type: 'row' | 'cell'; data: any;
-	field?: string } | null = null;
+	let contextMenu = {
+		show: false,
+		x: 0,
+		y: 0,
+		row: null as TechRow | null,
+		field: null as string | null
+	};
+	let clipboardData: { type: 'row' | 'cell'; data: any; field?: string } | null = null;
 	let activeDropdownId: string | null = null;
-	let historyPanel = { open: false, rowId: null as string | null, rowIndex: 0, field: null as string |
-	null, date: null as string | null };
+	let historyPanel = {
+		open: false,
+		rowId: null as string | null,
+		rowIndex: 0,
+		field: null as string | null,
+		date: null as string | null
+	};
 	let contextMenuHasHistory = false;
 	let contextMenuCheckingHistory = false;
-	let hoveredRowId: string |
-	null = null;
+	let hoveredRowId: string | null = null;
 	let hoveredColumnKey: string | null = null;
 	let gridContainer: HTMLDivElement;
 	// --- LIFECYCLE ---
 	onMount(async () => {
 		isMounted = true;
 		if (year) {
-            loading = true;
+			loading = true;
 			await refreshData();
-            setupRealtime();
-            loading = false;
+			setupRealtime();
+			loading = false;
+			// --- NEW: Restore Scroll after data load ---
+			await tick(); // Wait for DOM update
+			restoreScrollPosition();
 		}
-        document.addEventListener("visibilitychange", handleVisibilityChange);
+		document.addEventListener('visibilitychange', handleVisibilityChange);
 	});
+
+	$: if (rows.length > 0 && isMounted) {
+		// We use a small timeout or tick to ensure DOM is rendered
+		tick().then(() => {
+			// Only restore if we haven't scrolled yet?
+			// Or simply restore blindly if this is the initial load.
+			// A safer check is to only restore if scrollTop is 0
+			if (gridContainer && gridContainer.scrollTop === 0) {
+				restoreScrollPosition();
+			}
+		});
+	}
+
 	onDestroy(() => {
 		isMounted = false;
-        if (typeof document !== 'undefined') {
-		    document.removeEventListener("visibilitychange", handleVisibilityChange);
-        }
+		if (typeof document !== 'undefined') {
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+		}
 		if (channel) {
 			supabase.removeChannel(channel);
-            channel = null;
+			channel = null;
 		}
 	});
 	function handleVisibilityChange() {
-        if (!document.hidden) {
-            console.log('[TechBoard] Tab active. Forcing full page reload.');
+		if (!document.hidden) {
+			console.log('[TechBoard] Tab active. Forcing full page reload.');
 			window.location.reload();
-        }
-    }
+		}
+	}
+
+	const SCROLL_KEY = 'techBoardScrollPosition';
+
+	function handleScroll(e: Event) {
+		const target = e.target as HTMLDivElement;
+		// Save scroll position to session storage
+		sessionStorage.setItem(
+			SCROLL_KEY,
+			JSON.stringify({
+				left: target.scrollLeft,
+				top: target.scrollTop
+			})
+		);
+	}
+
+	function restoreScrollPosition() {
+		if (!gridContainer) return;
+
+		const saved = sessionStorage.getItem(SCROLL_KEY);
+		if (saved) {
+			try {
+				const { left, top } = JSON.parse(saved);
+				gridContainer.scrollTo({ left, top, behavior: 'instant' as ScrollBehavior });
+			} catch (e) {
+				console.warn('Failed to restore scroll position', e);
+			}
+		} else {
+			// Optional: If no saved position, scroll to "Today"
+			scrollToToday();
+		}
+	}
+
+	function scrollToToday() {
+		// Basic logic to find today's row and scroll to it if no saved state exists
+		const today = dayjs().format('YYYY-MM-DD');
+		const rowEl = gridContainer.querySelector(`[data-row-date="${today}"]`); // *Requires adding data-row-date to HTML*
+		if (rowEl) {
+			rowEl.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
+		}
+	}
 
 	// --- REALTIME ---
 	function setupRealtime() {
-		if (channel) return; 
+		if (channel) return;
 
 		const channelName = `tech-schedule-${year}`;
 		channel = supabase.channel(channelName, {
-			config: { 
+			config: {
 				presence: { key: userPermissions.role },
 				broadcast: { ack: true }
 			}
 		});
 		channel
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'schedule_techs', filter: `year=eq.${year}` }, 
-                (payload) => handleRealtimePayload(payload as RealtimePostgresChangesPayload<TechRow>))
-            .on('presence', { event: 'sync' }, () => {
-                const state = channel!.presenceState();
-                updateRemotePresences(state);
-              })
-            .subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    channel?.track({ user: 'Me', editing: null });
-                }
-            });
+			.on(
+				'postgres_changes',
+				{ event: '*', schema: 'public', table: 'schedule_techs', filter: `year=eq.${year}` },
+				(payload) => handleRealtimePayload(payload as RealtimePostgresChangesPayload<TechRow>)
+			)
+			.on('presence', { event: 'sync' }, () => {
+				const state = channel!.presenceState();
+				updateRemotePresences(state);
+			})
+			.subscribe((status) => {
+				if (status === 'SUBSCRIBED') {
+					channel?.track({ user: 'Me', editing: null });
+				}
+			});
 	}
 
 	async function refreshData() {
@@ -133,11 +241,13 @@
 		if (!error && data && isMounted) {
 			const newRows = data;
 			if (activeEdit) {
-				const editingRowIndex = newRows.findIndex(r => r.id === activeEdit!.rowId);
+				const editingRowIndex = newRows.findIndex((r) => r.id === activeEdit!.rowId);
 				if (editingRowIndex !== -1) {
-					const localRow = rows.find(r => r.id === activeEdit!.rowId);
+					const localRow = rows.find((r) => r.id === activeEdit!.rowId);
 					if (localRow) {
-						(newRows[editingRowIndex] as any)[activeEdit!.field] = (localRow as any)[activeEdit!.field];
+						(newRows[editingRowIndex] as any)[activeEdit!.field] = (localRow as any)[
+							activeEdit!.field
+						];
 					}
 				}
 			}
@@ -147,7 +257,7 @@
 
 	function updateRemotePresences(state: any) {
 		const newPresences: PresenceState = {};
-		Object.keys(state).forEach(key => {
+		Object.keys(state).forEach((key) => {
 			const presences = state[key];
 			presences.forEach((p: any) => {
 				if (p.editing) {
@@ -169,12 +279,12 @@
 		if (!isMounted) return;
 		let newRows = [...rows];
 		if (payload.eventType === 'INSERT') {
-			if (!newRows.find(r => r.id === payload.new.id)) {
+			if (!newRows.find((r) => r.id === payload.new.id)) {
 				newRows.push(payload.new);
 				newRows.sort((a, b) => a.sort_order - b.sort_order);
 			}
 		} else if (payload.eventType === 'UPDATE') {
-			const idx = newRows.findIndex(r => r.id === payload.new.id);
+			const idx = newRows.findIndex((r) => r.id === payload.new.id);
 			if (idx !== -1) {
 				const incomingRow = payload.new;
 				if (activeEdit && activeEdit.rowId === incomingRow.id) {
@@ -184,7 +294,7 @@
 				newRows[idx] = incomingRow;
 			}
 		} else if (payload.eventType === 'DELETE') {
-			newRows = newRows.filter(r => r.id !== payload.old.id);
+			newRows = newRows.filter((r) => r.id !== payload.old.id);
 		}
 		rows = newRows;
 	}
@@ -221,15 +331,14 @@
 
 	// --- SAVE LOGIC ---
 	async function updateCell(id: string, field: string, value: any, isRestore = false) {
-		const canEdit = userPermissions.canEditAll ||
-			userPermissions.allowedColumns.includes(field);
+		const canEdit = userPermissions.canEditAll || userPermissions.allowedColumns.includes(field);
 		if (!canEdit) return;
 
 		const rowIndex = rows.findIndex((r) => r.id === id);
-        let oldRowSnapshot: TechRow | undefined;
+		let oldRowSnapshot: TechRow | undefined;
 		if (rowIndex !== -1) {
-            // SNAPSHOT OLD ROW BEFORE UPDATE
-            oldRowSnapshot = { ...rows[rowIndex] };
+			// SNAPSHOT OLD ROW BEFORE UPDATE
+			oldRowSnapshot = { ...rows[rowIndex] };
 			const updatedRow = { ...rows[rowIndex], [field]: value };
 			rows = rows.map((r) => (r.id === id ? updatedRow : r));
 		}
@@ -248,62 +357,87 @@
 			return;
 		}
 
-        try {
-            const { error } = await supabase
-                .from('schedule_techs')
-                .update({ [task.field]: task.value })
-                .eq('id', task.id);
+		try {
+			const { error } = await supabase
+				.from('schedule_techs')
+				.update({ [task.field]: task.value })
+				.eq('id', task.id);
 			if (error) throw error;
-            
-            if (!task.isRestore) {
-                logHistory(task.id, 'UPDATE', { field: task.field }, { value: task.value });
+
+			if (!task.isRestore) {
+				logHistory(task.id, 'UPDATE', { field: task.field }, { value: task.value });
 			}
 
-            // --- GOOGLE CALENDAR SYNC ---
-            const CALENDAR_FIELDS = ['date', 'type', 'event_name', 'crew_call', 'ld', 'video', 'vj', 'sound', 'tech_sm', 'dt', 'artist_liaison', 'notes', 'op_hours'];
+			// --- GOOGLE CALENDAR SYNC ---
+			const CALENDAR_FIELDS = [
+				'date',
+				'type',
+				'event_name',
+				'crew_call',
+				'ld',
+				'video',
+				'vj',
+				'sound',
+				'tech_sm',
+				'dt',
+				'artist_liaison',
+				'notes',
+				'op_hours'
+			];
 			if (CALENDAR_FIELDS.includes(task.field)) {
-                // Get the CURRENT (new) row from state
-                const newRow = rows.find(r => r.id === task.id);
+				// Get the CURRENT (new) row from state
+				const newRow = rows.find((r) => r.id === task.id);
 				if (newRow) {
-                    // Pass the new row AND the old row snapshot to the sync service
-                    // This allows the server to detect if Type changed
-                    syncRowToCalendar(newRow, 'UPDATE', task.oldRow);
+					// Pass the new row AND the old row snapshot to the sync service
+					// This allows the server to detect if Type changed
+					syncRowToCalendar(newRow, 'UPDATE', task.oldRow);
 				}
-            }
+			}
 
-            // SUCCESS
-            if (saveQueue.length > 0) {
-                setTimeout(() => { 
-                    isProcessingQueue = false; 
-                    processSaveQueue(); 
-                }, 50);
+			// SUCCESS
+			if (saveQueue.length > 0) {
+				setTimeout(() => {
+					isProcessingQueue = false;
+					processSaveQueue();
+				}, 50);
 			} else {
-                isProcessingQueue = false;
+				isProcessingQueue = false;
 				saveStatus = 'success';
-                setTimeout(() => { 
-                    if (saveQueue.length === 0 && isMounted) saveStatus = 'idle'; 
-                }, 2000);
+				setTimeout(() => {
+					if (saveQueue.length === 0 && isMounted) saveStatus = 'idle';
+				}, 2000);
 			}
-
-        } catch (err: any) {
-            console.error('Save failed:', err);
-			saveQueue.unshift(task); 
-            saveStatus = 'error';
-            isProcessingQueue = false;
-            if (!document.hidden) {
-                setTimeout(() => {
-                    if (isMounted) processSaveQueue();
-                }, 3000);
+		} catch (err: any) {
+			console.error('Save failed:', err);
+			saveQueue.unshift(task);
+			saveStatus = 'error';
+			isProcessingQueue = false;
+			if (!document.hidden) {
+				setTimeout(() => {
+					if (isMounted) processSaveQueue();
+				}, 3000);
 			}
-        }
+		}
 	}
 
-	function logHistory(rowId: string, action: 'UPDATE' | 'DELETE' | 'INSERT', oldData: any, newData: any) {
+	function logHistory(
+		rowId: string,
+		action: 'UPDATE' | 'DELETE' | 'INSERT',
+		oldData: any,
+		newData: any
+	) {
 		supabase.auth.getUser().then(({ data }) => {
 			if (data.user) {
-				supabase.from('schedule_techs_history').insert({
-					row_id: rowId, action, old_data: oldData, new_data: newData, changed_by: data.user.id
-				}).then(() => {}); 
+				supabase
+					.from('schedule_techs_history')
+					.insert({
+						row_id: rowId,
+						action,
+						old_data: oldData,
+						new_data: newData,
+						changed_by: data.user.id
+					})
+					.then(() => {});
 			}
 		});
 	}
@@ -315,53 +449,76 @@
 	async function performPaste(targetRow: TechRow) {
 		if (!userPermissions.canEditAll) return;
 		if (!clipboardData || clipboardData.type !== 'row') return;
-		
-        const { id: _, sort_order: __, date: ___, year: ____, calendar_event_id: _____, ...dataToPaste } = clipboardData.data;
+
+		const {
+			id: _,
+			sort_order: __,
+			date: ___,
+			year: ____,
+			calendar_event_id: _____,
+			...dataToPaste
+		} = clipboardData.data;
 		rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...dataToPaste } : r));
-		const { error } = await supabase.from('schedule_techs').update(dataToPaste).eq('id', targetRow.id);
-		
-        if (error) {
+		const { error } = await supabase
+			.from('schedule_techs')
+			.update(dataToPaste)
+			.eq('id', targetRow.id);
+
+		if (error) {
 			console.error('Paste failed:', error);
 			saveStatus = 'error';
 		} else {
-            // Paste is effectively an update
-            const updatedRow = rows.find(r => r.id === targetRow.id);
+			// Paste is effectively an update
+			const updatedRow = rows.find((r) => r.id === targetRow.id);
 			// We pass the targetRow as "oldRow" because that was the state before paste
-            if (updatedRow) syncRowToCalendar(updatedRow, 'UPDATE', targetRow);
+			if (updatedRow) syncRowToCalendar(updatedRow, 'UPDATE', targetRow);
 		}
 	}
 
 	async function performCut(targetRow: TechRow) {
 		if (!userPermissions.canEditAll) return;
 		performCopy(targetRow);
-		
+
 		const uiEmptyData = {
-			event_name: '', type: '', notes: '', ld: '', video: '', vj: '',
-			sound: '', tech_sm: '', dt: '', artist_liaison: '', op_hours: '', crew_call: ''
+			event_name: '',
+			type: '',
+			notes: '',
+			ld: '',
+			video: '',
+			vj: '',
+			sound: '',
+			tech_sm: '',
+			dt: '',
+			artist_liaison: '',
+			op_hours: '',
+			crew_call: ''
 		};
 		const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
 		rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
-		const { error } = await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
-		
-        if (error) {
+		const { error } = await supabase
+			.from('schedule_techs')
+			.update(dbEmptyData)
+			.eq('id', targetRow.id);
+
+		if (error) {
 			console.error('Cut failed:', error);
 			saveStatus = 'error';
 		} else {
-            // Cut means we effectively deleted the "Event" details
-            // We should treat this as a DELETE action for the calendar
-            if (targetRow.calendar_event_id) {
-                syncRowToCalendar(targetRow, 'DELETE', targetRow);
+			// Cut means we effectively deleted the "Event" details
+			// We should treat this as a DELETE action for the calendar
+			if (targetRow.calendar_event_id) {
+				syncRowToCalendar(targetRow, 'DELETE', targetRow);
 			}
-        }
+		}
 	}
 
 	async function handleRowDelete(event: CustomEvent) {
 		if (!userPermissions.canEditAll) return;
 		const { id } = event.detail;
-		const targetRow = rows.find(r => r.id === id);
+		const targetRow = rows.find((r) => r.id === id);
 		if (!targetRow) return;
 		const prevRows = [...rows];
-		rows = rows.filter(r => r.id !== id);
+		rows = rows.filter((r) => r.id !== id);
 
 		const { error } = await supabase.from('schedule_techs').delete().eq('id', id);
 		if (error) {
@@ -371,7 +528,7 @@
 		} else {
 			logHistory(id, 'DELETE', targetRow, null);
 			if (targetRow.calendar_event_id) {
-                syncRowToCalendar(targetRow, 'DELETE', targetRow);
+				syncRowToCalendar(targetRow, 'DELETE', targetRow);
 			}
 		}
 	}
@@ -396,9 +553,12 @@
 	}
 
 	async function checkHistoryAvailability(rowId: string, field: string) {
-		const { count } = await supabase.from('schedule_techs_history').select('id', { count: 'exact', head: true }).eq('row_id', rowId);
-		if(isMounted) contextMenuHasHistory = (count || 0) > 0;
-		if(isMounted) contextMenuCheckingHistory = false;
+		const { count } = await supabase
+			.from('schedule_techs_history')
+			.select('id', { count: 'exact', head: true })
+			.eq('row_id', rowId);
+		if (isMounted) contextMenuHasHistory = (count || 0) > 0;
+		if (isMounted) contextMenuCheckingHistory = false;
 	}
 
 	function handleRowMouseMove(e: MouseEvent, rowId: string) {
@@ -426,36 +586,36 @@
 		const field = foundCol ? (COL_FIELD_MAP[foundCol.key] as string) : null;
 		return { rowId, field };
 	}
-	
+
 	async function handleKeydown(e: KeyboardEvent) {
-        // 1. If inside an input cell, allow native browser Copy/Paste of text
-        const activeTag = document.activeElement?.tagName.toUpperCase();
-        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+		// 1. If inside an input cell, allow native browser Copy/Paste of text
+		const activeTag = document.activeElement?.tagName.toUpperCase();
+		if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
 
 		if (!(e.metaKey || e.ctrlKey) || userPermissions.role === 'viewer') return;
-		
-        // 2. Determine target Row
-		let targetRowId: string | null = null;
-        
-        // 2a. Check if Row Number Button is explicitly focused
-		const focusTarget = getTargetFromFocus();
-        if (focusTarget && focusTarget.field === '__ROW__') {
-            targetRowId = focusTarget.rowId;
-        }
 
-        // 2b. If not explicitly focused on Row #, check Hover state
-        // STRICT RULE: Only trigger if hovering the FIRST column (index)
+		// 2. Determine target Row
+		let targetRowId: string | null = null;
+
+		// 2a. Check if Row Number Button is explicitly focused
+		const focusTarget = getTargetFromFocus();
+		if (focusTarget && focusTarget.field === '__ROW__') {
+			targetRowId = focusTarget.rowId;
+		}
+
+		// 2b. If not explicitly focused on Row #, check Hover state
+		// STRICT RULE: Only trigger if hovering the FIRST column (index)
 		if (!targetRowId) {
 			if (hoveredRowId && hoveredColumnKey === 'index') {
 				targetRowId = hoveredRowId;
 			}
 		}
-        
-        // If we didn't find a valid target (Focused Row Number OR Hovered Row Number), exit.
+
+		// If we didn't find a valid target (Focused Row Number OR Hovered Row Number), exit.
 		if (!targetRowId) return;
 
-		const row = rows.find(r => r.id === targetRowId);
-		if(!row) return;
+		const row = rows.find((r) => r.id === targetRowId);
+		if (!row) return;
 
 		const key = e.key.toLowerCase();
 		if (key === 'c') performCopy(row);
@@ -468,8 +628,8 @@
 		const targetRow = contextMenu.row;
 		const targetField = contextMenu.field;
 		contextMenu.show = false;
-		if(!targetRow) return;
-		
+		if (!targetRow) return;
+
 		if (action === 'copy') performCopy(targetRow);
 		if (action === 'cut') performCut(targetRow);
 		if (action === 'paste') performPaste(targetRow);
@@ -490,25 +650,35 @@
 
 		if (action === 'clear') {
 			const uiEmptyData = {
-				event_name: '', type: '', notes: '', ld: '', video: '', vj: '',
-				sound: '', tech_sm: '', dt: '', artist_liaison: '', op_hours: '', crew_call: ''
+				event_name: '',
+				type: '',
+				notes: '',
+				ld: '',
+				video: '',
+				vj: '',
+				sound: '',
+				tech_sm: '',
+				dt: '',
+				artist_liaison: '',
+				op_hours: '',
+				crew_call: ''
 			};
 			const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
 			rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
 			await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
 			// SYNC CLEAR (DELETE EVENT)
-            if (targetRow.calendar_event_id) {
-                syncRowToCalendar(targetRow, 'DELETE', targetRow);
+			if (targetRow.calendar_event_id) {
+				syncRowToCalendar(targetRow, 'DELETE', targetRow);
 			}
 			return;
 		}
-		
+
 		if (['addAbove', 'addBelow', 'duplicate'].includes(action)) {
 			const currentIndex = filteredRows.findIndex((r) => r.id === targetRow.id);
 			if (currentIndex === -1) return;
 			let newSortOrder = 0;
 			let newDate = targetRow.date;
-			
+
 			if (action === 'addAbove') {
 				const prevRow = filteredRows[currentIndex - 1];
 				if (!prevRow || prevRow.date !== targetRow.date) {
@@ -532,7 +702,7 @@
 			} else {
 				dataToInsert = { date: newDate, year: year, type: '', event_name: '' };
 			}
-			
+
 			const { data: newRow, error } = await supabase
 				.from('schedule_techs')
 				.insert({ ...dataToInsert, sort_order: newSortOrder })
@@ -545,7 +715,7 @@
 				rows = [...rows, newRow];
 				logHistory(newRow.id, 'INSERT', null, newRow);
 				if (action === 'duplicate' && newRow.type) {
-                     syncRowToCalendar(newRow, 'INSERT');
+					syncRowToCalendar(newRow, 'INSERT');
 				}
 			}
 		}
@@ -555,7 +725,7 @@
 		if (!userPermissions.canEditAll) return;
 		activeDropdownId = activeDropdownId === id ? null : id;
 	}
-	
+
 	async function handleRestore(event: CustomEvent) {
 		const { rowId, field, value } = event.detail;
 		updateCell(rowId, field, value, true);
@@ -566,7 +736,11 @@
 <svelte:window on:click={() => (activeDropdownId = null)} on:keydown={handleKeydown} />
 
 <div class="flex flex-col h-full bg-gray1 text-gray2 overflow-hidden font-mono text-xs relative">
-	<div class="flex-1 overflow-auto custom-scrollbar relative" bind:this={gridContainer}>
+	<div
+		class="flex-1 overflow-auto custom-scrollbar relative"
+		bind:this={gridContainer}
+		on:scroll={handleScroll}
+	>
 		<div
 			class="bg-navbar border-b border-gray2/20 font-bold text-gray3 sticky top-0 z-20 shadow-lg flex"
 			style="min-width: max-content;"
@@ -591,15 +765,12 @@
 		</div>
 
 		{#if loading && rows.length === 0}
-			<div
-				class="flex items-center justify-center h-full text-lime animate-pulse text-sm min-w-full mt-10"
-			>
+			<div class="flex items-center justify-center h-full text-lime text-sm min-w-full mt-10">
 				Loading Schedule...
 			</div>
 		{:else}
 			{#each filteredRows as row, i (row.id)}
-				{#if i === 0 ||
-				dayjs(row.date).month() !== dayjs(filteredRows[i - 1].date).month()}
+				{#if i === 0 || dayjs(row.date).month() !== dayjs(filteredRows[i - 1].date).month()}
 					<div class="sticky left-0 right-0 z-10 min-w-max">
 						<div
 							class="bg-white/10 border-y border-gray2/20 font-bold py-2 pl-4 text-white uppercase tracking-[0.2em] text-xs shadow-md text-left"
