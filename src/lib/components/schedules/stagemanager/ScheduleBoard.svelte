@@ -19,6 +19,7 @@
 	import { goto } from '$app/navigation';
 
 	export let currentUser: User | null = null;
+	export let isGuest = false; // Added to allow Guest editing
 
 	const HEX_COLORS: Record<string, string> = {
 		Bazart: '#e9e9e9',
@@ -35,8 +36,7 @@
 		OFF: '#333333'
 	};
 	const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-	const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
+	const DAYS_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 	let weeks: ScheduleWeek[] = [];
 	let staffList: Staff[] = [];
 	let isLoading = true;
@@ -58,14 +58,19 @@
 		existingShifts: Shift[];
 	} | null = null;
 
+	// COPY / PASTE STATE
 	let copiedShift: Partial<Shift> | null = null;
+
+	// HOVER TRACKING
+	let hoveredShift: Shift | null = null;
+	let hoveredSlot: { weekId: number; staffId: number; dayIdx: number } | null = null;
+	
 	let realtimeChannel: any = null;
 
 	onMount(async () => {
 		await loadData();
 		setupRealtime();
 	});
-
 	onDestroy(() => {
 		if (realtimeChannel) supabase.removeChannel(realtimeChannel);
 	});
@@ -90,7 +95,6 @@
 
 	function setupRealtime() {
 		if (realtimeChannel) return;
-
 		realtimeChannel = supabase
 			.channel('schedule_board_main')
 			.on(
@@ -193,7 +197,6 @@
 			return `background-color: transparent; color: #ffffff; border: 1px solid rgba(255,255,255,0.2);`;
 		if (type === 'OFF')
 			return `background-color: #333333; color: #888888; border: 1px solid #444444;`;
-
 		const bg = HEX_COLORS[type] || '#fdfdfd';
 		return `background-color: ${bg}; color: #222; border: 1px solid rgba(0,0,0,0.1);`;
 	}
@@ -217,7 +220,7 @@
 			? current.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
 			: past.sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
 	})();
-
+	
 	$: filteredStaffList = (weekId: number) => {
 		if (!activeAddWeekId) return [];
 		const week = weeks.find((w) => w.id === weekId);
@@ -229,9 +232,10 @@
 		);
 	};
 
-	// Actions ... (Keep createNextWeek, deleteWeek, deleteRow, addStaffToWeek unchanged)
 	async function createNextWeek() {
-		if (!currentUser || viewMode === 'past') return;
+		// Permissions Check
+		if ((!currentUser && !isGuest) || viewMode === 'past') return;
+		
 		let nextStart = new Date();
 		if (weeks.length > 0) {
 			const latestWeek = [...weeks].sort(
@@ -250,14 +254,18 @@
 	}
 
 	async function deleteWeek(weekId: number) {
-		if (!currentUser) return;
+		// Permissions Check
+		if (!currentUser && !isGuest) return;
+
 		weeks = weeks.filter((w) => w.id !== weekId);
 		confirmDeleteWeekId = null;
 		await supabase.from('schedule_weeks').delete().eq('id', weekId);
 	}
 
 	async function deleteRow(weekId: number, staffId: number) {
-		if (!currentUser) return;
+		// Permissions Check
+		if (!currentUser && !isGuest) return;
+
 		const wIdx = weeks.findIndex((w) => w.id === weekId);
 		if (wIdx >= 0) {
 			weeks[wIdx].shifts = weeks[wIdx].shifts.filter((s) => s.staff_id !== staffId);
@@ -293,7 +301,9 @@
 	}
 
 	async function handleModalSave(e: CustomEvent) {
-		if (!modalData || !currentUser) return;
+		// Permissions Check
+		if (!modalData || (!currentUser && !isGuest)) return;
+
 		const details = e.detail;
 		const shiftToSave = {
 			...modalData.shift,
@@ -309,7 +319,9 @@
 	}
 
 	async function handleModalDelete(e: CustomEvent) {
-		if (!currentUser) return;
+		// Permissions Check
+		if (!currentUser && !isGuest) return;
+
 		const shiftId = e.detail;
 		weeks.forEach((w) => (w.shifts = w.shifts.filter((s) => s.id !== shiftId)));
 		weeks = [...weeks];
@@ -329,7 +341,8 @@
 		shift: Shift | null,
 		currentShiftsInDay: number
 	) {
-		if (!currentUser) return;
+		// Permissions Check
+		if (!currentUser && !isGuest) return;
 
 		let existingShifts: Shift[] = [];
 		const week = weeks.find((w) => w.id === weekId);
@@ -357,7 +370,6 @@
 			}
 		});
 		visibleStaff.sort((a, b) => a.name.localeCompare(b.name));
-
 		return visibleStaff.map((staff) => {
 			const staffShifts: Shift[][] = Array.from({ length: 7 }, () => []);
 			let totalHours = 0;
@@ -392,21 +404,36 @@
 		return totals;
 	}
 
-	function handleKeyDown(
-		e: KeyboardEvent,
-		shift: Shift | undefined,
-		weekId: number,
-		staffId: number,
-		dayIdx: number
-	) {
-		if (!currentUser) return;
-		if ((e.ctrlKey || e.metaKey) && e.key === 'c' && shift) {
-			copiedShift = { ...shift };
+	// ---- GLOBAL KEYBOARD SHORTCUTS ----
+
+	function handleGlobalKeyDown(e: KeyboardEvent) {
+		// PERMISSIONS: Allow if User OR Guest
+		if (!currentUser && !isGuest) return;
+		
+		const isCmd = e.ctrlKey || e.metaKey;
+		const key = e.key.toLowerCase(); // Handle CapsLock/Shift
+
+		// CUT: Cmd + X (Hovering Shift)
+		if (isCmd && key === 'x' && hoveredShift && hoveredShift.id) {
+			e.preventDefault();
+			copiedShift = { ...hoveredShift };
 			delete copiedShift.id;
-			e.preventDefault();
+			handleModalDelete({ detail: hoveredShift.id } as CustomEvent);
 		}
-		if ((e.ctrlKey || e.metaKey) && e.key === 'v' && copiedShift) {
+
+		// COPY: Cmd + C (Hovering Shift)
+		if (isCmd && key === 'c' && hoveredShift) {
 			e.preventDefault();
+			copiedShift = { ...hoveredShift };
+			delete copiedShift.id;
+		}
+
+		// PASTE: Cmd + V (Hovering Slot)
+		if (isCmd && key === 'v' && copiedShift && hoveredSlot) {
+			e.preventDefault();
+			const { weekId, staffId, dayIdx } = hoveredSlot;
+
+			// Limit check: Max 2 shifts per slot
 			const wIdx = weeks.findIndex((w) => w.id === weekId);
 			if (wIdx >= 0) {
 				const count = weeks[wIdx].shifts.filter(
@@ -417,14 +444,14 @@
 				).length;
 				if (count >= 2) return;
 			}
+
 			const newShift = { ...copiedShift, week_id: weekId, staff_id: staffId, day_index: dayIdx };
 			supabase.from('schedule_shifts').insert(newShift).select().single();
 		}
-		if ((e.key === 'Delete' || e.key === 'Backspace') && shift?.id) {
-			handleModalDelete({ detail: shift.id } as CustomEvent);
-		}
 	}
 </script>
+
+<svelte:window on:keydown={handleGlobalKeyDown}/>
 
 <div class="h-full w-full p-6 text-white overflow-y-auto">
 	<div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -450,7 +477,7 @@
 					on:click={() => (viewMode = 'past')}>Past</button
 				>
 			</div>
-			{#if currentUser}
+			{#if currentUser || isGuest}
 				<div class="flex flex-col items-end gap-2">
 					<button
 						class="h-10 px-5 bg-lime text-black font-bold rounded-full hover:bg-lime/90 transition-all cursor-pointer text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -480,7 +507,7 @@
 						Week of {getWeekRangeString(week.start_date)}
 					</h2>
 					<div class="flex items-center gap-4">
-						{#if currentUser}
+						{#if currentUser || isGuest}
 							<div class="flex items-center gap-3 relative">
 								<button
 									class="px-3 py-1.5 rounded-lg bg-gray2/20 hover:bg-gray2/40 text-sm font-medium text-white flex items-center gap-2 cursor-pointer transition-colors border border-gray2/30"
@@ -604,7 +631,7 @@
 									class="text-center p-3 text-xs font-bold text-gray2 uppercase tracking-wider border-l border-gray2/10 w-20"
 									>Total</th
 								>
-								{#if currentUser}
+								{#if currentUser || isGuest}
 									<th class="w-12 p-0 border-l border-gray2/10"></th>
 								{/if}
 							</tr>
@@ -618,24 +645,27 @@
 									>
 									{#each row.shifts as dayShifts, i}
 										<td
-											class="p-1 border-l border-gray2/10 h-14 relative group/cell align-top"
+											class="p-1 border-l border-gray2/10 h-14 relative group/cell align-top outline-none focus:bg-white/10 transition-colors"
 											tabindex="0"
+											on:mouseenter={() => (hoveredSlot = { weekId: week.id, staffId: row.staff.id, dayIdx: i })}
+											on:mouseleave={() => (hoveredSlot = null)}
+											on:focus={() => (hoveredSlot = { weekId: week.id, staffId: row.staff.id, dayIdx: i })}
 										>
 											<div class="w-full h-full flex flex-col gap-1">
 												{#if dayShifts.length > 0}
 													{#each dayShifts as shift}
-														<div
+														<button
+															type="button"
 															class="w-full flex-1 rounded shadow-sm flex flex-col justify-center items-center hover:scale-[1.02] transition-transform overflow-hidden px-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-lime"
 															style={getCardStyle(shift.shift_type)}
 															on:click|stopPropagation={() =>
 																openModal(week.id, row.staff, i, shift, dayShifts.length)}
-															on:keydown={(e) => {
-																if (e.key === 'Enter')
-																	openModal(week.id, row.staff, i, shift, dayShifts.length);
-																handleKeyDown(e, shift, week.id, row.staff.id, i);
+															on:mouseenter={() => (hoveredShift = shift)}
+															on:mouseleave={() => (hoveredShift = null)}
+															on:focus={() => {
+																hoveredShift = shift;
+																hoveredSlot = { weekId: week.id, staffId: row.staff.id, dayIdx: i };
 															}}
-															role="button"
-															tabindex="0"
 														>
 															{#if shift.shift_type === 'OFF'}
 																<span class="font-bold text-xs text-gray-400">OFF</span>
@@ -650,23 +680,20 @@
 																	>{shift.shift_type}</span
 																>
 															{/if}
-														</div>
+														</button>
 													{/each}
-												{:else if currentUser}
-													<div
-														class="w-full h-full flex items-center justify-center opacity-0 group-hover/cell:opacity-100 transition-opacity cursor-pointer"
+												{:else if currentUser || isGuest}
+													<button
+														type="button"
+														class="w-full h-full flex items-center justify-center opacity-0 group-hover/cell:opacity-100 transition-opacity cursor-pointer border-none bg-transparent"
 														on:click={() => openModal(week.id, row.staff, i, null, 0)}
-														on:keydown={(e) =>
-															e.key === 'Enter' && openModal(week.id, row.staff, i, null, 0)}
-														role="button"
-														tabindex="0"
 													>
 														<div
 															class="w-6 h-6 rounded-full bg-gray2/20 flex items-center justify-center text-gray2 hover:bg-lime hover:text-black transition-colors"
 														>
 															+
 														</div>
-													</div>
+													</button>
 												{/if}
 											</div>
 										</td>
@@ -675,7 +702,7 @@
 										class="p-3 text-center border-l border-gray2/10 font-mono text-lime font-bold text-sm"
 										>{formatHours(row.totalHours)}</td
 									>
-									{#if currentUser}
+									{#if currentUser || isGuest}
 										<td class="p-0 border-l border-gray2/10 text-center">
 											{#if confirmDeleteRow?.weekId === week.id && confirmDeleteRow?.staffId === row.staff.id}
 												<button
@@ -725,7 +752,7 @@
 								<td class="p-3 text-center text-lime border-l border-gray2/10 text-sm"
 									>{formatHours(rows.reduce((acc, r) => acc + r.totalHours, 0))}</td
 								>
-								{#if currentUser}<td></td>{/if}
+								{#if currentUser || isGuest}<td></td>{/if}
 							</tr>
 						</tbody>
 					</table>
@@ -734,7 +761,7 @@
 		{:else}
 			<div class="flex flex-col items-center justify-center py-20 text-gray2">
 				<p>No {viewMode} schedules found.</p>
-				{#if currentUser && viewMode === 'current'}
+				{#if (currentUser || isGuest) && viewMode === 'current'}
 					<button class="text-lime hover:underline mt-2 font-bold" on:click={createNextWeek}
 						>Create one now</button
 					>

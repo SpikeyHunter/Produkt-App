@@ -7,7 +7,6 @@
 
 	let currentUser: User | null = null;
 	let loading = true;
-	
 	// Guest Auth State
 	let isGuestAuthenticated = false;
 	let passwordInput = '';
@@ -81,12 +80,12 @@
 {#if !loading}
 	{#if currentUser}
 		<MainLayout pageTitle="Stage Manager">
-			<ScheduleBoard {currentUser} />
+			<ScheduleBoard {currentUser} isGuest={false} />
 		</MainLayout>
 
 	{:else if isGuestAuthenticated}
 		<div class="w-full h-screen bg-gray1 overflow-hidden">
-			<ScheduleBoard {currentUser} />
+			<ScheduleBoard {currentUser} isGuest={true} />
 		</div>
 
 	{:else}
