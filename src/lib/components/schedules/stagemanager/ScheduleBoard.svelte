@@ -19,7 +19,11 @@
 	import { goto } from '$app/navigation';
 
 	export let currentUser: User | null = null;
-	export let isGuest = false; // Added to allow Guest editing
+
+
+	// ---- PERMISSIONS LOGIC ----
+	// Only Supabase users can edit. Guests (Password) are Read-Only.
+	$: canEdit = currentUser !== null;
 
 	const HEX_COLORS: Record<string, string> = {
 		Bazart: '#e9e9e9',
@@ -35,8 +39,10 @@
 		Office: 'transparent',
 		OFF: '#333333'
 	};
+
 	const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 	const DAYS_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 	let weeks: ScheduleWeek[] = [];
 	let staffList: Staff[] = [];
 	let isLoading = true;
@@ -64,13 +70,13 @@
 	// HOVER TRACKING
 	let hoveredShift: Shift | null = null;
 	let hoveredSlot: { weekId: number; staffId: number; dayIdx: number } | null = null;
-	
 	let realtimeChannel: any = null;
 
 	onMount(async () => {
 		await loadData();
 		setupRealtime();
 	});
+
 	onDestroy(() => {
 		if (realtimeChannel) supabase.removeChannel(realtimeChannel);
 	});
@@ -220,7 +226,7 @@
 			? current.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
 			: past.sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime());
 	})();
-	
+
 	$: filteredStaffList = (weekId: number) => {
 		if (!activeAddWeekId) return [];
 		const week = weeks.find((w) => w.id === weekId);
@@ -234,8 +240,8 @@
 
 	async function createNextWeek() {
 		// Permissions Check
-		if ((!currentUser && !isGuest) || viewMode === 'past') return;
-		
+		if (!canEdit || viewMode === 'past') return;
+
 		let nextStart = new Date();
 		if (weeks.length > 0) {
 			const latestWeek = [...weeks].sort(
@@ -255,7 +261,7 @@
 
 	async function deleteWeek(weekId: number) {
 		// Permissions Check
-		if (!currentUser && !isGuest) return;
+		if (!canEdit) return;
 
 		weeks = weeks.filter((w) => w.id !== weekId);
 		confirmDeleteWeekId = null;
@@ -264,7 +270,7 @@
 
 	async function deleteRow(weekId: number, staffId: number) {
 		// Permissions Check
-		if (!currentUser && !isGuest) return;
+		if (!canEdit) return;
 
 		const wIdx = weeks.findIndex((w) => w.id === weekId);
 		if (wIdx >= 0) {
@@ -302,7 +308,7 @@
 
 	async function handleModalSave(e: CustomEvent) {
 		// Permissions Check
-		if (!modalData || (!currentUser && !isGuest)) return;
+		if (!modalData || !canEdit) return;
 
 		const details = e.detail;
 		const shiftToSave = {
@@ -320,7 +326,7 @@
 
 	async function handleModalDelete(e: CustomEvent) {
 		// Permissions Check
-		if (!currentUser && !isGuest) return;
+		if (!canEdit) return;
 
 		const shiftId = e.detail;
 		weeks.forEach((w) => (w.shifts = w.shifts.filter((s) => s.id !== shiftId)));
@@ -342,7 +348,7 @@
 		currentShiftsInDay: number
 	) {
 		// Permissions Check
-		if (!currentUser && !isGuest) return;
+		if (!canEdit) return;
 
 		let existingShifts: Shift[] = [];
 		const week = weeks.find((w) => w.id === weekId);
@@ -407,11 +413,11 @@
 	// ---- GLOBAL KEYBOARD SHORTCUTS ----
 
 	function handleGlobalKeyDown(e: KeyboardEvent) {
-		// PERMISSIONS: Allow if User OR Guest
-		if (!currentUser && !isGuest) return;
-		
+		// PERMISSIONS: Strict check - Must be Authenticated to use shortcuts
+		if (!canEdit) return;
+
 		const isCmd = e.ctrlKey || e.metaKey;
-		const key = e.key.toLowerCase(); // Handle CapsLock/Shift
+		const key = e.key.toLowerCase();
 
 		// CUT: Cmd + X (Hovering Shift)
 		if (isCmd && key === 'x' && hoveredShift && hoveredShift.id) {
@@ -451,7 +457,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleGlobalKeyDown}/>
+<svelte:window on:keydown={handleGlobalKeyDown} />
 
 <div class="h-full w-full p-6 text-white overflow-y-auto">
 	<div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
@@ -463,21 +469,23 @@
 			>
 				<span class="uppercase tracking-wider">Schedule Techs</span>
 			</button>
+
 			<div class="flex bg-gray2/20 p-1 rounded-full border border-gray2/30 h-10">
 				<button
-					class="px-4 rounded-full text-sm font-medium transition-all {viewMode === 'current'
+					class="px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all {viewMode === 'current'
 						? 'bg-lime text-black font-bold shadow-lg'
 						: 'text-gray2 hover:text-white'}"
 					on:click={() => (viewMode = 'current')}>Current</button
 				>
 				<button
-					class="px-4 rounded-full text-sm font-medium transition-all {viewMode === 'past'
+					class="px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all {viewMode === 'past'
 						? 'bg-white text-black font-bold shadow-lg'
 						: 'text-gray2 hover:text-white'}"
 					on:click={() => (viewMode = 'past')}>Past</button
 				>
 			</div>
-			{#if currentUser || isGuest}
+
+			{#if canEdit}
 				<div class="flex flex-col items-end gap-2">
 					<button
 						class="h-10 px-5 bg-lime text-black font-bold rounded-full hover:bg-lime/90 transition-all cursor-pointer text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -507,7 +515,7 @@
 						Week of {getWeekRangeString(week.start_date)}
 					</h2>
 					<div class="flex items-center gap-4">
-						{#if currentUser || isGuest}
+						{#if canEdit}
 							<div class="flex items-center gap-3 relative">
 								<button
 									class="px-3 py-1.5 rounded-lg bg-gray2/20 hover:bg-gray2/40 text-sm font-medium text-white flex items-center gap-2 cursor-pointer transition-colors border border-gray2/30"
@@ -631,7 +639,7 @@
 									class="text-center p-3 text-xs font-bold text-gray2 uppercase tracking-wider border-l border-gray2/10 w-20"
 									>Total</th
 								>
-								{#if currentUser || isGuest}
+								{#if canEdit}
 									<th class="w-12 p-0 border-l border-gray2/10"></th>
 								{/if}
 							</tr>
@@ -647,16 +655,23 @@
 										<td
 											class="p-1 border-l border-gray2/10 h-14 relative group/cell align-top outline-none focus:bg-white/10 transition-colors"
 											tabindex="0"
-											on:mouseenter={() => (hoveredSlot = { weekId: week.id, staffId: row.staff.id, dayIdx: i })}
+											on:mouseenter={() =>
+												(hoveredSlot = { weekId: week.id, staffId: row.staff.id, dayIdx: i })}
 											on:mouseleave={() => (hoveredSlot = null)}
-											on:focus={() => (hoveredSlot = { weekId: week.id, staffId: row.staff.id, dayIdx: i })}
+											on:focus={() =>
+												(hoveredSlot = { weekId: week.id, staffId: row.staff.id, dayIdx: i })}
 										>
 											<div class="w-full h-full flex flex-col gap-1">
 												{#if dayShifts.length > 0}
 													{#each dayShifts as shift}
 														<button
 															type="button"
-															class="w-full flex-1 rounded shadow-sm flex flex-col justify-center items-center hover:scale-[1.02] transition-transform overflow-hidden px-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-lime"
+															disabled={!canEdit}
+															class="w-full flex-1 rounded shadow-sm flex flex-col justify-center items-center overflow-hidden px-1 focus:outline-none focus:ring-2 focus:ring-lime"
+															class:pointer-events-none={!canEdit}
+															class:hover:scale-[1.02]={canEdit}
+															class:cursor-pointer={canEdit}
+															class:transition-transform={canEdit}
 															style={getCardStyle(shift.shift_type)}
 															on:click|stopPropagation={() =>
 																openModal(week.id, row.staff, i, shift, dayShifts.length)}
@@ -682,7 +697,7 @@
 															{/if}
 														</button>
 													{/each}
-												{:else if currentUser || isGuest}
+												{:else if canEdit}
 													<button
 														type="button"
 														class="w-full h-full flex items-center justify-center opacity-0 group-hover/cell:opacity-100 transition-opacity cursor-pointer border-none bg-transparent"
@@ -702,7 +717,7 @@
 										class="p-3 text-center border-l border-gray2/10 font-mono text-lime font-bold text-sm"
 										>{formatHours(row.totalHours)}</td
 									>
-									{#if currentUser || isGuest}
+									{#if canEdit}
 										<td class="p-0 border-l border-gray2/10 text-center">
 											{#if confirmDeleteRow?.weekId === week.id && confirmDeleteRow?.staffId === row.staff.id}
 												<button
@@ -752,7 +767,7 @@
 								<td class="p-3 text-center text-lime border-l border-gray2/10 text-sm"
 									>{formatHours(rows.reduce((acc, r) => acc + r.totalHours, 0))}</td
 								>
-								{#if currentUser || isGuest}<td></td>{/if}
+								{#if canEdit}<td></td>{/if}
 							</tr>
 						</tbody>
 					</table>
@@ -761,7 +776,7 @@
 		{:else}
 			<div class="flex flex-col items-center justify-center py-20 text-gray2">
 				<p>No {viewMode} schedules found.</p>
-				{#if (currentUser || isGuest) && viewMode === 'current'}
+				{#if canEdit && viewMode === 'current'}
 					<button class="text-lime hover:underline mt-2 font-bold" on:click={createNextWeek}
 						>Create one now</button
 					>

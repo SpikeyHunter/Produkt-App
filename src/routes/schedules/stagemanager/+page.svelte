@@ -7,6 +7,7 @@
 
 	let currentUser: User | null = null;
 	let loading = true;
+
 	// Guest Auth State
 	let isGuestAuthenticated = false;
 	let passwordInput = '';
@@ -21,7 +22,7 @@
 			currentUser = session?.user || null;
 		});
 
-		// 2. Check Guest Token if not logged in
+		// 2. Check Guest Token if not logged in via Supabase
 		if (!currentUser) {
 			checkGuestAccess();
 		}
@@ -31,28 +32,31 @@
 
 	function checkGuestAccess() {
 		try {
-			const stored = sessionStorage.getItem('guest_access_token');
+			// Changed to localStorage to persist for 7 days even if browser closes
+			const stored = localStorage.getItem('guest_access_token');
 			if (stored) {
 				const { expiry } = JSON.parse(stored);
-				// Check if token is still valid (within 1 hour)
+				// Check if token is still valid
 				if (Date.now() < expiry) {
 					isGuestAuthenticated = true;
 				} else {
 					// Token expired, clear it
-					sessionStorage.removeItem('guest_access_token');
+					localStorage.removeItem('guest_access_token');
 				}
 			}
 		} catch (e) {
 			console.error('Error reading guest token', e);
-			sessionStorage.removeItem('guest_access_token');
+			localStorage.removeItem('guest_access_token');
 		}
 	}
 
 	function handlePasswordSubmit() {
 		if (passwordInput === 'NCG2025!') {
-			// Success: Save token with 1h expiry
-			const expiry = Date.now() + (60 * 60 * 1000); // 1 hour from now
-			sessionStorage.setItem('guest_access_token', JSON.stringify({ expiry }));
+			// Success: Save token with 7 DAYS expiry
+			const expiry = Date.now() + (7 * 24 * 60 * 60 * 1000); 
+
+			// Save to localStorage
+			localStorage.setItem('guest_access_token', JSON.stringify({ expiry }));
 			
 			isGuestAuthenticated = true;
 			passwordError = '';
@@ -67,10 +71,9 @@
 		}
 	}
 
-    // Action to focus input on mount (replaces autofocus attribute)
     function focusInput(node: HTMLElement) {
         node.focus();
-    }
+	}
 </script>
 
 <svelte:head>
@@ -80,12 +83,12 @@
 {#if !loading}
 	{#if currentUser}
 		<MainLayout pageTitle="Stage Manager">
-			<ScheduleBoard {currentUser} isGuest={false} />
+			<ScheduleBoard {currentUser}/>
 		</MainLayout>
 
 	{:else if isGuestAuthenticated}
 		<div class="w-full h-screen bg-gray1 overflow-hidden">
-			<ScheduleBoard {currentUser} isGuest={true} />
+			<ScheduleBoard {currentUser}/>
 		</div>
 
 	{:else}
@@ -94,7 +97,7 @@
 				<div class="text-center">
                     <img src="/images/ProduktXX_LOGO1.png" alt="Produkt Logo" class="h-9 mx-auto mb-10" />
 					<h2 class="text-2xl font-bold text-white mb-2">Stage Manager</h2>
-					<p class="text-gray2 text-sm">Please enter the password to view the Stage Manager schedule.</p>
+					<p class="text-gray2 text-sm">Please enter the password to view the schedule.</p>
 				</div>
 
 				<div class="space-y-2">
@@ -103,7 +106,7 @@
 						placeholder="Enter Password" 
 						bind:value={passwordInput}
 						on:keydown={handleKeydown}
-                        use:focusInput
+						use:focusInput
 						class="w-full bg-black/30 border border-gray2/20 rounded-xl px-4 py-3 text-white text-center focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime transition-all placeholder-gray2/50"
 					/>
 					{#if passwordError}

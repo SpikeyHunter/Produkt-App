@@ -21,7 +21,12 @@
 	let isLoading = true;
 
 	// Permissions State
-	let userPermissions = { role: 'viewer', canAddYear: false, canEditAll: false, allowedColumns: [] as string[] };
+	let userPermissions = {
+		role: 'viewer',
+		canAddYear: false,
+		canEditAll: false,
+		allowedColumns: [] as string[]
+	};
 	// CACHE & LOADING STATE
 	let scheduleCache: Record<number, TechRow[]> = {};
 	let currentRows: TechRow[] = [];
@@ -68,46 +73,46 @@
 		await fetchAllYears();
 		isLoading = false;
 
-        // --- NEW: URL RESTORATION LOGIC ---
-        const params = new URLSearchParams(window.location.search);
-        const savedYear = params.get('year') ? parseInt(params.get('year')!) : null;
-        const savedView = params.get('view') as 'current' | 'past' | null;
+		// --- NEW: URL RESTORATION LOGIC ---
+		const params = new URLSearchParams(window.location.search);
+		const savedYear = params.get('year') ? parseInt(params.get('year')!) : null;
+		const savedView = params.get('view') as 'current' | 'past' | null;
 
-        // Restore View Mode
-        if (savedView && ['current', 'past'].includes(savedView)) {
-            viewMode = savedView;
-        }
+		// Restore View Mode
+		if (savedView && ['current', 'past'].includes(savedView)) {
+			viewMode = savedView;
+		}
 
-        // Restore Year (if valid) or fallback to default
+		// Restore Year (if valid) or fallback to default
 		const currentY = dayjs().year();
-        
-        if (savedYear && years.includes(savedYear)) {
-            switchYear(savedYear);
-        } else if (years.includes(currentY)) {
+
+		if (savedYear && years.includes(savedYear)) {
+			switchYear(savedYear);
+		} else if (years.includes(currentY)) {
 			switchYear(currentY);
 			viewMode = 'current';
-            updateUrl(); // Sync default to URL
+			updateUrl(); // Sync default to URL
 		} else if (years.length > 0) {
 			const maxYear = years.sort((a, b) => b - a)[0];
 			switchYear(maxYear);
-            updateUrl(); // Sync default to URL
+			updateUrl(); // Sync default to URL
 		}
 	});
 
-    // --- NEW: URL SYNC HELPER ---
-    function updateUrl() {
-        const url = new URL(window.location.href);
-        if (selectedYear) url.searchParams.set('year', selectedYear.toString());
-        if (viewMode) url.searchParams.set('view', viewMode);
-        
-        // Update URL without reloading the page
-        goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
-    }
+	// --- NEW: URL SYNC HELPER ---
+	function updateUrl() {
+		const url = new URL(window.location.href);
+		if (selectedYear) url.searchParams.set('year', selectedYear.toString());
+		if (viewMode) url.searchParams.set('view', viewMode);
 
-    function toggleViewMode() {
-        viewMode = viewMode === 'current' ? 'past' : 'current';
-        updateUrl();
-    }
+		// Update URL without reloading the page
+		goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true });
+	}
+
+	function toggleViewMode() {
+		viewMode = viewMode === 'current' ? 'past' : 'current';
+		updateUrl();
+	}
 
 	// --- CRITICAL FIX: Safe Switching Logic ---
 	async function switchYear(year: number) {
@@ -127,12 +132,12 @@
 		currentRows = [];
 		saveStatus = 'idle';
 		isDeleteMode = false; // Reset delete mode on switch
-		
+
 		// 4. Update Selection
 		selectedYear = year;
-        
-        // 5. Update URL
-        updateUrl();
+
+		// 5. Update URL
+		updateUrl();
 
 		// 6. Load Data
 		loadScheduleForYear(year);
@@ -213,19 +218,21 @@
 
 	function checkGuestAccess() {
 		try {
-			const techToken = sessionStorage.getItem('tech_guest_token');
+			// CHANGE: Use localStorage instead of sessionStorage
+			const techToken = localStorage.getItem('tech_guest_token');
 			if (techToken) {
 				const { expiry } = JSON.parse(techToken);
 				if (Date.now() < expiry) {
 					isGuestAuthenticated = true;
 					return;
 				} else {
-					sessionStorage.removeItem('tech_guest_token');
+					// Token expired, clear it
+					localStorage.removeItem('tech_guest_token');
 				}
 			}
 		} catch (e) {
 			console.error('Error reading tech token', e);
-			sessionStorage.removeItem('tech_guest_token');
+			localStorage.removeItem('tech_guest_token');
 		}
 		try {
 			const smToken = sessionStorage.getItem('guest_access_token');
@@ -243,8 +250,12 @@
 
 	function handlePasswordSubmit() {
 		if (passwordInput === 'Tech2025!') {
-			const expiry = Date.now() + 60 * 60 * 1000;
-			sessionStorage.setItem('tech_guest_token', JSON.stringify({ expiry }));
+			// CHANGE: Set expiry to 7 days (7 * 24h * 60m * 60s * 1000ms)
+			const expiry = Date.now() + (7 * 24 * 60 * 60 * 1000);
+            
+			// CHANGE: Save to localStorage
+			localStorage.setItem('tech_guest_token', JSON.stringify({ expiry }));
+            
 			isGuestAuthenticated = true;
 			passwordError = '';
 		} else {
@@ -387,7 +398,7 @@
 									{/if}
 								</div>
 
-                                {#if userPermissions.role === 'production'}
+								{#if userPermissions.role === 'production'}
 									<button
 										class="flex items-center justify-center p-2 rounded-full transition-all duration-200 hover:cursor-pointer hover:scale-110 focus:outline-none {isDeleteMode
 											? 'bg-problem/10 hover:bg-problem/20'
@@ -656,7 +667,7 @@
 						bind:value={passwordInput}
 						on:keydown={handleKeydown}
 						use:focusInput
-						class="w-full bg-black/30 
+						class="w-full bg-black/30
 border border-gray2/20 rounded-xl px-4 py-3 text-white text-center focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime transition-all placeholder-gray2/50"
 					/>
 					{#if passwordError}<p
