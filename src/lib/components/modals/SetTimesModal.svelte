@@ -21,8 +21,22 @@
 	let dragOverIndex: number | null = null;
 	let dropdownState = { show: false, index: -1 };
 	let showDeleteConfirm = false;
-	const statusOptions: BaseTimetableEntry['status'][] = ['Default', 'Problem', 'Tentative', 'Proposed', 'Confirmed'];
+	const statusOptions: BaseTimetableEntry['status'][] = [
+		'Default',
+		'Problem',
+		'Tentative',
+		'Proposed',
+		'Confirmed'
+	];
 
+	// ADD this immediately after:
+	const statusDisplayNames: Record<BaseTimetableEntry['status'], string> = {
+		Default: 'Draft',
+		Problem: 'Problem',
+		Tentative: 'Set Time Pending',
+		Proposed: 'Artist Confirmed',
+		Confirmed: 'Approved & Advanced'
+	};
 	function confirmDelete() {
 		showDeleteConfirm = true;
 	}
@@ -62,7 +76,8 @@
 			const currentTime = parseTime(currentEntry.time);
 
 			if (doorsTime && i === doorsIndex + 1 && currentTime) {
-				const diffFromDoors = (currentTime.hours * 60 + currentTime.minutes) - (doorsTime.hours * 60 + doorsTime.minutes);
+				const diffFromDoors =
+					currentTime.hours * 60 + currentTime.minutes - (doorsTime.hours * 60 + doorsTime.minutes);
 				if (diffFromDoors < 0) {
 					isProblem = true;
 				}
@@ -72,7 +87,8 @@
 			if (i < entries.length - 1) {
 				nextTime = parseTime(entries[i + 1].time);
 				if (currentTime && nextTime) {
-					const diff = (nextTime.hours * 60 + nextTime.minutes) - (currentTime.hours * 60 + currentTime.minutes);
+					const diff =
+						nextTime.hours * 60 + nextTime.minutes - (currentTime.hours * 60 + currentTime.minutes);
 					if (diff < 0) {
 						isProblem = true;
 					}
@@ -87,15 +103,20 @@
 				}
 			}
 
-			if (i === entries.length - 1 || currentEntry.artist === 'DOORS' || currentEntry.artist === 'CURFEW') {
+			if (
+				i === entries.length - 1 ||
+				currentEntry.artist === 'DOORS' ||
+				currentEntry.artist === 'CURFEW'
+			) {
 				currentEntry.length = '';
 				continue;
 			}
-			
+
 			if (currentEntry.status === 'Problem') {
 				currentEntry.length = 'Error';
 			} else if (currentTime && nextTime) {
-				const diff = (nextTime.hours * 60 + nextTime.minutes) - (currentTime.hours * 60 + currentTime.minutes);
+				const diff =
+					nextTime.hours * 60 + nextTime.minutes - (currentTime.hours * 60 + currentTime.minutes);
 				const hours = Math.floor(diff / 60);
 				const mins = diff % 60;
 				if (hours > 0 && mins > 0) currentEntry.length = `${hours}h ${mins}m`;
@@ -121,7 +142,7 @@
 		draggedIndex = null;
 		dragOverIndex = null;
 	}
-	
+
 	function toggleStatusDropdown(index: number) {
 		if (dropdownState.show && dropdownState.index === index) {
 			dropdownState.show = false;
@@ -160,9 +181,10 @@
 		const entry = entries[index];
 		const currentTimeIndex = timeOptions.indexOf(entry.time);
 		if (currentTimeIndex !== -1) {
-			const newIndex = direction === 'up' ?
-				Math.min(currentTimeIndex + 1, timeOptions.length - 1) :
-				Math.max(currentTimeIndex - 1, 0);
+			const newIndex =
+				direction === 'up'
+					? Math.min(currentTimeIndex + 1, timeOptions.length - 1)
+					: Math.max(currentTimeIndex - 1, 0);
 			entry.time = timeOptions[newIndex];
 		}
 		entries = [...entries];
@@ -204,11 +226,16 @@
 
 	function getStatusStyles(status: string): string {
 		switch (status) {
-			case 'Problem': return 'border-problem bg-problem/10 hover:bg-problem/20';
-			case 'Tentative': return 'border-tentatif bg-tentatif/10 hover:bg-tentatif/20';
-			case 'Proposed': return 'border-proposed bg-proposed/10 hover:bg-proposed/20';
-			case 'Confirmed': return 'border-confirmed bg-confirmed/10 hover:bg-confirmed/20';
-			default: return 'border-gray1 bg-gray1/10 hover:bg-gray1/20';
+			case 'Problem':
+				return 'border-problem bg-problem/10 hover:bg-problem/20';
+			case 'Tentative':
+				return 'border-tentatif bg-tentatif/10 hover:bg-tentatif/20';
+			case 'Proposed':
+				return 'border-proposed bg-proposed/10 hover:bg-proposed/20';
+			case 'Confirmed':
+				return 'border-confirmed bg-confirmed/10 hover:bg-confirmed/20';
+			default:
+				return 'border-gray1 bg-gray1/10 hover:bg-gray1/20';
 		}
 	}
 
@@ -328,7 +355,12 @@
 
 	function handleDrop(e: DragEvent, dropIndex: number) {
 		e.preventDefault();
-		if (draggedIndex === null || draggedIndex === dropIndex || dropIndex === 0 || dropIndex === entries.length - 1) {
+		if (
+			draggedIndex === null ||
+			draggedIndex === dropIndex ||
+			dropIndex === 0 ||
+			dropIndex === entries.length - 1
+		) {
 			draggedIndex = null;
 			dragOverIndex = null;
 			return;
@@ -341,48 +373,53 @@
 	}
 </script>
 
-<style>
-	:global(body.modal-open) {
-		overflow: hidden !important;
-	}
-	.dragging {
-		opacity: 0.5;
-	}
-	.drag-over {
-		box-shadow: 0 -2px 0 var(--color-lime);
-	}
-</style>
-
 <svelte:window on:click={handleClickOutside} />
 
-<Modal bind:isOpen title="Set Times - {event?.event_name || 'Event'}" maxWidth="max-w-4xl" hasFooter={true} on:close={closeModal}>
+<Modal
+	bind:isOpen
+	title="Set Times - {event?.event_name || 'Event'}"
+	maxWidth="max-w-4xl"
+	hasFooter={true}
+	on:close={closeModal}
+>
 	<div class="space-y-4">
 		{#if event}
 			<div class="flex items-center justify-between mb-2">
 				<h3 class="text-base font-bold text-white">Run of Show</h3>
 				<div class="flex gap-2">
-					<button on:click={resetToDefault} class="px-3 py-1.5 bg-gray1 text-white rounded-full font-bold text-xs border border-gray1 hover:border-lime hover:text-lime transition-colors cursor-pointer">Clear</button>
-					<button on:click={addEntry} class="px-3 py-1.5 bg-lime text-black rounded-full font-bold text-xs hover:brightness-110 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed" disabled={entries.length >= 7}>Add Line</button>
+					<button
+						on:click={resetToDefault}
+						class="px-3 py-1.5 bg-gray1 text-white rounded-full font-bold text-xs border border-gray1 hover:border-lime hover:text-lime transition-colors cursor-pointer"
+						>Clear</button
+					>
+					<button
+						on:click={addEntry}
+						class="px-3 py-1.5 bg-lime text-black rounded-full font-bold text-xs hover:brightness-110 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+						disabled={entries.length >= 7}>Add Line</button
+					>
 				</div>
 			</div>
 
-			<div class="grid grid-cols-13 gap-x-3 px-3 py-2 text-xs font-bold text-gray2 items-center">
+			<div class="grid grid-cols-14 gap-x-3 px-3 py-2 text-xs font-bold text-gray2 items-center">
 				<div class="col-span-1"></div>
 				<div class="col-span-2">Time</div>
 				<div class="col-span-2 text-center">Length</div>
 				<div class="col-span-3">Artist</div>
 				<div class="col-span-2">Notes</div>
-				<div class="col-span-2">Status</div>
+				<div class="col-span-3">Status</div>
 				<div class="col-span-1"></div>
 			</div>
 
 			<div class="space-y-2 pr-2">
 				{#each entries as entry, index (entry.id)}
-					{@const formInputClasses = 'w-full bg-transparent border border-gray1 rounded-md px-2 py-1.5 text-white text-xs focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime transition-all duration-200'}
+					{@const formInputClasses =
+						'w-full bg-transparent border border-gray1 rounded-md px-2 py-1.5 text-white text-xs focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime transition-all duration-200'}
 					{@const isSpecialRow = entry.artist === 'DOORS' || entry.artist === 'CURFEW'}
 					<div
 						role="listitem"
-						class="grid grid-cols-13 gap-x-3 items-center p-2.5 border rounded-lg transition-all duration-200 {getStatusStyles(entry.status)}"
+						class="grid grid-cols-14 gap-x-3 items-center p-2.5 border rounded-lg transition-all duration-200 {getStatusStyles(
+							entry.status
+						)}"
 						draggable={!isSpecialRow}
 						on:dragstart={(e) => handleDragStart(e, index)}
 						on:dragover={(e) => handleDragOver(e, index)}
@@ -393,23 +430,55 @@
 						<div class="col-span-1 grid grid-cols-2 gap-1 items-center">
 							<div class="flex items-center justify-center">
 								{#if !isSpecialRow}
-									<button class="cursor-move text-gray-400 hover:text-white" aria-label="Drag to reorder">
-										<svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M9 5h2v2H9zm4 0h2v2h-2zM9 9h2v2H9zm4 0h2v2h-2zm-4 4h2v2H9zm4 0h2v2h-2zm-4 4h2v2H9zm4 0h2v2h-2z" /></svg>
+									<button
+										class="cursor-move text-gray-400 hover:text-white"
+										aria-label="Drag to reorder"
+									>
+										<svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"
+											><path
+												d="M9 5h2v2H9zm4 0h2v2h-2zM9 9h2v2H9zm4 0h2v2h-2zm-4 4h2v2H9zm4 0h2v2h-2zm-4 4h2v2H9zm4 0h2v2h-2z"
+											/></svg
+										>
 									</button>
 								{/if}
 							</div>
 							<div class="flex flex-col">
-								<button on:click={() => adjustTime(index, 'up')} class="text-gray2 hover:text-lime cursor-pointer" aria-label="Increase time">
-									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M18 15l-6-6-6 6" /></svg>
+								<button
+									on:click={() => adjustTime(index, 'up')}
+									class="text-gray2 hover:text-lime cursor-pointer"
+									aria-label="Increase time"
+								>
+									<svg
+										class="w-4 h-4"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="3"><path d="M18 15l-6-6-6 6" /></svg
+									>
 								</button>
-								<button on:click={() => adjustTime(index, 'down')} class="text-gray2 hover:text-lime cursor-pointer" aria-label="Decrease time">
-									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6" /></svg>
+								<button
+									on:click={() => adjustTime(index, 'down')}
+									class="text-gray2 hover:text-lime cursor-pointer"
+									aria-label="Decrease time"
+								>
+									<svg
+										class="w-4 h-4"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="3"><path d="M6 9l6 6 6-6" /></svg
+									>
 								</button>
 							</div>
 						</div>
 
 						<div class="col-span-2">
-							<input type="text" class={formInputClasses} bind:value={entry.time} on:blur={() => formatTimeInput(index)} />
+							<input
+								type="text"
+								class={formInputClasses}
+								bind:value={entry.time}
+								on:blur={() => formatTimeInput(index)}
+							/>
 						</div>
 						<div class="col-span-2 text-center">
 							<span class="text-gray2 text-xs">{entry.length}</span>
@@ -418,31 +487,54 @@
 							{#if isSpecialRow}
 								<span class="px-2.5 py-1.5 text-white font-bold text-xs">{entry.artist}</span>
 							{:else}
-								<input type="text" class={formInputClasses} bind:value={entry.artist} placeholder="Enter name" />
+								<input
+									type="text"
+									class={formInputClasses}
+									bind:value={entry.artist}
+									placeholder="Enter name"
+								/>
 							{/if}
 						</div>
 						<div class="col-span-2">
 							{#if !isSpecialRow}
-								<input type="text" class={formInputClasses} bind:value={entry.notes} placeholder="Add" />
+								<input
+									type="text"
+									class={formInputClasses}
+									bind:value={entry.notes}
+									placeholder="Add"
+								/>
 							{/if}
 						</div>
 
-						<div class="col-span-2 relative">
+						<div class="col-span-3 relative">
 							{#if !isSpecialRow}
-								<button type="button" class="{formInputClasses} status-button flex items-center justify-between text-left" on:click={() => toggleStatusDropdown(index)}>
-									<span>{entry.status}</span>
-									<svg class="w-3 h-3 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
+								<button
+									type="button"
+									class="{formInputClasses} status-button flex items-center justify-between text-left"
+									on:click={() => toggleStatusDropdown(index)}
+								>
+									<span>{statusDisplayNames[entry.status]}</span>
+									<svg
+										class="w-3 h-3 text-gray2"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
+									>
 								</button>
 
 								{#if dropdownState.show && dropdownState.index === index}
-									<div class="dropdown-portal absolute top-full mt-1 w-full bg-navbar border border-lime rounded-lg shadow-lg z-20 overflow-hidden" role="listbox">
+									<div
+										class="dropdown-portal absolute top-full mt-1 w-full bg-navbar border border-lime rounded-lg shadow-lg z-20 overflow-hidden"
+										role="listbox"
+									>
 										{#each statusOptions as option}
 											<button
 												type="button"
 												class="w-full px-3 py-2 text-left text-white hover:bg-lime hover:text-black transition-colors cursor-pointer text-xs font-bold whitespace-nowrap"
 												on:click={() => selectStatus(option)}
 											>
-												{option}
+												{statusDisplayNames[option]}
 											</button>
 										{/each}
 									</div>
@@ -452,8 +544,29 @@
 
 						<div class="col-span-1 flex items-center justify-center">
 							{#if !isSpecialRow}
-								<button type="button" class="text-red-500/70 hover:text-red-500 transition-colors cursor-pointer" on:click={() => removeEntry(index)} aria-label="Remove entry">
-									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+								<button
+									type="button"
+									class="text-red-500/70 hover:text-red-500 transition-colors cursor-pointer"
+									on:click={() => removeEntry(index)}
+									aria-label="Remove entry"
+								>
+									<svg
+										class="w-4 h-4"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										><polyline points="3 6 5 6 21 6"></polyline><path
+											d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+										></path><line x1="10" y1="11" x2="10" y2="17"></line><line
+											x1="14"
+											y1="11"
+											x2="14"
+											y2="17"
+										></line></svg
+									>
 								</button>
 							{/if}
 						</div>
@@ -467,20 +580,51 @@
 		<div class="flex-1">
 			{#if showDeleteConfirm}
 				<div class="flex items-center gap-2">
-					<button class="px-6 py-3 text-sm border border-gray2 text-gray2 rounded-full hover:bg-gray2 hover:text-black transition-colors cursor-pointer" on:click={cancelDelete}>Cancel</button>
-					<button class="px-6 py-3 text-sm bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors disabled:opacity-50 cursor-pointer" disabled={isDeleting} on:click={handleDelete}>
+					<button
+						class="px-6 py-3 text-sm border border-gray2 text-gray2 rounded-full hover:bg-gray2 hover:text-black transition-colors cursor-pointer"
+						on:click={cancelDelete}>Cancel</button
+					>
+					<button
+						class="px-6 py-3 text-sm bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors disabled:opacity-50 cursor-pointer"
+						disabled={isDeleting}
+						on:click={handleDelete}
+					>
 						{isDeleting ? '...' : 'Confirm'}
 					</button>
 				</div>
 			{:else}
-				<button class="px-6 py-3 border border-red-500 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors disabled:opacity-50 cursor-pointer" disabled={isSubmitting || isDeleting} on:click={confirmDelete}>Delete</button>
+				<button
+					class="px-6 py-3 border border-red-500 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors disabled:opacity-50 cursor-pointer"
+					disabled={isSubmitting || isDeleting}
+					on:click={confirmDelete}>Delete</button
+				>
 			{/if}
 		</div>
 		<div class="flex gap-2">
-			<button class="px-6 py-3 border border-gray2 text-gray2 rounded-full hover:bg-gray2 hover:text-black transition-colors cursor-pointer" disabled={showDeleteConfirm} on:click={closeModal}>Cancel</button>
-			<Button variant="filled" disabled={isSubmitting || isDeleting || showDeleteConfirm} on:click={handleSave}>
+			<button
+				class="px-6 py-3 border border-gray2 text-gray2 rounded-full hover:bg-gray2 hover:text-black transition-colors cursor-pointer"
+				disabled={showDeleteConfirm}
+				on:click={closeModal}>Cancel</button
+			>
+			<Button
+				variant="filled"
+				disabled={isSubmitting || isDeleting || showDeleteConfirm}
+				on:click={handleSave}
+			>
 				{isSubmitting ? 'Saving...' : 'Done'}
 			</Button>
 		</div>
 	</div>
 </Modal>
+
+<style>
+	:global(body.modal-open) {
+		overflow: hidden !important;
+	}
+	.dragging {
+		opacity: 0.5;
+	}
+	.drag-over {
+		box-shadow: 0 -2px 0 var(--color-lime);
+	}
+</style>
