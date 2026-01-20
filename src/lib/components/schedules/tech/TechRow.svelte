@@ -133,8 +133,16 @@
 
 	function handleBlur(field: keyof TechRow) {
 		if (activeField === field) {
+			// Existing logic for hours
 			if (field === 'op_hours' || field === 'crew_call') {
 				editBuffer = formatTimeRange(editBuffer);
+			}
+
+			// NEW: Auto-capitalize names for staff columns
+			const staffFields = ['ld', 'video', 'vj', 'sound', 'tech_sm', 'dt', 'artist_liaison'];
+			if (staffFields.includes(field as string)) {
+				// Regex explanation: \b matches a word boundary, \w matches the first letter
+				editBuffer = editBuffer.replace(/\b\w/g, (c) => c.toUpperCase());
 			}
 
 			if (editBuffer !== row[field]) {

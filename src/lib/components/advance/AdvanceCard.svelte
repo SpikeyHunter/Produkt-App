@@ -32,22 +32,23 @@
 	}
 
 	$: progressStyles = (() => {
-		// 1. Ensure progress is a number (handles strings like "100")
+		// 1. Ensure progress is a number (handles strings like "100" or undefined)
 		const p = parseInt(event.progress) || 0;
 
 		if (p === 100) {
-			// 2. Use [var(--name)] syntax to ensure it finds your CSS variables
 			return { 
 				label: 'text-[var(--color-confirmed)]', 
 				bar: 'bg-[var(--color-confirmed)]' 
 			};
-		} else if (p === 0) {
+		} 
+        // 👇 UPDATE THIS CONDITION
+        else if (p === 0 && event.advance_status !== 'Asked') {
 			return { 
 				label: 'text-[var(--color-problem)]', 
 				bar: 'bg-[var(--color-problem)]' 
 			};
 		} else {
-			// Default lime (assuming 'lime' is configured in your Tailwind colors)
+			// Default lime for 'Asked' or in-progress
 			return { label: 'text-lime', bar: 'bg-lime' };
 		}
 	})();

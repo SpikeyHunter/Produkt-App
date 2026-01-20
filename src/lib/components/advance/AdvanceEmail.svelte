@@ -203,13 +203,16 @@
 		try {
 			// Check if artist is local
 			if (event.artist_type === 'Local') {
-				if (!canGenerateLocal) {
-					popupMessage = 'Error: No main contact found for this artist';
-					showPopup = true;
-					setTimeout(() => (showPopup = false), 3000);
-					return;
+				// FIX: Create a copy of the event to modify safely
+				const eventForEmail = { ...event };
+
+				// FIX: If contact is missing, inject a placeholder so the generator doesn't crash
+				if (!eventForEmail.main_contact) {
+					eventForEmail.main_contact = ' '; // Space or generic text prevents the "No contact found" error
 				}
-				await generateLocalAdvanceEmail(event, supabase);
+
+				// Pass the modified event object
+				await generateLocalAdvanceEmail(eventForEmail, supabase);
 			} else {
 				await generateAdvanceEmail(event, supabase);
 			}
@@ -433,15 +436,8 @@
 				</svg>
 			</div>
 			<button
-				class="rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200"
-				class:bg-gray2={true}
-				class:text-black={true}
-				class:hover:bg-lime={!(event?.artist_type === 'Local' && !canGenerateLocal)}
-				class:cursor-pointer={!(event?.artist_type === 'Local' && !canGenerateLocal)}
-				class:opacity-50={event?.artist_type === 'Local' && !canGenerateLocal}
-				class:cursor-not-allowed={event?.artist_type === 'Local' && !canGenerateLocal}
+				class="rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200 bg-gray2 text-black hover:bg-lime cursor-pointer"
 				on:click={handleGenerateEmail}
-				disabled={event?.artist_type === 'Local' && !canGenerateLocal}
 			>
 				Start Thread
 			</button>

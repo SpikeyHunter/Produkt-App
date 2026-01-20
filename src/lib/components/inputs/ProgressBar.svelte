@@ -59,7 +59,9 @@
 				label: 'text-[var(--color-confirmed)]', 
 				bar: 'bg-[var(--color-confirmed)]' 
 			};
-		} else if (progress === 0) {
+		} 
+        // 👇 UPDATE THIS CONDITION
+        else if (progress === 0 && currentEvent?.advance_status !== 'Asked') {
 			return { 
 				label: 'text-[var(--color-problem)]', 
 				bar: 'bg-[var(--color-problem)]' 

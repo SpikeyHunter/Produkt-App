@@ -35,25 +35,36 @@ function generateTimetableHtml(timetable: TimetableEntry[] | null): string {
 
 	const getStatusColors = (status: string) => {
 		switch (status) {
-			case 'Confirmed': return { bg: '#d9ead3', text: '#274e13' };
-			case 'Proposed': return { bg: '#fce5cd', text: '#783f04' };
-			case 'Tentative': return { bg: '#fff2cc', text: '#7f6000' };
-			case 'Problem': return { bg: '#f4cccc', text: '#660000' };
-			default: return { bg: '#ffffff', text: '#000000' };
+			case 'Confirmed':
+				return { bg: '#d9ead3', text: '#274e13' };
+			case 'Proposed':
+				return { bg: '#fce5cd', text: '#783f04' };
+			case 'Tentative':
+				return { bg: '#fff2cc', text: '#7f6000' };
+			case 'Problem':
+				return { bg: '#f4cccc', text: '#660000' };
+			default:
+				return { bg: '#ffffff', text: '#000000' };
 		}
 	};
 
-	let html = '<table style="border-collapse: collapse; font-family: \'Helvetica Neue\', Helvetica, Arial, sans-serif; font-size: 13px; border: 0.5px solid #d1d5db;">';
+	let html =
+		'<table style="border-collapse: collapse; font-family: \'Helvetica Neue\', Helvetica, Arial, sans-serif; font-size: 13px; border: 0.5px solid #d1d5db;">';
 	html += '<thead><tr style="background-color: #ffffff;">';
-	html += '<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 75px;">Timetable</th>';
-	html += '<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 40px;">Length</th>';
-	html += '<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 225px;">Artist</th>';
+	html +=
+		'<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 75px;">Timetable</th>';
+	html +=
+		'<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 40px;">Length</th>';
+	html +=
+		'<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 225px;">Artist</th>';
 	html += '</tr></thead>';
 	html += '<tbody>';
 
 	timetable.forEach((entry) => {
 		const isSpecialEntry = entry.artist === 'DOORS' || entry.artist === 'CURFEW';
-		const colors = isSpecialEntry ? { bg: '#ffffff', text: '#000000' } : getStatusColors(entry.status);
+		const colors = isSpecialEntry
+			? { bg: '#ffffff', text: '#000000' }
+			: getStatusColors(entry.status);
 		html += `<tr style="background-color: ${colors.bg};">`;
 		html += `<td style="background-color: #ffffff; border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: center;">${formatTimeWithSeconds(entry.time || '')}</td>`;
 		html += `<td style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: center; ">${formatLengthWithMinutes(entry.length || '')}</td>`;
@@ -69,27 +80,35 @@ function generateTimetableHtml(timetable: TimetableEntry[] | null): string {
  * Formats a date string into "Month Day, Year".
  */
 function formatFullDate(dateString: string | null): string {
-    if (!dateString) return 'TBD';
-    try {
-        const date = new Date(dateString);
-        const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' };
-        return date.toLocaleDateString('en-US', options);
-    } catch (error) {
-        console.error('Error formatting full date:', error);
-        return dateString;
-    }
+	if (!dateString) return 'TBD';
+	try {
+		const date = new Date(dateString);
+		const options: Intl.DateTimeFormatOptions = {
+			year: 'numeric',
+			month: 'long',
+			day: 'numeric',
+			timeZone: 'UTC'
+		};
+		return date.toLocaleDateString('en-US', options);
+	} catch (error) {
+		console.error('Error formatting full date:', error);
+		return dateString;
+	}
 }
 
 /**
  * Gets the backline equipment for the artist after the local artist.
  */
-async function getNextArtistBackline(event: EventAdvance, supabase: SupabaseClient): Promise<string> {
+async function getNextArtistBackline(
+	event: EventAdvance,
+	supabase: SupabaseClient
+): Promise<string> {
 	if (!event?.event_id || !event.artist_name || !event.timetable) {
 		return '';
 	}
 
 	const timetable = event.timetable;
-	
+
 	// Find current local artist in timetable
 	const currentArtistEntry = timetable.find((entry: TimetableEntry) => {
 		if (entry.artist === event.artist_name) return true;
@@ -110,8 +129,10 @@ async function getNextArtistBackline(event: EventAdvance, supabase: SupabaseClie
 
 	try {
 		// Get the first artist name from the slot (handle B2B)
-		const nextArtistNames = nextArtistEntry.artist.split(/\s+B2B\s+/i).map((name: string) => name.trim());
-		
+		const nextArtistNames = nextArtistEntry.artist
+			.split(/\s+B2B\s+/i)
+			.map((name: string) => name.trim());
+
 		// Fetch tech rider for the next artist
 		const { data, error } = await supabase
 			.from('events_advance')
@@ -125,8 +146,9 @@ async function getNextArtistBackline(event: EventAdvance, supabase: SupabaseClie
 			return '';
 		}
 
-		const techRider = typeof data.tech_rider === 'string' ? JSON.parse(data.tech_rider) : data.tech_rider;
-		
+		const techRider =
+			typeof data.tech_rider === 'string' ? JSON.parse(data.tech_rider) : data.tech_rider;
+
 		if (!techRider) return '';
 
 		let backlineHtml = '';
@@ -165,7 +187,10 @@ async function getNextArtistBackline(event: EventAdvance, supabase: SupabaseClie
 /**
  * Gets contact email from local_contacts based on main_contact.
  */
-async function getContactEmail(mainContact: string | null, supabase: SupabaseClient): Promise<string | null> {
+async function getContactEmail(
+	mainContact: string | null,
+	supabase: SupabaseClient
+): Promise<string | null> {
 	if (!mainContact) return null;
 
 	try {
@@ -197,7 +222,10 @@ async function getContactEmail(mainContact: string | null, supabase: SupabaseCli
 /**
  * Gets the contact's first name or DJ name.
  */
-async function getContactName(mainContact: string | null, supabase: SupabaseClient): Promise<string> {
+async function getContactName(
+	mainContact: string | null,
+	supabase: SupabaseClient
+): Promise<string> {
 	if (!mainContact) return '';
 
 	try {
@@ -226,7 +254,10 @@ async function getContactName(mainContact: string | null, supabase: SupabaseClie
 /**
  * Checks if the contact has a phone number in local_contacts.
  */
-async function hasContactPhone(mainContact: string | null, supabase: SupabaseClient): Promise<boolean> {
+async function hasContactPhone(
+	mainContact: string | null,
+	supabase: SupabaseClient
+): Promise<boolean> {
 	if (!mainContact) return false;
 
 	try {
@@ -256,22 +287,27 @@ async function hasContactPhone(mainContact: string | null, supabase: SupabaseCli
  * Generates the .eml file for local artist advance email.
  */
 export async function generateLocalAdvanceEmail(
-    event: EventAdvance & { timetable?: TimetableEntry[] | null },
-    supabase: SupabaseClient
+	event: EventAdvance & { timetable?: TimetableEntry[] | null },
+	supabase: SupabaseClient
 ) {
-    // Get the authenticated user
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user || !user.email) {
-        console.error('No authenticated user found or user has no email');
-        throw new Error('User must be authenticated to generate email');
-    }
+	// Get the authenticated user
+	const {
+		data: { user }
+	} = await supabase.auth.getUser();
+
+	if (!user || !user.email) {
+		console.error('No authenticated user found or user has no email');
+		throw new Error('User must be authenticated to generate email');
+	}
 
 	// Get contact email
-	const toEmail = await getContactEmail(event.main_contact || null, supabase);
-	
+	// Get contact email
+	// FIX: Use 'let' so we can modify it, and default to empty string if not found
+	let toEmail = await getContactEmail(event.main_contact || null, supabase);
+
 	if (!toEmail) {
-		throw new Error('No contact email found. Please add a main contact for this artist.');
+		console.warn('No contact email found. defaulting to empty.');
+		toEmail = ''; // Allows the email to open with a blank "To:" field
 	}
 
 	// Get contact name
@@ -280,14 +316,14 @@ export async function generateLocalAdvanceEmail(
 	// Check if contact has phone number
 	const contactHasPhone = await hasContactPhone(event.main_contact || null, supabase);
 
-    const artistName = event.artist_name || 'N/A';
+	const artistName = event.artist_name || 'N/A';
 	const eventDate = formatFullDate(event.event_date ?? null);
 	const eventVenue = event.venue || event.event_venue || 'TBD';
-    const fromEmail = user.email;
+	const fromEmail = user.email;
 	const userName = user.user_metadata?.name || fromEmail.split('@')[0];
 	const userFirstName = userName.split(' ')[0];
-    
-    const subject = `Advance // ${artistName} // ${eventDate} // ${eventVenue} Montreal`;
+
+	const subject = `Advance // ${artistName} // ${eventDate} // ${eventVenue} Montreal`;
 
 	// Get timetable
 	const timetableContent = generateTimetableHtml(event.timetable || null);
@@ -301,7 +337,7 @@ export async function generateLocalAdvanceEmail(
 	if (guestlist) {
 		const ga = guestlist.ga || 0;
 		const vip = guestlist.vip || 0;
-		
+
 		if (ga <= 5) {
 			guestlistText = `${ga}x GA`;
 		} else if (ga <= 10 && vip <= 10) {
@@ -314,9 +350,11 @@ export async function generateLocalAdvanceEmail(
 	// Get specs link based on venue
 	let specsText = '';
 	if (eventVenue === 'New City Gas') {
-		specsText = '<p><strong>NCG Specs:</strong> <a href="https://drive.google.com/drive/folders/13_TFSl6-u6JF6mZ7XD9hJ9SRVAWTEc0e?usp=share_link">https://drive.google.com/drive/folders/13_TFSl6-u6JF6mZ7XD9hJ9SRVAWTEc0e?usp=share_link</a></p>';
+		specsText =
+			'<p><strong>NCG Specs:</strong> <a href="https://drive.google.com/drive/folders/13_TFSl6-u6JF6mZ7XD9hJ9SRVAWTEc0e?usp=share_link">https://drive.google.com/drive/folders/13_TFSl6-u6JF6mZ7XD9hJ9SRVAWTEc0e?usp=share_link</a></p>';
 	} else if (eventVenue === 'Bazart') {
-		specsText = '<p><strong>Bazart Specs:</strong> <a href="https://drive.google.com/drive/folders/1f-twa-hlssqjpUD2CN0zdqGn8cYnbpWY?usp=share_link">https://drive.google.com/drive/folders/1f-twa-hlssqjpUD2CN0zdqGn8cYnbpWY?usp=share_link</a></p>';
+		specsText =
+			'<p><strong>Bazart Specs:</strong> <a href="https://drive.google.com/drive/folders/1f-twa-hlssqjpUD2CN0zdqGn8cYnbpWY?usp=share_link">https://drive.google.com/drive/folders/1f-twa-hlssqjpUD2CN0zdqGn8cYnbpWY?usp=share_link</a></p>';
 	}
 
 	// Build bullet points dynamically
@@ -329,7 +367,7 @@ export async function generateLocalAdvanceEmail(
 	}
 	bulletPoints += `<li>Guest list will need to be submitted no later than 7pm night of the event. (Only ${guestlistText} will be given)</li>`;
 
-    const htmlBody = `
+	const htmlBody = `
         <p>Hi ${contactName},</p>
         <p>Hope you are well.</p>
 		<p>Mezz on cc will share artwork files with you + ticketing link (if not already done)</p>
@@ -351,9 +389,12 @@ export async function generateLocalAdvanceEmail(
 
         <p>Please let me know if you have any questions.</p>
         <p>Thank you,<br>${userFirstName.charAt(0).toUpperCase() + userFirstName.slice(1)}</p>
-    `.replace(/\n/g, '').replace(/    /g, '').trim();
+    `
+		.replace(/\n/g, '')
+		.replace(/    /g, '')
+		.trim();
 
-    const emlContent = `Subject: ${subject}
+	const emlContent = `Subject: ${subject}
 From: ${fromEmail}
 To: ${toEmail}
 CC: janie@produkt.ca, allanah@produkt.ca, mezz@produkt.ca
@@ -363,24 +404,25 @@ Content-Type: text/html; charset=utf-8
 ${htmlBody}
 `;
 
-    // Create a Blob and trigger the download
-    const blob = new Blob([emlContent], { type: 'message/rfc822' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${subject.replace(/[\s/]+/g, '_')}.eml`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+	// Create a Blob and trigger the download
+	const blob = new Blob([emlContent], { type: 'message/rfc822' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `${subject.replace(/[\s/]+/g, '_')}.eml`;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
 }
 
 /**
  * Checks if the local artist email can be generated (has main_contact).
  */
-export async function canGenerateLocalEmail(event: EventAdvance, supabase: SupabaseClient): Promise<boolean> {
-	if (!event.main_contact) return false;
-	
-	const email = await getContactEmail(event.main_contact, supabase);
-	return email !== null;
+export async function canGenerateLocalEmail(
+	event: EventAdvance,
+	supabase: SupabaseClient
+): Promise<boolean> {
+	// FIX: Always return true so the button is never disabled
+	return true;
 }
