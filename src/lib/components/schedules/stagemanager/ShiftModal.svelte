@@ -15,10 +15,12 @@
 		'Bazart': '#e9e9e9', 'Bazart Nuits': '#ffe5a0', 'Moet City': '#f8edd3',
 		'NCG Show': '#d4edbc', 'NCG 360': '#ffcfc9', 'DSTRKT': '#bfe1f6',
 		'Tour Production': '#c6dbe1', 'Corpo': '#e6cff2', 'Maintenance': '#ffc8aa',
-		'Other': '#fdfdfd', 'Office': 'transparent', 'OFF': '#333333'
+		'Other': '#fdfdfd', 'Office': 'transparent', 'OFF': '#333333',
+		'LD': '#555555' // Added LD option, brighter than OFF
 	};
 
-	const TYPE_KEYS = Object.keys(HEX_COLORS) as ShiftType[];
+	// Cast to string[] to avoid TS errors if 'LD' is missing from ShiftType
+	const TYPE_KEYS = Object.keys(HEX_COLORS);
 
 	// 1. CONFIGURATION FOR DEFAULT TIMES
 	const DEFAULT_TIMES: Record<string, { start: string, end: string }> = {
@@ -30,13 +32,14 @@
 		'Bazart Nuits': { start: '19:00', end: '04:00' },
 		'Moet City': { start: '10:00', end: '21:00' }
 	};
-	
+
 	// Default fallback if not in list above
 	const GLOBAL_DEFAULT = { start: '10:00', end: '18:00' };
 
 	let startTime = '10:00';
 	let endTime = '18:00';
-	let selectedType: ShiftType = 'Office'; // Default to Office
+	// Use string type to accommodate 'LD' without strict ShiftType constraints
+	let selectedType: string = 'Office';
 	let customLabel = '';
 	let validationError = '';
 
@@ -45,22 +48,21 @@
 			// EDIT MODE
 			startTime = shift.start_time || '10:00';
 			endTime = shift.end_time || '18:00';
-			selectedType = (shift.shift_type && HEX_COLORS[shift.shift_type]) ? (shift.shift_type as ShiftType) : 'Office';
+			// Cast to string for local state
+			selectedType = (shift.shift_type && HEX_COLORS[shift.shift_type]) ? (shift.shift_type as string) : 'Office';
 			customLabel = shift.custom_label || '';
 		} else {
 			// CREATE MODE
 			selectedType = 'Office';
 			customLabel = '';
-			// We can still use smart time if you want, or default to Office time
-			// For now, I'll stick to your default mapping logic immediately
-			applyTimeDefaults('Office'); 
+			applyTimeDefaults('Office');
 		}
 	}
 
 	$: {
 		validationError = '';
-		// Only validate times if NOT OFF
-		if (selectedType !== 'OFF') {
+		// Only validate times if NOT OFF and NOT LD
+		if (selectedType !== 'OFF' && selectedType !== 'LD') {
 			const newStart = parseInt(startTime.replace(':', ''));
 			const newEnd = parseInt(endTime.replace(':', ''));
 
@@ -68,14 +70,14 @@
 			for (const existing of existingShifts) {
 				if (shift.id && existing.id === shift.id) continue;
 				if ((existing.shift_type as string) === 'PLACEHOLDER') continue;
-				// Don't check overlap against OFF shifts or if we are making an OFF shift
-				if ((existing.shift_type as string) === 'OFF') continue;
+				
+				// Don't check overlap against OFF/LD shifts or if we are making an OFF/LD shift
+				const existingType = existing.shift_type as string;
+				if (existingType === 'OFF' || existingType === 'LD') continue;
 
 				const exStart = parseInt(existing.start_time.slice(0,5).replace(':', ''));
 				const exEnd = parseInt(existing.end_time.slice(0,5).replace(':', ''));
-
-				// Simple overlap check (does not account for crossing midnight fully in this simple logic, 
-                // but sufficient for basic validation)
+				
 				if (newStart < exEnd && newEnd > exStart) {
 					validationError = "A shift is already booked during those hours";
 				}
@@ -84,24 +86,28 @@
 	}
 
 	function applyTimeDefaults(type: string) {
-		if (type === 'OFF') return;
+		// If OFF or LD, no time defaults needed
+		if (type === 'OFF' || type === 'LD') return;
 		
 		const defaults = DEFAULT_TIMES[type] || GLOBAL_DEFAULT;
 		startTime = defaults.start;
 		endTime = defaults.end;
 	}
 
-	function selectType(type: ShiftType) {
+	function selectType(type: string) {
 		selectedType = type;
 		applyTimeDefaults(type);
 	}
 
 	function handleSave() {
-		if (validationError && selectedType !== 'OFF') return;
+		if (validationError && selectedType !== 'OFF' && selectedType !== 'LD') return;
+		
+		const isNoTimeShift = selectedType === 'OFF' || selectedType === 'LD';
+
 		dispatch('save', {
-			// If OFF, clear times to 00:00
-			start_time: selectedType === 'OFF' ? '00:00' : startTime,
-			end_time: selectedType === 'OFF' ? '00:00' : endTime,
+			// If OFF or LD, clear times to 00:00
+			start_time: isNoTimeShift ? '00:00' : startTime,
+			end_time: isNoTimeShift ? '00:00' : endTime,
 			shift_type: selectedType,
 			custom_label: customLabel
 		});
@@ -111,7 +117,7 @@
 	function handleDelete() {
 		if (shift.id) { 
             dispatch('delete', shift.id);
-		    close(); 
+			close(); 
         }
 	}
 
@@ -120,7 +126,8 @@
 	}
 
 	function close() { dispatch('close'); }
-	function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') close(); }
+	function onKeyDown(e: KeyboardEvent) { if (e.key === 'Escape') close();
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown}/>
@@ -161,9 +168,9 @@
 								<button
 									class="text-sm px-3 py-3 rounded-lg border transition-all truncate text-left cursor-pointer font-medium"
 									class:border-lime={selectedType === type}
-									class:border-transparent={selectedType !== type && type !== 'Office' && type !== 'OFF'}
-									class:border-gray2={selectedType !== type && (type === 'Office' || type === 'OFF')}
-									style="background-color: {HEX_COLORS[type]}; color: {type === 'Office' || type === 'OFF' ? '#ffffff' : '#222'};"
+									class:border-transparent={selectedType !== type && type !== 'Office' && type !== 'OFF' && type !== 'LD'}
+									class:border-gray2={selectedType !== type && (type === 'Office' || type === 'OFF' || type === 'LD')}
+									style="background-color: {HEX_COLORS[type]}; color: {type === 'Office' || type === 'OFF' || type === 'LD' ? '#ffffff' : '#222'};"
 									on:click={() => selectType(type)}
 								>
 									{type}
@@ -172,7 +179,7 @@
 						</div>
 					</div>
 
-					{#if selectedType !== 'OFF'}
+					{#if selectedType !== 'OFF' && selectedType !== 'LD'}
 						<div class="grid grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-2">
 							<div class="space-y-2">
 								<label class="text-xs font-bold text-gray2 uppercase tracking-wider block" for="start">Start Time</label>
@@ -185,11 +192,11 @@
 						</div>
 					{:else}
 						<div class="p-4 rounded-lg bg-gray2/10 border border-gray2/20 text-center text-gray2 text-sm italic animate-in fade-in">
-							Staff marked as OFF for this slot.
+							Staff marked as {selectedType} for this slot.
 						</div>
 					{/if}
 					
-					{#if validationError && selectedType !== 'OFF'}
+					{#if validationError && selectedType !== 'OFF' && selectedType !== 'LD'}
 						<div class="p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
 							<svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
 							<span class="text-red-400 text-sm font-bold">{validationError}</span>
@@ -214,7 +221,7 @@
 					<button 
 						class="flex-1 px-5 py-3 rounded-xl bg-lime text-black font-bold hover:bg-lime/90 transition-all text-sm cursor-pointer ml-auto disabled:opacity-50 disabled:cursor-not-allowed"
 						on:click={handleSave}
-						disabled={!!validationError && selectedType !== 'OFF'}
+						disabled={!!validationError && selectedType !== 'OFF' && selectedType !== 'LD'}
 					>
 						{shift.id ? 'Save Changes' : 'Add Shift'}
 					</button>

@@ -12,15 +12,13 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/supabase';
 	import type { User } from '@supabase/supabase-js';
-	import type { Staff, ScheduleWeek, Shift, StaffRow, ShiftType } from '$lib/types/schedule';
+	import type { Staff, ScheduleWeek, Shift, StaffRow } from '$lib/types/schedule';
 	import { calculateHours, getWeekRangeString } from '$lib/utils/timeUtils';
 	import ShiftModal from './ShiftModal.svelte';
 	import ManagerStaffModal from '../ManagerStaffModal.svelte';
 	import { goto } from '$app/navigation';
 
 	export let currentUser: User | null = null;
-
-
 	// ---- PERMISSIONS LOGIC ----
 	// Only Supabase users can edit. Guests (Password) are Read-Only.
 	$: canEdit = currentUser !== null;
@@ -37,12 +35,13 @@
 		Maintenance: '#ffc8aa',
 		Other: '#fdfdfd',
 		Office: 'transparent',
-		OFF: '#333333'
+		OFF: '#333333',
+		LD: '#555555' // Added LD color
 	};
 
 	const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 	const DAYS_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
+	
 	let weeks: ScheduleWeek[] = [];
 	let staffList: Staff[] = [];
 	let isLoading = true;
@@ -203,8 +202,15 @@
 			return `background-color: transparent; color: #ffffff; border: 1px solid rgba(255,255,255,0.2);`;
 		if (type === 'OFF')
 			return `background-color: #333333; color: #888888; border: 1px solid #444444;`;
+		if (type === 'LD')
+			return `background-color: #555555; color: #ffffff; border: 1px solid #666666;`;
 		const bg = HEX_COLORS[type] || '#fdfdfd';
 		return `background-color: ${bg}; color: #222; border: 1px solid rgba(0,0,0,0.1);`;
+	}
+
+	// Helper to safely check types avoiding TS intersection errors
+	function isNoTimeShift(type: string): boolean {
+		return type === 'OFF' || type === 'LD';
 	}
 
 	function getFirstName(fullName: string): string {
@@ -271,7 +277,6 @@
 	async function deleteRow(weekId: number, staffId: number) {
 		// Permissions Check
 		if (!canEdit) return;
-
 		const wIdx = weeks.findIndex((w) => w.id === weekId);
 		if (wIdx >= 0) {
 			weeks[wIdx].shifts = weeks[wIdx].shifts.filter((s) => s.staff_id !== staffId);
@@ -384,7 +389,9 @@
 				.forEach((shift) => {
 					if ((shift.shift_type as string) !== 'PLACEHOLDER') {
 						staffShifts[shift.day_index].push(shift);
-						if ((shift.shift_type as string) !== 'OFF') {
+						// Force cast to string to avoid TS error on 'LD'
+						const sType = shift.shift_type as string;
+						if (sType !== 'OFF' && sType !== 'LD') {
 							totalHours += calculateHours(shift.start_time, shift.end_time);
 						}
 					}
@@ -401,7 +408,9 @@
 		rows.forEach((row) => {
 			row.shifts.forEach((dayShifts, dayIdx) => {
 				dayShifts.forEach((shift) => {
-					if (shift && (shift.shift_type as string) !== 'OFF') {
+					// Force cast to string to avoid TS error on 'LD'
+					const sType = shift.shift_type as string;
+					if (shift && sType !== 'OFF' && sType !== 'LD') {
 						totals[dayIdx] += calculateHours(shift.start_time, shift.end_time);
 					}
 				});
@@ -415,10 +424,8 @@
 	function handleGlobalKeyDown(e: KeyboardEvent) {
 		// PERMISSIONS: Strict check - Must be Authenticated to use shortcuts
 		if (!canEdit) return;
-
 		const isCmd = e.ctrlKey || e.metaKey;
 		const key = e.key.toLowerCase();
-
 		// CUT: Cmd + X (Hovering Shift)
 		if (isCmd && key === 'x' && hoveredShift && hoveredShift.id) {
 			e.preventDefault();
@@ -682,8 +689,8 @@
 																hoveredSlot = { weekId: week.id, staffId: row.staff.id, dayIdx: i };
 															}}
 														>
-															{#if shift.shift_type === 'OFF'}
-																<span class="font-bold text-xs text-gray-400">OFF</span>
+															{#if isNoTimeShift(shift.shift_type)}
+																<span class="font-bold text-xs" class:text-gray-400={shift.shift_type === 'OFF'}>{shift.shift_type}</span>
 															{:else}
 																<span class="font-bold whitespace-nowrap text-xs sm:text-sm"
 																	>{formatTimeDisplay(shift.start_time)} - {formatTimeDisplay(
@@ -734,7 +741,8 @@
 												>
 											{:else}
 												<button
-													class="w-full h-14 flex items-center justify-center text-gray2 hover:text-red-500 opacity-0 group-hover/row:opacity-100 transition-all cursor-pointer"
+													class="w-full h-14 flex items-center justify-center text-gray2 hover:text-red-500 opacity-0 group-hover/row:opacity-100 
+													transition-all cursor-pointer"
 													on:click={() =>
 														(confirmDeleteRow = { weekId: week.id, staffId: row.staff.id })}
 													title="Remove Staff"
