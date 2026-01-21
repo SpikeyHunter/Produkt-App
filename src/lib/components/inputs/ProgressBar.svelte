@@ -60,8 +60,12 @@
 				bar: 'bg-[var(--color-confirmed)]' 
 			};
 		} 
-        // 👇 UPDATE THIS CONDITION
-        else if (progress === 0 && currentEvent?.advance_status !== 'Asked') {
+        // Updated: Forces problem color if status is 'To Do' regardless of progress %
+        else if (
+            currentEvent?.advance_status === 'To Do' || 
+            !currentEvent?.advance_status ||
+            (progress === 0 && currentEvent?.advance_status !== 'Asked')
+        ) {
 			return { 
 				label: 'text-[var(--color-problem)]', 
 				bar: 'bg-[var(--color-problem)]' 
