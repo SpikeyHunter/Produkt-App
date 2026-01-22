@@ -1,16 +1,13 @@
-<!--
-  MODIFIED:
-  - Added 'calculateSimpleCategoryTotal' for the new Artist Fee structure.
-  - Updated 'totalArtistFee' to use the simple calculator.
--->
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import BudgetIncomeSection from './BudgetIncomeSection.svelte';
 	import BudgetTotals from './BudgetTotals.svelte';
 	import PresetManager from './PresetManager.svelte';
+	import BudgetPdfTemplate from './BudgetPdfTemplate.svelte';
 	import { portal } from '$lib/utils/portalUtils';
 	import { formatMoney } from '$lib/utils/budgetUtils';
+	import { env } from '$env/dynamic/public';
 
 	export let selectedEvent: any = null;
 	export let budgetStore: Writable<any>;
@@ -21,17 +18,14 @@
 	let savingState: 'idle' | 'saving' | 'saved' = 'idle';
 	let saveTimeout: any;
 	let isPresetModalOpen = false;
+	
+	// PDF Generation State
+	let sheetContainer: HTMLDivElement;
 
-	function handleExport() {
-		if (!selectedEvent) return;
-		dispatch('export', { event: selectedEvent });
-	}
-
-	function handleSave(key: 'budget_production' | 'budget_other') {
+	function handleSave(key: string, value: number) {
 		if (!$budgetStore) return;
 		showSaving();
-		const storeKey = key.replace('budget_', '');
-		dispatch('save', { key, data: $budgetStore[storeKey] });
+		dispatch('save', { key, data: value });
 	}
 
 	function handleIncomeUpdate() {
@@ -48,21 +42,19 @@
 		}, 1000);
 	}
 
-	// Calculator for Subsections (Technical, Hospitality, etc.)
+	// --- Calculations ---
 	function calculateCategoryTotal(subsections: any[]): number {
 		if (!subsections || subsections.length === 0) return 0;
 		return subsections.reduce((acc, subsection) => {
 			if (!subsection.items || subsection.items.length === 0) return acc;
-			const subsectionTotal = subsection.items.reduce((itemAcc: number, item: any) => {
+			return acc + subsection.items.reduce((itemAcc: number, item: any) => {
 				const price = Number(item.price) || 0;
 				const quantity = Number(item.quantity) || 1;
 				return itemAcc + price * quantity;
 			}, 0);
-			return acc + subsectionTotal;
 		}, 0);
 	}
 
-	// NEW: Calculator for Simple Item List (Artist Fee)
 	function calculateSimpleCategoryTotal(items: any[]): number {
 		if (!items || items.length === 0) return 0;
 		return items.reduce((acc, item) => {
@@ -72,34 +64,92 @@
 		}, 0);
 	}
 
-	$: totalIncome = ($budgetStore?.production?.amount || 0) + ($budgetStore?.other?.amount || 0);
+	$: incomeArtist = Number($budgetStore?.income_artist) || 0;
+	$: incomeTechnical = Number($budgetStore?.income_technical) || 0;
+	$: incomeHospitality = Number($budgetStore?.income_hospitality) || 0;
+	$: incomeOther = Number($budgetStore?.income_other) || 0;
+	$: totalIncome = incomeArtist + incomeTechnical + incomeHospitality + incomeOther;
 
-	// Artist Fee now uses the Simple calculator
-	$: totalArtistFee = calculateSimpleCategoryTotal($budgetStore?.artist_fee);
-	
-	// Others use the Subsection calculator
-	$: totalTechnical = calculateCategoryTotal($budgetStore?.technical);
-	$: totalHospitality = calculateCategoryTotal($budgetStore?.hospitality);
-	$: totalOtherExpenses = calculateCategoryTotal($budgetStore?.other_expenses);
-
-	$: totalExpenses =
-		totalArtistFee + totalTechnical + totalHospitality + totalOtherExpenses;
-
+	$: expenseArtist = calculateSimpleCategoryTotal($budgetStore?.artist_fee);
+	$: expenseTechnical = calculateCategoryTotal($budgetStore?.technical);
+	$: expenseHospitality = calculateCategoryTotal($budgetStore?.hospitality);
+	$: expenseOther = calculateCategoryTotal($budgetStore?.other_expenses);
+	$: totalExpenses = expenseArtist + expenseTechnical + expenseHospitality + expenseOther;
 	$: netTotal = totalIncome - totalExpenses;
+
+
+	// --- PDF Generation Logic ---
+	async function handleGeneratePdf() {
+		if (!$budgetStore || !selectedEvent) return;
+
+		isExporting = true;
+		
+		const sheetElement = sheetContainer?.querySelector('#budget-pdf-root');
+		if (!sheetElement) {
+			console.error('PDF Template not found');
+			isExporting = false;
+			return;
+		}
+
+		const htmlContent = sheetElement.outerHTML;
+		const artistName = selectedEvent.event_name || 'Event';
+		const eventDate = selectedEvent.event_date || new Date().toISOString().split('T')[0];
+		// Ensure filename ends in .pdf and has no weird characters
+		const cleanFileName = `${eventDate} - ${artistName} - Budget.pdf`.replace(/[^\w\s.-]/g, '');
+
+		try {
+			const response = await fetch('/api/generate-advance-pdf', { 
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					htmlContent,
+					artistName,
+					eventDate,
+					fileName: cleanFileName
+				})
+			});
+
+			if (!response.ok) throw new Error('PDF Generation Failed');
+
+			const result = await response.json();
+			
+			if (result.path) {
+				// MODIFIED: We add ?download= to the URL.
+				// This forces Supabase to send the file as an attachment.
+				const downloadUrl = `${env.PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${result.path}?download=${cleanFileName}`;
+				
+				const link = document.createElement('a');
+				link.href = downloadUrl;
+				// The download attribute is often ignored for cross-origin URLs, 
+				// but the query param above forces the server to respect it.
+				link.setAttribute('download', cleanFileName); 
+				document.body.appendChild(link);
+				link.click();
+				document.body.removeChild(link);
+			}
+
+		} catch (error) {
+			console.error('Error generating PDF:', error);
+			alert('Failed to generate PDF. Ensure "npx playwright install" has been run on the server.');
+		} finally {
+			isExporting = false;
+		}
+	}
 </script>
 
-<div
-	class="h-full flex flex-col bg-navbar border-2 border-gray1 rounded-xl overflow-hidden export-details-container"
->
+<div class="hidden" aria-hidden="true" bind:this={sheetContainer}>
+	{#if $budgetStore && selectedEvent}
+		<BudgetPdfTemplate 
+			budgetData={$budgetStore} 
+			event={selectedEvent} 
+		/>
+	{/if}
+</div>
+
+<div class="h-full flex flex-col bg-navbar border-2 border-gray1 rounded-xl overflow-hidden export-details-container">
 	{#if !selectedEvent}
 		<div class="flex-1 flex flex-col items-center justify-center h-full text-center p-4">
-			<svg
-				class="w-12 h-12 text-gray2 mb-3"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				stroke-width="2"
-			>
+			<svg class="w-12 h-12 text-gray2 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 				<polyline points="14 2 14 8 20 8"></polyline>
 				<line x1="12" y1="18" x2="12" y2="12"></line>
@@ -110,31 +160,20 @@
 	{:else}
 		<div class="p-4 border-b border-gray1 flex-shrink-0">
 			<div class="flex justify-between items-center mb-2">
-				<h2 class="text-white text-xl font-bold truncate" title={selectedEvent.event_name}>
-					{selectedEvent.event_name}
+				<h2 class="text-white text-xl font-bold truncate">
+					Budget Information
 				</h2>
-				<span
-					class="text-xs transition-all flex-shrink-0 ml-2 {savingState === 'saved'
-						? 'text-lime'
-						: savingState === 'saving'
-							? 'text-gray2'
-							: 'text-transparent'}"
-				>
+				<span class="text-xs transition-all flex-shrink-0 ml-2 {savingState === 'saved' ? 'text-lime' : savingState === 'saving' ? 'text-gray2' : 'text-transparent'}">
 					{savingState === 'saving' ? 'Saving...' : 'Saved!'}
 				</span>
 			</div>
-			<button
-				type="button"
-				on:click={() => (isPresetModalOpen = true)}
-				class="w-full px-3 py-1.5 bg-gray1 text-lime text-xs font-bold rounded hover:bg-gray2/20 cursor-pointer"
-			>
+			<button type="button" on:click={() => (isPresetModalOpen = true)} class="w-full px-3 py-1.5 bg-gray1 text-lime text-xs font-bold rounded hover:bg-gray2/20 cursor-pointer">
 				Manage Presets
 			</button>
 		</div>
 
 		<div class="flex-1 flex flex-col justify-between overflow-y-auto custom-scroll p-4">
 			<div class="space-y-4">
-				<!-- (+) BUDGET / INCOME -->
 				<div class="bg-gray1 rounded-lg p-4">
 					<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
 						Budget / Income (+)
@@ -142,43 +181,57 @@
 					<div class="grid grid-cols-1 gap-4">
 						{#if $budgetStore}
 							<BudgetIncomeSection
-								bind:data={$budgetStore.production}
+								label="Artist Fee"
+								bind:amount={$budgetStore.income_artist}
 								on:update={handleIncomeUpdate}
-								on:save={() => handleSave('budget_production')}
+								on:save={() => handleSave('income_artist', $budgetStore.income_artist)}
 							/>
 							<BudgetIncomeSection
-								bind:data={$budgetStore.other}
+								label="Technical"
+								bind:amount={$budgetStore.income_technical}
 								on:update={handleIncomeUpdate}
-								on:save={() => handleSave('budget_other')}
+								on:save={() => handleSave('income_technical', $budgetStore.income_technical)}
+							/>
+							<BudgetIncomeSection
+								label="Hospitality"
+								bind:amount={$budgetStore.income_hospitality}
+								on:update={handleIncomeUpdate}
+								on:save={() => handleSave('income_hospitality', $budgetStore.income_hospitality)}
+							/>
+							<BudgetIncomeSection
+								label="Other Expenses"
+								bind:amount={$budgetStore.income_other}
+								on:update={handleIncomeUpdate}
+								on:save={() => handleSave('income_other', $budgetStore.income_other)}
 							/>
 						{/if}
 					</div>
 				</div>
 
-				<!-- NET TOTALS -->
 				<div class="bg-gray1 rounded-lg p-4">
 					<BudgetTotals
 						{totalIncome}
 						{totalExpenses}
 						{netTotal}
 						{formatMoney}
+						
+						{incomeArtist}
+						{expenseArtist}
+						{incomeTechnical}
+						{expenseTechnical}
+						{incomeHospitality}
+						{expenseHospitality}
+						{incomeOther}
+						{expenseOther}
 					/>
 				</div>
 			</div>
 
-			<!-- Export Button -->
 			<div class="mt-4">
-				<button
-					type="button"
-					on:click={handleExport}
-					disabled={isExporting}
-					class="w-full bg-lime text-black font-bold text-sm py-3 rounded-lg hover:bg-lime/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-				>
+				<button type="button" on:click={handleGeneratePdf} disabled={isExporting} class="w-full bg-lime text-black font-bold text-sm py-3 rounded-lg hover:bg-lime/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
 					{#if isExporting}
 						<span class="flex items-center justify-center gap-2">
-							<div
-								class="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-full"
-							></div>
+							<div class="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-full"></div>
 							Exporting...
 						</span>
 					{:else}
@@ -190,35 +243,15 @@
 	{/if}
 </div>
 
-<!-- Preset Manager Modal -->
 <div use:portal>
 	<PresetManager bind:isOpen={isPresetModalOpen} on:close={() => (isPresetModalOpen = false)} />
 </div>
 
 <style>
-	.custom-scroll::-webkit-scrollbar {
-		width: 6px;
-	}
-	.custom-scroll::-webkit-scrollbar-track {
-		background: #1a1a1a;
-	}
-	.custom-scroll::-webkit-scrollbar-thumb {
-		background: #e1ff00;
-		border-radius: 3px;
-	}
-	.custom-scroll::-webkit-scrollbar-thumb:hover {
-		background: #f0ff4d;
-	}
-
-	@keyframes spin {
-		from {
-			transform: rotate(0deg);
-		}
-		to {
-			transform: rotate(360deg);
-		}
-	}
-	.animate-spin {
-		animation: spin 1s linear infinite;
-	}
+	.custom-scroll::-webkit-scrollbar { width: 6px; }
+	.custom-scroll::-webkit-scrollbar-track { background: #1a1a1a; }
+	.custom-scroll::-webkit-scrollbar-thumb { background: #e1ff00; border-radius: 3px; }
+	.custom-scroll::-webkit-scrollbar-thumb:hover { background: #f0ff4d; }
+	@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+	.animate-spin { animation: spin 1s linear infinite; }
 </style>

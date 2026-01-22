@@ -1,5 +1,20 @@
 // src/lib/types/emailtech.ts
 
+export interface ScheduleTech {
+	id: string;
+	date: string; // YYYY-MM-DD
+	event_name: string;
+	type: string; // 'NCG Show', 'Bazart Nuits', etc.
+	ld: string | null;
+	video: string | null;
+	vj: string | null;
+	sound: string | null;
+	tech_sm: string | null;
+	dt: string | null;
+	artist_liaison: string | null;
+	notes: string | null;
+}
+
 export interface EmailTechEvent {
 	id: string;
 	event_id: number;

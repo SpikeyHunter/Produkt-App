@@ -1,8 +1,3 @@
-<!--
-  MODIFIED:
-  - Added logic to listen for 'presetsChanged' event and update 'presetRefreshTrigger'.
-  - Passes 'presetRefreshTrigger' down to BudgetDetailsDisplay.
--->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { writable } from 'svelte/store';
@@ -15,8 +10,6 @@
 	let selectedEvent: any = null;
 	let isExporting = false;
 	let mounted = false;
-	
-	// NEW: Trigger for refreshing presets
 	let presetRefreshTrigger = 0;
 
 	const budgetStore = writable<any>(null);
@@ -24,6 +17,20 @@
 	onMount(() => {
 		setTimeout(() => (mounted = true), 150);
 	});
+
+	// Helper to handle data that might be returned as a JSON string from Postgres
+	function safeJsonParse(input: any) {
+		if (typeof input === 'string') {
+			try {
+				return JSON.parse(input);
+			} catch (e) {
+				console.warn('Failed to parse JSON:', input);
+				return [];
+			}
+		}
+		// If it's already an object/array or null, return it (or empty array if null)
+		return input || [];
+	}
 
 	async function handleEventSelect(event: CustomEvent) {
 		selectedEvent = event.detail;
@@ -35,7 +42,17 @@
 		const { data, error } = await supabase
 			.from('show_budget')
 			.select(
-				'id, event_name, event_id, budget_production, budget_other, expenses_artist_fee, expenses_technical, expenses_hospitality, expenses_other'
+				`id, 
+				event_name, 
+				event_id, 
+				income_artist, 
+				income_technical, 
+				income_hospitality, 
+				income_other, 
+				expenses_artist_fee, 
+				expenses_technical, 
+				expenses_hospitality, 
+				expenses_other`
 			)
 			.eq('id', selectedEvent.id)
 			.single();
@@ -45,24 +62,34 @@
 			budgetStore.set(null);
 		} else {
 			budgetStore.set({
-				production: data.budget_production || { label: 'Production Budget', amount: 0 },
-				other: data.budget_other || { label: 'Other Budget', amount: 0 },
-				artist_fee: data.expenses_artist_fee || [],
-				technical: data.expenses_technical || [],
-				hospitality: data.expenses_hospitality || [],
-				other_expenses: data.expenses_other || []
+				// CHANGED: Use '?? null' to preserve nulls.
+				// Do NOT use '|| 0' or 'Number()' which forces 0.
+				income_artist: data.income_artist ?? null,
+				income_technical: data.income_technical ?? null,
+				income_hospitality: data.income_hospitality ?? null,
+				income_other: data.income_other ?? null,
+
+				// Expenses (Arrays)
+				artist_fee: safeJsonParse(data.expenses_artist_fee),
+				technical: safeJsonParse(data.expenses_technical),
+				hospitality: safeJsonParse(data.expenses_hospitality),
+				other_expenses: safeJsonParse(data.expenses_other)
 			});
 		}
 	}
 
 	async function handleExport(event: CustomEvent) {
-		// ...
+		// ... export logic
 	}
 
 	async function handleSave(event: CustomEvent) {
 		if (!selectedEvent) return;
 		const { key, data } = event.detail;
-		await supabase.from('show_budget').update({ [key]: data }).eq('id', selectedEvent.id);
+		// Update the specific column
+		await supabase
+			.from('show_budget')
+			.update({ [key]: data })
+			.eq('id', selectedEvent.id);
 	}
 </script>
 
@@ -70,7 +97,7 @@
 	<title>Show Budget - NCG</title>
 </svelte:head>
 
-<MainLayout pageTitle="Show Budget" requiredPermission="ShowBudget">
+<MainLayout pageTitle="Show Budget">
 	<div class="h-full overflow-hidden p-6">
 		<div class="liaison-container fade-in {mounted ? 'mounted' : ''}">
 			<div class="selector-column">
@@ -78,16 +105,10 @@
 			</div>
 
 			<div class="details-column">
-				<!-- PASS THE PROP HERE -->
-				<BudgetDetailsDisplay 
-					{budgetStore} 
-					{presetRefreshTrigger}
-					on:save={handleSave} 
-				/>
+				<BudgetDetailsDisplay {budgetStore} {presetRefreshTrigger} on:save={handleSave} />
 			</div>
 
 			<div class="export-column">
-				<!-- LISTEN FOR EVENT HERE -->
 				<ExportBudget
 					{budgetStore}
 					{selectedEvent}

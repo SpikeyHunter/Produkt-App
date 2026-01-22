@@ -1,21 +1,14 @@
-<!--
-  MODIFIED EventSelectorBudget component.
-  - Fetches event flyers to display in the list.
-  - Adds an "Edit" button to each item.
-  - Implements BudgetEditModal for editing/deleting.
-  - Fixes modal closing and overlay issues using `on:close` and `use:portal`.
-  - FIX: Simplified the placeholder icon for custom budget entries.
---><script lang="ts">
+<script lang="ts">
 	import { onMount } from 'svelte';
 	import { createEventDispatcher } from 'svelte';
 	import { supabase } from '$lib/supabase';
 	import BudgetAddModal from './BudgetAddModal.svelte';
 	import BudgetEditModal from './BudgetEditModal.svelte';
-	import { portal } from '$lib/utils/portalUtils'; // Import from your existing utils file
+	import { portal } from '$lib/utils/portalUtils';
 
 	const dispatch = createEventDispatcher();
 
-	// This list now holds records from 'show_budget' combined with 'event_flyer'
+	// This list now holds records from 'show_budget' combined with 'event_flyer' and 'event_date'
 	let budgetEvents: any[] = [];
 	let loading = true;
 	let searchTerm = '';
@@ -41,21 +34,23 @@
 
 			if (budgetError) throw budgetError;
 
-			// 2. Fetch event flyers from the 'events' table
+			// 2. Fetch event flyers AND DATES from the 'events' table
 			const { data: eventsData, error: eventsError } = await supabase
 				.from('events')
-				.select('event_id, event_flyer');
+				.select('event_id, event_flyer, event_date'); // Added event_date
 
 			if (eventsError) throw eventsError;
 
-			// Create a simple map for quick flyer lookup
-			const flyerMap = new Map(eventsData.map((event) => [event.event_id, event.event_flyer]));
+			// Create a map for quick lookup of event details (flyer and date)
+			const eventMap = new Map(eventsData.map((event) => [event.event_id, event]));
 
-			// 3. Combine budget data with flyer data
+			// 3. Combine budget data with flyer data and date
 			budgetEvents = (budgetData || []).map((budgetEvent) => {
+				const linkedEvent = budgetEvent.event_id ? eventMap.get(budgetEvent.event_id) : null;
 				return {
 					...budgetEvent,
-					event_flyer: budgetEvent.event_id ? flyerMap.get(budgetEvent.event_id) : null
+					event_flyer: linkedEvent ? linkedEvent.event_flyer : null,
+					event_date: linkedEvent ? linkedEvent.event_date : null
 				};
 			});
 		} catch (error) {
@@ -69,7 +64,7 @@
 	function formatDate(dateString: string): string {
 		try {
 			const date = new Date(dateString);
-			date.setDate(date.getDate() + 1);
+			date.setDate(date.getDate() + 1); // Fix timezone offset if needed
 			return date.toLocaleDateString('en-US', {
 				month: 'short',
 				day: 'numeric',
@@ -129,7 +124,7 @@
 				placeholder="Search budget events..."
 				class="w-full bg-gray1 text-white rounded-lg px-3 py-2 text-xs placeholder-gray2 focus:outline-none focus:ring-2 focus:ring-lime"
 			/>
-			<!-- Add Event Button --><button
+			<button
 				type="button"
 				on:click={() => (isAddModalOpen = true)}
 				class="flex-shrink-0 bg-lime text-black rounded-lg p-2 hover:cursor-pointer hover:bg-lime/90 transition-colors"
@@ -181,7 +176,7 @@
 						{selectedBudgetId === event.id ? 'border-lime' : 'border-transparent'}
 						hover:border-lime/50"
 					>
-						<!-- Event Flyer / Icon --><button
+						<button
 							class="w-14 h-20 rounded overflow-hidden bg-navbar flex-shrink-0 flex items-center justify-center cursor-pointer"
 							on:click={() => handleSelectEvent(event)}
 						>
@@ -197,18 +192,23 @@
 							{/if}
 						</button>
 
-						<!-- Event Info --><button
+						<button
 							class="flex-1 min-w-0 text-left cursor-pointer"
 							on:click={() => handleSelectEvent(event)}
 						>
 							<p class="text-xs font-bold text-white truncate">{event.event_name}</p>
+
+							{#if event.event_date}
+								<p class="text-[10px] text-lime">{formatDate(event.event_date)}</p>
+							{/if}
+
 							{#if event.event_id}
 								<p class="text-[10px] text-gray3">Event ID: {event.event_id}</p>
 							{:else}
 								<p class="text-[10px] text-lime">Custom Entry</p>
 							{/if}
 
-							<!-- Budget Status --><div class="mt-1">
+							<div class="mt-1">
 								<div class="flex items-center gap-1">
 									<span class="text-[10px] text-gray2 font-medium">
 										Budget: ${Number(event.budget || 0).toFixed(2)}
@@ -217,13 +217,19 @@
 							</div>
 						</button>
 
-						<!-- Edit Button --><button
+						<button
 							type="button"
 							on:click={() => openEditModal(event)}
 							class="flex-shrink-0 p-2 text-gray2 hover:text-white rounded-full hover:bg-gray2/20 transition-colors"
 							aria-label="Edit budget entry"
 						>
-							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<svg
+								class="w-4 h-4"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
 								<circle cx="12" cy="12" r="1"></circle>
 								<circle cx="19" cy="12" r="1"></circle>
 								<circle cx="5" cy="12" r="1"></circle>
@@ -236,7 +242,7 @@
 	</div>
 </div>
 
-<!-- MODALS --><div use:portal>
+<div use:portal>
 	<BudgetAddModal
 		bind:isOpen={isAddModalOpen}
 		on:success={handleAdded}

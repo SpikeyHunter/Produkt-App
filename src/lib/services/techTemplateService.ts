@@ -1,15 +1,14 @@
-// src/lib/services/techTemplateService.ts
 import type {
 	EmailTechEvent,
+	CrewAssignments,
 	TimetableEntry,
 	TechRider,
 	SfxRider,
-	SoundcheckInfo,
 	RoleInfo,
-	CrewAssignments,
-	CrewMember
+	SoundcheckInfo
 } from '$lib/types/emailtech';
 
+// Helper to parse JSON
 function parseJson<T>(data: any, defaultValue: T): T {
 	if (!data) return defaultValue;
 	if (typeof data === 'string') {
@@ -22,641 +21,322 @@ function parseJson<T>(data: any, defaultValue: T): T {
 	return data as T;
 }
 
-function formatFullDate(dateStr: string | null): string {
+// Form Data Interface - Matches your Form Sections
+export interface TechEmailFormData {
+	liaison: string;
+	dos: string;
+	crewCallTime7pm: string;
+	crewCallTime830pm: string;
+    crewNotes: string; // For the "@Team" section
+	stageName: string;
+	stageLink: string;
+	projects: string;
+	projectorInfo: string;
+	visualsInfo: string;
+	sponsors: string;
+	postShow: string;
+	lightColorLounge: string;
+	lightColorFacade: string;
+	lightColorFacadeLate: string;
+	lightColorMain: string;
+	lightColorLaser: string;
+    sectionVisibility: Record<string, boolean>;
+}
+
+// Default Data Factory
+export const createDefaultFormData = (): TechEmailFormData => ({
+    liaison: '',
+    dos: '',
+    crewCallTime7pm: '19:00',
+    crewCallTime830pm: '20:30',
+    crewNotes: "@Team,\nI’m adjusting the crew call to 8:00 PM.\nWe may need to run house/ambiance music at 3:00 AM, keep lights on and maintain the NCG logo on the LED wall to support the coat check team until approximately 3:15–3:30 AM, depending on the line.\nCharles will confirm at 3:00 AM whether we need to proceed! Thank you in advance for your help !",
+    stageName: 'Regular Stage',
+    stageLink: 'https://link.produkt.ca/regular',
+    projects: '',
+    projectorInfo: '9:30pm: Logo NCG',
+    visualsInfo: 'TVS Main room: https://link.produkt.ca/ncg-tv\nNCG: Folder #1\n+\nShow artwork: Folder #3\n\nPlease remove show artworks at 12am',
+    sponsors: 'NONE',
+    postShow: 'Please make sure your work space is clean THANK YOU! :)',
+    lightColorLounge: 'Bazart Colours',
+    lightColorFacade: 'Bazart Colours',
+    lightColorFacadeLate: 'Red',
+    lightColorMain: 'Red',
+    lightColorLaser: 'Red',
+    sectionVisibility: {
+        crew_call: true,
+        specs: true,
+        projects: true,
+        set_times: true,
+        soundcheck: true,
+        bazart_ambiance: true,
+        riders: true,
+        travelling_party: true,
+        vj: true,
+        lights: true,
+        sfx: true
+    }
+});
+
+// Helper for Date Formatting: "Friday January 23rd 2026"
+function formatEventDate(dateStr: string | null): string {
 	if (!dateStr) return 'TBD';
-	try {
-		const date = new Date(dateStr);
-		const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-		const months = [
-			'January',
-			'February',
-			'March',
-			'April',
-			'May',
-			'June',
-			'July',
-			'August',
-			'September',
-			'October',
-			'November',
-			'December'
-		];
-		const dayName = days[date.getDay()];
-		const month = months[date.getMonth()];
-		const day = date.getDate();
-		const year = date.getFullYear();
-		const suffix = day > 3 && day < 21 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10] || 'th';
-		return `${dayName} ${month} ${day}${suffix} ${year}`;
-	} catch {
-		return dateStr;
-	}
+	const date = new Date(dateStr);
+    const localDate = new Date(date.valueOf() + date.getTimezoneOffset() * 60 * 1000);
+    
+	const options: Intl.DateTimeFormatOptions = { 
+        weekday: 'long', 
+        month: 'long', 
+        day: 'numeric', 
+        year: 'numeric' 
+    };
+	const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(localDate);
+    
+    const day = parts.find(p => p.type === 'day')?.value;
+    let daySuffix = 'th';
+    if(day) {
+        const d = parseInt(day);
+        if (d > 3 && d < 21) daySuffix = 'th';
+        else {
+            switch (d % 10) {
+                case 1: daySuffix = "st"; break;
+                case 2: daySuffix = "nd"; break;
+                case 3: daySuffix = "rd"; break;
+                default: daySuffix = "th"; break;
+            }
+        }
+    }
+
+    return parts.map(p => p.type === 'day' ? `${p.value}${daySuffix}` : p.value).join('');
 }
 
 function formatTime(time: string): string {
-	if (!time) return '';
-	const [hours, minutes] = time.split(':');
-	const h = parseInt(hours);
-	const ampm = h >= 12 ? 'PM' : 'AM';
-	const displayHour = h % 12 || 12;
-	return `${displayHour}:${minutes}${ampm}`;
+    if (!time) return '';
+    const [h, m] = time.split(':');
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${m}${ampm}`;
 }
 
-// ============= SECTION BUILDERS =============
-
-export function buildHeader(events: EmailTechEvent[]): string {
-	const mainEvent = events[0];
-	const eventNames = events.map((e) => e.event_name).join(' & ');
-	const eventDate = formatFullDate(mainEvent.event_date);
-
-	const dosName = mainEvent.dos || 'TBD';
-	const dosText = dosName === 'TBD' ? highlight(dosName) : dosName;
-
-	let dosLine = `Please note <strong>${dosText}</strong> will be working with you for this show`;
-
-	if (events.length === 2) {
-		const bazartEvent = events.find((e) => e.event_venue === 'Bazart');
-		if (bazartEvent) {
-			const bazartDos = bazartEvent.dos || 'TBD';
-			const bazartDosText = bazartDos === 'TBD' ? highlight(bazartDos) : bazartDos;
-			dosLine += ` and ${bazartDosText} at Bazart`;
-		}
-	}
-
-	dosLine += '.';
-
-	return `<p>Hello everyone,<br>Here are the info for <strong>${eventNames}, ${eventDate}</strong></p>
-            <p>${dosLine}</p>
-            <p>&nbsp;</p>`;
-}
-
-// Replace the buildCrewCall function in techTemplateService.ts
-
-export function buildCrewCall(
+export function generateTechEmail(
 	events: EmailTechEvent[],
-	crewAssignments: CrewAssignments,
-	allCrewMembers: CrewMember[] = [],
-	storedHtmlContent?: string
+	crew: CrewAssignments,
+	formData: TechEmailFormData
 ): string {
-	let content = '<p><strong>Crew call:</strong></p>';
+	const mainEvent = events.find(e => e.event_venue === 'New City Gas') || events[0];
+    const bazartEvent = events.find(e => e.event_venue === 'Bazart');
+    
+    const formattedDate = formatEventDate(mainEvent.event_date);
+    const eventName = mainEvent.event_name || 'Event';
+    const liaison = formData.liaison || 'Charles'; 
 
-	const validCrewNames = new Set(allCrewMembers.map((m) => m.name));
+	let html = '';
 
-	// Extract what's currently in the stored HTML to compare
-	const extractCrewFromHtml = (html: string): { crew7pm: Set<string>; crew830pm: Set<string> } => {
-		const crew7pm = new Set<string>();
-		const crew830pm = new Set<string>();
+    // --- Header ---
+	html += `<p>Hello everyone,</p>
+    <p>Here are the info for <strong>${eventName} - ${formattedDate}</strong><br>
+    Please note <strong>${liaison}</strong> will be working with you for this show.</p><p>&nbsp;</p>`;
 
-		if (!html) return { crew7pm, crew830pm };
+    // --- Crew Call ---
+    if (formData.sectionVisibility['crew_call']) {
+        html += `<p><strong>Crew call:</strong></p>`;
+        
+        // 7PM/8PM Call
+        const crew7pm = [
+            ...(crew['LD'] || []),
+            ...(crew['Video'] || []),
+            ...(crew['Sound'] || []),
+            ...(crew['Stage/Tech'] || []),
+            ...(crew['DT'] || [])
+        ].join(', ');
+        html += `<p>${formData.crewCallTime7pm}: ${crew7pm || 'TBD'}</p>`;
 
-		// Match the crew_call section
-		const crewCallMatch = html.match(/<div[^>]*data-section="crew_call"[^>]*>([\s\S]*?)<\/div>/i);
-		if (!crewCallMatch) return { crew7pm, crew830pm };
+        // VJ Call
+        const crewVJ = (crew['VJ'] || []).join(', ');
+        html += `<p>${formData.crewCallTime830pm}: ${crewVJ || 'TBD'}</p>`;
+        
+        // Notes
+        if (formData.crewNotes) {
+            html += `<p>&nbsp;</p><p>${formData.crewNotes.replace(/\n/g, '<br>')}</p>`;
+        }
+        html += `<p>&nbsp;</p>`;
+    }
 
-		const crewCallContent = crewCallMatch[1];
+    // --- Specs ---
+    if (formData.sectionVisibility['specs']) {
+        if(formData.stageName && formData.stageLink) {
+            html += `<p><strong>${formData.stageName}:</strong> <a href="${formData.stageLink}">${formData.stageLink}</a></p>`;
+        }
+        
+        const specs = [
+            { label: 'Bazart Specs', link: 'https://drive.google.com/drive/folders/1f-twa-hlssqjpUD2CN0zdqGn8cYnbpWY?usp=share_link' },
+            { label: 'DSTRKT Specs', link: 'https://drive.google.com/drive/folders/13ZyO3sv6suZHnkxn8jN1mnS2N_Foqzyx?usp=share_link' },
+            { label: 'NCG Specs', link: 'https://drive.google.com/drive/folders/13_TFSl6-u6JF6mZ7XD9hJ9SRVAWTEc0e?usp=share_link' },
+            { label: 'NCG 360 Specs', link: 'https://drive.google.com/file/d/13VNqmW0KWzLnsQTqn8bDEJpJGYJ35Tpq/view?usp=share_link' }
+        ];
 
-		// Extract 7pm crew - remove all HTML tags first
-		const sevenPmMatch = crewCallContent.match(/7pm:\s*([\s\S]*?)(?:<\/p>|8:30pm)/i);
-		if (sevenPmMatch) {
-			const cleanText = sevenPmMatch[1].replace(/<[^>]*>/g, '').trim();
-			const names = cleanText
-				.split(',')
-				.map((n) => n.trim())
-				.filter((n) => n && n !== 'TBD');
-			names.forEach((name) => crew7pm.add(name));
-		}
+        specs.forEach(s => {
+            html += `<p>${s.label}: <a href="${s.link}">${s.link}</a></p>`;
+        });
+        html += `<p>&nbsp;</p>`;
+    }
 
-		// Extract 8:30pm crew
-		const eightThirtyMatch = crewCallContent.match(/8:30pm:\s*([\s\S]*?)(?:<\/p>|$)/i);
-		if (eightThirtyMatch) {
-			const cleanText = eightThirtyMatch[1].replace(/<[^>]*>/g, '').trim();
-			const names = cleanText
-				.split(',')
-				.map((n) => n.trim())
-				.filter((n) => n && n !== 'TBD');
-			names.forEach((name) => crew830pm.add(name));
-		}
+    // --- Projects ---
+    if (formData.sectionVisibility['projects']) {
+        html += `<p><strong>Projects:</strong></p>`;
+        if (formData.projects) {
+            html += `<p>${formData.projects.replace(/\n/g, '<br>')}</p>`;
+        } else {
+            html += `<p>None</p>`;
+        }
+        html += `<p>&nbsp;</p>`;
+        
+        // Video Lead + Projector
+        const videoLead = (crew['Video']?.[0] || 'Video').split(' ')[0];
+        html += `<p>@${videoLead}<br>
+        Projecteur extérieur:<br><br>
+        ${formData.projectorInfo.replace(/\n/g, '<br>')}</p><p>&nbsp;</p>`;
 
-		return { crew7pm, crew830pm };
-	};
+        html += `<p>Visuals for TVS and Interior Projector:<br><br>
+        ${formData.visualsInfo.replace(/\n/g, '<br>')}</p><p>&nbsp;</p>`;
+    }
 
-	const storedCrew = storedHtmlContent
-		? extractCrewFromHtml(storedHtmlContent)
-		: { crew7pm: new Set(), crew830pm: new Set() };
+    // --- Set Times ---
+    if (formData.sectionVisibility['set_times']) {
+        // Main Room
+        if (mainEvent && mainEvent.timetable) {
+            html += `<p><strong>Main Room - Set times:</strong></p>`;
+            const tt = parseJson<TimetableEntry[]>(mainEvent.timetable, []);
+            tt.forEach(t => html += `<p>${t.time} - ${t.artist}</p>`);
+        }
 
-	const processRoles = (roles: (keyof CrewAssignments)[], storedNames: Set<string>): string => {
-		// Get current crew from DB/UI
-		const currentDbNames = new Set<string>();
-		roles.forEach((role) => {
-			const assignedNames = crewAssignments[role] || [];
-			assignedNames.forEach((fullName) => {
-				const firstName = fullName.split(' ')[0];
-				currentDbNames.add(firstName);
-			});
-		});
+        // Lounge / Bazart
+        if (bazartEvent && bazartEvent.timetable) {
+            html += `<p>&nbsp;</p><p><strong>Lounge Bazart - Set times:</strong></p>`;
+            const tt = parseJson<TimetableEntry[]>(bazartEvent.timetable, []);
+            tt.forEach(t => html += `<p>${t.time} - ${t.artist}</p>`);
+        }
+        html += `<p>&nbsp;</p>`;
+    }
 
-		// If nothing in DB and nothing stored, show TBD
-		if (currentDbNames.size === 0 && storedNames.size === 0) {
-			return highlight('TBD');
-		}
+    // --- Soundcheck ---
+    if (formData.sectionVisibility['soundcheck']) {
+        html += `<p><strong>Soundcheck/Video/Programmation:</strong></p>`;
+        let hasSoundcheck = false;
+        
+        events.forEach(e => {
+            if (e.soundcheck) {
+                const sc = parseJson<SoundcheckInfo>(e.soundcheck, { status: 'no' });
+                if (sc.status === 'yes' && sc.start_time && sc.end_time) {
+                    hasSoundcheck = true;
+                    html += `<p>${e.artist_name}: ${formatTime(sc.start_time)}-${formatTime(sc.end_time)}</p>`;
+                }
+            }
+        });
 
-		// If nothing in DB but something stored, use DB (which is empty = TBD)
-		if (currentDbNames.size === 0) {
-			return highlight('TBD');
-		}
+        if (!hasSoundcheck) {
+            html += `<p>NONE</p>`;
+        }
+        html += `<p>&nbsp;</p>`;
+    }
 
-		// Build the final list - ONLY use current DB names (no duplicates)
-		return Array.from(currentDbNames)
-			.sort((a, b) => a.localeCompare(b))
-			.map((firstName) => {
-				const isInStored = storedNames.has(firstName);
+    // --- Bazart Specifics ---
+    if (formData.sectionVisibility['bazart_ambiance']) {
+        html += `<p><strong>Bazart:</strong><br>
+        Back Terrace: 10pm: Main Room Music (not loud/ambiance music for coatcheck)<br>
+        Lounge: 5pm: Playlist- 11pm Music from main room</p><p>&nbsp;</p>`;
+    }
 
-				// Only highlight if there's a mismatch AND we have stored content
-				if (storedHtmlContent && !isInStored) {
-					// Name is in DB but NOT in stored HTML (new or changed)
-					return highlight(firstName, '#FCA5A5');
-				}
+    // --- Riders / Backline ---
+    if (formData.sectionVisibility['riders']) {
+        html += `<p><strong>ALL TECH RIDERS ATTACHED</strong></p>`;
+        
+        // Main Room Backline
+        if (mainEvent?.tech_rider) {
+            html += generateBacklineHtml(mainEvent.tech_rider, 'BACKLINE MAIN ROOM');
+        }
+        // Bazart Backline
+        if (bazartEvent?.tech_rider) {
+            html += generateBacklineHtml(bazartEvent.tech_rider, 'BACKLINE BAZART');
+        }
+        html += `<p>&nbsp;</p>`;
+    }
 
-				// Check if name was previously highlighted in stored HTML
-				if (storedHtmlContent) {
-					const wasHighlighted = new RegExp(`<mark[^>]*>\\s*${firstName}\\s*<\\/mark>`, 'i').test(
-						storedHtmlContent
-					);
+    // --- Travelling Party ---
+    if (formData.sectionVisibility['travelling_party']) {
+        html += `<p><strong>Travelling party:</strong></p>`;
+        events.forEach(e => {
+            if(e.roles) {
+                const roles = parseJson<RoleInfo[]>(e.roles, []);
+                if (roles.length > 0) {
+                    html += `<p><strong>${e.artist_name.toUpperCase()}</strong></p>`;
+                    roles.forEach(r => {
+                        html += `<p>${r.firstName} - ${r.customRole || r.role}</p>`;
+                    });
+                    html += `<p>&nbsp;</p>`;
+                }
+            }
+        });
+    }
 
-					if (wasHighlighted && isInStored) {
-						// Was highlighted before and still matches - keep highlight
-						return highlight(firstName, '#FCA5A5');
-					}
-				}
+    // --- VJ ---
+    if (formData.sectionVisibility['vj']) {
+        html += `<p><strong>VJ:</strong></p>`;
+        const vjs = (crew['VJ'] || []).join(', ');
+        // Find main event duration roughly or hardcode as requested
+        html += `<p>10PM-3AM: ${vjs || 'TBD'}</p><p>&nbsp;</p>`;
+    }
 
-				// No highlight needed - name matches
-				return firstName;
-			})
-			.join(', ');
-	};
+    // --- Lights ---
+    if (formData.sectionVisibility['lights']) {
+        html += `<p><strong>Lights:</strong><br>
+        Lounge: 5pm-3am: ${formData.lightColorLounge}<br>
+        Facade: 5pm-10pm: ${formData.lightColorFacade}<br>
+        Facade: 10pm-3am: ${formData.lightColorFacadeLate}<br>
+        Main room: ${formData.lightColorMain}<br>
+        Lasers GA entrance outside: 10pm: ${formData.lightColorLaser}</p><p>&nbsp;</p>`;
+    }
 
-	const roles7pm: (keyof CrewAssignments)[] = ['LD', 'Video', 'Sound', 'DT', 'Stage/Tech'];
-	const roles830pm: (keyof CrewAssignments)[] = ['VJ'];
+    // --- SFX ---
+    if (formData.sectionVisibility['sfx']) {
+        html += `<p><strong>SFX:</strong></p>`;
+        let hasSfx = false;
+        events.forEach(e => {
+            if (e.sfx_rider) {
+                const sfx = parseJson<SfxRider>(e.sfx_rider, {});
+                let line = [];
+                if (sfx.sparkulars?.enabled) line.push(`${sfx.sparkulars.qty || 4}x Sparks (${sfx.sparkulars.duration}s)`);
+                if (sfx.cryo_jets?.enabled) line.push(`${sfx.cryo_jets.qty || 4}x CO2 (${sfx.cryo_jets.duration}s)`);
+                
+                if (line.length > 0) {
+                    hasSfx = true;
+                    html += `<p>${e.artist_name}: ${line.join(' + ')}</p>`;
+                }
+            }
+        });
+        if (!hasSfx) html += `<p>NONE</p>`;
+        html += `<p>&nbsp;</p>`;
+    }
 
-	const crew7pmText = processRoles(roles7pm, storedCrew.crew7pm as Set<string>);
-	const crew830pmText = processRoles(roles830pm, storedCrew.crew830pm as Set<string>);
+    // --- Sponsors & Footer ---
+    html += `<p><strong>Sponsors and/or branding:</strong> ${formData.sponsors || 'NONE'}</p>`;
+    html += `<p><strong>After the show projects:</strong><br>${formData.postShow || 'Please make sure your work space is clean THANK YOU! :)'}</p>`;
+    
+    html += `<p>&nbsp;</p><p>Please confirm and let me know if you have any questions !</p>
+    <p>Thanks a lot,<br>Charles</p>`;
 
-	content += `<p>7pm: ${crew7pmText}</p>`;
-
-	if (crew830pmText !== highlight('TBD') && crew830pmText.trim() !== '') {
-		content += `<p>8:30pm: ${crew830pmText}</p>`;
-	}
-	content += `<p>&nbsp;</p>`;
-
-	return content;
+	return html;
 }
 
-// Update the helper function to ensure proper text color
-function highlight(text: string, color: string = '#FCA5A5'): string {
-	// Always use black text color for highlighted content
-	return `<mark style="background-color: ${color}; color: #212121; padding: 2px 4px; border-radius: 3px;">${text}</mark>`;
+function generateBacklineHtml(riderJson: any, title: string): string {
+    const rider = parseJson<TechRider>(riderJson, {});
+    let html = `<p><strong>${title}</strong></p>`;
+    
+    if (rider.selected_mixer) html += `<p>1x ${rider.selected_mixer}</p>`;
+    if (rider.equipment) {
+        Object.entries(rider.equipment).forEach(([key, val]: [string, any]) => {
+            if (val.selected) html += `<p>${val.qty}x ${key}</p>`;
+        });
+    }
+    return html;
 }
-
-function linkify(text: string, urlMap: Record<string, string>): string {
-	if (!text) return '';
-
-	const urlRegex = /(https?:\/\/[^\s]+)/g;
-	const shortUrlBase = 'https://link.produkt.ca/';
-
-	return text.replace(urlRegex, (foundUrl) => {
-		// Check if the found URL has a custom slug in our map
-		const customSlug = urlMap[foundUrl];
-
-		if (customSlug) {
-			// If it does, build the custom display text
-			const displayText = shortUrlBase + customSlug;
-			return `<a href="${foundUrl}" style="color: #E1FF00; text-decoration: underline;">${displayText}</a>`;
-		} else {
-			// Otherwise, just display the original URL
-			return `<a href="${foundUrl}" style="color: #E1FF00; text-decoration: underline;">${foundUrl}</a>`;
-		}
-	});
-}
-
-export function buildProjects(events: EmailTechEvent[]): string {
-	let content = '<p><strong>Projects:</strong></p>';
-
-	// --- Define your mapping of long URLs to custom names here ---
-	const customUrlMappings = {
-		'https://drive.google.com/drive/folders/1RnDCHdyL0f6ClkOtpgUnRZNIUiZeYHMG': 'ncg-projo',
-		'https://link.produkt.ca/ncg-tv': 'ncg-tv'
-	};
-	// ----------------------------------------------------------------
-
-	const ncgEvent = events.find((e) => e.event_venue === 'New City Gas');
-	const bazartEvent = events.find((e) => e.event_venue === 'Bazart');
-
-	if (ncgEvent) {
-		content += '<p><strong>Main Room</strong></p>';
-		content += `<ul><li>${highlight('Project TBD')}</li></ul>`;
-		content += `<p>&nbsp;</p>`;
-	}
-
-	if (bazartEvent) {
-		content += '<p>Lounge</p>';
-		content += `<ul><li>${highlight('Project TBD')}</li></ul>`;
-		content += `<p>&nbsp;</p>`;
-	}
-
-	const videoCrewName = events[0]?.crew?.Video;
-	if (videoCrewName && videoCrewName.length > 0) {
-		const firstName = videoCrewName[0].split(' ')[0];
-		content += `<p>@${firstName}</p>`;
-	}
-
-	const projectorDetails =
-		'9:30pm: Logo NCG https://drive.google.com/drive/folders/1RnDCHdyL0f6ClkOtpgUnRZNIUiZeYHMG';
-	content += '<p>Projecteur extérieur:</p>';
-	content += `<ul><li>${linkify(projectorDetails, customUrlMappings)}</li></ul>`;
-	content += `<p>&nbsp;</p>`;
-
-	// --- This section has been updated ---
-	const tvsVisualsText =
-		'Visuals for TVS and Interior Projector:<br>TVS Main room: https://link.produkt.ca/ncg-tv';
-	content += `<p>${linkify(tvsVisualsText, customUrlMappings)}</p>`;
-	// ------------------------------------
-
-	content += '<p>NCG: Folder #1 + Show artwork #3<br>Please remove show artworks at 12am</p>';
-	content += `<p>&nbsp;</p>`;
-	return content;
-}
-
-export function buildSetTimes(events: EmailTechEvent[]): string {
-	let content = '<p><strong>Set Times:</strong></p>';
-
-	const ncgEvent = events.find((e) => e.event_venue === 'New City Gas');
-	const bazartEvent = events.find((e) => e.event_venue === 'Bazart');
-
-	if (ncgEvent?.timetable) {
-		const timetable = parseJson<TimetableEntry[]>(ncgEvent.timetable, []);
-		if (timetable.length > 0) {
-			content += '<p>Main Room - Set times:</p><ul>';
-			timetable.forEach((entry) => {
-				content += `<li>${entry.time} - ${entry.artist}</li>`;
-			});
-			content += '</ul>';
-		}
-	}
-
-	if (bazartEvent?.timetable) {
-		const timetable = parseJson<TimetableEntry[]>(bazartEvent.timetable, []);
-		if (timetable.length > 0) {
-			content += '<p>Lounge - Set times:</p><ul>';
-			timetable.forEach((entry) => {
-				content += `<li>${entry.time} - ${entry.artist}</li>`;
-			});
-			content += '</ul>';
-		}
-	}
-
-	return content;
-}
-
-export function buildSoundcheck(events: EmailTechEvent[]): string {
-	let soundchecks: Array<{ artist: string; startTime: string; endTime: string }> = [];
-
-	events.forEach((event) => {
-		if (event.soundcheck) {
-			const sc = parseJson<SoundcheckInfo>(event.soundcheck, { status: 'no' });
-			if (sc.status === 'yes' && sc.start_time && sc.end_time) {
-				soundchecks.push({
-					artist: event.artist_name,
-					startTime: formatTime(sc.start_time),
-					endTime: formatTime(sc.end_time)
-				});
-			}
-		}
-	});
-
-	if (soundchecks.length === 0) {
-		return '<p><strong>Soundcheck/Video/Programmation:</strong> NO</p>';
-	}
-
-	soundchecks.sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-	let content = '<p><strong>Soundcheck/Video/Programmation:</strong></p><ul>';
-	soundchecks.forEach((sc) => {
-		content += `<li>${sc.artist}: ${sc.startTime}-${sc.endTime}</li>`;
-	});
-	content += '</ul>';
-
-	return content;
-}
-
-export function buildBazart(events: EmailTechEvent[]): string {
-	const hasBazart = events.some((e) => e.event_venue === 'Bazart');
-
-	let content = '<p><strong>Bazart:</strong></p>';
-
-	if (hasBazart) {
-		content += '<p>Terrace: 5pm: Playlist / 12am: Bazart Music</p>';
-		content += '<p>Lounge: 5pm: Playlist / 10pm: Bazart Music</p>';
-	} else {
-		content += '<p>Terrace: 5pm: Playlist / 12am: Main Room Music</p>';
-		content += '<p>Lounge: 5pm: Playlist / 10pm: Main Room Music</p>';
-	}
-
-	return content;
-}
-
-export function buildRider(events: EmailTechEvent[]): string {
-	let content = '<p><strong>ALL TECH RIDERS ATTACHED</strong></p>';
-
-	const ncgEvent = events.find((e) => e.event_venue === 'New City Gas');
-	const bazartEvent = events.find((e) => e.event_venue === 'Bazart');
-
-	if (ncgEvent?.tech_rider) {
-		const rider = parseJson<TechRider>(ncgEvent.tech_rider, {});
-		content += '<p><strong>NCG BACKLINE</strong></p><ul>';
-
-		if (rider.selected_mixer) {
-			content += `<li>1x ${rider.selected_mixer}</li>`;
-		}
-
-		if (rider.equipment) {
-			Object.entries(rider.equipment).forEach(([item, details]) => {
-				if (details.selected) {
-					content += `<li>${details.qty}x ${item}</li>`;
-				}
-			});
-		}
-
-		if (rider.other && rider.other.length > 0) {
-			rider.other.forEach((item) => {
-				content += `<li>${item.text}</li>`;
-			});
-		}
-
-		content += '</ul>';
-	}
-
-	if (bazartEvent?.tech_rider) {
-		const rider = parseJson<TechRider>(bazartEvent.tech_rider, {});
-		content += '<p><strong>Bazart BACKLINE</strong></p><ul>';
-
-		if (rider.selected_mixer) {
-			content += `<li>1x ${rider.selected_mixer} (TBD might change)</li>`;
-		}
-
-		if (rider.equipment) {
-			Object.entries(rider.equipment).forEach(([item, details]) => {
-				if (details.selected && item.includes('CDJ')) {
-					content += `<li>${details.qty}x ${item}</li>`;
-				}
-			});
-		}
-
-		content += '</ul>';
-	}
-
-	return content;
-}
-
-export function buildTravellingParty(events: EmailTechEvent[]): string {
-	let content = '<p><strong>Travelling party:</strong></p>';
-
-	const ncgEvent = events.find((e) => e.event_venue === 'New City Gas');
-	const bazartEvent = events.find((e) => e.event_venue === 'Bazart');
-
-	const processEvent = (event: EmailTechEvent) => {
-		if (!event.roles) return '';
-
-		const roles = parseJson<RoleInfo[]>(event.roles, []);
-		if (roles.length === 0) return '';
-
-		let eventContent = `<p><strong>${event.artist_name}</strong></p><ul>`;
-
-		roles.forEach((role) => {
-			const name = role.firstName;
-			const roleName = role.customRole || role.role;
-			eventContent += `<li>${name} - ${roleName}</li>`;
-		});
-
-		eventContent += '</ul>';
-		return eventContent;
-	};
-
-	if (ncgEvent) content += processEvent(ncgEvent);
-	if (bazartEvent) content += processEvent(bazartEvent);
-
-	return content;
-}
-
-export function buildVJSchedule(
-	events: EmailTechEvent[],
-	crewAssignments: CrewAssignments
-): string {
-	let content = '<p><strong>VJ:</strong></p>';
-
-	const mainEvent = events[0];
-	if (!mainEvent?.timetable) {
-		content += '<p>TBD</p>';
-		return content;
-	}
-
-	const timetable = parseJson<TimetableEntry[]>(mainEvent.timetable, []);
-	// FIX: Handle VJ being an array
-	const houseVJ = crewAssignments.VJ?.join(', ') || 'VJ NAME';
-
-	content += '<ul>';
-	timetable.forEach((entry, index) => {
-		if (entry.artist === 'DOORS') {
-			const nextEntry = timetable[index + 1];
-			if (nextEntry) {
-				content += `<li>${entry.time}-${nextEntry.time} - ${houseVJ}</li>`;
-			}
-		} else if (entry.artist !== 'CURFEW') {
-			content += `<li>${entry.time} - ${entry.artist}</li>`;
-		}
-	});
-	content += '</ul>';
-
-	return content;
-}
-
-export function buildLights(crewAssignments: CrewAssignments): string {
-	// FIX: Handle LD being an array
-	const ldName = crewAssignments.LD?.join(', ') || 'LD NAME';
-
-	let content = '<p><strong>Lights:</strong></p>';
-	content += '<p>Niveau 1 et terrace: Bazart Colours - 5pm-3am</p>';
-	content += `<p>Lounge: 5pm-3am: Bazart Colours + Red Corridor @${ldName}</p>`;
-	content += '<p>Facade: 5pm-3am: Red</p>';
-	content += '<p>Main room: Red</p>';
-	content += '<p>Lasers GA entrance outside: 10pm: Red</p>';
-
-	return content;
-}
-
-export function buildSFX(events: EmailTechEvent[]): string {
-	let sfxLines: string[] = [];
-
-	const artistTypes = ['Headliner', 'Support', 'Local'];
-
-	artistTypes.forEach((type) => {
-		events.forEach((event) => {
-			if (event.artist_type === type && event.sfx_rider) {
-				const sfx = parseJson<SfxRider>(event.sfx_rider, {});
-				let parts: string[] = [];
-
-				if (sfx.cryo_jets?.enabled) {
-					const qty = sfx.cryo_jets.qty || 4;
-					const duration = sfx.cryo_jets.duration;
-					parts.push(`${qty}x CO2 - ${duration} sec`);
-				}
-
-				if (sfx.sparkulars?.enabled) {
-					const qty = sfx.sparkulars.qty || 4;
-					const duration = sfx.sparkulars.duration;
-					parts.push(`${qty}x Sparks - ${duration} sec`);
-				}
-
-				if (parts.length > 0) {
-					sfxLines.push(`${event.artist_name}: ${parts.join(' / ')}`);
-				}
-			}
-		});
-	});
-
-	if (sfxLines.length === 0) {
-		return '<p><strong>Special FX:</strong> None</p>';
-	}
-
-	let content = '<p><strong>Special FX:</strong></p>';
-	sfxLines.forEach((line) => {
-		content += `<p>${line}</p>`;
-	});
-
-	return content;
-}
-
-export function buildFooter(): string {
-	return `<p><strong>Sponsors and/or branding:</strong></p><p>${highlight('SPONSOR HERE')}</p><p><strong>After the show projects:</strong></p><p>${highlight('Project TBD')}</p><p>Please make sure your work space is clean THANK YOU! :)</p><p>Please confirm and let me know if you have any questions !</p><p>Thanks a lot,<br>Charles</p>`;
-}
-
-export const techTemplateSections = [
-	{
-		id: 'header',
-		label: 'Header',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildHeader(events)
-	},
-	{
-		id: 'crew_call',
-		label: 'Crew Call',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildCrewCall(events, crew || {}, allCrew, storedHtml)
-	},
-	{
-		id: 'projects',
-		label: 'Projects',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildProjects(events)
-	},
-	{
-		id: 'set_times',
-		label: 'Set Times',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildSetTimes(events)
-	},
-	{
-		id: 'soundcheck',
-		label: 'Soundcheck',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildSoundcheck(events)
-	},
-	{
-		id: 'bazart',
-		label: 'Bazart',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildBazart(events)
-	},
-	{
-		id: 'rider',
-		label: 'Rider',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildRider(events)
-	},
-	{
-		id: 'travelling_party',
-		label: 'Travelling Party',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildTravellingParty(events)
-	},
-	{
-		id: 'vj_schedule',
-		label: 'VJ Schedule',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildVJSchedule(events, crew || {})
-	},
-	{
-		id: 'lights',
-		label: 'Lights',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildLights(crew || {})
-	},
-	{
-		id: 'sfx',
-		label: 'Special FX',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildSFX(events)
-	},
-	{
-		id: 'footer',
-		label: 'Footer',
-		generator: (
-			events: EmailTechEvent[],
-			crew?: CrewAssignments,
-			allCrew?: CrewMember[],
-			storedHtml?: string
-		) => buildFooter()
-	}
-];

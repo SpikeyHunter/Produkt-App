@@ -1,4 +1,3 @@
-<!-- src/lib/components/production/emailtech/DataPanel.svelte -->
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { EmailTechEvent } from '$lib/types/emailtech';
@@ -11,7 +10,14 @@
 
 	const dispatch = createEventDispatcher();
 
-	let sections = techTemplateSections.map((s) => ({
+    // Define interface for local section state
+    interface SectionState {
+        id: string;
+        label: string;
+        included: boolean;
+    }
+
+	let sections: SectionState[] = techTemplateSections.map((s) => ({
 		id: s.id,
 		label: s.label,
 		included: false
@@ -30,7 +36,7 @@
 
 		const mainEvent = events[0];
 		const emailData = mainEvent.email_data || {};
-		const savedIds = emailData[`${templateType}_sections`] || [];
+		const savedIds: string[] = emailData[`${templateType}_sections`] || [];
 
 		sections = sections.map((s) => ({
 			...s,
@@ -42,7 +48,6 @@
 
 	async function saveSectionsToDatabase() {
 		if (!eventId) return;
-
 		const includedIds = sections.filter((s) => s.included).map((s) => s.id);
 		await updateEventEmailData(eventId, templateType, includedIds);
 
@@ -73,7 +78,6 @@
 
 	function toggleSection(sectionId: string) {
 		sections = sections.map((s) => (s.id === sectionId ? { ...s, included: !s.included } : s));
-
 		dispatch('sectionsChange', sections);
 		saveSectionsToDatabase();
 	}
@@ -83,7 +87,6 @@
 
 		resettingSection = sectionId;
 		dispatch('resetSection', { sectionId });
-
 		setTimeout(() => {
 			resettingSection = null;
 		}, 600);
@@ -263,7 +266,6 @@
 				{#each sections as section (section.id)}
 					<div class="bg-gray1 rounded-lg overflow-hidden">
 						<div class="flex items-center gap-2 p-2.5">
-							<!-- Reset Button -->
 							<button
 								type="button"
 								onclick={(e) => resetSection(section.id, e)}
@@ -288,7 +290,6 @@
 								</svg>
 							</button>
 
-							<!-- Section Name (non-clickable) -->
 							<div
 								class="flex-1 text-left font-bold text-xs {section.included
 									? 'text-white'
@@ -297,7 +298,6 @@
 								{section.label}
 							</div>
 
-							<!-- Toggle Switch -->
 							<button
 								type="button"
 								onclick={() => toggleSection(section.id)}

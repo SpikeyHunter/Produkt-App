@@ -41,8 +41,12 @@
 				bar: 'bg-[var(--color-confirmed)]' 
 			};
 		} 
-        // 👇 UPDATE THIS CONDITION
-        else if (p === 0 && event.advance_status !== 'Asked') {
+        // Updated: Checks if status is 'To Do' (Advance to start) OR progress is 0
+        else if (
+            event.advance_status === 'To Do' || 
+            !event.advance_status || 
+            (p === 0 && event.advance_status !== 'Asked')
+        ) {
 			return { 
 				label: 'text-[var(--color-problem)]', 
 				bar: 'bg-[var(--color-problem)]' 
