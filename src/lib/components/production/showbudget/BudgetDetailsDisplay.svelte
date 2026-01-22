@@ -20,7 +20,6 @@
 		return () => {
 			if (!$budgetStore) return;
 			
-			// Map DB Column Key -> Store Property Key
 			let storeKey = '';
 			if (dbColumnKey === 'expenses_artist_fee') storeKey = 'artist_fee';
 			else if (dbColumnKey === 'expenses_technical') storeKey = 'technical';
@@ -33,6 +32,10 @@
 			});
 		};
 	}
+
+	// Reactive check for visibility
+	$: budgetType = $budgetStore?.budget_type || 'Tour Prod';
+	$: showArtistFee = budgetType === 'Complete Prod';
 </script>
 
 <div class="h-full flex flex-col bg-navbar border-2 border-gray1 rounded-xl overflow-hidden budget-details-container">
@@ -53,14 +56,17 @@
 					Expenses (-)
 				</h3>
 				<div class="space-y-4">
-					<BudgetSimpleCategory
-						title="Artist Fee"
-						categoryKey="artist_fee"
-						bind:items={$budgetStore.artist_fee}
-						{presetRefreshTrigger}
-						on:update={handleUpdate}
-						on:save={createSaveHandler('expenses_artist_fee')}
-					/>
+					
+					{#if showArtistFee}
+						<BudgetSimpleCategory
+							title="Artist Fee"
+							categoryKey="artist_fee"
+							bind:items={$budgetStore.artist_fee}
+							{presetRefreshTrigger}
+							on:update={handleUpdate}
+							on:save={createSaveHandler('expenses_artist_fee')}
+						/>
+					{/if}
 
 					<BudgetExpenseCategory
 						title="Technical"

@@ -47,8 +47,18 @@
 			// 3. Combine budget data with flyer data and date
 			budgetEvents = (budgetData || []).map((budgetEvent) => {
 				const linkedEvent = budgetEvent.event_id ? eventMap.get(budgetEvent.event_id) : null;
+
+				// Calculate sum of all income columns based on provided schema
+				const totalIncome =
+					(Number(budgetEvent.income_artist) || 0) +
+					(Number(budgetEvent.income_technical) || 0) +
+					(Number(budgetEvent.income_hospitality) || 0) +
+					(Number(budgetEvent.income_other) || 0);
+
 				return {
 					...budgetEvent,
+					// Store the calculated total
+					calculated_total: totalIncome,
 					event_flyer: linkedEvent ? linkedEvent.event_flyer : null,
 					event_date: linkedEvent ? linkedEvent.event_date : null
 				};
@@ -172,7 +182,7 @@
 			{#each filteredEvents as event (event.id)}
 				<div class="w-full text-left transition-all">
 					<div
-						class="flex items-center gap-3 p-2 bg-gray1 rounded-lg border-2 
+						class="flex items-center gap-3 p-2 bg-gray1 rounded-lg border-2
 						{selectedBudgetId === event.id ? 'border-lime' : 'border-transparent'}
 						hover:border-lime/50"
 					>
@@ -211,7 +221,10 @@
 							<div class="mt-1">
 								<div class="flex items-center gap-1">
 									<span class="text-[10px] text-gray2 font-medium">
-										Budget: ${Number(event.budget || 0).toFixed(2)}
+										Budget:
+										<span class="text-lime">
+											${Number(event.calculated_total || 0).toFixed(2)}
+										</span>
 									</span>
 								</div>
 							</div>

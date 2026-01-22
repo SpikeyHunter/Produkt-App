@@ -18,7 +18,6 @@
 		setTimeout(() => (mounted = true), 150);
 	});
 
-	// Helper to handle data that might be returned as a JSON string from Postgres
 	function safeJsonParse(input: any) {
 		if (typeof input === 'string') {
 			try {
@@ -28,7 +27,6 @@
 				return [];
 			}
 		}
-		// If it's already an object/array or null, return it (or empty array if null)
 		return input || [];
 	}
 
@@ -39,12 +37,15 @@
 			return;
 		}
 
+		// CHANGED: Added budget_type and income_total_budget to query
 		const { data, error } = await supabase
 			.from('show_budget')
 			.select(
 				`id, 
 				event_name, 
 				event_id, 
+				budget_type,
+				income_total_budget,
 				income_artist, 
 				income_technical, 
 				income_hospitality, 
@@ -62,8 +63,11 @@
 			budgetStore.set(null);
 		} else {
 			budgetStore.set({
-				// CHANGED: Use '?? null' to preserve nulls.
-				// Do NOT use '|| 0' or 'Number()' which forces 0.
+				// New Fields
+				budget_type: data.budget_type || 'Tour Prod',
+				income_total_budget: data.income_total_budget ?? null,
+
+				// Existing Fields
 				income_artist: data.income_artist ?? null,
 				income_technical: data.income_technical ?? null,
 				income_hospitality: data.income_hospitality ?? null,
@@ -79,16 +83,20 @@
 	}
 
 	async function handleExport(event: CustomEvent) {
-		// ... export logic
+		// Export logic handled in child component
 	}
 
 	async function handleSave(event: CustomEvent) {
 		if (!selectedEvent) return;
 		const { key, data } = event.detail;
-		// Update the specific column
+		
+		// Map store keys to DB columns if they differ
+		let dbKey = key;
+		// (No mapping needed for budget_type or income_total_budget as keys match DB)
+
 		await supabase
 			.from('show_budget')
-			.update({ [key]: data })
+			.update({ [dbKey]: data })
 			.eq('id', selectedEvent.id);
 	}
 </script>
@@ -105,7 +113,11 @@
 			</div>
 
 			<div class="details-column">
-				<BudgetDetailsDisplay {budgetStore} {presetRefreshTrigger} on:save={handleSave} />
+				<BudgetDetailsDisplay 
+					{budgetStore} 
+					{presetRefreshTrigger}
+					on:save={handleSave} 
+				/>
 			</div>
 
 			<div class="export-column">
@@ -126,9 +138,7 @@
 	.fade-in {
 		opacity: 0;
 		transform: translateY(20px);
-		transition:
-			opacity 0.6s ease-out,
-			transform 0.6s ease-out;
+		transition: opacity 0.6s ease-out, transform 0.6s ease-out;
 	}
 	.fade-in.mounted {
 		opacity: 1;
@@ -160,34 +170,13 @@
 		min-width: 0;
 	}
 	@media (max-width: 1400px) {
-		.liaison-container {
-			grid-template-columns: 280px 1fr 250px;
-		}
-		.selector-column {
-			width: 280px;
-			min-width: 280px;
-			max-width: 280px;
-		}
-		.export-column {
-			width: 250px;
-			min-width: 250px;
-			max-width: 250px;
-		}
+		.liaison-container { grid-template-columns: 280px 1fr 250px; }
+		.selector-column { width: 280px; min-width: 280px; max-width: 280px; }
+		.export-column { width: 250px; min-width: 250px; max-width: 250px; }
 	}
 	@media (max-width: 1200px) {
-		.liaison-container {
-			grid-template-columns: 260px 1fr 220px;
-			gap: 12px;
-		}
-		.selector-column {
-			width: 260px;
-			min-width: 260px;
-			max-width: 260px;
-		}
-		.export-column {
-			width: 220px;
-			min-width: 220px;
-			max-width: 220px;
-		}
+		.liaison-container { grid-template-columns: 260px 1fr 220px; gap: 12px; }
+		.selector-column { width: 260px; min-width: 260px; max-width: 260px; }
+		.export-column { width: 220px; min-width: 220px; max-width: 220px; }
 	}
 </style>

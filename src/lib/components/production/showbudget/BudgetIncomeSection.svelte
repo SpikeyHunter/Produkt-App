@@ -11,9 +11,9 @@
 	let isFocused = false;
 	let displayValue = '';
 
-	// Initialize display value on load
+	// When amount changes from parent (DB load) or formatting
 	$: if (!isFocused) {
-		// We format the money but remove the '$' symbol because we have a static icon for it
+		// formatMoney returns "27,500.00$", we replace "$" with "" so it fits our UI
 		displayValue = amount !== null && amount !== undefined 
 			? formatMoney(amount).replace('$', '') 
 			: '';
@@ -21,7 +21,7 @@
 
 	function handleFocus() {
 		isFocused = true;
-		// Show raw number for editing/math
+		// Show raw number for editing
 		displayValue = amount !== null && amount !== undefined ? amount.toString() : '';
 	}
 
@@ -46,13 +46,10 @@
 		}
 
 		try {
-			// 1. Sanitize: Allow numbers, operators (+-*/), parenthesis, and decimals
+			// Sanitize and evaluate (math support: "100+100")
 			const sanitized = displayValue.replace(/[^0-9+\-*/.()\s]/g, '');
-
-			// 2. Evaluate Math
 			const result = new Function('return ' + sanitized)();
 
-			// 3. Set Amount
 			if (!isNaN(result) && isFinite(result)) {
 				amount = result;
 				dispatch('update');
@@ -61,7 +58,7 @@
 			console.warn('Invalid math expression', e);
 		}
 
-		// 4. Update Display (Strip the $ so we don't have duplicates)
+		// Re-format on blur (e.g. "27,500.00")
 		if (amount !== null) {
 			displayValue = formatMoney(amount).replace('$', '');
 		}
@@ -90,7 +87,6 @@
 </div>
 
 <style>
-	/* Removes up/down arrows from number inputs in some browsers (though we are using type="text" now) */
 	input::-webkit-outer-spin-button,
 	input::-webkit-inner-spin-button {
 		-webkit-appearance: none;

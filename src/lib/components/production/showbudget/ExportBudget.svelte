@@ -5,27 +5,35 @@
 	import BudgetTotals from './BudgetTotals.svelte';
 	import PresetManager from './PresetManager.svelte';
 	import BudgetPdfTemplate from './BudgetPdfTemplate.svelte';
-	import { portal } from '$lib/utils/portalUtils';
+	import DropdownButton from '$lib/components/buttons/DropdownButton.svelte';
+	// We can likely remove this import if it is not used anywhere else in this file,
+	// but keeping it is harmless.
 	import { formatMoney } from '$lib/utils/budgetUtils';
 	import { env } from '$env/dynamic/public';
+	import { portal } from '$lib/utils/portalUtils';
 
 	export let selectedEvent: any = null;
 	export let budgetStore: Writable<any>;
 	export let isExporting = false;
 
 	const dispatch = createEventDispatcher();
-
 	let savingState: 'idle' | 'saving' | 'saved' = 'idle';
 	let saveTimeout: any;
 	let isPresetModalOpen = false;
-	
-	// PDF Generation State
 	let sheetContainer: HTMLDivElement;
 
-	function handleSave(key: string, value: number) {
+	const budgetTypeOptions = ['Tour Prod', 'Internal Prod', 'Complete Prod'];
+
+	function handleSave(key: string, value: any) {
 		if (!$budgetStore) return;
 		showSaving();
 		dispatch('save', { key, data: value });
+	}
+
+	function handleBudgetTypeSelect(e: CustomEvent) {
+		if (!$budgetStore) return;
+		$budgetStore.budget_type = e.detail;
+		handleSave('budget_type', e.detail);
 	}
 
 	function handleIncomeUpdate() {
@@ -42,7 +50,7 @@
 		}, 1000);
 	}
 
-	// --- Calculations ---
+	// Expenses Calculations
 	function calculateCategoryTotal(subsections: any[]): number {
 		if (!subsections || subsections.length === 0) return 0;
 		return subsections.reduce((acc, subsection) => {
@@ -64,24 +72,40 @@
 		}, 0);
 	}
 
+	// Variables
+	$: budgetType = $budgetStore?.budget_type || 'Tour Prod';
+
+	$: incomeTotalBudget = Number($budgetStore?.income_total_budget) || 0;
 	$: incomeArtist = Number($budgetStore?.income_artist) || 0;
 	$: incomeTechnical = Number($budgetStore?.income_technical) || 0;
 	$: incomeHospitality = Number($budgetStore?.income_hospitality) || 0;
 	$: incomeOther = Number($budgetStore?.income_other) || 0;
-	$: totalIncome = incomeArtist + incomeTechnical + incomeHospitality + incomeOther;
+
+	// Total Budget (Income) Calculation
+	$: totalIncome = (() => {
+		if (budgetType === 'Internal Prod') return incomeTotalBudget;
+		if (budgetType === 'Tour Prod') return incomeTechnical + incomeHospitality + incomeOther;
+		// Complete Prod
+		return incomeArtist + incomeTechnical + incomeHospitality + incomeOther;
+	})();
 
 	$: expenseArtist = calculateSimpleCategoryTotal($budgetStore?.artist_fee);
 	$: expenseTechnical = calculateCategoryTotal($budgetStore?.technical);
 	$: expenseHospitality = calculateCategoryTotal($budgetStore?.hospitality);
 	$: expenseOther = calculateCategoryTotal($budgetStore?.other_expenses);
-	$: totalExpenses = expenseArtist + expenseTechnical + expenseHospitality + expenseOther;
+
+	// Total Expenses Calculation
+	$: totalExpenses = (() => {
+		const base = expenseTechnical + expenseHospitality + expenseOther;
+		if (budgetType === 'Complete Prod') return base + expenseArtist;
+		return base;
+	})();
+
 	$: netTotal = totalIncome - totalExpenses;
 
-
-	// --- PDF Generation Logic ---
+	// PDF Logic
 	async function handleGeneratePdf() {
 		if (!$budgetStore || !selectedEvent) return;
-
 		isExporting = true;
 		
 		const sheetElement = sheetContainer?.querySelector('#budget-pdf-root');
@@ -94,43 +118,30 @@
 		const htmlContent = sheetElement.outerHTML;
 		const artistName = selectedEvent.event_name || 'Event';
 		const eventDate = selectedEvent.event_date || new Date().toISOString().split('T')[0];
-		// Ensure filename ends in .pdf and has no weird characters
 		const cleanFileName = `${eventDate} - ${artistName} - Budget.pdf`.replace(/[^\w\s.-]/g, '');
 
 		try {
 			const response = await fetch('/api/generate-advance-pdf', { 
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					htmlContent,
-					artistName,
-					eventDate,
-					fileName: cleanFileName
-				})
+				body: JSON.stringify({ htmlContent, artistName, eventDate, fileName: cleanFileName })
 			});
 
 			if (!response.ok) throw new Error('PDF Generation Failed');
-
 			const result = await response.json();
 			
 			if (result.path) {
-				// MODIFIED: We add ?download= to the URL.
-				// This forces Supabase to send the file as an attachment.
 				const downloadUrl = `${env.PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${result.path}?download=${cleanFileName}`;
-				
 				const link = document.createElement('a');
 				link.href = downloadUrl;
-				// The download attribute is often ignored for cross-origin URLs, 
-				// but the query param above forces the server to respect it.
 				link.setAttribute('download', cleanFileName); 
 				document.body.appendChild(link);
 				link.click();
 				document.body.removeChild(link);
 			}
-
 		} catch (error) {
 			console.error('Error generating PDF:', error);
-			alert('Failed to generate PDF. Ensure "npx playwright install" has been run on the server.');
+			alert('Failed to generate PDF.');
 		} finally {
 			isExporting = false;
 		}
@@ -139,10 +150,7 @@
 
 <div class="hidden" aria-hidden="true" bind:this={sheetContainer}>
 	{#if $budgetStore && selectedEvent}
-		<BudgetPdfTemplate 
-			budgetData={$budgetStore} 
-			event={selectedEvent} 
-		/>
+		<BudgetPdfTemplate budgetData={$budgetStore} event={selectedEvent} />
 	{/if}
 </div>
 
@@ -158,88 +166,117 @@
 			<p class="text-gray2 text-xs">Select an event to view its summary</p>
 		</div>
 	{:else}
-		<div class="p-4 border-b border-gray1 flex-shrink-0">
-			<div class="flex justify-between items-center mb-2">
-				<h2 class="text-white text-xl font-bold truncate">
-					Budget Information
-				</h2>
-				<span class="text-xs transition-all flex-shrink-0 ml-2 {savingState === 'saved' ? 'text-lime' : savingState === 'saving' ? 'text-gray2' : 'text-transparent'}">
-					{savingState === 'saving' ? 'Saving...' : 'Saved!'}
-				</span>
-			</div>
-			<button type="button" on:click={() => (isPresetModalOpen = true)} class="w-full px-3 py-1.5 bg-gray1 text-lime text-xs font-bold rounded hover:bg-gray2/20 cursor-pointer">
-				Manage Presets
-			</button>
-		</div>
+		{#if $budgetStore}
+			<div class="p-4 border-b border-gray1 flex-shrink-0">
+				<div class="flex justify-between items-center mb-4">
+					<h2 class="text-white text-xl font-bold truncate">Budget Info</h2>
+					<span class="text-xs transition-all flex-shrink-0 ml-2 {savingState === 'saved' ? 'text-confirmed' : savingState === 'saving' ? 'text-gray2' : 'text-transparent'}">
+						{savingState === 'saving' ? 'Saving...' : 'Saved!'}
+					</span>
+				</div>
+				
+				<div class="mb-2">
+					<DropdownButton
+						value={$budgetStore.budget_type || 'Tour Prod'}
+						options={budgetTypeOptions}
+						on:select={handleBudgetTypeSelect}
+						width="w-auto"
+						buttonClass="bg-gray1 !text-white border border-gray2/20"
+					/>
+				</div>
 
-		<div class="flex-1 flex flex-col justify-between overflow-y-auto custom-scroll p-4">
-			<div class="space-y-4">
-				<div class="bg-gray1 rounded-lg p-4">
-					<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
-						Budget / Income (+)
-					</h3>
-					<div class="grid grid-cols-1 gap-4">
-						{#if $budgetStore}
-							<BudgetIncomeSection
-								label="Artist Fee"
-								bind:amount={$budgetStore.income_artist}
-								on:update={handleIncomeUpdate}
-								on:save={() => handleSave('income_artist', $budgetStore.income_artist)}
-							/>
-							<BudgetIncomeSection
-								label="Technical"
-								bind:amount={$budgetStore.income_technical}
-								on:update={handleIncomeUpdate}
-								on:save={() => handleSave('income_technical', $budgetStore.income_technical)}
-							/>
-							<BudgetIncomeSection
-								label="Hospitality"
-								bind:amount={$budgetStore.income_hospitality}
-								on:update={handleIncomeUpdate}
-								on:save={() => handleSave('income_hospitality', $budgetStore.income_hospitality)}
-							/>
-							<BudgetIncomeSection
-								label="Other Expenses"
-								bind:amount={$budgetStore.income_other}
-								on:update={handleIncomeUpdate}
-								on:save={() => handleSave('income_other', $budgetStore.income_other)}
-							/>
-						{/if}
+				<button type="button" on:click={() => (isPresetModalOpen = true)} class="w-full px-3 py-1.5 bg-gray1 text-lime text-xs font-bold rounded hover:bg-gray2/20 cursor-pointer">
+					Manage Presets
+				</button>
+			</div>
+
+			<div class="flex-1 flex flex-col justify-between overflow-y-auto custom-scroll p-4">
+				<div class="space-y-4">
+					<div class="bg-gray1 rounded-lg p-4">
+						<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+							Budget / Income (+)
+						</h3>
+						
+						<div class="grid grid-cols-1 gap-4">
+							{#if budgetType === 'Internal Prod'}
+								<BudgetIncomeSection
+									label="Total Budget"
+									bind:amount={$budgetStore.income_total_budget}
+									on:update={handleIncomeUpdate}
+									on:save={() => handleSave('income_total_budget', $budgetStore.income_total_budget)}
+								/>
+							{:else}
+								{#if budgetType === 'Complete Prod'}
+									<BudgetIncomeSection
+										label="Artist Fee"
+										bind:amount={$budgetStore.income_artist}
+										on:update={handleIncomeUpdate}
+										on:save={() => handleSave('income_artist', $budgetStore.income_artist)}
+									/>
+								{/if}
+
+								<BudgetIncomeSection
+									label="Technical"
+									bind:amount={$budgetStore.income_technical}
+									on:update={handleIncomeUpdate}
+									on:save={() => handleSave('income_technical', $budgetStore.income_technical)}
+								/>
+								<BudgetIncomeSection
+									label="Hospitality"
+									bind:amount={$budgetStore.income_hospitality}
+									on:update={handleIncomeUpdate}
+									on:save={() => handleSave('income_hospitality', $budgetStore.income_hospitality)}
+								/>
+								<BudgetIncomeSection
+									label="Other Expenses"
+									bind:amount={$budgetStore.income_other}
+									on:update={handleIncomeUpdate}
+									on:save={() => handleSave('income_other', $budgetStore.income_other)}
+								/>
+							{/if}
+						</div>
+					</div>
+
+					<div class="bg-gray1 rounded-lg p-4">
+						<BudgetTotals
+							{totalIncome}
+							{totalExpenses}
+							{netTotal}
+							
+							{incomeArtist}
+							{expenseArtist}
+							{incomeTechnical}
+							{expenseTechnical}
+							{incomeHospitality}
+							{expenseHospitality}
+							{incomeOther}
+							{expenseOther}
+
+							{budgetType}
+							{incomeTotalBudget}
+						/>
 					</div>
 				</div>
 
-				<div class="bg-gray1 rounded-lg p-4">
-					<BudgetTotals
-						{totalIncome}
-						{totalExpenses}
-						{netTotal}
-						{formatMoney}
-						
-						{incomeArtist}
-						{expenseArtist}
-						{incomeTechnical}
-						{expenseTechnical}
-						{incomeHospitality}
-						{expenseHospitality}
-						{incomeOther}
-						{expenseOther}
-					/>
+				<div class="mt-4">
+					<button type="button" on:click={handleGeneratePdf} disabled={isExporting} class="w-full bg-lime text-black font-bold text-sm py-3 rounded-lg hover:bg-confirmed/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+						{#if isExporting}
+							<span class="flex items-center justify-center gap-2">
+								<div class="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-full"></div>
+								Exporting...
+							</span>
+						{:else}
+							Export as PDF
+						{/if}
+					</button>
 				</div>
 			</div>
-
-			<div class="mt-4">
-				<button type="button" on:click={handleGeneratePdf} disabled={isExporting} class="w-full bg-lime text-black font-bold text-sm py-3 rounded-lg hover:bg-lime/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
-					{#if isExporting}
-						<span class="flex items-center justify-center gap-2">
-							<div class="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-full"></div>
-							Exporting...
-						</span>
-					{:else}
-						Export as PDF
-					{/if}
-				</button>
+		{:else}
+			<div class="flex-1 flex flex-col items-center justify-center h-full text-center p-4">
+				<div class="animate-spin w-8 h-8 border-2 border-lime border-t-transparent rounded-full mb-3"></div>
+				<p class="text-gray2 text-xs">Loading budget...</p>
 			</div>
-		</div>
+		{/if}
 	{/if}
 </div>
 

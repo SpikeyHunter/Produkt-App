@@ -16,8 +16,7 @@
 	export let buttonClass: string = '';
 	export let width: string = 'w-auto';
 	export let height: string = 'h-auto';
-
-	// Conversion props - make the component reusable
+	// Conversion props
 	export let valueType: 'text' | 'boolean' = 'text';
 	export let trueValues: string[] = [];
 	export let falseValues: string[] = [];
@@ -79,7 +78,6 @@
 		showDropdown = false;
 		dispatch('select', selectedOption);
 
-		// If event and column are provided, handle the database update internally
 		if (event && column) {
 			try {
 				isUpdating = true;
@@ -90,7 +88,7 @@
 					customValue = '';
 				}
 			} catch (error) {
-				value = previousValue; // Revert on error
+				value = previousValue;
 				console.error(`Failed to update ${column}:`, error);
 			} finally {
 				isUpdating = false;
@@ -117,7 +115,6 @@
 			value = trimmedValue;
 			dispatch('select', trimmedValue);
 
-			// If event and column are provided, handle the database update internally
 			if (event && column) {
 				try {
 					isUpdating = true;
@@ -125,7 +122,7 @@
 					await updateDatabaseValue(dbValue);
 				} catch (error) {
 					console.error(`Failed to update custom ${column}:`, error);
-					value = 'Other'; // Revert on failure
+					value = 'Other'; 
 				} finally {
 					isUpdating = false;
 				}
@@ -135,10 +132,11 @@
 
 	async function updateDatabaseValue(newValue: any) {
 		if (!event || !column) return;
+
 		try {
 			console.log(`🔄 Updating ${column} to:`, newValue, '(type:', typeof newValue, ')');
 			const updates = { [column]: newValue };
-
+			
 			await updateEventAdvance(event.event_id, event.artist_name, updates);
 
 			dispatch('fieldUpdate', {
@@ -210,16 +208,16 @@
 	{:else}
 		<button
 			type="button"
-			class="{buttonClass || 'bg-gray2'} text-black rounded-xl px-3 py-1 font-bold text-xs {buttonClass ? 'hover:opacity-80' : 'hover:bg-lime hover:text-black'} transition-all duration-200 cursor-pointer flex items-center justify-between gap-2 {isUpdating && event && column ? 'opacity-70' : ''}"
+			class="{buttonClass || 'bg-gray2'} text-black rounded-xl px-3 py-1 font-bold text-xs {buttonClass ? 'hover:opacity-80' : 'hover:bg-lime hover:text-black'} transition-all duration-200 cursor-pointer flex items-center justify-between gap-2 {isUpdating && event && column ? 'opacity-70' : ''} w-full"
 			on:click={toggleDropdown}
 			disabled={isUpdating && !!event && !!column}
 			bind:this={buttonElement}
 		>
-			<span class={value && value !== placeholder ? 'text-black' : 'text-gray-500'}>
+			<span class={value && value !== placeholder ? '' : 'text-gray-500'}>
 				{value || placeholder}
 			</span>
 			<svg
-				class="w-3 h-3 text-black transition-transform {showDropdown ? 'rotate-180' : ''} {isUpdating && event && column ? 'opacity-50' : ''}"
+				class="w-3 h-3 transition-transform {showDropdown ? 'rotate-180' : ''} {isUpdating && event && column ? 'opacity-50' : ''}"
 				viewBox="0 0 24 24"
 				fill="none"
 				stroke="currentColor"
