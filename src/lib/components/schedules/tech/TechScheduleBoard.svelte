@@ -67,7 +67,7 @@
 		video: '90px',
 		vj: '90px',
 		sound: '120px',
-		tsm: '120px',
+		tsm: '140px', 
 		dt: '90px',
 		liaison: '120px',
 		notes: '400px'
@@ -106,7 +106,10 @@
 		row: null as TechRow | null,
 		field: null as string | null
 	};
+	
+	// [CHANGED] Clipboard now tracks if it's a cell or a row
 	let clipboardData: { type: 'row' | 'cell'; data: any; field?: string } | null = null;
+	
 	let activeDropdownId: string | null = null;
 	let historyPanel = {
 		open: false,
@@ -120,6 +123,7 @@
 	let hoveredRowId: string | null = null;
 	let hoveredColumnKey: string | null = null;
 	let gridContainer: HTMLDivElement;
+	
 	// --- LIFECYCLE ---
 	onMount(async () => {
 		isMounted = true;
@@ -128,19 +132,14 @@
 			await refreshData();
 			setupRealtime();
 			loading = false;
-			// --- NEW: Restore Scroll after data load ---
-			await tick(); // Wait for DOM update
+			await tick();
 			restoreScrollPosition();
 		}
 		document.addEventListener('visibilitychange', handleVisibilityChange);
 	});
-
+	
 	$: if (rows.length > 0 && isMounted) {
-		// We use a small timeout or tick to ensure DOM is rendered
 		tick().then(() => {
-			// Only restore if we haven't scrolled yet?
-			// Or simply restore blindly if this is the initial load.
-			// A safer check is to only restore if scrollTop is 0
 			if (gridContainer && gridContainer.scrollTop === 0) {
 				restoreScrollPosition();
 			}
@@ -157,6 +156,7 @@
 			channel = null;
 		}
 	});
+
 	function handleVisibilityChange() {
 		if (!document.hidden) {
 			console.log('[TechBoard] Tab active. Forcing full page reload.');
@@ -165,10 +165,8 @@
 	}
 
 	const SCROLL_KEY = 'techBoardScrollPosition';
-
 	function handleScroll(e: Event) {
 		const target = e.target as HTMLDivElement;
-		// Save scroll position to session storage
 		sessionStorage.setItem(
 			SCROLL_KEY,
 			JSON.stringify({
@@ -180,7 +178,6 @@
 
 	function restoreScrollPosition() {
 		if (!gridContainer) return;
-
 		const saved = sessionStorage.getItem(SCROLL_KEY);
 		if (saved) {
 			try {
@@ -190,15 +187,13 @@
 				console.warn('Failed to restore scroll position', e);
 			}
 		} else {
-			// Optional: If no saved position, scroll to "Today"
 			scrollToToday();
 		}
 	}
 
 	function scrollToToday() {
-		// Basic logic to find today's row and scroll to it if no saved state exists
 		const today = dayjs().format('YYYY-MM-DD');
-		const rowEl = gridContainer.querySelector(`[data-row-date="${today}"]`); // *Requires adding data-row-date to HTML*
+		const rowEl = gridContainer.querySelector(`[data-row-date="${today}"]`);
 		if (rowEl) {
 			rowEl.scrollIntoView({ block: 'center', behavior: 'instant' as ScrollBehavior });
 		}
@@ -311,6 +306,7 @@
 			}
 			return a.sort_order - b.sort_order;
 		});
+
 	async function handleCellFocus(e: CustomEvent) {
 		const { id, field } = e.detail;
 		activeEdit = { rowId: id, field };
@@ -337,7 +333,6 @@
 		const rowIndex = rows.findIndex((r) => r.id === id);
 		let oldRowSnapshot: TechRow | undefined;
 		if (rowIndex !== -1) {
-			// SNAPSHOT OLD ROW BEFORE UPDATE
 			oldRowSnapshot = { ...rows[rowIndex] };
 			const updatedRow = { ...rows[rowIndex], [field]: value };
 			rows = rows.map((r) => (r.id === id ? updatedRow : r));
@@ -363,9 +358,18 @@
 				.update({ [task.field]: task.value })
 				.eq('id', task.id);
 			if (error) throw error;
-
-			if (!task.isRestore) {
-				logHistory(task.id, 'UPDATE', { field: task.field }, { value: task.value });
+			
+			// [CHANGED] Fixed History Logging Structure
+			// Before: { field: "notes" }, { value: "hi" } -> History panel couldn't match "notes" in old_data
+			// Now: { notes: "old value" }, { notes: "hi" } -> History panel finds "notes" key correctly
+			if (!task.isRestore && task.oldRow) {
+				const oldValue = task.oldRow[task.field as keyof TechRow];
+				logHistory(
+					task.id, 
+					'UPDATE', 
+					{ [task.field]: oldValue }, 
+					{ [task.field]: task.value }
+				);
 			}
 
 			// --- GOOGLE CALENDAR SYNC ---
@@ -385,11 +389,8 @@
 				'op_hours'
 			];
 			if (CALENDAR_FIELDS.includes(task.field)) {
-				// Get the CURRENT (new) row from state
 				const newRow = rows.find((r) => r.id === task.id);
 				if (newRow) {
-					// Pass the new row AND the old row snapshot to the sync service
-					// This allows the server to detect if Type changed
 					syncRowToCalendar(newRow, 'UPDATE', task.oldRow);
 				}
 			}
@@ -442,72 +443,101 @@
 		});
 	}
 
-	function performCopy(row: TechRow) {
-		clipboardData = { type: 'row', data: { ...row } };
-	}
-
-	async function performPaste(targetRow: TechRow) {
-		if (!userPermissions.canEditAll) return;
-		if (!clipboardData || clipboardData.type !== 'row') return;
-
-		const {
-			id: _,
-			sort_order: __,
-			date: ___,
-			year: ____,
-			calendar_event_id: _____,
-			...dataToPaste
-		} = clipboardData.data;
-		rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...dataToPaste } : r));
-		const { error } = await supabase
-			.from('schedule_techs')
-			.update(dataToPaste)
-			.eq('id', targetRow.id);
-
-		if (error) {
-			console.error('Paste failed:', error);
-			saveStatus = 'error';
+	// [CHANGED] Modified performCopy to handle specific cells vs rows
+	function performCopy(row: TechRow, field?: string | null) {
+		if (field && field !== '__ROW__' && field !== 'index') {
+			// Single Cell Copy
+			const value = row[field as keyof TechRow];
+			clipboardData = { type: 'cell', data: value, field };
+			
+			// Optional: Also write to browser clipboard for external paste
+			if (navigator.clipboard && value) {
+				navigator.clipboard.writeText(String(value));
+			}
 		} else {
-			// Paste is effectively an update
-			const updatedRow = rows.find((r) => r.id === targetRow.id);
-			// We pass the targetRow as "oldRow" because that was the state before paste
-			if (updatedRow) syncRowToCalendar(updatedRow, 'UPDATE', targetRow);
+			// Entire Row Copy
+			clipboardData = { type: 'row', data: { ...row } };
 		}
 	}
 
-	async function performCut(targetRow: TechRow) {
+	// [CHANGED] Modified performPaste to handle specific cells vs rows
+	async function performPaste(targetRow: TechRow, targetField?: string | null) {
 		if (!userPermissions.canEditAll) return;
-		performCopy(targetRow);
+		if (!clipboardData) return;
 
-		const uiEmptyData = {
-			event_name: '',
-			type: '',
-			notes: '',
-			ld: '',
-			video: '',
-			vj: '',
-			sound: '',
-			tech_sm: '',
-			dt: '',
-			artist_liaison: '',
-			op_hours: '',
-			crew_call: ''
-		};
-		const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
-		rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
-		const { error } = await supabase
-			.from('schedule_techs')
-			.update(dbEmptyData)
-			.eq('id', targetRow.id);
+		// CASE 1: Paste into a specific cell
+		if (clipboardData.type === 'cell' && targetField && targetField !== '__ROW__') {
+			updateCell(targetRow.id, targetField, clipboardData.data);
+			return;
+		}
 
-		if (error) {
-			console.error('Cut failed:', error);
-			saveStatus = 'error';
+		// CASE 2: Paste a whole row
+		if (clipboardData.type === 'row') {
+			const {
+				id: _,
+				sort_order: __,
+				date: ___,
+				year: ____,
+				calendar_event_id: _____,
+				...dataToPaste
+			} = clipboardData.data;
+
+			rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...dataToPaste } : r));
+			const { error } = await supabase
+				.from('schedule_techs')
+				.update(dataToPaste)
+				.eq('id', targetRow.id);
+
+			if (error) {
+				console.error('Paste failed:', error);
+				saveStatus = 'error';
+			} else {
+				const updatedRow = rows.find((r) => r.id === targetRow.id);
+				if (updatedRow) syncRowToCalendar(updatedRow, 'UPDATE', targetRow);
+			}
+		}
+	}
+
+	// [CHANGED] Modified performCut to handle specific cells vs rows
+	async function performCut(targetRow: TechRow, field?: string | null) {
+		if (!userPermissions.canEditAll) return;
+		
+		// Copy first
+		performCopy(targetRow, field);
+
+		if (field && field !== '__ROW__') {
+			// Cell Cut: Clear the specific cell
+			updateCell(targetRow.id, field, '');
 		} else {
-			// Cut means we effectively deleted the "Event" details
-			// We should treat this as a DELETE action for the calendar
-			if (targetRow.calendar_event_id) {
-				syncRowToCalendar(targetRow, 'DELETE', targetRow);
+			// Row Cut: Clear the row contents (keep date/id)
+			const uiEmptyData = {
+				event_name: '',
+				type: '',
+				notes: '',
+				ld: '',
+				video: '',
+				vj: '',
+				sound: '',
+				tech_sm: '',
+				dt: '',
+				artist_liaison: '',
+				op_hours: '',
+				crew_call: ''
+			};
+			const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
+			rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
+			const { error } = await supabase
+				.from('schedule_techs')
+				.update(dbEmptyData)
+				.eq('id', targetRow.id);
+
+			if (error) {
+				console.error('Cut failed:', error);
+				saveStatus = 'error';
+			} else {
+				if (targetRow.calendar_event_id) {
+					syncRowToCalendar(targetRow, 'DELETE', targetRow);
+				}
 			}
 		}
 	}
@@ -553,10 +583,17 @@
 	}
 
 	async function checkHistoryAvailability(rowId: string, field: string) {
+		// [NOTE] We need to check if old_data contains the field key. 
+		// Since we fixed the saving logic, strict checking here should work.
 		const { count } = await supabase
 			.from('schedule_techs_history')
 			.select('id', { count: 'exact', head: true })
 			.eq('row_id', rowId);
+		
+		// Note: The history table structure is JSONB, counting "exact" matches for a specific field in JSON 
+		// via simple count(*) query isn't directly supported without complex filters.
+		// For UI speed, we just check if ANY history exists for this row, 
+		// or allow the panel to open and show "No History" if empty.
 		if (isMounted) contextMenuHasHistory = (count || 0) > 0;
 		if (isMounted) contextMenuCheckingHistory = false;
 	}
@@ -588,51 +625,51 @@
 	}
 
 	async function handleKeydown(e: KeyboardEvent) {
-		// 1. If inside an input cell, allow native browser Copy/Paste of text
 		const activeTag = document.activeElement?.tagName.toUpperCase();
 		if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
 
 		if (!(e.metaKey || e.ctrlKey) || userPermissions.role === 'viewer') return;
-
-		// 2. Determine target Row
 		let targetRowId: string | null = null;
+		let targetField: string | null = null;
 
-		// 2a. Check if Row Number Button is explicitly focused
+		// Check if Row Number Button is explicitly focused
 		const focusTarget = getTargetFromFocus();
-		if (focusTarget && focusTarget.field === '__ROW__') {
+		if (focusTarget) {
 			targetRowId = focusTarget.rowId;
+			targetField = focusTarget.field;
 		}
 
-		// 2b. If not explicitly focused on Row #, check Hover state
-		// STRICT RULE: Only trigger if hovering the FIRST column (index)
-		if (!targetRowId) {
-			if (hoveredRowId && hoveredColumnKey === 'index') {
-				targetRowId = hoveredRowId;
-			}
+		// If not explicitly focused, check Hover state
+		if (!targetRowId && hoveredRowId) {
+			targetRowId = hoveredRowId;
+			// If hovering index column, field is __ROW__, otherwise map the column
+			if (hoveredColumnKey === 'index') targetField = '__ROW__';
+			else if (hoveredColumnKey) targetField = COL_FIELD_MAP[hoveredColumnKey] as string;
 		}
 
-		// If we didn't find a valid target (Focused Row Number OR Hovered Row Number), exit.
 		if (!targetRowId) return;
-
 		const row = rows.find((r) => r.id === targetRowId);
 		if (!row) return;
 
 		const key = e.key.toLowerCase();
-		if (key === 'c') performCopy(row);
-		if (key === 'x') performCut(row);
-		if (key === 'v') performPaste(row);
+		// [CHANGED] Pass specific field to keyboard handlers
+		if (key === 'c') performCopy(row, targetField);
+		if (key === 'x') performCut(row, targetField);
+		if (key === 'v') performPaste(row, targetField);
 	}
 
 	async function handleMenuAction(event: CustomEvent) {
 		const action = event.detail;
 		const targetRow = contextMenu.row;
-		const targetField = contextMenu.field;
+		const targetField = contextMenu.field; // [CHANGED] Capture context field
 		contextMenu.show = false;
 		if (!targetRow) return;
 
-		if (action === 'copy') performCopy(targetRow);
-		if (action === 'cut') performCut(targetRow);
-		if (action === 'paste') performPaste(targetRow);
+		// [CHANGED] Pass targetField to action handlers to distinguish Row vs Cell operations
+		if (action === 'copy') performCopy(targetRow, targetField);
+		if (action === 'cut') performCut(targetRow, targetField);
+		if (action === 'paste') performPaste(targetRow, targetField);
+		
 		if (action === 'delete') {
 			handleRowDelete({ detail: { id: targetRow.id } } as any);
 		}
@@ -649,6 +686,13 @@
 		}
 
 		if (action === 'clear') {
+			// [CHANGED] If right-clicked on a specific cell, clear ONLY that cell
+			if (targetField && targetField !== '__ROW__') {
+				updateCell(targetRow.id, targetField, '');
+				return;
+			}
+
+			// Else, clear whole row (existing logic)
 			const uiEmptyData = {
 				event_name: '',
 				type: '',
@@ -666,7 +710,6 @@
 			const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
 			rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
 			await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
-			// SYNC CLEAR (DELETE EVENT)
 			if (targetRow.calendar_event_id) {
 				syncRowToCalendar(targetRow, 'DELETE', targetRow);
 			}
