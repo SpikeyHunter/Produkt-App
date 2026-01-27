@@ -125,3 +125,21 @@ export interface RoleInfo {
 	customRole?: string;
 }
 
+export interface CrewTimeGroup {
+    id: string;
+    label: string; // "CREW CALL"
+    time: string;  // "19:00"
+    roles: string[]; // Used for Autofill mapping logic (e.g. ["LD", "Video"])
+    content?: string; // NEW: The specific text string "Danny, Robin, Simon"
+}
+
+export interface EmailContentData {
+    version: number;
+    sections: {
+        crew?: {
+            groups: CrewTimeGroup[];
+        };
+        // Future VJ sections
+        [key: string]: any;
+    };
+}

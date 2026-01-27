@@ -1,4 +1,3 @@
-<!-- src/lib/components/production/emailtech/EventSelector.svelte -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { fly } from 'svelte/transition';
@@ -12,7 +11,7 @@
   
   let searchTerm = '';
   let showDropdown = false;
-  
+
   $: multiSelectEnabledDates = (() => {
     const datesWithVenues = events.reduce((acc, event) => {
         if (!event.event_date) return acc;
@@ -65,6 +64,7 @@
     if (isSpecialPair) {
       const ncgEvent = events.find(e => e.event_date === date && e.event_venue === 'New City Gas');
       const bazartEvent = events.find(e => e.event_date === date && e.event_venue === 'Bazart');
+      
       if (ncgEvent && bazartEvent) {
         selectedEvents = [ncgEvent, bazartEvent];
         showDropdown = false;
@@ -78,11 +78,13 @@
 
   function selectEvent(eventToAdd: EmailTechEvent) {
     const isSelected = selectedEvents.some(e => e.id === eventToAdd.id);
+    
     if (isSelected) {
       selectedEvents = selectedEvents.filter(e => e.id !== eventToAdd.id);
     } else {
       const firstSelected = selectedEvents[0];
       const isMultiSelectDate = firstSelected?.event_date && multiSelectEnabledDates.has(firstSelected.event_date);
+      
       if (isMultiSelectDate && firstSelected.event_date === eventToAdd.event_date && selectedEvents.length < 2) {
         selectedEvents = [...selectedEvents, eventToAdd];
       } else {
@@ -105,11 +107,10 @@
     try {
       const parts = dateString.split('-').map(Number);
       const date = new Date(parts[0], parts[1] - 1, parts[2]);
-      
       const day = date.getDate();
       const month = date.toLocaleString('en-US', { month: 'long' });
       const year = date.getFullYear();
-      
+
       const getSuffix = (d: number) => {
         if (d > 3 && d < 21) return 'th';
         switch (d % 10) {
@@ -119,7 +120,7 @@
           default: return "th";
         }
       };
-      
+
       return `${month} ${day}${getSuffix(day)}, ${year}`;
     } catch {
       return dateString;
@@ -173,7 +174,7 @@
                     {:else}
                       <div class="w-12 h-12 bg-gray1 rounded flex items-center justify-center flex-shrink-0">
                         <svg class="w-6 h-6 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+                           <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
                         </svg>
                       </div>
                     {/if}

@@ -1,14 +1,16 @@
-<!-- src/lib/components/production/emailtech/CrewManager.svelte -->
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	// MODIFICATION: Import the updated types.
-	import type { CrewMember, CrewAssignments, CrewRole } from '$lib/types/emailtech';
+	import type { CrewMember, CrewAssignments, CrewRole, EmailTechEvent } from '$lib/types/emailtech';
 
 	export let crewMembers: CrewMember[] = [];
-	// MODIFICATION: The 'assignments' prop now expects roles to have string arrays.
 	export let assignments: CrewAssignments = {};
+    // UPDATED: Accept the array directly
+    export let selectedEvents: EmailTechEvent[] = [];
 
 	const dispatch = createEventDispatcher();
+
+    // Reactive check for enabled state
+    $: isEventSelected = selectedEvents && selectedEvents.length > 0;
 
 	let showAddForm = false;
 	let newCrewName = '';
@@ -23,7 +25,6 @@
 		{ role: 'Video' as CrewRole, label: 'Video' },
 		{ role: 'VJ' as CrewRole, label: 'VJ' },
 		{ role: 'Sound' as CrewRole, label: 'Sound' },
-		// MODIFICATION: The role key is now 'Stage/Tech' to match the database schema.
 		{ role: 'Stage/Tech' as CrewRole, label: 'Stage/Tech' },
 		{ role: 'DT' as CrewRole, label: 'DT' }
 	];
@@ -39,6 +40,7 @@
 		.sort((a, b) => a.name.localeCompare(b.name));
 
 	function handleDragStart(member: CrewMember) {
+        if (!isEventSelected) return;
 		draggedMember = member;
 		document.body.style.cursor = 'grabbing';
 	}
@@ -51,6 +53,7 @@
 
 	function handleDragOver(e: DragEvent, role: CrewRole) {
 		e.preventDefault();
+        if (!isEventSelected) return;
 		draggedOverRole = role;
 	}
 
@@ -58,21 +61,16 @@
 		draggedOverRole = null;
 	}
 
-	/**
-	 * MODIFICATION:
-	 * This function now adds a crew member to a role's array of names.
-	 * It checks for duplicates before adding.
-	 */
 	function handleDrop(e: DragEvent, role: CrewRole) {
 		e.preventDefault();
+        if (!isEventSelected) return;
+
 		if (draggedMember) {
 			const currentAssigned = assignments[role] || [];
-			// Add the new member only if they are not already in the list
 			if (!currentAssigned.includes(draggedMember.name)) {
 				const newAssigned = [...currentAssigned, draggedMember.name];
 				const newAssignments = { ...assignments, [role]: newAssigned };
-				assignments = newAssignments; // Update local state
-				// Dispatch the entire updated assignments object
+				assignments = newAssignments;
 				dispatch('assign', { assignments: newAssignments });
 			}
 			draggedMember = null;
@@ -81,6 +79,7 @@
 	}
 
 	function removeAssignment(role: CrewRole, nameToRemove: string) {
+        if (!isEventSelected) return;
 		const currentAssigned = assignments[role] || [];
 		const newAssigned = currentAssigned.filter((name) => name !== nameToRemove);
 		const newAssignments = { ...assignments };
@@ -94,15 +93,17 @@
 	}
 
 	function clearRole(role: CrewRole) {
+        if (!isEventSelected) return;
 		const newAssignments = { ...assignments };
-		delete newAssignments[role]; // Remove the role key from assignments
+		delete newAssignments[role];
 		assignments = newAssignments;
 		dispatch('assign', { assignments: newAssignments });
 	}
 
 	function clearAllAssignments() {
-		assignments = {}; // Update local state
-		dispatch('assign', { assignments: {} }); // Dispatch the update
+        if (!isEventSelected) return;
+		assignments = {};
+		dispatch('assign', { assignments: {} });
 	}
 
 	function getFirstName(fullName: string | undefined): string {
@@ -110,8 +111,8 @@
 		return fullName.split(' ')[0];
 	}
 
-	// --- Unchanged helper functions ---
 	function showAddCrewForm() {
+        if (!isEventSelected) return;
 		showAddForm = true;
 		newCrewName = '';
 		newCrewEmail = '';
@@ -125,6 +126,7 @@
 		cancelAddCrew();
 	}
 	function initiateDeleteCrew(member: CrewMember) {
+        if (!isEventSelected) return;
 		deleteConfirmId = member.id;
 	}
 	function confirmDeleteCrew(member: CrewMember) {
@@ -136,15 +138,17 @@
 	}
 </script>
 
-<div class="h-full flex flex-col bg-navbar border border-gray1 rounded-xl overflow-hidden">
-	<!-- Header -->
-	<div class="p-4 border-b border-gray1 flex-shrink-0">
+<div class="h-full flex flex-col bg-navbar border border-gray1 rounded-xl overflow-hidden transition-colors duration-300
+    {!isEventSelected ? 'cursor-not-allowed border-opacity-50' : ''}">
+    
+	<div class="p-4 border-b border-gray1 flex-shrink-0 transition-opacity duration-200 { !isEventSelected ? 'opacity-50' : '' }">
 		<div class="flex items-center justify-between mb-3">
 			<h3 class="text-white text-sm font-bold">Crew Management</h3>
 			<button
 				type="button"
 				on:click={showAddCrewForm}
-				class="text-lime hover:text-white transition-colors cursor-pointer"
+                disabled={!isEventSelected}
+				class="text-lime hover:text-white transition-colors cursor-pointer disabled:cursor-not-allowed disabled:pointer-events-none"
 				title="Add Crew Member"
 			>
 				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -157,8 +161,9 @@
 			<input
 				type="text"
 				bind:value={searchTerm}
+                disabled={!isEventSelected}
 				placeholder="Search crew..."
-				class="w-full bg-gray1 text-white rounded px-3 py-1.5 pl-8 text-xs placeholder-gray2 focus:outline-none focus:ring-1 focus:ring-lime"
+				class="w-full bg-gray1 text-white rounded px-3 py-1.5 pl-8 text-xs placeholder-gray2 focus:outline-none focus:ring-1 focus:ring-lime disabled:cursor-not-allowed disabled:pointer-events-none"
 			/>
 			<svg
 				class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray2"
@@ -173,10 +178,18 @@
 		</div>
 	</div>
 
-	<!-- Crew List / Add Form -->
-	<div class="flex-1 overflow-y-auto p-4">
-		{#if showAddForm}
-			<div class="bg-gray1 rounded-lg p-3">
+	<div class="flex-1 overflow-y-auto p-4 relative">
+        {#if !isEventSelected}
+            <div class="absolute inset-0 flex flex-col items-center justify-center text-gray2 text-sm opacity-60 z-10 pointer-events-none">
+                <svg class="w-8 h-8 mb-2 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <p>Select an event to view crew</p>
+            </div>
+		{:else if showAddForm}
+            <div class="bg-gray1 rounded-lg p-3">
 				<h4 class="text-white text-xs font-bold mb-2">Add New Crew Member</h4>
 				<div class="space-y-2">
 					<input
@@ -284,13 +297,14 @@
 		{/if}
 	</div>
 
-	<!-- Role Assignment Slots -->
-	<div class="p-4 border-t border-gray1 flex-shrink-0">
+	<div class="p-4 border-t border-gray1 flex-shrink-0 transition-all duration-200 
+        { !isEventSelected ? 'opacity-50 pointer-events-none' : '' }">
 		<div class="flex justify-between items-center mb-3">
 			<p class="text-xs text-gray2">Drag crew to assign roles:</p>
 			<button
 				type="button"
 				on:click={clearAllAssignments}
+                disabled={!isEventSelected}
 				class="text-gray2 hover:text-white text-xs font-bold transition-colors px-2 py-1 rounded hover:bg-gray2"
 			>
 				Clear All
@@ -316,7 +330,6 @@
 							{slot.label}
 						</div>
 
-						<!-- MODIFICATION: Display multiple crew members -->
 						{#if assignedNames && assignedNames.length > 0}
 							<button
 								type="button"
