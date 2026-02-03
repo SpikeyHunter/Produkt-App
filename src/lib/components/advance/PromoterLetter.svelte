@@ -3,6 +3,7 @@
 	import { getPronouns, numberToWord, formatDateShort } from '$lib/utils/letter-helpers';
 
 	export let data: PromoterLetterData;
+
 	$: pronouns = getPronouns(data.artistGender);
 	$: visaLabel = data.visaNumber ? '& Visa #' : '';
 	$: passportVisaNumbers = data.visaNumber
@@ -10,9 +11,8 @@
 		: data.passportNumber;
 	$: stayDurationWord = numberToWord(data.stayDurationDays);
 	
-	// Ensure we format the date correctly. data.arrivalDate might already be formatted if from the modal,
-	// but if it's a raw string, formatDateShort handles it.
-	$: arrivalDateFormatted = data.arrivalDate ? formatDateShort(data.arrivalDate) : '';
+	// FIX: Force arrivalDateFormatted to use performanceDate so they are identical in the letter text
+	$: arrivalDateFormatted = data.performanceDate ? formatDateShort(data.performanceDate) : '';
 	$: performanceDateFormatted = data.performanceDate ? formatDateShort(data.performanceDate) : '';
 </script>
 
