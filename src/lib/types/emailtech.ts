@@ -1,145 +1,90 @@
 // src/lib/types/emailtech.ts
 
-export interface ScheduleTech {
-	id: string;
-	date: string; // YYYY-MM-DD
-	event_name: string;
-	type: string; // 'NCG Show', 'Bazart Nuits', etc.
-	ld: string | null;
-	video: string | null;
-	vj: string | null;
-	sound: string | null;
-	tech_sm: string | null;
-	dt: string | null;
-	artist_liaison: string | null;
-	notes: string | null;
-}
-
-export interface EmailTechEvent {
-	id: string;
-	event_id: number;
-	artist_name: string;
-	artist_type: string | null;
-	event_name: string | null;
-	event_date: string | null;
-	event_venue: string | null;
-	event_flyer: string | null;
-	event_status: string | null;
-	tech_rider: any;
-	sfx_rider: any;
-	soundcheck: any;
-	visuals: any;
-	visual_received: boolean;
-	timetable: any;
-	ground_transport: any;
-	ground_info: any;
-	notes: string | null;
-	tech_mail: string | null;
-	vj_mail: string | null;
-	crew: CrewAssignments | null;
-	email_data: any;
-	dos: string | null;
-	roles: string | null;
-}
+export type CrewRole = 'LD' | 'Video' | 'VJ' | 'Sound' | 'Stage/Tech' | 'DT';
 
 export interface CrewMember {
-	id: string;
-	name: string;
-	role?: string;
-	email?: string;
+    id: string;
+    name: string;
+    role: string;
+    email?: string;
 }
 
-/**
- * MODIFICATION:
- * This interface is now stricter. Each role is explicitly an array of strings.
- * The index signature [key: string]: string[] | undefined; ensures that any
- * property on this object must conform to this structure, fixing the root
- * of the TypeScript errors.
- */
 export interface CrewAssignments {
-	LD?: string[];
-	Video?: string[];
-	VJ?: string[];
-	Sound?: string[];
-	'Stage/Tech'?: string[];
-	DT?: string[];
-	[key: string]: string[] | undefined;
-}
-
-/**
- * MODIFICATION:
- * The list of roles has been updated to use the consolidated 'Stage/Tech' role.
- */
-export const CREW_ROLES = ['LD', 'Video', 'VJ', 'Sound', 'Stage/Tech', 'DT'] as const;
-export type CrewRole = (typeof CREW_ROLES)[number];
-
-export interface CurrentUser {
-	id: string;
-	name: string;
-	color: string;
-}
-
-export interface PresenceInfo {
-	user: CurrentUser;
+    [role: string]: string[]; 
 }
 
 export interface TimetableEntry {
-	id: string;
-	time: string;
-	artist: string;
-	notes?: string;
-	status?: string;
+    id?: string;
+    time: string;
+    artist: string;
+    notes?: string; 
+    length?: string;
+    status?: string; 
 }
 
-export interface TechRiderEquipment {
-	qty: number;
-	selected: boolean;
-	editableQty?: boolean;
-}
-
-export interface TechRider {
-	selected_mixer?: string;
-	equipment?: Record<string, TechRiderEquipment>;
-	other?: Array<{ id: string; text: string }>;
-	confirmed?: boolean;
-}
-
-export interface SfxRider {
-	cryo_jets?: { enabled: boolean; duration: number; qty?: number };
-	sparkulars?: { enabled: boolean; duration: number; qty?: number };
-	lasers?: { enabled: boolean; qty?: number };
-	other?: string[];
-}
-
-export interface SoundcheckInfo {
-	status: 'yes' | 'no';
-	start_time?: string;
-	end_time?: string;
-}
-
-export interface RoleInfo {
-	id: string;
-	firstName: string;
-	lastName: string;
-	role: string;
-	customRole?: string;
-}
-
-export interface CrewTimeGroup {
-    id: string;
-    label: string; // "CREW CALL"
-    time: string;  // "19:00"
-    roles: string[]; // Used for Autofill mapping logic (e.g. ["LD", "Video"])
-    content?: string; // NEW: The specific text string "Danny, Robin, Simon"
-}
-
-export interface EmailContentData {
-    version: number;
-    sections: {
-        crew?: {
-            groups: CrewTimeGroup[];
-        };
-        // Future VJ sections
-        [key: string]: any;
+export interface TechEmailForm {
+    visible_sections: { [key: string]: boolean };
+    liaison: string;
+    crew_calls: { time: string; names: string }[];
+    team_notes: string;
+    vj_notes?: string;
+    specs_links: { label: string; url: string }[];
+    projects: string[];
+    projector_outdoor: string;
+    visuals_interior: string;
+    vj_visuals?: string;
+    second_event?: EmailTechEvent | null;
+    sponsor_name?: string;
+    sponsor_link?: string;
+    set_times: { 
+        event_id: number;
+        venue: string; 
+        entries: TimetableEntry[];
+    }[]; 
+    soundcheck: string;
+    riders_attached: boolean;
+    backline: { venue: string; items: string[] }[];
+    travelling_party: string;
+    vj_schedule: string;
+    lights: { area: string; color: string }[];
+    sfx: string;
+    sponsors: string;
+    post_show: string;
+    
+    // NEW FIELD
+    lounge_ambiance?: {
+        terrasse_type: 'back-side' | 'back' | null;
+        terrasse_option: string;
+        terrasse_custom: string;
+        lounge_option: string;
+        lounge_custom: string;
     };
+}
+
+export interface EmailTechEvent {
+    id: string;
+    event_id: number;
+    event_name: string;
+    artist_name: string;
+    artist_type: string | null; 
+    event_date: string | null;
+    event_venue: string | null;
+    event_flyer: string | null;
+    event_status: string | null;
+    timetable: any; 
+    tech_rider: any;
+    rider_files: any; // [Fix] Added missing property
+    sfx_rider: any;
+    soundcheck: any; 
+    visuals: any;
+    visual_received?: boolean; 
+    ground_transport?: any;
+    ground_info?: any;
+    notes?: any;
+    crew: CrewAssignments | null;
+    email_data: any | null; 
+    tech_mail: string | null; 
+    vj_mail: string | null;
+    roles?: any;
+    dos?: string; 
 }

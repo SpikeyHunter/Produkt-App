@@ -11,6 +11,7 @@
   
   let searchTerm = '';
   let showDropdown = false;
+  let viewMode: 'LIVE' | 'PAST' = 'LIVE';
 
   $: multiSelectEnabledDates = (() => {
     const datesWithVenues = events.reduce((acc, event) => {
@@ -38,12 +39,27 @@
     return acc;
   }, [] as EmailTechEvent[]);
 
+  // Filter and Sort Logic based on ViewMode
   $: filteredEvents = uniqueEvents
-    .filter((event: EmailTechEvent) => event.event_status === 'LIVE')
+    .filter((event: EmailTechEvent) => {
+        // Filter by Status: LIVE vs PAST (Not LIVE)
+        if (viewMode === 'LIVE') {
+            return event.event_status === 'LIVE';
+        } else {
+            return event.event_status !== 'LIVE';
+        }
+    })
     .sort((a: EmailTechEvent, b: EmailTechEvent) => {
         if (!a.event_date) return 1;
         if (!b.event_date) return -1;
-        return new Date(a.event_date).getTime() - new Date(b.event_date).getTime();
+        
+        const timeA = new Date(a.event_date).getTime();
+        const timeB = new Date(b.event_date).getTime();
+
+        // Sort Order: 
+        // LIVE = Ascending (Earliest/Coming up first)
+        // PAST = Descending (Most recent/History first)
+        return viewMode === 'LIVE' ? timeA - timeB : timeB - timeA;
     })
     .filter((event: EmailTechEvent) => {
       if (!searchTerm) return true;
@@ -60,7 +76,7 @@
     const isSpecialPair = date && 
                          events.some(e => e.event_date === date && e.event_venue === 'New City Gas') &&
                          events.some(e => e.event_date === date && e.event_venue === 'Bazart');
-
+    
     if (isSpecialPair) {
       const ncgEvent = events.find(e => e.event_date === date && e.event_venue === 'New City Gas');
       const bazartEvent = events.find(e => e.event_date === date && e.event_venue === 'Bazart');
@@ -107,6 +123,7 @@
     try {
       const parts = dateString.split('-').map(Number);
       const date = new Date(parts[0], parts[1] - 1, parts[2]);
+      
       const day = date.getDate();
       const month = date.toLocaleString('en-US', { month: 'long' });
       const year = date.getFullYear();
@@ -139,7 +156,7 @@
       type="button"
       on:click={() => (showDropdown = !showDropdown)}
       disabled={loading}
-      class="w-full bg-gray1 text-white rounded-lg px-4 py-2.5 text-sm font-bold flex items-center justify-between hover:bg-gray2 hover:cursor-pointer hover:text-black transition-colors focus:outline-none focus:ring-1 focus:ring-lime disabled:opacity-50 disabled:cursor-not-allowed"
+      class="w-full bg-gray1 text-white rounded-2xl px-4 py-2.5 text-sm font-bold flex items-center justify-between hover:bg-gray2 hover:cursor-pointer hover:text-black transition-colors focus:outline-none focus:ring-1 focus:ring-lime disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <span class="flex items-center gap-2 truncate">
         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -154,14 +171,30 @@
     
     {#if showDropdown}
       <div transition:fly={{ y: -5, duration: 150 }} class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-xl z-50 overflow-hidden flex flex-col">
-        <div class="p-2 border-b border-gray1">
-            <input type="text" bind:value={searchTerm} placeholder="Search for a LIVE event..." class="w-full bg-gray1 text-white rounded-md px-3 py-2 text-xs placeholder-gray2 focus:outline-none focus:ring-1 focus:ring-lime" />
+        <div class="p-2 border-b border-gray1 space-y-2">
+            <div class="flex gap-1 bg-gray1 p-1 rounded-lg">
+                <button 
+                    class="flex-1 text-xs font-bold py-1.5 rounded-md transition-all {viewMode === 'LIVE' ? 'bg-lime text-black shadow-sm' : 'text-gray-400 hover:text-white'}"
+                    on:click={() => viewMode = 'LIVE'}
+                >
+                    LIVE
+                </button>
+                <button 
+                    class="flex-1 text-xs font-bold py-1.5 rounded-md transition-all {viewMode === 'PAST' ? 'bg-lime text-black shadow-sm' : 'text-gray-400 hover:text-white'}"
+                    on:click={() => viewMode = 'PAST'}
+                >
+                    PAST
+                </button>
+            </div>
+
+            <input type="text" bind:value={searchTerm} placeholder="Search for an event..." class="w-full bg-gray1 text-white rounded-md px-3 py-2 text-xs placeholder-gray2 focus:outline-none focus:ring-1 focus:ring-lime" />
         </div>
         <div class="max-h-72 overflow-y-auto">
             {#if loading}
               <div class="p-4 text-center text-gray2 text-sm">
                 <div class="animate-spin w-5 h-5 border-2 border-lime border-t-transparent rounded-full mx-auto"></div>
               </div>
+  
             {:else if filteredEvents.length > 0}
                 {#each filteredEvents as event (event.id)}
                 {@const isCurrentlySelected = selectedEvents.some(e => e.id === event.id)}
@@ -178,19 +211,22 @@
                         </svg>
                       </div>
                     {/if}
+                    
                     <div class="flex-1 min-w-0">
                       <div class="text-white text-sm font-bold truncate transition-colors group-hover:text-lime">{event.event_name}</div>
                       <div class="text-gray2 text-xs">{event.event_venue || 'No Venue'} • {formatDate(event.event_date)}</div>
                     </div>
                     {#if isCurrentlySelected}
                       <svg class="w-5 h-5 text-lime flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                        <polyline points="20 6 9 17 4 12" />
+                         <polyline points="20 6 9 17 4 12" />
                       </svg>
                     {/if}
                 </button>
                 {/each}
             {:else}
-              <div class="p-4 text-center text-gray2 text-sm">{searchTerm ? 'No matching live events found' : 'No live events available'}</div>
+                <div class="p-4 text-center text-gray2 text-sm">
+                    {searchTerm ? 'No matching events found' : `No ${viewMode.toLowerCase()} events available`}
+                </div>
             {/if}
         </div>
       </div>

@@ -1,6 +1,5 @@
 // src/lib/services/warningService.ts
-import type { EmailTechEvent, CrewAssignments } from '$lib/types/emailtech';
-import type { SoundcheckInfo } from '$lib/types/emailtech';
+import type { EmailTechEvent, CrewAssignments, SoundcheckInfo } from '$lib/types/emailtech';
 
 // Helper to safely parse JSON data from the database
 function parseJson<T>(data: any, defaultValue: T): T {
@@ -44,7 +43,6 @@ function detectSoundcheckWarnings(
 	
 	if (!soundcheckElement) return [];
 
-	// Check if section is hidden (commented out)
 	const isHidden = soundcheckElement.getAttribute('style')?.includes('display: none');
 	if (isHidden) return [];
 
@@ -57,7 +55,6 @@ function detectSoundcheckWarnings(
 			const expectedEnd = formatTime(sc.end_time);
 			const expectedText = `${expectedStart}-${expectedEnd}`;
 
-			// Simple check: if the expected time string isn't in the text content
 			if (!text.includes(expectedText)) {
 				warnings.push({
 					sectionId: 'soundcheck',
@@ -67,7 +64,6 @@ function detectSoundcheckWarnings(
 						const el = freshDoc.querySelector(`[data-section-id="soundcheck"]`);
 						if (!el) return currentContent;
 
-						// Use a regex to replace the time for a specific artist
 						const regex = new RegExp(
 							`(${event.artist_name}:\\s*)[\\d:]+\\s*(?:AM|PM)\\s*-\\s*[\\d:]+\\s*(?:AM|PM)`,
 							'gi'
@@ -86,9 +82,6 @@ function detectSoundcheckWarnings(
 	return warnings;
 }
 
-/**
- * Detects if crew assignments in the email match the database.
- */
 function detectCrewCallWarnings(
 	crewAssignments: CrewAssignments,
 	htmlContent: string
@@ -100,13 +93,10 @@ function detectCrewCallWarnings(
 	
 	if (!crewElement) return [];
 
-	// Check if section is hidden
 	const isHidden = crewElement.getAttribute('style')?.includes('display: none');
 	if (isHidden) return [];
 
 	const text = crewElement.textContent || '';
-
-	// Check for TBD when crew is assigned
 	const roles7pm = ['LD', 'Video', 'Sound', 'Technician', 'DT', 'Stage Manager'];
 	const assignedCrew = roles7pm
 		.map((role) => crewAssignments[role as keyof CrewAssignments])
@@ -121,12 +111,11 @@ function detectCrewCallWarnings(
 				const el = freshDoc.querySelector(`[data-section-id="crew_call"]`);
 				if (!el) return currentContent;
 
-				const crewNames = assignedCrew.join(', ');
+				const crewNames = assignedCrew.flat().join(', ');
 				el.innerHTML = el.innerHTML.replace(
-					/<p[^>]*>7pm:\s*<span[^>]*>TBD<\/span><\/p>/gi,
-					`<p style="font-weight: 400;">7pm: ${crewNames}</p>`
+					/TBD/gi,
+					crewNames
 				);
-				
 				return freshDoc.body.innerHTML;
 			}
 		});
@@ -135,20 +124,14 @@ function detectCrewCallWarnings(
 	return warnings;
 }
 
-/**
- * Master function to run all warning checks.
- */
 export function checkAllWarnings(
 	events: EmailTechEvent[],
 	crew: CrewAssignments,
 	content: string
 ): Warning[] {
 	if (!content || events.length === 0) return [];
-
 	let allWarnings: Warning[] = [];
-
 	allWarnings.push(...detectSoundcheckWarnings(events, content));
 	allWarnings.push(...detectCrewCallWarnings(crew, content));
-
 	return allWarnings;
 }

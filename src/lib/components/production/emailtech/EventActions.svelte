@@ -1,13 +1,14 @@
 <script lang="ts">
     import { createEventDispatcher, onDestroy } from 'svelte';
 
-    export let templateType: 'tech' | 'vj';
+    // Removed "templateType" prop as we are unifying actions
     export let currentStatus: string = 'todo';
     
     const dispatch = createEventDispatcher();
 
     // Reset Button Logic
-    let resetStep = 0; // 0: Normal, 1: Are you sure?, 2: Click to reset
+    let resetStep = 0;
+    // 0: Normal, 1: Are you sure?, 2: Click to reset
     let resetTimeout: any;
 
     // Defined Colors
@@ -21,8 +22,9 @@
     const statuses = [
         { id: 'todo', label: 'To Do', color: COLORS.problem },
         { id: 'in_progress', label: 'In Progress', color: COLORS.proposed },
-        { id: 'done', label: 'Done', color: COLORS.confirmed },
-        { id: 'to_send', label: 'To Send', color: COLORS.question }
+        { id: 'to_send', label: 'To Send', color: COLORS.question },
+        { id: 'done', label: 'Done', color: COLORS.confirmed }
+        
     ];
 
     function handleResetClick() {
@@ -33,6 +35,7 @@
         } else if (resetStep === 1) {
             resetStep = 2;
         } else if (resetStep === 2) {
+            // Dispatch reset. Parent handles logic.
             dispatch('reset');
             resetStep = 0;
             return;
@@ -65,7 +68,7 @@
             on:click={() => dispatch('autofill')}
             class="px-4 py-2 rounded-lg text-xs font-bold border border-lime text-lime hover:bg-lime hover:text-black transition-all cursor-pointer"
         >
-            Autofill
+            Autofill Data
         </button>
 
         <button 
@@ -81,17 +84,17 @@
             }
         >
             {#if resetStep === 0}
-                Reset
+                Reset Event Data
             {:else if resetStep === 1}
                 Are you sure?
             {:else}
-                Click to reset
+                Click to confirm
             {/if}
         </button>
     </div>
 
     <div class="bg-navbar border border-gray1 rounded-xl p-3">
-        <h3 class="text-xs font-bold text-gray3 mb-2 uppercase tracking-wider">{templateType === 'tech' ? 'Tech' : 'VJ'} Email - Status</h3>
+        <h3 class="text-xs font-bold text-gray3 mb-2 uppercase tracking-wider">Status</h3>
         <div class="grid grid-cols-2 gap-2">
             {#each statuses as status}
                 {@const isActive = currentStatus === status.id}
