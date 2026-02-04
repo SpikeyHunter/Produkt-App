@@ -13,6 +13,18 @@
   let showDropdown = false;
   let viewMode: 'LIVE' | 'PAST' = 'LIVE';
 
+  const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+      'todo': { label: 'To Do', color: '#FCA5A5' },       
+      'in_progress': { label: 'In Progress', color: '#FDBA74' }, 
+      'to_send': { label: 'To Send', color: '#c4b5fd' },  
+      'done': { label: 'Done', color: '#86EFAC' }         
+  };
+
+  function getStatusDetails(evt: EmailTechEvent) {
+      const statusKey = evt.email_data?.tech_status || evt.email_data?.vj_status || 'todo';
+      return STATUS_CONFIG[statusKey] || STATUS_CONFIG['todo'];
+  }
+
   $: multiSelectEnabledDates = (() => {
     const datesWithVenues = events.reduce((acc, event) => {
         if (!event.event_date) return acc;
@@ -24,6 +36,7 @@
     }, new Map<string, Set<string>>());
 
     const enabledDates = new Set<string>();
+  
     for (const [date, venues] of datesWithVenues.entries()) {
         if (venues.has('New City Gas') && venues.size > 1) {
             enabledDates.add(date);
@@ -56,9 +69,6 @@
         const timeA = new Date(a.event_date).getTime();
         const timeB = new Date(b.event_date).getTime();
 
-        // Sort Order: 
-        // LIVE = Ascending (Earliest/Coming up first)
-        // PAST = Descending (Most recent/History first)
         return viewMode === 'LIVE' ? timeA - timeB : timeB - timeA;
     })
     .filter((event: EmailTechEvent) => {
@@ -94,7 +104,6 @@
 
   function selectEvent(eventToAdd: EmailTechEvent) {
     const isSelected = selectedEvents.some(e => e.id === eventToAdd.id);
-    
     if (isSelected) {
       selectedEvents = selectedEvents.filter(e => e.id !== eventToAdd.id);
     } else {
@@ -123,11 +132,10 @@
     try {
       const parts = dateString.split('-').map(Number);
       const date = new Date(parts[0], parts[1] - 1, parts[2]);
-      
       const day = date.getDate();
       const month = date.toLocaleString('en-US', { month: 'long' });
       const year = date.getFullYear();
-
+      
       const getSuffix = (d: number) => {
         if (d > 3 && d < 21) return 'th';
         switch (d % 10) {
@@ -137,7 +145,7 @@
           default: return "th";
         }
       };
-
+      
       return `${month} ${day}${getSuffix(day)}, ${year}`;
     } catch {
       return dateString;
@@ -197,31 +205,41 @@
   
             {:else if filteredEvents.length > 0}
                 {#each filteredEvents as event (event.id)}
-                {@const isCurrentlySelected = selectedEvents.some(e => e.id === event.id)}
-                <button 
-                  on:click={() => handleEventClick(event)} 
-                  class="group w-full text-left p-3 hover:bg-gray1 transition-colors flex items-center gap-4 border-b border-gray1 last:border-b-0 cursor-pointer"
-                >
-                    {#if event.event_flyer}
-                      <img src={event.event_flyer} alt={event.event_name} class="w-12 h-12 object-cover rounded flex-shrink-0" />
-                    {:else}
-                      <div class="w-12 h-12 bg-gray1 rounded flex items-center justify-center flex-shrink-0">
-                        <svg class="w-6 h-6 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                           <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+                    {@const isCurrentlySelected = selectedEvents.some(e => e.id === event.id)}
+                    {@const statusInfo = getStatusDetails(event)}
+                    <button 
+                    on:click={() => handleEventClick(event)} 
+                    class="group w-full text-left p-3 hover:bg-gray1 transition-colors flex items-center gap-4 border-b border-gray1 last:border-b-0 cursor-pointer"
+                    >
+                        {#if event.event_flyer}
+                        <img src={event.event_flyer} alt={event.event_name} class="w-12 h-15 object-cover rounded flex-shrink-0" />
+                        {:else}
+                        <div class="w-12 h-15 bg-gray1 rounded flex items-center justify-center flex-shrink-0">
+                            <svg class="w-6 h-6 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+                            </svg>
+                        </div>
+                        {/if}
+        
+                        <div class="flex-1 min-w-0">
+                        <div class="text-white text-sm font-bold truncate transition-colors group-hover:text-lime">{event.event_name}</div>
+                        <div class="text-gray2 text-xs">{event.event_venue || 'No Venue'} • {formatDate(event.event_date)}</div>
+                        
+                        <div class="mt-1">
+                            <span 
+                                class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase text-black"
+                                style="background-color: {statusInfo.color};"
+                            >
+                                {statusInfo.label}
+                            </span>
+                        </div>
+                        </div>
+                        {#if isCurrentlySelected}
+                        <svg class="w-5 h-5 text-lime flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                            <polyline points="20 6 9 17 4 12" />
                         </svg>
-                      </div>
-                    {/if}
-                    
-                    <div class="flex-1 min-w-0">
-                      <div class="text-white text-sm font-bold truncate transition-colors group-hover:text-lime">{event.event_name}</div>
-                      <div class="text-gray2 text-xs">{event.event_venue || 'No Venue'} • {formatDate(event.event_date)}</div>
-                    </div>
-                    {#if isCurrentlySelected}
-                      <svg class="w-5 h-5 text-lime flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                         <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    {/if}
-                </button>
+                        {/if}
+                    </button>
                 {/each}
             {:else}
                 <div class="p-4 text-center text-gray2 text-sm">
