@@ -14,6 +14,9 @@
 	let filteredEvents: any[] = [];
 	let addedEventIds: Set<number> = new Set();
 
+	// Custom Event State
+	let customEventDate = '';
+
 	// Form state
 	let isSubmitting = false;
 	let isCustomEvent = false;
@@ -47,6 +50,7 @@
 			}
 
 			const today = new Date().toISOString().split('T')[0];
+			
 			// Fetch LIVE events
 			const { data: liveData, error: liveError } = await supabase
 				.from('events')
@@ -68,14 +72,8 @@
 			const allEvents = [...(liveData || []), ...(pastData || [])];
 
 			const excludeKeywords = [
-				'test',
-				'réservations',
-				'pass',
-				'event',
-				'template',
-				'produktworld',
-				'piknic',
-				'oktoberfest'
+				'test', 'réservations', 'pass', 'event', 'template',
+				'produktworld', 'piknic', 'oktoberfest'
 			];
 
 			const filteredData = (allEvents || []).filter(
@@ -94,6 +92,7 @@
 
 	function resetForm() {
 		searchValue = '';
+		customEventDate = '';
 		selectedEvent = null;
 		isCustomEvent = false;
 		showEventDropdown = false;
@@ -112,6 +111,8 @@
 		isCustomEvent = true;
 		showEventDropdown = false;
 		searchValue = '';
+		// Default to today's date for convenience
+		customEventDate = new Date().toISOString().split('T')[0];
 	}
 
 	function closeModal() {
@@ -147,8 +148,7 @@
 		isSubmitting = true;
 
 		try {
-			// SCHEMA MATCHING:
-			// Initialize all required columns to prevent NOT NULL errors.
+			// Base data structure to satisfy Not Null constraints
 			const baseData = {
 				expenses_artist_fee: [],
 				expenses_technical: [],
@@ -159,22 +159,26 @@
 				income_hospitality: 0,
 				income_other: 0,
 				income_total_budget: 0,
-				budget_type: 'Complete Prod' // Updated from 'draft'
+				budget_type: 'Complete Prod'
 			};
 
 			let insertData: any = {};
 
 			if (isCustomEvent) {
+				// CUSTOM EVENT: Save name and custom date. event_id is null.
 				insertData = {
 					...baseData,
 					event_name: searchValue.trim(),
-					event_id: null
+					event_id: null,
+					event_date: customEventDate // Only inserted here
 				};
 			} else if (selectedEvent) {
+				// LINKED EVENT: Save ID and name. Date is NOT saved (pulled via join).
 				insertData = {
 					...baseData,
 					event_id: selectedEvent.event_id,
 					event_name: selectedEvent.event_name
+					// event_date is intentionally omitted here
 				};
 			}
 
@@ -197,7 +201,11 @@
 		}
 	}
 
-	$: isFormValid = selectedEvent || (isCustomEvent && searchValue.trim() !== '');
+	// Validation:
+	// 1. Linked event selected
+	// OR
+	// 2. Custom event: Must have Name AND Date
+	$: isFormValid = selectedEvent || (isCustomEvent && searchValue.trim() !== '' && customEventDate !== '');
 </script>
 
 <svelte:window on:click={handleClickOutside} />
@@ -379,6 +387,7 @@
 						on:click={() => {
 							isCustomEvent = false;
 							searchValue = '';
+							customEventDate = '';
 						}}
 						aria-label="Back to search"
 						title="Back to search"
@@ -396,6 +405,7 @@
 					</button>
 					<h3 class="text-lg font-bold text-white">Create a Custom Budget Entry</h3>
 				</div>
+				
 				<div>
 					<p class="font-normal text-lime mb-2">Entry Name</p>
 					<input
@@ -404,6 +414,22 @@
 						placeholder="Enter custom entry name"
 						bind:value={searchValue}
 					/>
+				</div>
+
+				<div>
+					<p class="font-normal text-lime mb-2">Event Date</p>
+					<div class="relative">
+						<input
+							type="date"
+							class="w-full bg-transparent border border-lime rounded-full px-4 py-3 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime"
+							bind:value={customEventDate}
+						/>
+						<div class="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none text-lime">
+							<svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+							</svg>
+						</div>
+					</div>
 				</div>
 			</div>
 		{/if}
@@ -430,3 +456,15 @@
 		</button>
 	</div>
 </Modal>
+
+<style>
+	/* Fix for date input icon color in Webkit browsers */
+	input[type="date"]::-webkit-calendar-picker-indicator {
+		filter: invert(1);
+		opacity: 0.6;
+		cursor: pointer;
+	}
+	input[type="date"]::-webkit-calendar-picker-indicator:hover {
+		opacity: 1;
+	}
+</style>

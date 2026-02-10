@@ -7,14 +7,12 @@
 	import { portal } from '$lib/utils/portalUtils';
 
 	const dispatch = createEventDispatcher();
-
 	// This list now holds records from 'show_budget' combined with 'event_flyer' and 'event_date'
 	let budgetEvents: any[] = [];
 	let loading = true;
 	let searchTerm = '';
 	let selectedBudgetId: number | null = null;
 	let isAddModalOpen = false;
-
 	// For Edit Modal
 	let isEditModalOpen = false;
 	let eventToEdit: any = null;
@@ -26,18 +24,17 @@
 	async function loadBudgetEvents() {
 		loading = true;
 		try {
-			// 1. Fetch all records from show_budget
+			// 1. Fetch all records from show_budget (including event_date for custom events)
 			const { data: budgetData, error: budgetError } = await supabase
 				.from('show_budget')
-				.select('*')
-				.order('event_name', { ascending: true });
+				.select('*'); // Select * to get event_date column
 
 			if (budgetError) throw budgetError;
 
 			// 2. Fetch event flyers AND DATES from the 'events' table
 			const { data: eventsData, error: eventsError } = await supabase
 				.from('events')
-				.select('event_id, event_flyer, event_date'); // Added event_date
+				.select('event_id, event_flyer, event_date');
 
 			if (eventsError) throw eventsError;
 
@@ -45,24 +42,35 @@
 			const eventMap = new Map(eventsData.map((event) => [event.event_id, event]));
 
 			// 3. Combine budget data with flyer data and date
-			budgetEvents = (budgetData || []).map((budgetEvent) => {
+			const combinedEvents = (budgetData || []).map((budgetEvent) => {
 				const linkedEvent = budgetEvent.event_id ? eventMap.get(budgetEvent.event_id) : null;
 
-				// Calculate sum of all income columns based on provided schema
+				// Calculate sum of all income columns
 				const totalIncome =
 					(Number(budgetEvent.income_artist) || 0) +
 					(Number(budgetEvent.income_technical) || 0) +
 					(Number(budgetEvent.income_hospitality) || 0) +
 					(Number(budgetEvent.income_other) || 0);
 
+				// RESOLVE DATE: Use linked event date if available, otherwise use custom date
+				const finalDate = linkedEvent?.event_date || budgetEvent.event_date;
+
 				return {
 					...budgetEvent,
 					// Store the calculated total
 					calculated_total: totalIncome,
 					event_flyer: linkedEvent ? linkedEvent.event_flyer : null,
-					event_date: linkedEvent ? linkedEvent.event_date : null
+					event_date: finalDate // Unified date property
 				};
 			});
+
+			// 4. SORT: Most recent/upcoming to oldest (Descending)
+			budgetEvents = combinedEvents.sort((a, b) => {
+				const dateA = new Date(a.event_date || 0).getTime();
+				const dateB = new Date(b.event_date || 0).getTime();
+				return dateB - dateA;
+			});
+
 		} catch (error) {
 			console.error('Error loading budget events:', error);
 			budgetEvents = [];
@@ -72,9 +80,10 @@
 	}
 
 	function formatDate(dateString: string): string {
+		if (!dateString) return 'No Date';
 		try {
 			const date = new Date(dateString);
-			date.setDate(date.getDate() + 1); // Fix timezone offset if needed
+			date.setDate(date.getDate() + 1);
 			return date.toLocaleDateString('en-US', {
 				month: 'short',
 				day: 'numeric',
@@ -113,7 +122,8 @@
 		if (selectedBudgetId === eventToEdit?.id) {
 			dispatch('select', null);
 		}
-		loadBudgetEvents(); // Reload the list
+		loadBudgetEvents();
+		// Reload the list
 	}
 
 	$: filteredEvents = budgetEvents.filter((event) => {
@@ -187,7 +197,7 @@
 						hover:border-lime/50"
 					>
 						<button
-							class="w-14 h-20 rounded overflow-hidden bg-navbar flex-shrink-0 flex items-center justify-center cursor-pointer"
+							class="w-14 h-20 rounded overflow-hidden flex-shrink-0 flex items-center justify-center cursor-pointer bg-navbar"
 							on:click={() => handleSelectEvent(event)}
 						>
 							{#if event.event_flyer}
@@ -198,7 +208,11 @@
 									draggable="false"
 								/>
 							{:else}
-								<p class="text-[8px] text-gray2">No Flyer</p>
+								<div class="w-full h-full bg-gradient-to-br from-lime/40 to-gray2/20 flex items-center justify-center">
+									<svg class="w-6 h-6 text-lime opacity-80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+									</svg>
+								</div>
 							{/if}
 						</button>
 
@@ -208,14 +222,14 @@
 						>
 							<p class="text-xs font-bold text-white truncate">{event.event_name}</p>
 
-							{#if event.event_date}
-								<p class="text-[10px] text-lime">{formatDate(event.event_date)}</p>
-							{/if}
+							<p class="text-[10px] text-lime font-medium">
+								{formatDate(event.event_date)}
+							</p>
 
 							{#if event.event_id}
 								<p class="text-[10px] text-gray3">Event ID: {event.event_id}</p>
 							{:else}
-								<p class="text-[10px] text-lime">Custom Entry</p>
+								<p class="text-[10px] text-gray3">Custom Entry</p>
 							{/if}
 
 							<div class="mt-1">
