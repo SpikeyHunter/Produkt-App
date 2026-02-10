@@ -47,13 +47,13 @@
 			}
 
 			const today = new Date().toISOString().split('T')[0];
-
 			// Fetch LIVE events
 			const { data: liveData, error: liveError } = await supabase
 				.from('events')
 				.select('event_id, event_name, event_date, event_flyer, event_venue')
 				.gte('event_date', today)
 				.order('event_date', { ascending: true });
+
 			if (liveError) throw liveError;
 
 			// Fetch PAST events
@@ -62,13 +62,20 @@
 				.select('event_id, event_name, event_date, event_flyer, event_venue')
 				.lt('event_date', today)
 				.order('event_date', { ascending: false });
+
 			if (pastError) throw pastError;
 
 			const allEvents = [...(liveData || []), ...(pastData || [])];
 
 			const excludeKeywords = [
-				'test', 'réservations', 'pass', 'event', 'template',
-				'produktworld', 'piknic', 'oktoberfest'
+				'test',
+				'réservations',
+				'pass',
+				'event',
+				'template',
+				'produktworld',
+				'piknic',
+				'oktoberfest'
 			];
 
 			const filteredData = (allEvents || []).filter(
@@ -107,7 +114,6 @@
 		searchValue = '';
 	}
 
-	// --- FIX: Explicitly defined closeModal ---
 	function closeModal() {
 		dispatch('close');
 		resetForm();
@@ -139,15 +145,21 @@
 		if (!isFormValid || isSubmitting) return;
 
 		isSubmitting = true;
+
 		try {
-			// Schema-compliant base data (initializes JSON columns to avoid nulls)
+			// SCHEMA MATCHING:
+			// Initialize all required columns to prevent NOT NULL errors.
 			const baseData = {
 				expenses_artist_fee: [],
 				expenses_technical: [],
 				expenses_hospitality: [],
 				expenses_other: [],
-				budget_production: [],
-				budget_other: []
+				income_artist: 0,
+				income_technical: 0,
+				income_hospitality: 0,
+				income_other: 0,
+				income_total_budget: 0,
+				budget_type: 'Complete Prod' // Updated from 'draft'
 			};
 
 			let insertData: any = {};
@@ -216,7 +228,9 @@
 							showEventDropdown = true;
 						}}
 					/>
-					<div class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2">
+					<div
+						class="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2"
+					>
 						{#if selectedEvent || searchValue}
 							<button
 								type="button"
@@ -229,7 +243,13 @@
 								aria-label="Clear selection"
 								title="Clear selection"
 							>
-								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<svg
+									class="w-4 h-4"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
 									<line x1="18" y1="6" x2="6" y2="18" />
 									<line x1="6" y1="6" x2="18" y2="18" />
 								</svg>
@@ -281,7 +301,9 @@
 								</div>
 								<div>
 									<p class="font-medium">Custom Budget Entry</p>
-									<p class="text-sm opacity-70">Create a budget entry without linking an event</p>
+									<p class="text-sm opacity-70">
+										Create a budget entry without linking an event
+									</p>
 								</div>
 							</div>
 						</button>
@@ -297,7 +319,9 @@
 								disabled={event.isAdded}
 							>
 								<div class="flex items-center gap-3">
-									<div class="w-12 h-12 rounded-lg overflow-hidden bg-gray1 flex-shrink-0">
+									<div
+										class="w-12 h-12 rounded-lg overflow-hidden bg-gray1 flex-shrink-0"
+									>
 										{#if event.event_flyer}
 											<img
 												src={event.event_flyer}
@@ -308,7 +332,11 @@
 											<div
 												class="w-full h-full bg-gradient-to-br from-lime/40 to-lime/20 flex items-center justify-center"
 											>
-												<svg class="w-4 h-4 text-lime" viewBox="0 0 24 24" fill="currentColor">
+												<svg
+													class="w-4 h-4 text-lime"
+													viewBox="0 0 24 24"
+													fill="currentColor"
+												>
 													<path
 														d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
 													/>
