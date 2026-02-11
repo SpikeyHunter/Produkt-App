@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/wifi/corpo/+page.svelte";
+export { default as component } from "../../../../src/routes/settings/+page.svelte";

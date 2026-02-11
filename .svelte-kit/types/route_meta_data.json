@@ -5,6 +5,7 @@
 	"/advancing/gathered/[event_param]": [
 		"src/routes/advancing/gathered/[event_param]/+page.ts"
 	],
+	"/advancing/hoteltracker": [],
 	"/advancing/localartists": [],
 	"/api/booking/evenko": [
 		"src/routes/api/booking/evenko/+server.ts"
@@ -71,8 +72,7 @@
 	],
 	"/auth/verify": [],
 	"/booking/artistavailability": [],
-	"/booking/comparehub": [],
-	"/booking/customers": [],
+	"/booking/talentpayments": [],
 	"/calendar": [],
 	"/dashboard": [],
 	"/letter": [],
@@ -80,7 +80,9 @@
 	"/login/register": [],
 	"/login/reset-confirmed": [],
 	"/login/reset-password": [],
+	"/marketing/comparehub": [],
 	"/marketing/comptickets": [],
+	"/marketing/customers": [],
 	"/marketing/eventsinfo": [],
 	"/ncgapp/controlcenter": [],
 	"/production/backline": [
@@ -88,6 +90,7 @@
 	],
 	"/production/emailtech": [],
 	"/production/showbudget": [],
+	"/public/invoice/[token]": [],
 	"/schedules/stagemanager": [],
 	"/schedules/tech": [],
 	"/settimes": [],

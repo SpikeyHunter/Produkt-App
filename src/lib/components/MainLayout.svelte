@@ -91,7 +91,9 @@
 					label: 'Comp Tickets',
 					route: '/marketing/comptickets',
 					requiredPermission: 'CompTickets'
-				}
+				},
+				{ label: 'Compare Hub', route: '/marketing/comparehub', requiredPermission: 'Marketing' },	
+				{ label: 'Customers Database', route: '/marketing/customers', requiredPermission: 'Marketing' }
 			]
 		},
 		{
@@ -100,14 +102,12 @@
 			icon: icons.booking,
 			requiredPermission: 'Booking',
 			subItems: [
-			{ label: 'Compare Hub', route: '/booking/comparehub', requiredPermission: 'Booking' },	
+			{ label: 'Talent Payments', route: '/booking/talentpayments', requiredPermission: 'Booking' },	
 			{
 					label: 'Artist Availability',
 					route: '/booking/artistavailability',
 					requiredPermission: 'Booking'
-				},
-				{ label: 'Customers Database', route: '/booking/customers', requiredPermission: 'Booking' }
-			]
+				}]
 		},
 		{
 			id: 'advancing',
@@ -121,6 +121,7 @@
 					route: '/advancing/artistliaison',
 					requiredPermission: 'Advance'
 				},
+				{ label: 'Hotel Tracker', route: '/advancing/hoteltracker', requiredPermission: 'Advance' },
 				{ label: 'Local Artists', route: '/advancing/localartists', requiredPermission: 'Advance' }
 			]
 		},

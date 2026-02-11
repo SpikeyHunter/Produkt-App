@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/ncgapp/controlcenter/+page.svelte";
+export { default as component } from "../../../../src/routes/marketing/customers/+page.svelte";
