@@ -184,10 +184,14 @@
 		let val = event.target.value.toString();
 		// Remove existing $ and commas to check raw value
 		const clean = val.replace(/[^0-9.]/g, '');
-
 		if (clean) {
-			// Format with commas and append $
-			const formatted = Number(clean).toLocaleString('en-US') + '$';
+			// Changed: Added options to force 2 decimal places (fixes 1456.40 issue)
+			const formatted =
+				Number(clean).toLocaleString('en-US', {
+					minimumFractionDigits: 2,
+					maximumFractionDigits: 2
+				}) + '$';
+
 			event.target.value = formatted;
 
 			// Trigger update to save the formatted value
