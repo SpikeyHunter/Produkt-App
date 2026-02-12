@@ -19,7 +19,6 @@
 	let channel: any;
 
 	// --- RE-RENDER KEY ---
-	// We increment this to force the grid to repaint instantly after bulk updates
 	let renderKey = 0;
 
 	// --- Bulk Update State ---
@@ -48,15 +47,12 @@
 					filter: `id=eq.${trackerId}`
 				},
 				(payload) => {
-					// Update cell data from DB (Realtime)
 					if (payload.new.tracker_data) {
-						// Only update if remote is different to avoid cursor jumping
 						if (JSON.stringify(localData) !== JSON.stringify(payload.new.tracker_data)) {
 							localData = payload.new.tracker_data;
-							renderKey++; // Force Grid Refresh on Realtime Update
+							renderKey++;
 						}
 					}
-					// Check if configuration changed (Rows or Dates) to rebuild grid
 					const configChanged =
 						JSON.stringify(payload.new.configuration) !== JSON.stringify(tracker?.configuration);
 					const datesChanged =
@@ -86,7 +82,7 @@
 			localData = data.tracker_data || {};
 			generateDates(data.start_date, data.end_date);
 			generateGridRows(data.configuration);
-			renderKey++; // Ensure grid is fresh on load
+			renderKey++;
 		}
 		loading = false;
 	}
@@ -106,7 +102,6 @@
 	function generateGridRows(config: any) {
 		gridRows = [];
 		if (!config) return;
-		// Define the priority order
 		const hotelOrder = ['Alt Hotel', 'Monville', 'W Hotel'];
 		const sortedConfig = [...config].sort((a, b) => {
 			const indexA = hotelOrder.indexOf(a.name);
@@ -131,44 +126,89 @@
 		});
 	}
 
+	// --- CELL UPDATE LOGIC ---
+
 	function updateCell(
 		date: string,
 		hotel: string,
 		type: string,
 		index: number,
 		field: string,
-		value: string
+		value: any
 	) {
-		if (!localData[date]) localData[date] = {};
-		if (!localData[date][hotel]) localData[date][hotel] = {};
-		if (!localData[date][hotel][type]) localData[date][hotel][type] = {};
-		if (!localData[date][hotel][type][index]) localData[date][hotel][type][index] = {};
-
+		ensureCellExists(date, hotel, type, index);
 		localData[date][hotel][type][index][field] = value;
 		
-		// Note: We do NOT increment renderKey here typically because it kills input focus.
-		// Svelte usually handles single input binding fine.
-		// However, we force localData reactivity:
 		localData = localData; 
+		if (field === 'disabled') renderKey++;
 
 		clearTimeout(debouncer);
 		debouncer = setTimeout(saveToDb, 1000);
 	}
 
+	function ensureCellExists(date: string, hotel: string, type: string, index: number) {
+		if (!localData[date]) localData[date] = {};
+		if (!localData[date][hotel]) localData[date][hotel] = {};
+		if (!localData[date][hotel][type]) localData[date][hotel][type] = {};
+		if (!localData[date][hotel][type][index]) localData[date][hotel][type][index] = {};
+	}
+
 	async function saveToDb() {
 		await supabase.from('hotel_tracker').update({ tracker_data: localData }).eq('id', trackerId);
-		dispatch('saved'); // Notify parent
+		dispatch('saved');
 	}
 
 	function getValue(date: string, hotel: string, type: string, index: number, field: string) {
 		try {
-			return localData[date][hotel][type][index][field] || '';
+			return localData[date][hotel][type][index][field];
 		} catch (e) {
-			return '';
+			return undefined;
 		}
 	}
 
-	// --- Calculations for Grid Totals ---
+	// --- NEW: Time Formatting Logic ---
+	function formatTimeInput(event: any) {
+		let val = event.target.value.trim();
+		if (!val) return;
+
+		const field = event.target.dataset.field; // 'in_time' or 'out_time'
+		
+		// Determine Default Suffix: IN = PM, OUT = AM
+		let defaultSuffix = 'PM';
+		if (field === 'out_time') defaultSuffix = 'AM';
+
+		// Normalize
+		const clean = val.toLowerCase().replace(/[^a-z0-9]/g, '');
+		const nums = clean.replace(/[a-z]/g, ''); 
+
+		// Check if user typed 'a' or 'p' manually
+		let suffix = defaultSuffix;
+		if (clean.includes('a')) suffix = 'AM';
+		else if (clean.includes('p')) suffix = 'PM';
+
+		let formatted = val;
+
+		if (nums.length > 0) {
+			// Case: "4" -> "4PM" (or AM)
+			if (nums.length <= 2) {
+				formatted = nums + suffix;
+			} 
+			// Case: "430" -> "4:30PM"
+			else if (nums.length === 3) {
+				formatted = nums[0] + ':' + nums.slice(1) + suffix;
+			}
+			// Case: "1030" -> "10:30PM"
+			else if (nums.length === 4) {
+				formatted = nums.slice(0, 2) + ':' + nums.slice(2) + suffix;
+			}
+		}
+
+		event.target.value = formatted;
+		const { date, hotel, type, index } = event.target.dataset;
+		updateCell(date, hotel, type, Number(index), field, formatted);
+	}
+
+	// --- CALCULATIONS ---
 
 	function parseMoney(val: string): number {
 		if (!val) return 0;
@@ -186,29 +226,32 @@
 		);
 	}
 
-	// Calculate Row Total (Specific Room across all dates)
 	function getRowTotal(hotel: string, type: string, index: number) {
 		let sum = 0;
 		dates.forEach((date) => {
-			const rate = getValue(date, hotel, type, index, 'rate');
-			sum += parseMoney(rate);
-		});
-		return sum;
-	}
-
-	// Calculate Column Total (Specific Date across all rooms)
-	function getColumnTotal(date: string) {
-		let sum = 0;
-		gridRows.forEach((row) => {
-			if (!row.isHeader) {
-				const rate = getValue(date, row.hotelName, row.roomType, row.roomIndex, 'rate');
+			const disabled = getValue(date, hotel, type, index, 'disabled');
+			if (!disabled) {
+				const rate = getValue(date, hotel, type, index, 'rate') || '';
 				sum += parseMoney(rate);
 			}
 		});
 		return sum;
 	}
 
-	// Calculate Grand Total (All rows, all cols)
+	function getColumnTotal(date: string) {
+		let sum = 0;
+		gridRows.forEach((row) => {
+			if (!row.isHeader) {
+				const disabled = getValue(date, row.hotelName, row.roomType, row.roomIndex, 'disabled');
+				if (!disabled) {
+					const rate = getValue(date, row.hotelName, row.roomType, row.roomIndex, 'rate') || '';
+					sum += parseMoney(rate);
+				}
+			}
+		});
+		return sum;
+	}
+
 	function getGrandTotal() {
 		let sum = 0;
 		dates.forEach((date) => {
@@ -265,7 +308,6 @@
 	async function applyBulkRate() {
 		if (!bulkTarget || !bulkRateValue) return;
 
-		// 1. Format value
 		const clean = bulkRateValue.replace(/[^0-9.]/g, '');
 		let formatted = '';
 		if (clean) {
@@ -276,24 +318,13 @@
 				}) + '$';
 		}
 
-		// 2. Apply to all dates using safe access
 		dates.forEach((date) => {
-			if (!localData[date]) localData[date] = {};
-			if (!localData[date][bulkTarget!.hotel]) localData[date][bulkTarget!.hotel] = {};
-			if (!localData[date][bulkTarget!.hotel][bulkTarget!.type])
-				localData[date][bulkTarget!.hotel][bulkTarget!.type] = {};
-			if (!localData[date][bulkTarget!.hotel][bulkTarget!.type][bulkTarget!.index])
-				localData[date][bulkTarget!.hotel][bulkTarget!.type][bulkTarget!.index] = {};
-
+			ensureCellExists(date, bulkTarget!.hotel, bulkTarget!.type, bulkTarget!.index);
 			localData[date][bulkTarget!.hotel][bulkTarget!.type][bulkTarget!.index]['rate'] = formatted;
 		});
 
-		// 3. FORCE RE-RENDER
-		// We trigger the Keyed Block in the HTML to destroy/recreate the inputs with new data
-		localData = { ...localData }; // Shallow copy
-		renderKey++; // Increment key
-
-		// 4. Close Modal & Save
+		localData = { ...localData };
+		renderKey++; // Force refresh
 		isBulkModalOpen = false;
 		clearTimeout(debouncer);
 		await saveToDb();
@@ -321,7 +352,7 @@
 						</th>
 						{#each dates as date}
 							<th
-								class="p-3 text-center text-white bg-[#2A2A2A] min-w-[220px] border-b border-l border-gray1 text-base font-medium"
+								class="p-3 text-center text-white bg-[#2A2A2A] min-w-[130px] border-b border-l border-gray1 text-base font-medium"
 							>
 								{formatDateHeader(date)}
 							</th>
@@ -367,72 +398,115 @@
 								</td>
 
 								{#each dates as date}
-									<td class="p-2 border-b border-r border-gray1 min-w-[220px] align-top">
-										<div class="flex flex-col gap-1">
-											<div
-												class="flex items-center justify-between gap-2 bg-gray rounded-md px-2 py-1.5 border border-gray1/30"
-											>
-												<input
-													type="text"
-													placeholder="Artist Name"
-													class="w-2/3 bg-transparent text-sm font-bold text-lime placeholder-gray3 focus:outline-none"
-													value={getValue(
-														date,
-														row.hotelName,
-														row.roomType,
-														row.roomIndex,
-														'artist'
-													)}
-													on:input={(e) =>
-														updateCell(
-															date,
-															row.hotelName,
-															row.roomType,
-															row.roomIndex,
-															'artist',
-															e.currentTarget.value
-														)}
-												/>
-												<input
-													type="text"
-													placeholder="$"
-													data-date={date}
-													data-hotel={row.hotelName}
-													data-type={row.roomType}
-													data-index={row.roomIndex}
-													class="w-1/3 bg-transparent text-sm text-right text-white font-bold placeholder-gray2/30 focus:outline-none"
-													value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'rate')}
-													on:input={(e) =>
-														updateCell(
-															date,
-															row.hotelName,
-															row.roomType,
-															row.roomIndex,
-															'rate',
-															e.currentTarget.value
-														)}
-													on:blur={formatCurrency}
-												/>
-											</div>
+									{@const isDisabled = getValue(date, row.hotelName, row.roomType, row.roomIndex, 'disabled')}
+									<td class="p-2 border-b border-r border-gray1 min-w-[130px] align-top relative h-[88px]">
+										
+										<button 
+											type="button"
+											class="absolute top-1 right-1 z-20 p-1 transition-colors rounded hover:bg-black/50 cursor-pointer"
+											title={isDisabled ? "Enable Room" : "Disable Room (Exclude from totals)"}
+											on:click={() => updateCell(date, row.hotelName, row.roomType, row.roomIndex, 'disabled', !isDisabled)}
+										>
+											{#if isDisabled}
+												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-lime" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+												  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+												</svg>
+											{:else}
+												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray3 hover:text-problem" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+												  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+												</svg>
+											{/if}
+										</button>
 
-											<div class="relative px-1">
-												<input
-													type="text"
-													placeholder="Guest Name"
-													class="w-full px-1 pt-1.5 bg-transparent text-gray3 text-sm font-medium focus:text-white transition-colors focus:outline-none placeholder-gray2/20"
-													value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'name')}
-													on:input={(e) =>
-														updateCell(
-															date,
-															row.hotelName,
-															row.roomType,
-															row.roomIndex,
-															'name',
-															e.currentTarget.value
-														)}
-												/>
+										{#if isDisabled}
+											<div class="h-full w-full flex items-center justify-center bg-transparent">
+												<span class="text-gray2/40 font-bold text-sm select-none italic tracking-wide">Not Booked</span>
 											</div>
-										</div>
+										{:else}
+											<div class="flex flex-col gap-1 h-full">
+												<div
+													class="flex items-center justify-between gap-2 bg-gray rounded-md px-2 py-1.5 border border-gray1/30"
+												>
+													<input
+														type="text"
+														placeholder="Artist"
+														class="w-2/3 bg-transparent text-sm font-bold text-lime placeholder-gray3 focus:outline-none focus:placeholder-transparent"
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'artist') || ''}
+														on:input={(e) =>
+															updateCell(
+																date,
+																row.hotelName,
+																row.roomType,
+																row.roomIndex,
+																'artist',
+																e.currentTarget.value
+															)}
+													/>
+													<input
+														type="text"
+														placeholder="$"
+														data-date={date}
+														data-hotel={row.hotelName}
+														data-type={row.roomType}
+														data-index={row.roomIndex}
+														class="w-1/3 bg-transparent text-sm text-right text-white font-bold placeholder-gray2/30 focus:outline-none focus:placeholder-transparent pr-4" 
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'rate') || ''}
+														on:input={(e) =>
+															updateCell(
+																date,
+																row.hotelName,
+																row.roomType,
+																row.roomIndex,
+																'rate',
+																e.currentTarget.value
+															)}
+														on:blur={formatCurrency}
+													/>
+												</div>
+
+												<div class="flex gap-1 items-center mt-auto">
+													<input
+														type="text"
+														placeholder="Guest Name"
+														class="flex-1 px-1 pt-1 bg-transparent text-gray3 text-sm font-medium focus:text-white transition-colors focus:outline-none placeholder-gray2/20 focus:placeholder-transparent"
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'name') || ''}
+														on:input={(e) =>
+															updateCell(
+																date,
+																row.hotelName,
+																row.roomType,
+																row.roomIndex,
+																'name',
+																e.currentTarget.value
+															)}
+													/>
+													<input
+														type="text"
+														placeholder="IN"
+														data-date={date}
+														data-hotel={row.hotelName}
+														data-type={row.roomType}
+														data-index={row.roomIndex}
+														data-field="in_time"
+														class="w-9 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-confirmed font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'in_time') || ''}
+														on:blur={formatTimeInput}
+													/>
+													<input
+														type="text"
+														placeholder="OUT"
+														data-date={date}
+														data-hotel={row.hotelName}
+														data-type={row.roomType}
+														data-index={row.roomIndex}
+														data-field="out_time"
+														class="w-9 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-problem font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'out_time') || ''}
+														on:blur={formatTimeInput}
+													/>
+												</div>
+											</div>
+										{/if}
 									</td>
 								{/each}
 

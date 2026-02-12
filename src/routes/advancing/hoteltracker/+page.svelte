@@ -40,7 +40,7 @@
 </script>
 
 <svelte:head>
-	<title>Hotel Tracker - NCG</title>
+	<title>Hotel Tracker</title>
 </svelte:head>
 
 <MainLayout pageTitle="Hotel Tracker">
@@ -84,13 +84,13 @@
 	}
 	.tracker-container {
 		display: grid;
-		grid-template-columns: 320px 1fr;
+		grid-template-columns: 280px 1fr;
 		gap: 16px;
 		height: 100%;
 	}
 	.selector-column {
-		width: 320px;
-		min-width: 320px;
+		width: 280px;
+		min-width: 280px;
 		height: 100%;
 		overflow: hidden;
 	}
