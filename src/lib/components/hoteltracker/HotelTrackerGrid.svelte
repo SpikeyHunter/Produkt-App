@@ -488,7 +488,7 @@
 														data-type={row.roomType}
 														data-index={row.roomIndex}
 														data-field="in_time"
-														class="w-9 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-confirmed font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
+														class="w-12 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-confirmed font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
 														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'in_time') || ''}
 														on:blur={formatTimeInput}
 													/>
@@ -500,7 +500,7 @@
 														data-type={row.roomType}
 														data-index={row.roomIndex}
 														data-field="out_time"
-														class="w-9 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-problem font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
+														class="w-12 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-problem font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
 														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'out_time') || ''}
 														on:blur={formatTimeInput}
 													/>
