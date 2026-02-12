@@ -403,12 +403,12 @@
 										
 										<button 
 											type="button"
-											class="absolute top-1 right-1 z-20 p-1 transition-colors rounded hover:bg-black/50 cursor-pointer"
+											class="absolute top-1 right-1 z-20 p-1 transition-colors rounded cursor-pointer"
 											title={isDisabled ? "Enable Room" : "Disable Room (Exclude from totals)"}
 											on:click={() => updateCell(date, row.hotelName, row.roomType, row.roomIndex, 'disabled', !isDisabled)}
 										>
 											{#if isDisabled}
-												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-lime" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray3 hover:text-confirmed" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
 												  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 												</svg>
 											{:else}
