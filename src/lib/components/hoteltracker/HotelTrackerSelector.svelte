@@ -41,7 +41,7 @@
 		const { data, error } = await supabase
 			.from('hotel_tracker')
 			.select('*')
-			.order('start_date', { ascending: true });
+			.order('start_date', { ascending: false });
 
 		if (!error) {
 			trackers = data || [];
