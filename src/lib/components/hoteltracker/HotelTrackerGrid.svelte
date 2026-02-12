@@ -430,7 +430,7 @@
 													<input
 														type="text"
 														placeholder="Artist"
-														class="w-2/3 bg-transparent text-sm font-bold text-lime placeholder-gray3 focus:outline-none focus:placeholder-transparent"
+														class="w-2/3 bg-transparent text-sm font-bold text-lime/90 placeholder-gray3 focus:outline-none focus:placeholder-transparent"
 														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'artist') || ''}
 														on:input={(e) =>
 															updateCell(
@@ -468,7 +468,7 @@
 													<input
 														type="text"
 														placeholder="Guest Name"
-														class="flex-1 px-1 pt-1 bg-transparent text-gray3 text-sm font-medium focus:text-white transition-colors focus:outline-none placeholder-gray2/20 focus:placeholder-transparent"
+														class="flex-1 px-1 pt-1 pl-2 bg-transparent text-gray2 text-sm font-medium focus:text-gray2 transition-colors focus:outline-none placeholder-gray2/20 focus:placeholder-transparent"
 														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'name') || ''}
 														on:input={(e) =>
 															updateCell(
