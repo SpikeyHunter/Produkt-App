@@ -8,6 +8,9 @@
 
 	let selectedTrackerId: number | null = null;
 	let mounted = false;
+	
+	// Create a reference to the child component
+	let selectorComponent: any;
 
 	onMount(() => {
 		setTimeout(() => (mounted = true), 150);
@@ -45,6 +48,7 @@
 		<div class="tracker-container fade-in {mounted ? 'mounted' : ''}">
 			<div class="selector-column">
 				<HotelTrackerSelector 
+					bind:this={selectorComponent} 
 					selectedId={selectedTrackerId}
 					on:select={handleSelect} 
 				/>
@@ -53,7 +57,10 @@
 			<div class="grid-column">
 				{#if selectedTrackerId}
 					{#key selectedTrackerId}
-						<HotelTrackerGrid trackerId={selectedTrackerId} />
+						<HotelTrackerGrid 
+							trackerId={selectedTrackerId} 
+							on:saved={() => selectorComponent.loadTrackers(true)}
+						/>
 					{/key}
 				{:else}
 					<div class="h-full flex items-center justify-center bg-navbar border-2 border-gray1 rounded-xl text-gray2">
