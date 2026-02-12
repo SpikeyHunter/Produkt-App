@@ -222,7 +222,7 @@
 							</div>
 							<div class="w-px h-6 bg-gray2/20"></div>
 							<div class="flex flex-col">
-								<span class="text-[10px] text-gray3 uppercase font-bold">/ Day</span>
+								<span class="text-[10px] text-gray3 uppercase font-bold">Per Day</span>
 								<span class="text-xs text-white font-mono">{stats.perDay}</span>
 							</div>
 						</div>

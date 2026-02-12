@@ -5,16 +5,23 @@
 	export let trackerId: number;
 
 	const dispatch = createEventDispatcher();
-	
+
 	let tracker: any = null;
 	let dates: string[] = [];
 	let loading = true;
 	let debouncer: any;
+	
 	// Structure: { isHeader: bool, name?: string, hotelName: string, roomType: string, roomIndex: number }
 	let gridRows: any[] = [];
+	
 	// Local state of input data
 	let localData: any = {};
 	let channel: any;
+
+	// --- RE-RENDER KEY ---
+	// We increment this to force the grid to repaint instantly after bulk updates
+	let renderKey = 0;
+
 	// --- Bulk Update State ---
 	let isBulkModalOpen = false;
 	let bulkRateValue = '';
@@ -41,9 +48,13 @@
 					filter: `id=eq.${trackerId}`
 				},
 				(payload) => {
-					// Update cell data
+					// Update cell data from DB (Realtime)
 					if (payload.new.tracker_data) {
-						localData = payload.new.tracker_data;
+						// Only update if remote is different to avoid cursor jumping
+						if (JSON.stringify(localData) !== JSON.stringify(payload.new.tracker_data)) {
+							localData = payload.new.tracker_data;
+							renderKey++; // Force Grid Refresh on Realtime Update
+						}
 					}
 					// Check if configuration changed (Rows or Dates) to rebuild grid
 					const configChanged =
@@ -75,6 +86,7 @@
 			localData = data.tracker_data || {};
 			generateDates(data.start_date, data.end_date);
 			generateGridRows(data.configuration);
+			renderKey++; // Ensure grid is fresh on load
 		}
 		loading = false;
 	}
@@ -133,7 +145,11 @@
 		if (!localData[date][hotel][type][index]) localData[date][hotel][type][index] = {};
 
 		localData[date][hotel][type][index][field] = value;
-		localData = localData; // Trigger reactivity
+		
+		// Note: We do NOT increment renderKey here typically because it kills input focus.
+		// Svelte usually handles single input binding fine.
+		// However, we force localData reactivity:
+		localData = localData; 
 
 		clearTimeout(debouncer);
 		debouncer = setTimeout(saveToDb, 1000);
@@ -141,7 +157,7 @@
 
 	async function saveToDb() {
 		await supabase.from('hotel_tracker').update({ tracker_data: localData }).eq('id', trackerId);
-		dispatch('saved'); // Notify parent that data is saved so it can refresh sidebar totals
+		dispatch('saved'); // Notify parent
 	}
 
 	function getValue(date: string, hotel: string, type: string, index: number, field: string) {
@@ -217,6 +233,7 @@
 		'W Hotel': 'text-info',
 		Other: 'text-problem'
 	};
+	
 	function formatCurrency(event: any) {
 		let val = event.target.value.toString();
 		const clean = val.replace(/[^0-9.]/g, '');
@@ -247,7 +264,8 @@
 
 	async function applyBulkRate() {
 		if (!bulkTarget || !bulkRateValue) return;
-		// Format value
+
+		// 1. Format value
 		const clean = bulkRateValue.replace(/[^0-9.]/g, '');
 		let formatted = '';
 		if (clean) {
@@ -258,7 +276,7 @@
 				}) + '$';
 		}
 
-		// Apply to all dates
+		// 2. Apply to all dates using safe access
 		dates.forEach((date) => {
 			if (!localData[date]) localData[date] = {};
 			if (!localData[date][bulkTarget!.hotel]) localData[date][bulkTarget!.hotel] = {};
@@ -269,12 +287,16 @@
 
 			localData[date][bulkTarget!.hotel][bulkTarget!.type][bulkTarget!.index]['rate'] = formatted;
 		});
-		localData = localData; // Instant UI Update
 
-		// Clear any pending individual cell saves and save immediately
+		// 3. FORCE RE-RENDER
+		// We trigger the Keyed Block in the HTML to destroy/recreate the inputs with new data
+		localData = { ...localData }; // Shallow copy
+		renderKey++; // Increment key
+
+		// 4. Close Modal & Save
+		isBulkModalOpen = false;
 		clearTimeout(debouncer);
 		await saveToDb();
-		isBulkModalOpen = false;
 	}
 </script>
 
@@ -311,6 +333,8 @@
 						</th>
 					</tr>
 				</thead>
+				
+				{#key renderKey}
 				<tbody>
 					{#each gridRows as row, rIndex}
 						{#if row.isHeader}
@@ -423,7 +447,8 @@
 						{/if}
 					{/each}
 				</tbody>
-
+				{/key}
+				
 				<tfoot class="sticky bottom-0 z-40 bg-[#2A2A2A]">
 					<tr>
 						<td
@@ -431,18 +456,20 @@
 						>
 							DAILY TOTAL
 						</td>
-						{#each dates as date}
+						{#key renderKey}
+							{#each dates as date}
+								<td
+									class="p-3 text-right text-gray3 bg-[#2A2A2A] border-l border-gray1 text-s font-bold"
+								>
+									{formatMoney(getColumnTotal(date))}
+								</td>
+							{/each}
 							<td
-								class="p-3 text-right text-gray3 bg-[#2A2A2A] border-l border-gray1 text-s font-bold"
+								class="p-3 text-right text-white bg-[#2A2A2A] border-l border-gray1 sticky right-0 z-50 text-lg font-black shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]"
 							>
-								{formatMoney(getColumnTotal(date))}
+								{formatMoney(getGrandTotal())}
 							</td>
-						{/each}
-						<td
-							class="p-3 text-right text-white bg-[#2A2A2A] border-l border-gray1 sticky right-0 z-50 text-lg font-black shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]"
-						>
-							{formatMoney(getGrandTotal())}
-						</td>
+						{/key}
 					</tr>
 				</tfoot>
 			</table>
