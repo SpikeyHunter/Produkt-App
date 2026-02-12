@@ -3,23 +3,18 @@
 	import { supabase } from '$lib/supabase';
 
 	export let trackerId: number;
-
 	const dispatch = createEventDispatcher();
 
 	let tracker: any = null;
 	let dates: string[] = [];
 	let loading = true;
-	let debouncer: any;
+	let debouncer: any = null;
 	
 	// Structure: { isHeader: bool, name?: string, hotelName: string, roomType: string, roomIndex: number }
 	let gridRows: any[] = [];
-	
 	// Local state of input data
 	let localData: any = {};
 	let channel: any;
-
-	// --- RE-RENDER KEY ---
-	let renderKey = 0;
 
 	// --- Bulk Update State ---
 	let isBulkModalOpen = false;
@@ -47,10 +42,15 @@
 					filter: `id=eq.${trackerId}`
 				},
 				(payload) => {
+					// GUARD: If user is actively typing (debouncer exists), ignore server updates
+					// to prevent cursor jumping or overwriting local changes.
+					if (debouncer) return;
+
 					if (payload.new.tracker_data) {
+						// Only update if data is actually different
 						if (JSON.stringify(localData) !== JSON.stringify(payload.new.tracker_data)) {
 							localData = payload.new.tracker_data;
-							renderKey++;
+							// Note: We do NOT force a full re-render here anymore to preserve focus
 						}
 					}
 					const configChanged =
@@ -82,7 +82,6 @@
 			localData = data.tracker_data || {};
 			generateDates(data.start_date, data.end_date);
 			generateGridRows(data.configuration);
-			renderKey++;
 		}
 		loading = false;
 	}
@@ -139,11 +138,17 @@
 		ensureCellExists(date, hotel, type, index);
 		localData[date][hotel][type][index][field] = value;
 		
+		// Reactivity: This triggers Svelte update for specific bindings
 		localData = localData; 
-		if (field === 'disabled') renderKey++;
 
-		clearTimeout(debouncer);
-		debouncer = setTimeout(saveToDb, 1000);
+		// Debounce logic: Clear existing timer
+		if (debouncer) clearTimeout(debouncer);
+		
+		// Set new timer. When it fires, we save to DB and clear the 'typing' flag
+		debouncer = setTimeout(() => {
+			debouncer = null; 
+			saveToDb();
+		}, 1000);
 	}
 
 	function ensureCellExists(date: string, hotel: string, type: string, index: number) {
@@ -171,7 +176,8 @@
 		let val = event.target.value.trim();
 		if (!val) return;
 
-		const field = event.target.dataset.field; // 'in_time' or 'out_time'
+		const field = event.target.dataset.field;
+		// 'in_time' or 'out_time'
 		
 		// Determine Default Suffix: IN = PM, OUT = AM
 		let defaultSuffix = 'PM';
@@ -179,15 +185,13 @@
 
 		// Normalize
 		const clean = val.toLowerCase().replace(/[^a-z0-9]/g, '');
-		const nums = clean.replace(/[a-z]/g, ''); 
-
+		const nums = clean.replace(/[a-z]/g, '');
 		// Check if user typed 'a' or 'p' manually
 		let suffix = defaultSuffix;
 		if (clean.includes('a')) suffix = 'AM';
 		else if (clean.includes('p')) suffix = 'PM';
 
 		let formatted = val;
-
 		if (nums.length > 0) {
 			// Case: "4" -> "4PM" (or AM)
 			if (nums.length <= 2) {
@@ -276,7 +280,6 @@
 		'W Hotel': 'text-info',
 		Other: 'text-problem'
 	};
-	
 	function formatCurrency(event: any) {
 		let val = event.target.value.toString();
 		const clean = val.replace(/[^0-9.]/g, '');
@@ -324,9 +327,9 @@
 		});
 
 		localData = { ...localData };
-		renderKey++; // Force refresh
+		// Removed renderKey++ to avoid destructive update
 		isBulkModalOpen = false;
-		clearTimeout(debouncer);
+		if (debouncer) clearTimeout(debouncer);
 		await saveToDb();
 	}
 </script>
@@ -365,7 +368,6 @@
 					</tr>
 				</thead>
 				
-				{#key renderKey}
 				<tbody>
 					{#each gridRows as row, rIndex}
 						{#if row.isHeader}
@@ -373,7 +375,7 @@
 								<td class="p-3 sticky left-0 z-20 bg-[#1A1A1A] border-b border-gray1">
 									<span
 										class="font-bold {colors[row.name] ||
-											'text-problem'} text-lg text-center uppercase tracking-wider block w-full"
+										'text-problem'} text-lg text-center uppercase tracking-wider block w-full"
 									>
 										{row.name}
 									</span>
@@ -404,7 +406,8 @@
 										<button 
 											type="button"
 											class="absolute top-1 right-1 z-20 p-1 transition-colors rounded cursor-pointer"
-											title={isDisabled ? "Enable Room" : "Disable Room (Exclude from totals)"}
+											title={isDisabled ?
+											"Enable Room" : "Disable Room (Exclude from totals)"}
 											on:click={() => updateCell(date, row.hotelName, row.roomType, row.roomIndex, 'disabled', !isDisabled)}
 										>
 											{#if isDisabled}
@@ -431,7 +434,8 @@
 														type="text"
 														placeholder="Artist"
 														class="w-2/3 bg-transparent text-sm font-bold text-lime/90 placeholder-gray3 focus:outline-none focus:placeholder-transparent"
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'artist') || ''}
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'artist') ||
+														''}
 														on:input={(e) =>
 															updateCell(
 																date,
@@ -450,7 +454,8 @@
 														data-type={row.roomType}
 														data-index={row.roomIndex}
 														class="w-1/3 bg-transparent text-sm text-right text-white font-bold placeholder-gray2/30 focus:outline-none focus:placeholder-transparent pr-4" 
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'rate') || ''}
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'rate') ||
+														''}
 														on:input={(e) =>
 															updateCell(
 																date,
@@ -469,7 +474,8 @@
 														type="text"
 														placeholder="Guest Name"
 														class="flex-1 px-1 pt-1 pl-2 bg-transparent text-gray2 text-sm font-medium focus:text-gray2 transition-colors focus:outline-none placeholder-gray2/20 focus:placeholder-transparent"
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'name') || ''}
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'name') ||
+														''}
 														on:input={(e) =>
 															updateCell(
 																date,
@@ -488,8 +494,9 @@
 														data-type={row.roomType}
 														data-index={row.roomIndex}
 														data-field="in_time"
-														class="w-12 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-confirmed font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'in_time') || ''}
+														class="w-9 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-confirmed font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'in_time') ||
+														''}
 														on:blur={formatTimeInput}
 													/>
 													<input
@@ -500,8 +507,9 @@
 														data-type={row.roomType}
 														data-index={row.roomIndex}
 														data-field="out_time"
-														class="w-12 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-problem font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'out_time') || ''}
+														class="w-9 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-problem font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'out_time') ||
+														''}
 														on:blur={formatTimeInput}
 													/>
 												</div>
@@ -521,7 +529,6 @@
 						{/if}
 					{/each}
 				</tbody>
-				{/key}
 				
 				<tfoot class="sticky bottom-0 z-40 bg-[#2A2A2A]">
 					<tr>
@@ -530,7 +537,6 @@
 						>
 							DAILY TOTAL
 						</td>
-						{#key renderKey}
 							{#each dates as date}
 								<td
 									class="p-3 text-right text-gray3 bg-[#2A2A2A] border-l border-gray1 text-s font-bold"
@@ -543,7 +549,6 @@
 							>
 								{formatMoney(getGrandTotal())}
 							</td>
-						{/key}
 					</tr>
 				</tfoot>
 			</table>
@@ -565,7 +570,8 @@
 				<div>
 					<h3 class="text-white font-bold text-lg">Room - Update Rate</h3>
 					<p class="text-gray2 text-sm mt-1">
-						Set rate for <span class="text-lime">{bulkTarget.label}</span> for all dates
+						Set rate for <span class="text-lime">{bulkTarget.label}</span> for 
+						all dates
 					</p>
 				</div>
 
