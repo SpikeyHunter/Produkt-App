@@ -16,6 +16,9 @@
 	let localData: any = {};
 	let channel: any;
 
+	// --- RE-RENDER KEY (Used for instant toggle updates) ---
+	let renderKey = 0;
+
 	// --- Bulk Update State ---
 	let isBulkModalOpen = false;
 	let bulkRateValue = '';
@@ -43,14 +46,13 @@
 				},
 				(payload) => {
 					// GUARD: If user is actively typing (debouncer exists), ignore server updates
-					// to prevent cursor jumping or overwriting local changes.
 					if (debouncer) return;
 
 					if (payload.new.tracker_data) {
 						// Only update if data is actually different
 						if (JSON.stringify(localData) !== JSON.stringify(payload.new.tracker_data)) {
 							localData = payload.new.tracker_data;
-							// Note: We do NOT force a full re-render here anymore to preserve focus
+							renderKey++; // Update UI to show new data from server
 						}
 					}
 					const configChanged =
@@ -82,6 +84,7 @@
 			localData = data.tracker_data || {};
 			generateDates(data.start_date, data.end_date);
 			generateGridRows(data.configuration);
+			renderKey++;
 		}
 		loading = false;
 	}
@@ -138,13 +141,19 @@
 		ensureCellExists(date, hotel, type, index);
 		localData[date][hotel][type][index][field] = value;
 		
-		// Reactivity: This triggers Svelte update for specific bindings
+		// If toggling disabled status, update UI immediately
+		if (field === 'disabled') {
+			renderKey++; // Force UI refresh for this toggle
+			if (debouncer) clearTimeout(debouncer);
+			saveToDb();
+			return;
+		}
+
+		// For text inputs, just update local state (no renderKey++)
+		// and debounce the save to DB
 		localData = localData; 
 
-		// Debounce logic: Clear existing timer
 		if (debouncer) clearTimeout(debouncer);
-		
-		// Set new timer. When it fires, we save to DB and clear the 'typing' flag
 		debouncer = setTimeout(() => {
 			debouncer = null; 
 			saveToDb();
@@ -163,7 +172,8 @@
 		dispatch('saved');
 	}
 
-	function getValue(date: string, hotel: string, type: string, index: number, field: string) {
+	// Added _trigger to force reactivity when renderKey changes
+	function getValue(date: string, hotel: string, type: string, index: number, field: string, _trigger: any = null) {
 		try {
 			return localData[date][hotel][type][index][field];
 		} catch (e) {
@@ -230,7 +240,7 @@
 		);
 	}
 
-	function getRowTotal(hotel: string, type: string, index: number) {
+	function getRowTotal(hotel: string, type: string, index: number, _trigger: any = null) {
 		let sum = 0;
 		dates.forEach((date) => {
 			const disabled = getValue(date, hotel, type, index, 'disabled');
@@ -242,7 +252,7 @@
 		return sum;
 	}
 
-	function getColumnTotal(date: string) {
+	function getColumnTotal(date: string, _trigger: any = null) {
 		let sum = 0;
 		gridRows.forEach((row) => {
 			if (!row.isHeader) {
@@ -256,7 +266,7 @@
 		return sum;
 	}
 
-	function getGrandTotal() {
+	function getGrandTotal(_trigger: any = null) {
 		let sum = 0;
 		dates.forEach((date) => {
 			sum += getColumnTotal(date);
@@ -327,7 +337,7 @@
 		});
 
 		localData = { ...localData };
-		// Removed renderKey++ to avoid destructive update
+		renderKey++; // Force refresh for bulk update
 		isBulkModalOpen = false;
 		if (debouncer) clearTimeout(debouncer);
 		await saveToDb();
@@ -400,7 +410,7 @@
 								</td>
 
 								{#each dates as date}
-									{@const isDisabled = getValue(date, row.hotelName, row.roomType, row.roomIndex, 'disabled')}
+									{@const isDisabled = getValue(date, row.hotelName, row.roomType, row.roomIndex, 'disabled', renderKey)}
 									<td class="p-2 border-b border-r border-gray1 min-w-[130px] align-top relative h-[88px]">
 										
 										<button 
@@ -434,7 +444,7 @@
 														type="text"
 														placeholder="Artist"
 														class="w-2/3 bg-transparent text-sm font-bold text-lime/90 placeholder-gray3 focus:outline-none focus:placeholder-transparent"
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'artist') ||
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'artist', renderKey) ||
 														''}
 														on:input={(e) =>
 															updateCell(
@@ -454,7 +464,7 @@
 														data-type={row.roomType}
 														data-index={row.roomIndex}
 														class="w-1/3 bg-transparent text-sm text-right text-white font-bold placeholder-gray2/30 focus:outline-none focus:placeholder-transparent pr-4" 
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'rate') ||
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'rate', renderKey) ||
 														''}
 														on:input={(e) =>
 															updateCell(
@@ -474,7 +484,7 @@
 														type="text"
 														placeholder="Guest Name"
 														class="flex-1 px-1 pt-1 pl-2 bg-transparent text-gray2 text-sm font-medium focus:text-gray2 transition-colors focus:outline-none placeholder-gray2/20 focus:placeholder-transparent"
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'name') ||
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'name', renderKey) ||
 														''}
 														on:input={(e) =>
 															updateCell(
@@ -495,7 +505,7 @@
 														data-index={row.roomIndex}
 														data-field="in_time"
 														class="w-9 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-confirmed font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'in_time') ||
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'in_time', renderKey) ||
 														''}
 														on:blur={formatTimeInput}
 													/>
@@ -508,7 +518,7 @@
 														data-index={row.roomIndex}
 														data-field="out_time"
 														class="w-9 bg-gray1/30 rounded px-1 py-0.5 text-[10px] text-center text-problem font-mono focus:bg-gray1 focus:outline-none placeholder:text-gray2/20 focus:placeholder-transparent uppercase"
-														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'out_time') ||
+														value={getValue(date, row.hotelName, row.roomType, row.roomIndex, 'out_time', renderKey) ||
 														''}
 														on:blur={formatTimeInput}
 													/>
@@ -522,7 +532,7 @@
 									class="p-4 border-b border-l border-gray1 bg-[#1A1A1A] sticky right-0 z-20 text-center min-w-[120px] shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]"
 								>
 									<span class="text-gray3 font-bold text-[16px]">
-										{formatMoney(getRowTotal(row.hotelName, row.roomType, row.roomIndex))}
+										{formatMoney(getRowTotal(row.hotelName, row.roomType, row.roomIndex, renderKey))}
 									</span>
 								</td>
 							</tr>
@@ -541,13 +551,13 @@
 								<td
 									class="p-3 text-right text-gray3 bg-[#2A2A2A] border-l border-gray1 text-s font-bold"
 								>
-									{formatMoney(getColumnTotal(date))}
+									{formatMoney(getColumnTotal(date, renderKey))}
 								</td>
 							{/each}
 							<td
 								class="p-3 text-right text-white bg-[#2A2A2A] border-l border-gray1 sticky right-0 z-50 text-lg font-black shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.5)]"
 							>
-								{formatMoney(getGrandTotal())}
+								{formatMoney(getGrandTotal(renderKey))}
 							</td>
 					</tr>
 				</tfoot>
