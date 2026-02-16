@@ -155,8 +155,6 @@
         const urlMode = $page.url.searchParams.get('mode');
         const urlFilter = $page.url.searchParams.get('filter');
         const urlStatus = $page.url.searchParams.get('status');
-        
-        // FIX: Read directly without explicit decode, searchParams.get handles it safely
         const urlArtistName = $page.url.searchParams.get('artist_name');
 
         viewMode = urlMode === 'EVENT' ? 'EVENT' : 'ALL';
@@ -300,7 +298,6 @@
         if (eventId) newUrl.searchParams.set('event_id', eventId.toString());
 		else newUrl.searchParams.delete('event_id');
 
-        // FIX: Removed encodeURIComponent. URLSearchParams handles safe encoding automatically.
 		if (artistName) newUrl.searchParams.set('artist_name', artistName);
 		else newUrl.searchParams.delete('artist_name');
 
@@ -584,14 +581,12 @@
 				<div class="h-full bg-navbar border border-gray1 rounded-2xl overflow-hidden shadow-lg flex flex-col">
 					 <div class="flex-1 flex flex-col overflow-hidden">
 						{#if selectedArtist}
-							{#key selectedArtist.ui_id}
-								<TalentPaymentActions 
-									advance={selectedArtist}
-									payment={selectedArtist.paymentData}
-									eventDate={selectedArtist.eventDateDisplay || (selectedEvent ? selectedEvent.event_date : '')}
-									currentUserProfile={$authStore.profile}
-								/>
-							{/key}
+                            <TalentPaymentActions 
+                                advance={selectedArtist}
+                                payment={selectedArtist.paymentData}
+                                eventDate={selectedArtist.eventDateDisplay || (selectedEvent ? selectedEvent.event_date : '')}
+                                currentUserProfile={$authStore.profile}
+                            />
 						{:else}
 							<div class="h-full flex flex-col items-center justify-center text-gray2 opacity-50 p-10 text-center">
 								<p class="text-sm font-bold">Select an artist to view actions</p>
