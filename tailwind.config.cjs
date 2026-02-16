@@ -10,7 +10,7 @@ module.exports = {
 				lime: '#E1FF00',
 				gray1: '#2F2F2F',
 				gray2: '#BDBDBB',
-				gray3: '#060505',
+				gray3: '#E4E4E4',
 				navbar: '#333333',
 				confirmed: '#86EFAC',
 				tentatif: '#FCD34D', 

@@ -13,11 +13,67 @@
 	let events: any[] = [];
 	let loadingEvents = true;
 	let selectedEvent: any = null;
+    let currentEventId: number | null = null; 
 	let mounted = false;
 	
-	let localArtists: any[] = [];
+    let masterArtistList: any[] = [];
+    
+    // Split Lists for "ALL" View
+	let liveArtists: any[] = [];
+    let pastArtists: any[] = [];
+    // Single list for "EVENT" View
+    let singleEventArtists: any[] = [];
+
 	let loadingArtists = false;
 	let selectedArtist: any = null;
+
+    // --- FILTERS ---
+    let viewMode: 'EVENT' | 'ALL' = 'EVENT'; 
+    let timeFilter: 'ALL' | 'LIVE' | 'PAST' = 'ALL';
+    const timeFilterOptions: ('LIVE' | 'PAST' | 'ALL')[] = ['LIVE', 'PAST', 'ALL'];
+    
+    // Status Filter Config
+    const availableStatuses = ['Draft', 'Confirmed', 'Invoiced', 'Approved', 'Submitted', 'Paid'];
+    let selectedStatuses: string[] = []; 
+
+    // --- FIXED: Single Select Logic ---
+    function toggleStatus(status: string) {
+        if (selectedStatuses.includes(status)) {
+            // If already selected, clear it (Toggle Off)
+            selectedStatuses = [];
+        } else {
+            // If new status, replace entire array (Single Select)
+            selectedStatuses = [status];
+        }
+    }
+
+    function getStatusButtonStyle(status: string, selected: boolean) {
+        let base = "px-3 py-1.5 text-[10px] font-bold rounded-full border transition-all uppercase tracking-wide ";
+        
+        if (!selected) {
+             let colors = "";
+             switch(status.toLowerCase()) {
+                case 'draft': colors = "text-gray2 border-gray2/30 hover:border-gray2"; break;
+                case 'confirmed': colors = "text-tentatif border-tentatif/30 hover:border-tentatif"; break;
+                case 'invoiced': colors = "text-proposed border-proposed/30 hover:border-proposed"; break;
+                case 'approved': colors = "text-question border-question/30 hover:border-question"; break;
+                case 'submitted': colors = "text-info border-info/30 hover:border-info"; break;
+                case 'paid': colors = "text-confirmed border-confirmed/30 hover:border-confirmed"; break;
+             }
+             return base + "bg-transparent " + colors;
+        } else {
+             let colors = "";
+             switch(status.toLowerCase()) {
+                case 'draft': colors = "bg-gray1 border-gray2 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]"; break;
+                case 'confirmed': colors = "bg-tentatif/20 border-tentatif text-tentatif shadow-[0_0_10px_rgba(59,130,246,0.2)]"; break; 
+                case 'invoiced': colors = "bg-proposed/20 border-proposed text-proposed shadow-[0_0_10px_rgba(147,51,234,0.2)]"; break; 
+                case 'approved': colors = "bg-question/20 border-question text-question shadow-[0_0_10px_rgba(20,184,166,0.2)]"; break; 
+                case 'submitted': colors = "bg-info/20 border-info text-info shadow-[0_0_10px_rgba(234,179,8,0.2)]"; break; 
+                case 'paid': colors = "bg-confirmed/20 border-confirmed text-confirmed shadow-[0_0_10px_rgba(34,197,94,0.2)]"; break; 
+             }
+             return base + colors;
+        }
+    }
 
     let realtimeChannel: any = null;
 
@@ -33,33 +89,57 @@
         }
     });
 
-    function subscribeToRealtime() {
+    // --- REACTIVE FILTERING & SORTING ---
+    $: {
+        let filtered = [...masterArtistList];
+
+        // 1. Status Filter
+        if (selectedStatuses.length > 0) {
+            filtered = filtered.filter(a => {
+                const status = a.paymentData?.status || 'Draft';
+                return selectedStatuses.includes(status);
+            });
+        }
+
+        if (viewMode === 'EVENT') {
+             if (selectedEvent) {
+                 singleEventArtists = filtered
+                    .filter(a => a.event_id === selectedEvent.event_id)
+                    .sort((a, b) => a.artist_name.localeCompare(b.artist_name));
+             } else {
+                 singleEventArtists = [];
+             }
+        } else {
+             const today = new Date();
+             today.setHours(0,0,0,0);
+
+             liveArtists = filtered
+                .filter(a => new Date(a.eventDateDisplay) >= today)
+                .sort((a, b) => new Date(a.eventDateDisplay).getTime() - new Date(b.eventDateDisplay).getTime());
+
+             pastArtists = filtered
+                .filter(a => new Date(a.eventDateDisplay) < today)
+                .sort((a, b) => new Date(b.eventDateDisplay).getTime() - new Date(a.eventDateDisplay).getTime()); 
+        }
+    }
+
+	function subscribeToRealtime() {
         realtimeChannel = supabase
             .channel('talent_payments_global')
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'talent_payments' },
-                (payload) => {
-                    handleRealtimeUpdate(payload);
-                }
+                (payload) => { handleRealtimeUpdate(payload); }
             )
             .subscribe();
     }
 
     function handleRealtimeUpdate(payload: any) {
-        if (!selectedEvent) return;
-
-        const { eventType, new: newRecord, old: oldRecord } = payload;
-
+        const { eventType, new: newRecord } = payload;
         if (eventType === 'UPDATE') {
-            // OPTIMIZED: Update local state immediately without re-fetching
-            localArtists = localArtists.map(artist => {
-                // Check if this artist holds the payment that was just updated
+            masterArtistList = masterArtistList.map(artist => {
                 if (artist.paymentData && artist.paymentData.id === newRecord.id) {
-                    // Update the payment data inside the artist object
                     const updatedArtist = { ...artist, paymentData: newRecord };
-                    
-                    // If this is the currently selected artist, update the selection too so Actions panel updates
                     if (selectedArtist && selectedArtist.ui_id === artist.ui_id) {
                         selectedArtist = updatedArtist;
                     }
@@ -68,31 +148,34 @@
                 return artist;
             });
         } else {
-            // INSERT or DELETE: Re-fetch to ensure B2B splits and structure are correct
-            // Only re-fetch if the change relates to the current event
-            const relevantId = newRecord?.event_id || oldRecord?.event_id;
-            if (relevantId && relevantId === selectedEvent.event_id) {
-                fetchLocalArtists(selectedEvent.event_id);
-            }
+            fetchBulkData();
         }
     }
 
 	async function loadInitialData() {
 		await fetchEvents();
+        await fetchBulkData(); 
 
 		const urlEventId = $page.url.searchParams.get('event_id');
+        const urlMode = $page.url.searchParams.get('mode');
+        const urlFilter = $page.url.searchParams.get('filter');
+
+        if (urlMode === 'ALL') viewMode = 'ALL';
+        if (urlFilter && ['LIVE', 'PAST', 'ALL'].includes(urlFilter)) {
+            timeFilter = urlFilter as any;
+        }
+
 		if (urlEventId) {
 			const foundEvent = events.find(e => e.event_id.toString() === urlEventId);
 			if (foundEvent) {
-				await handleEventSelect({ detail: foundEvent } as CustomEvent);
+                if (urlMode !== 'ALL') viewMode = 'EVENT';
+				await handleEventSelect({ detail: foundEvent } as CustomEvent, false);
 
 				const urlArtistName = $page.url.searchParams.get('artist_name');
-				if (urlArtistName && localArtists.length > 0) {
+				if (urlArtistName) {
 					const decodedName = decodeURIComponent(urlArtistName);
-					const foundArtist = localArtists.find(a => a.artist_name === decodedName);
-					if (foundArtist) {
-						selectedArtist = foundArtist;
-					}
+					const foundArtist = masterArtistList.find(a => a.artist_name === decodedName);
+					if (foundArtist) selectedArtist = foundArtist;
 				}
 			}
 		}
@@ -104,106 +187,130 @@
 			.from('events')
 			.select('event_id, event_name, event_date, event_venue, event_flyer, event_status')
 			.order('event_date', { ascending: false });
-
 		if (!error) events = data || [];
 		loadingEvents = false;
 	}
 
     async function selectEventFull(partialEvent: any) {
-        const { data, error } = await supabase
+        const { data } = await supabase
             .from('events')
             .select('timetable')
             .eq('event_id', partialEvent.event_id)
             .single();
-        
+            
         selectedEvent = {
             ...partialEvent,
             timetable: data?.timetable || []
         };
-
-        await fetchLocalArtists(partialEvent.event_id);
     }
 
-	async function handleEventSelect(e: CustomEvent) {
+	async function handleEventSelect(e: CustomEvent, shouldUpdateUrl = true) {
 		const partialEvent = e.detail;
-		selectedArtist = null;
-		
+        currentEventId = partialEvent ? partialEvent.event_id : null;
+        selectedArtist = null; 
+
 		if (partialEvent) {
-			updateUrl(partialEvent.event_id, null);
+            viewMode = 'EVENT';
+			if (shouldUpdateUrl) updateUrl(partialEvent.event_id, null, 'EVENT', timeFilter);
             await selectEventFull(partialEvent);
 		} else {
             selectedEvent = null;
-			localArtists = [];
-			updateUrl(null, null);
 		}
 	}
 
-	function handleArtistSelect(artist: any) {
+	async function handleArtistSelect(artist: any) {
 		selectedArtist = artist;
-		if (selectedEvent && selectedArtist) {
-			updateUrl(selectedEvent.event_id, selectedArtist.artist_name);
-		}
+        const eId = selectedEvent ? selectedEvent.event_id : (artist.event_id || null);
+        
+        if (viewMode === 'ALL' && artist.event_id) {
+            const foundEvent = events.find(e => e.event_id === artist.event_id);
+            if (foundEvent) {
+                currentEventId = foundEvent.event_id;
+                if (!selectedEvent || selectedEvent.event_id !== foundEvent.event_id) {
+                    await selectEventFull(foundEvent);
+                }
+            }
+        }
+        updateUrl(eId, selectedArtist.artist_name, viewMode, timeFilter);
 	}
 
-	function updateUrl(eventId: number | null, artistName: string | null) {
-		const newUrl = new URL($page.url);
-		
-		if (eventId) {
-			newUrl.searchParams.set('event_id', eventId.toString());
-		} else {
-			newUrl.searchParams.delete('event_id');
-		}
+    function toggleViewModeButton(mode: 'EVENT' | 'ALL') {
+        viewMode = mode;
+        if (mode === 'ALL') {
+            selectedEvent = null;
+            currentEventId = null;
+            updateUrl(null, selectedArtist?.artist_name, 'ALL', timeFilter);
+        } else {
+            updateUrl(selectedEvent?.event_id, selectedArtist?.artist_name, 'EVENT', timeFilter);
+        }
+    }
+    
+    function setTimeFilter(filter: 'ALL' | 'LIVE' | 'PAST') {
+        timeFilter = filter;
+        if (viewMode !== 'ALL') toggleViewModeButton('ALL');
+        else updateUrl(null, selectedArtist?.artist_name, 'ALL', filter);
+    }
+    
+    function handleSelectorFilterChange(e: CustomEvent) {
+        setTimeFilter(e.detail);
+    }
 
-		if (artistName) {
-			newUrl.searchParams.set('artist_name', encodeURIComponent(artistName));
-		} else {
-			newUrl.searchParams.delete('artist_name');
-		}
+	function updateUrl(eventId: number | null, artistName: string | null, mode: string, filter: string) {
+		const newUrl = new URL($page.url);
+		if (eventId) newUrl.searchParams.set('event_id', eventId.toString());
+		else newUrl.searchParams.delete('event_id');
+
+		if (artistName) newUrl.searchParams.set('artist_name', encodeURIComponent(artistName));
+		else newUrl.searchParams.delete('artist_name');
+
+        newUrl.searchParams.set('mode', mode);
+        newUrl.searchParams.set('filter', filter);
 
 		goto(newUrl.toString(), { replaceState: true, keepFocus: true, noScroll: true });
 	}
 
-	// --- DATA LOGIC ---
-
-	async function fetchLocalArtists(eventId: number) {
+	async function fetchBulkData() {
 		loadingArtists = true;
+        const { data: eventData, error: eventError } = await supabase
+            .from('events')
+            .select('event_id, event_name, event_date, event_flyer') 
+            .order('event_date', { ascending: false })
+            .limit(400); 
 
-		// 1. Fetch Advances directly from DB
-		const { data, error } = await supabase
-			.from('events_advance')
-			.select(`*, talent_payments (*)`)
-			.eq('event_id', eventId)
-			.eq('artist_type', 'Local');
+        if (eventError || !eventData) {
+            masterArtistList = [];
+            loadingArtists = false;
+            return;
+        }
 
-		if (error) {
-			console.error('Error fetching artists:', error);
-			localArtists = [];
-			loadingArtists = false;
-			return;
-		}
+        const targetEventIds = eventData.map(e => e.event_id);
+        const eventsMap = new Map(eventData.map(e => [e.event_id, e]));
 
-		// 2. Ensure Payments Exist
-		let paymentsToInsert: any[] = [];
+        const { data: advancesData } = await supabase
+            .from('events_advance')
+            .select('*')
+            .eq('artist_type', 'Local')
+            .in('event_id', targetEventIds);
 
-		data.forEach(advance => {
-			const splitNames = advance.artist_name.split(/\s+B2B\s+|\s+b2b\s+/i);
-			const existingPayments = advance.talent_payments || [];
-			
-			// Loop through each split name (e.g. "Eviatar", "Tali Rose")
-			splitNames.forEach((name: string, index: number) => {
-				const cleanName = name.trim();
-				
-                // Check if a payment for this specific name ALREADY exists.
-                // We check by matching the 'artist_name' field in talent_payments to the split name.
-                // If the payment table doesn't have the name yet (old schema), we might fallback to index,
-                // but the goal is to rely on the name now.
-                const exists = existingPayments.some((p: any) => p.artist_name === cleanName);
+        const { data: paymentsData } = await supabase
+            .from('talent_payments')
+            .select('*')
+            .in('event_id', targetEventIds);
 
-                if (!exists) {
-                    // Only insert if we really don't have a payment for "Tali Rose" linked to this advance
-                    paymentsToInsert.push({
+        const paymentsList = paymentsData || [];
+        
+        let paymentsToInsert: any[] = [];
+        const paymentMap = new Map();
+        paymentsList.forEach(p => paymentMap.set(`${p.advance_id}-${p.artist_name?.trim().toLowerCase()}`, p));
+
+        (advancesData || []).forEach(advance => {
+            const splitNames = advance.artist_name.split(/\s+B2B\s+|\s+b2b\s+/i);
+            splitNames.forEach((name: string) => {
+                const cleanName = name.trim();
+                if (!paymentMap.has(`${advance.id}-${cleanName.toLowerCase()}`)) {
+                     paymentsToInsert.push({
 						advance_id: advance.id,
-						event_id: eventId,
+						event_id: advance.event_id, 
 						artist_name: cleanName, 
 						amount: 150.00,
 						currency: 'CAD',
@@ -211,92 +318,54 @@
 						delivery_method: 'Pick Up'
 					});
                 }
-			});
-		});
-
-		if (paymentsToInsert.length > 0) {
-			const { error: insertError } = await supabase.from('talent_payments').insert(paymentsToInsert);
-			if (!insertError) {
-				const { data: refreshedData } = await supabase
-					.from('events_advance')
-					.select(`*, talent_payments (*)`)
-					.eq('event_id', eventId)
-					.eq('artist_type', 'Local');
-				
-				if (refreshedData) {
-					processArtistData(refreshedData);
-					loadingArtists = false;
-					return;
-				}
-			}
-		}
-
-		processArtistData(data);
-		loadingArtists = false;
-	}
-
-	function processArtistData(data: any[]) {
-		let processedList: any[] = [];
-
-        // Deduplication: Identify standalone artist names
-        const existingRealNames = new Set<string>();
-        data.forEach(advance => {
-            if (!advance.artist_name.match(/\s+B2B\s+|\s+b2b\s+/i)) {
-                existingRealNames.add(advance.artist_name.toLowerCase().trim());
-            }
+            });
         });
 
-		data.forEach(advance => {
+        if (paymentsToInsert.length > 0) {
+            const { data: newPayments } = await supabase.from('talent_payments').insert(paymentsToInsert).select();
+            if (newPayments) paymentsList.push(...newPayments);
+        }
+
+        let processedList: any[] = [];
+		(advancesData || []).forEach(advance => {
+            const evt = eventsMap.get(advance.event_id);
+            const eventName = evt?.event_name;
+            const eventDate = evt?.event_date;
+            const eventFlyer = evt?.event_flyer;
+
 			const splitNames = advance.artist_name.split(/\s+B2B\s+|\s+b2b\s+/i);
-			const payments = (advance.talent_payments || []).sort((a: any, b: any) => a.id - b.id);
+            const advancePayments = paymentsList.filter(p => p.advance_id === advance.id).sort((a,b) => a.id - b.id);
 
-            // Case A: Standalone
+            const createItem = (name: string, pData: any, idxStr: string) => ({
+                ...advance,
+                ui_id: `${advance.id}-${idxStr}`, 
+                artist_name: name, 
+                paymentData: pData,
+                eventNameDisplay: eventName,
+                eventDateDisplay: eventDate,
+                event_flyer: eventFlyer
+            });
+
             if (splitNames.length === 1) {
-                const paymentData = payments[0] || {};
-                processedList.push({
-                    ...advance,
-                    ui_id: `${advance.id}-0`, 
-                    artist_name: splitNames[0].trim(), 
-                    paymentData: paymentData
+                const name = splitNames[0].trim();
+                const pData = advancePayments.find(p => p.artist_name === name) || advancePayments[0] || {};
+                processedList.push(createItem(name, pData, '0'));
+            } else {
+                splitNames.forEach((name: string, index: number) => {
+                    const clean = name.trim();
+                    const pData = advancePayments.find(p => p.artist_name === clean) || advancePayments[index] || {};
+                    processedList.push(createItem(clean, pData, index.toString()));
                 });
-                return;
             }
-
-            // Case B: B2B Split
-			splitNames.forEach((name: string, index: number) => {
-                const cleanName = name.trim();
-                
-                // If this name exists as a standalone row, skip it to avoid duplicates
-                if (existingRealNames.has(cleanName.toLowerCase())) {
-                    return;
-                }
-
-                // Match payment by name if possible, else index
-				const paymentData = payments.find((p: any) => p.artist_name === cleanName) || payments[index] || {};
-                
-                processedList.push({
-					...advance,
-					ui_id: `${advance.id}-${index}`, 
-					artist_name: cleanName, 
-					paymentData: paymentData
-				});
-			});
 		});
 
-		localArtists = processedList;
-		
-		if (selectedArtist) {
-			const found = localArtists.find(a => 
-				(selectedArtist.ui_id && a.ui_id === selectedArtist.ui_id) || 
-				a.artist_name === selectedArtist.artist_name
-			);
-			if (found) selectedArtist = found;
-		}
-	}
+		masterArtistList = processedList;
+        loadingArtists = false;
+    }
 </script>
 
 <svelte:head>
-	<title>Talent Payments - NCG</title>
+	<title>Talent Payments</title>
 </svelte:head>
 
 <MainLayout pageTitle="Talent Payments">
@@ -309,7 +378,11 @@
                          <EventSelectorPayment 
                             {events} 
                             loading={loadingEvents} 
+                            mode={viewMode}
+                            timeFilter={timeFilter}
+                            selectedEventId={currentEventId}
                             on:select={handleEventSelect} 
+                            on:filterChange={handleSelectorFilterChange}
                         />
                      </div>
 				</div>
@@ -320,38 +393,133 @@
 
 			<div class="details-column">
 				<div class="h-full bg-navbar border border-gray1 rounded-2xl overflow-hidden shadow-lg flex flex-col">
-					 <div class="flex-shrink-0 p-5 border-b border-gray1 bg-gray1/30 min-h-[80px] flex flex-col justify-center">
-						{#if selectedEvent}
-							<h2 class="text-xl font-bold text-white truncate">{selectedEvent.event_name}</h2>
-							<p class="text-lime text-xs font-bold mt-1 uppercase tracking-wide">
-								{new Date(selectedEvent.event_date).toDateString()}
-							</p>
-						{:else}
-							<h2 class="text-xl font-bold text-gray2">Select Event</h2>
-						{/if}
+					 
+                     <div class="flex-shrink-0 p-4 border-b border-gray1 bg-gray1/30 min-h-[80px] flex flex-col gap-3">
+                        <div class="flex flex-col gap-3">
+                             <div class="flex items-center justify-between">
+                                <div class="bg-gray1 p-1 rounded-full flex gap-1">
+                                    <button 
+                                        class="px-4 py-2 text-xs font-bold rounded-full transition-all hover:cursor-pointer uppercase tracking-wide {viewMode === 'EVENT' ? 'bg-white text-black shadow-md' : 'text-gray2 hover:text-white'}"
+                                        on:click={() => toggleViewModeButton('EVENT')}
+                                    >
+                                        Per Event
+                                    </button>
+                                    <button 
+                                        class="px-4 py-2 text-xs font-bold rounded-full transition-all hover:cursor-pointer uppercase tracking-wide {viewMode === 'ALL' ? 'bg-white text-black shadow-md' : 'text-gray2 hover:text-white'}"
+                                        on:click={() => toggleViewModeButton('ALL')}
+                                    >
+                                        All Artists
+                                    </button>
+                                </div>
+
+                                {#if viewMode === 'ALL'}
+                                    <div class="bg-gray1 p-1 rounded-full  flex gap-1">
+                                        {#each timeFilterOptions as t}
+                                            <button 
+                                                class="px-3 py-1.5 text-xs font-bold rounded-full hover:cursor-pointer transition-all uppercase tracking-wide {timeFilter === t ? 'bg-lime text-black shadow-md' : 'text-gray2 hover:text-white'}"
+                                                on:click={() => setTimeFilter(t)}
+                                            >
+                                                {t}
+                                            </button>
+                                        {/each}
+                                    </div>
+                                {/if}
+                            </div>
+                            
+                             <div class="flex flex-wrap gap-2">
+                                {#each availableStatuses as status}
+                                    <button 
+                                        class={getStatusButtonStyle(status, selectedStatuses.includes(status))}
+                                        on:click={() => toggleStatus(status)}
+                                    >
+                                        {status}
+                                    </button>
+                                {/each}
+                                {#if selectedStatuses.length > 0}
+                                    <button 
+                                        class="px-2 py-1 text-[12px] hover:cursor-pointer font-bold text-gray3 hover:text-problem"
+                                        on:click={() => selectedStatuses = []}
+                                    >
+                                        Clear
+                                    </button>
+                                {/if}
+                            </div>
+                        </div>
 					</div>
 
-					<div class="flex-1 overflow-y-auto p-4 space-y-3">
+					<div class="flex-1 overflow-y-auto p-4">
 						 {#if loadingArtists}
 							<div class="h-full flex items-center justify-center">
 								<div class="animate-spin w-8 h-8 border-2 border-lime border-t-transparent rounded-full"></div>
 							</div>
-						{:else if !selectedEvent}
-							<div class="h-full flex flex-col items-center justify-center text-gray2 opacity-50">
-								<p class="text-sm font-bold">Select an event to view artists</p>
-							</div>
-						{:else if localArtists.length === 0}
-							<div class="h-full flex flex-col items-center justify-center text-gray2 opacity-50">
-								<p class="text-sm font-bold">No local artists found</p>
-							</div>
+						{:else if viewMode === 'EVENT'}
+                            {#if !selectedEvent}
+							    <div class="h-full flex flex-col items-center justify-center text-gray2 opacity-50">
+								    <p class="text-sm font-bold">Select an event to view artists</p>
+							    </div>
+                            {:else if singleEventArtists.length === 0}
+                                 <div class="h-full flex flex-col items-center justify-center text-gray2 opacity-50">
+								    <p class="text-sm font-bold">No artists found for this event</p>
+							    </div>
+                            {:else}
+                                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                                    {#each singleEventArtists as artist (artist.ui_id)}
+                                        <ArtistListCard 
+                                            {artist} 
+                                            selected={selectedArtist?.ui_id === artist.ui_id}
+                                            showEventName={true}
+                                            on:click={() => handleArtistSelect(artist)}
+                                        />
+                                    {/each}
+                                </div>
+                            {/if}
+
 						{:else}
-							{#each localArtists as artist (artist.ui_id)}
-								<ArtistListCard 
-									{artist} 
-									selected={selectedArtist?.ui_id === artist.ui_id}
-									on:click={() => handleArtistSelect(artist)}
-								/>
-							{/each}
+                            {#if (timeFilter === 'ALL' || timeFilter === 'LIVE') && liveArtists.length > 0}
+                                {#if timeFilter === 'ALL'}
+                                    <div class="flex items-center gap-3 mb-4 mt-1">
+                                         <h3 class="text-lime text-sm font-bold uppercase tracking-widest">Upcoming</h3>
+                                         <div class="h-[1px] bg-lime/20 flex-1"></div>
+                                    </div>
+                                {/if}
+                                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 mb-8">
+                                    {#each liveArtists as artist (artist.ui_id)}
+                                        <ArtistListCard 
+                                            {artist} 
+                                            selected={selectedArtist?.ui_id === artist.ui_id}
+                                            showEventName={true}
+                                            on:click={() => handleArtistSelect(artist)}
+                                        />
+                                    {/each}
+                                </div>
+                            {/if}
+
+                            {#if (timeFilter === 'ALL' || timeFilter === 'PAST') && pastArtists.length > 0}
+                                {#if timeFilter === 'ALL'}
+                                    <div class="flex items-center gap-3 mb-4 mt-2">
+                                         <h3 class="text-gray3 text-sm font-bold uppercase tracking-widest">Past Events</h3>
+                                         <div class="h-[1px] bg-gray2/20 flex-1"></div>
+                                    </div>
+                                {/if}
+                                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
+                                    {#each pastArtists as artist (artist.ui_id)}
+                                        <div class="opacity-100 hover:opacity-100 transition-opacity">
+                                            <ArtistListCard 
+                                                {artist} 
+                                                selected={selectedArtist?.ui_id === artist.ui_id}
+                                                showEventName={true}
+                                                on:click={() => handleArtistSelect(artist)}
+                                            />
+                                        </div>
+                                    {/each}
+                                </div>
+                            {/if}
+
+                            {#if liveArtists.length === 0 && pastArtists.length === 0}
+                                <div class="h-full flex flex-col items-center justify-center text-gray2 opacity-50">
+								    <p class="text-sm font-bold">No artists found matching filters</p>
+							    </div>
+                            {/if}
 						{/if}
 					</div>
 				</div>
@@ -360,12 +528,12 @@
 			<div class="export-column">
 				<div class="h-full bg-navbar border border-gray1 rounded-2xl overflow-hidden shadow-lg flex flex-col">
 					 <div class="flex-1 flex flex-col overflow-hidden">
-						{#if selectedArtist && selectedEvent}
+						{#if selectedArtist}
 							{#key selectedArtist.ui_id}
 								<TalentPaymentActions 
 									advance={selectedArtist}
 									payment={selectedArtist.paymentData}
-									eventDate={selectedEvent.event_date}
+									eventDate={selectedArtist.eventDateDisplay || (selectedEvent ? selectedEvent.event_date : '')}
 									currentUserProfile={$authStore.profile}
 								/>
 							{/key}
@@ -425,7 +593,7 @@
 
 	@media (max-width: 1400px) {
 		.liaison-container { 
-			grid-template-columns: 280px 1fr 340px; 
+			grid-template-columns: 280px 1fr 340px;
 		}
 		.selector-column { 
 			width: 280px; 
@@ -435,7 +603,7 @@
 		.export-column { 
 			width: 340px; 
 			min-width: 340px; 
-			max-width: 340px; 
+			max-width: 340px;
 		}
 	}
 
@@ -447,7 +615,7 @@
 		.selector-column { 
 			width: 260px; 
 			min-width: 260px; 
-			max-width: 260px; 
+			max-width: 260px;
 		}
 		.export-column { 
 			width: 300px; 

@@ -3,6 +3,7 @@
     import { onMount } from 'svelte';
     import { supabase } from '$lib/supabase';
     import UploadModal from '$lib/components/modals/UploadModal.svelte';
+	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
 
     const token = $page.params.token;
     
@@ -10,8 +11,10 @@
     let paymentData: any = null;
     let eventData: any = null;
     let artistData: any = null;
+    
     let isUploading = false;
-    let showModal = false;
+    let showUploadModal = false;
+	let showPreviewModal = false;
     let success = false;
 
     onMount(async () => {
@@ -54,20 +57,38 @@
     async function handleUpload(e: CustomEvent) {
         if (!artistData) return;
         isUploading = true;
-        
         const file = e.detail.file;
-        const fileName = `${paymentData.event_id}_${artistData.artist_name.replace(/\s+/g, '_')}_invoice.pdf`;
+        
+		// FORMAT: Date_ArtistName_DJ_Invoice.ext
+		const dateStr = eventData?.event_date 
+            ? new Date(eventData.event_date).toISOString().split('T')[0] 
+            : new Date().toISOString().split('T')[0];
+            
+        // Clean the artist name to ensure no spaces or weird characters break the URL
+		const cleanArtist = (artistData.artist_name || 'Artist')
+            .replace(/[^a-zA-Z0-9]/g, '_')
+            .replace(/_+/g, '_'); // Removes duplicate underscores
+
+		const ext = file.name.split('.').pop() || 'pdf';
+        
+        // Exact naming convention applied
+        const fileName = `${dateStr}_${cleanArtist}_DJ_Invoice.${ext}`;
 
         try {
-            // Upload
+            // Upload to documents bucket -> invoices/locals/
             const { error: upError } = await supabase.storage
-                .from('invoices')
-                .upload(fileName, file, { upsert: true });
-            
-            if (upError) throw upError;
+                .from('documents')
+                .upload(`invoices/locals/${fileName}`, file, { upsert: true });
+
+            if (upError) {
+                console.error("Storage Error Details:", upError);
+                throw upError;
+            }
 
             // Get URL
-            const { data: { publicUrl } } = supabase.storage.from('invoices').getPublicUrl(fileName);
+            const { data: { publicUrl } } = supabase.storage
+				.from('documents')
+				.getPublicUrl(`invoices/locals/${fileName}`);
 
             // Update DB
             await supabase
@@ -78,15 +99,35 @@
                 })
                 .eq('id', paymentData.id);
 
+			paymentData.invoice_url = publicUrl;
             success = true;
-            showModal = false;
+            showUploadModal = false;
         } catch (err) {
-            console.error(err);
-            alert('Error uploading file.');
+            console.error('Upload failed:', err);
+            alert('Error uploading file. Please check permissions.');
         } finally {
             isUploading = false;
         }
     }
+
+	async function handleDeleteInvoice() {
+		try {
+			// Remove from DB reference
+			await supabase
+                .from('talent_payments')
+                .update({ 
+                    invoice_url: null,
+                    status: 'Draft'
+                })
+                .eq('id', paymentData.id);
+			
+			paymentData.invoice_url = null;
+			success = false;
+		} catch (err) {
+			console.error(err);
+			alert('Error deleting file reference.');
+		}
+	}
 </script>
 
 <div class="min-h-screen bg-gray1 text-white flex flex-col items-center justify-center p-4">
@@ -98,44 +139,70 @@
                 <div class="animate-spin w-8 h-8 border-2 border-lime border-t-transparent rounded-full mx-auto"></div>
             {:else if !paymentData}
                 <div class="text-red-400 font-bold">Invalid or Expired Link</div>
-            {:else if success}
-                <div class="text-lime text-5xl mb-4">✓</div>
-                <h2 class="text-2xl font-bold mb-2">Invoice Received!</h2>
-                <p class="text-gray2">Thank you. Your invoice has been submitted to accounting.</p>
             {:else}
-                <h1 class="text-2xl font-bold mb-1">Invoice Upload</h1>
-                <p class="text-lime font-bold text-lg mb-4">{artistData?.artist_name}</p>
-                
-                <div class="bg-gray1 rounded-xl p-4 text-left text-sm space-y-2 mb-6 border border-gray2/50">
-                    <div class="flex justify-between">
+				<div class="bg-gray1 rounded-xl p-5 text-left text-sm space-y-3 mb-6 border border-gray2/50 shadow-inner">
+					<h1 class="text-2xl font-bold text-center mb-2">{artistData?.artist_name}</h1>
+                    <div class="flex justify-between items-center border-b border-gray2/30 pb-2">
                         <span class="text-gray2">Event:</span>
-                        <span class="font-bold text-right">{eventData?.event_name}</span>
+                        <span class="font-bold text-right truncate max-w-[60%]">{eventData?.event_name}</span>
                     </div>
-                    <div class="flex justify-between">
+                    <div class="flex justify-between items-center border-b border-gray2/30 pb-2">
                         <span class="text-gray2">Date:</span>
-                        <span class="font-bold text-right">{new Date(eventData?.event_date).toDateString()}</span>
+                        <span class="font-bold text-right">{eventData?.event_date ? new Date(eventData.event_date).toDateString() : 'TBA'}</span>
                     </div>
-                     <div class="flex justify-between">
-                        <span class="text-gray2">Amount:</span>
-                        <span class="font-bold text-right text-lime">${paymentData.amount}</span>
+                    <div class="flex justify-between items-center pt-1">
+                        <span class="text-gray2 text-lg">Amount:</span>
+                        <span class="font-bold text-right text-lime text-xl">${paymentData.amount}</span>
                     </div>
                 </div>
 
-                <button 
-                    class="w-full bg-lime text-black font-bold py-4 rounded-xl shadow-lg hover:scale-105 transition-transform"
-                    on:click={() => showModal = true}
-                >
-                    Upload Invoice (PDF)
-                </button>
+				{#if paymentData.invoice_url}
+					<div class="text-lime text-5xl mb-4">✓</div>
+					<h2 class="text-xl font-bold mb-2">Invoice Uploaded</h2>
+					<p class="text-gray2 text-sm mb-6">Your invoice is attached and currently under review by our accounting team.</p>
+					
+					<div class="grid grid-cols-2 gap-3">
+						<button 
+							class="w-full bg-gray1 border border-gray2 text-white font-bold py-3 rounded-3xl shadow-lg hover:cursor-pointer hover:border-lime hover:text-lime transition-all text-sm"
+							on:click={() => showPreviewModal = true}
+						>
+							View Invoice
+						</button>
+						<button 
+							class="w-full bg-red-500/10 border border-red-500/30 text-red-400 font-bold py-3 rounded-3xl shadow-lg hover:cursor-pointer hover:bg-red-500 hover:text-white transition-all text-sm"
+							on:click={handleDeleteInvoice}
+						>
+							Delete & Re-upload
+						</button>
+					</div>
+				{:else}
+					<p class="text-gray2 mb-4 text-sm">Please upload your invoice below to proceed with the payment.</p>
+					<button 
+						class="w-full bg-lime text-black font-bold py-4 rounded-xl shadow-lg hover:scale-105 transition-transform"
+						on:click={() => showUploadModal = true}
+					>
+						Upload Invoice (PDF)
+					</button>
+				{/if}
             {/if}
         </div>
     </div>
 </div>
 
 <UploadModal
-    isOpen={showModal}
+    isOpen={showUploadModal}
     title="Select Invoice File"
     {isUploading}
-    on:close={() => showModal = false}
+    on:close={() => showUploadModal = false}
     on:upload={handleUpload}
 />
+
+{#if paymentData?.invoice_url}
+	<PreviewModal
+		isOpen={showPreviewModal}
+		fileName="Uploaded Invoice Preview"
+		fileUrl={paymentData.invoice_url}
+		showDeleteButton={false}
+		on:close={() => showPreviewModal = false}
+	/>
+{/if}
