@@ -17,7 +17,8 @@
     let approvedBy = payment?.approved_by;
     let approvedAt = payment?.approved_at;
     
-    const uid = Math.random().toString(36).slice(2);
+    // FIX: Using a stable identifier rather than Math.random() to prevent Hydration crashing component
+    $: uid = advance?.id || 'new';
     
     let showUploadModal = false;
     let showPreviewModal = false;
@@ -368,7 +369,7 @@
                             <svg class="w-4 h-4 text-gray2 group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path></svg>
                             Share Link
                         </button>
-                        <button on:click={openPublicLink} class="text-[10px] text-lime hover:text-white hover:underline transition-colors cursor-pointer">
+                        <button on:click={openPublicLink} class="text-[10px] text-gray2 hover:text-white hover:underline transition-colors cursor-pointer">
                             [View invoice upload link]
                         </button>
                     </div>

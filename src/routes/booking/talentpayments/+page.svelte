@@ -47,7 +47,7 @@
     }
 
     function getStatusButtonStyle(status: string, selected: boolean) {
-        let base = "px-3 py-1.5 text-[10px] font-bold rounded-full border transition-all uppercase tracking-wide ";
+        let base = "px-3 py-1.5 text-[10px] font-bold rounded-full border transition-all uppercase tracking-wide cursor-pointer ";
         if (!selected) {
              let colors = "";
              switch(status.toLowerCase()) {
@@ -155,9 +155,10 @@
         const urlMode = $page.url.searchParams.get('mode');
         const urlFilter = $page.url.searchParams.get('filter');
         const urlStatus = $page.url.searchParams.get('status');
+        
+        // FIX: Read directly without explicit decode, searchParams.get handles it safely
         const urlArtistName = $page.url.searchParams.get('artist_name');
 
-        // Safely set View Mode without destructive side-effects
         viewMode = urlMode === 'EVENT' ? 'EVENT' : 'ALL';
 
         if (urlFilter && ['LIVE', 'PAST', 'ALL'].includes(urlFilter)) timeFilter = urlFilter as any;
@@ -172,20 +173,16 @@
                     await selectEventFull(foundEvent);
                     
                     if (urlArtistName) {
-                        const decodedName = decodeURIComponent(urlArtistName);
-                        const foundArtist = masterArtistList.find(a => a.artist_name === decodedName && a.event_id === currentEventId);
+                        const foundArtist = masterArtistList.find(a => a.artist_name === urlArtistName && a.event_id === currentEventId);
                         if (foundArtist) selectedArtist = foundArtist;
                     }
                 }
             }
         } else {
-            // viewMode === 'ALL'
             if (urlArtistName) {
-                const decodedName = decodeURIComponent(urlArtistName);
                 const parsedEventId = urlEventId ? parseInt(urlEventId) : null;
-                
                 const foundArtist = masterArtistList.find(a => 
-                    a.artist_name === decodedName && 
+                    a.artist_name === urlArtistName && 
                     (parsedEventId ? a.event_id === parsedEventId : true)
                 );
 
@@ -241,7 +238,6 @@
 		const partialEvent = e.detail;
 		currentEventId = partialEvent ? partialEvent.event_id : null;
 		
-		// Reset artist when manually changing events via left-sidebar
         selectedArtist = null;
         
         if (partialEvent) {
@@ -257,7 +253,6 @@
 	async function handleArtistSelect(artist: any) {
 		selectedArtist = artist;
         
-        // Strict mapping to artist's real event_id to prevent URL cross-contamination
         const eId = artist.event_id || null;
         
         if (viewMode === 'ALL' && artist.event_id) {
@@ -305,7 +300,8 @@
         if (eventId) newUrl.searchParams.set('event_id', eventId.toString());
 		else newUrl.searchParams.delete('event_id');
 
-		if (artistName) newUrl.searchParams.set('artist_name', encodeURIComponent(artistName));
+        // FIX: Removed encodeURIComponent. URLSearchParams handles safe encoding automatically.
+		if (artistName) newUrl.searchParams.set('artist_name', artistName);
 		else newUrl.searchParams.delete('artist_name');
 
         newUrl.searchParams.set('mode', mode);
@@ -488,7 +484,7 @@
                              <div class="flex flex-wrap gap-2">
                                  {#each availableStatuses as status}
                                     <button 
-                                        class="cursor-pointer transition-transform hover:scale-105 {getStatusButtonStyle(status, selectedStatuses.includes(status))}"
+                                        class="transition-transform hover:scale-105 {getStatusButtonStyle(status, selectedStatuses.includes(status))}"
                                         on:click={() => toggleStatus(status)}
                                     >
                                         {status}
