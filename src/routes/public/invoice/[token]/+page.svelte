@@ -130,6 +130,10 @@
 	}
 </script>
 
+<svelte:head>
+    <title>{artistData?.artist_name ? `${artistData.artist_name} - Invoice DJ` : 'Invoice DJ'}</title>
+</svelte:head>
+
 <div class="min-h-screen bg-gray1 text-white flex flex-col items-center justify-center p-4">
     <div class="w-full max-w-md bg-navbar border border-gray2 rounded-2xl p-8 shadow-2xl">
         <div class="text-center mb-8">

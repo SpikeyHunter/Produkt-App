@@ -74,8 +74,13 @@
                         {getFormattedDate(artist.eventDateDisplay)}
                     </span>
                     {#if showEventName && artist.eventNameDisplay}
-                            <span class="text-white text-left text-[11px] normal-case font-medium">{artist.eventNameDisplay}</span>
-                         {/if}
+                        <span class="text-white text-left text-[11px] normal-case font-medium">{artist.eventNameDisplay}</span>
+                    {/if}
+                    
+                    <div class="mt-1.5 flex items-center gap-1 text-[10px] text-gray2 normal-case font-medium tracking-normal">
+                        <span>Delivery:</span>
+                        <span class="text-white font-bold">{artist.paymentData?.delivery_method || 'Pick Up'}</span>
+                    </div>
                 </div>
             {/if}
         </div>
@@ -94,11 +99,11 @@
 
             <div class="pt-2 border-t border-white/10">
                 {#if artist.paymentData?.approved_by}
-                    <div class="flex items-center gap-1.5 text-[11px] text-lime font-bold  tracking-wide">
+                    <div class="flex items-center gap-1.5 text-[11px] text-lime font-bold tracking-wide">
                         Approved by {artist.paymentData.approved_by}
                     </div>
                 {:else}
-                     <div class="flex items-center gap-1.5 text-[11px] text-gray3 font-bold  tracking-wide opacity-70">
+                     <div class="flex items-center gap-1.5 text-[11px] text-gray3 font-bold tracking-wide opacity-70">
                         Not Approved
                     </div>
                 {/if}
