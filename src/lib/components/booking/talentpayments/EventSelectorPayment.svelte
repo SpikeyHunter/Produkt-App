@@ -96,7 +96,7 @@
 	<div class="p-3 border-b border-gray1 space-y-3 bg-gray1/30 flex-shrink-0 z-10">
 		<div class="flex items-center justify-between">
 			<h2 class="text-white font-bold text-base">
-				{mode === 'ALL' ? 'Jump to Event' : 'Select Event'}
+				{mode === 'ALL' ? 'Select Event' : 'Select Event'}
 			</h2>
 		</div>
 
