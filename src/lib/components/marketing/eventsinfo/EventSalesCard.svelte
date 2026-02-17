@@ -148,16 +148,6 @@
 					</div>
 
 					<div class="w-1/2 pl-7 pr-2 pt-2">
-						<h4>Door Sales</h4>
-						<div class="flex pl-2 gap-2 items-center">
-							<span class="text-gray3 text-sm">- GA:</span>
-							<span class="text-lime text-sm">{compGA}</span>
-						</div>
-						<div class="flex pl-2 gap-2 items-center">
-							<span class="text-gray3 text-sm">- VIP:</span>
-							<span class="text-lime text-sm">{compVIP}</span>
-						</div>
-						<div class="w-full h-0 my-2"></div>
 						<h4>Comp Tickets</h4>
 						<div class="flex pl-2 gap-2 items-center">
 							<span class="text-gray3 text-sm">- GA:</span>
