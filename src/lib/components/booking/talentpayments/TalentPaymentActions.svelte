@@ -334,6 +334,21 @@
 			isGeneratingEml = false;
 		}
 	}
+
+	function portal(node: HTMLElement, target: string = 'body') {
+		// Svelte actions only run in the browser, so 'document' is safe here
+		const targetEl = document.querySelector(target);
+		if (targetEl) {
+			targetEl.appendChild(node);
+		}
+		return {
+			destroy() {
+				if (node.parentNode) {
+					node.parentNode.removeChild(node);
+				}
+			}
+		};
+	}
 </script>
 
 <div class="flex flex-col h-full bg-navbar relative pb-6">
@@ -609,13 +624,15 @@
 	/>
 
 	{#if invoiceUrl}
-		<PreviewModal
-			isOpen={showPreviewModal}
-			fileName="Invoice Preview"
-			fileUrl={invoiceUrl}
-			showDeleteButton={true}
-			on:delete={handleDeleteInvoice}
-			on:close={() => (showPreviewModal = false)}
-		/>
+		<div use:portal>
+			<PreviewModal
+				isOpen={showPreviewModal}
+				fileName="Invoice Preview"
+				fileUrl={invoiceUrl}
+				showDeleteButton={true}
+				on:delete={handleDeleteInvoice}
+				on:close={() => (showPreviewModal = false)}
+			/>
+		</div>
 	{/if}
 </div>
