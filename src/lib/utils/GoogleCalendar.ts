@@ -8,20 +8,19 @@ import {
 	GOOGLE_REFRESH_TOKEN
 } from '$env/static/private';
 
-// Use OAuth2 client instead of a service account
 const oauth2Client = new google.auth.OAuth2(
 	GOOGLE_CLIENT_ID,
 	GOOGLE_CLIENT_SECRET,
-	'http://localhost' // Redirect URI is not used in the refresh token flow
+	'http://localhost' 
 );
 
-// Set the refresh token to automatically manage access tokens
 oauth2Client.setCredentials({
 	refresh_token: GOOGLE_REFRESH_TOKEN
 });
 
 const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 const CALENDAR_ID = GOOGLE_CALENDAR_ID;
+const TIMEZONE = "America/Montreal"; // Standardized timezone
 
 // --- Helper Functions ---
 
@@ -40,12 +39,12 @@ const formatTime = (date: Date): string => {
 		hour: 'numeric',
 		minute: '2-digit',
 		hour12: true,
-		timeZone: 'America/Toronto'
+		timeZone: TIMEZONE
 	}).format(date);
 
-	// Convert "8:30 PM" to "8:30pm"
 	return formatted.replace(' ', '').toLowerCase();
 };
+
 const roundToNearest15 = (date: Date): Date => {
 	const rounded = new Date(date);
 	const minutes = rounded.getMinutes();
@@ -64,7 +63,6 @@ const roundUp15 = (date: Date): Date => {
 };
 
 const combineDateAndTime = (dateStr: string, timeStr: string): Date => {
-	// Parse the date to determine if DST is in effect
 	const testDate = new Date(dateStr + 'T12:00:00');
 	const isDST = isDaylightSavingTime(testDate);
 	const offset = isDST ? '-04:00' : '-05:00';
@@ -189,21 +187,16 @@ export async function syncToCalendar(
 		if (!row.type || !row.date || !row.pickupTime) continue;
 
 		try {
-			// FIXED: Use combineDateAndTime which now properly handles Eastern Time
-			// This ensures the time isn't shifted by timezone conversion
 			const exactStartTime = combineDateAndTime(row.date, row.pickupTime);
-
-			// Create rounded time for the calendar slot
 			const roundedStartTime =
 				row.type === 'Arrival' ? roundToNearest15(exactStartTime) : roundUp15(exactStartTime);
-			const endTime = new Date(roundedStartTime.getTime() + 60 * 60000); // 1-hour duration
+			const endTime = new Date(roundedStartTime.getTime() + 60 * 60000); 
 
 			if (isNaN(exactStartTime.getTime())) {
 				console.warn(`Skipping row with invalid date/time:`, row);
 				continue;
 			}
 
-			// Build the title using the exact start time
 			const title = buildTitle(
 				row.type,
 				row.driverName,
@@ -212,18 +205,19 @@ export async function syncToCalendar(
 				row.flightInfo,
 				row.pickupLocation,
 				row.dropoffLocation,
-				exactStartTime, // Pass the original, non-rounded time here
+				exactStartTime, 
 				row.flightDepartureTime,
 				row.date
 			);
 
-			// FIXED: Use America/Toronto timezone explicitly
-			// This ensures Google Calendar interprets the times correctly
 			const eventData = {
 				summary: title,
-				start: { dateTime: roundedStartTime.toISOString(), timeZone: 'America/Toronto' },
-				end: { dateTime: endTime.toISOString(), timeZone: 'America/Toronto' },
+				start: { dateTime: roundedStartTime.toISOString(), timeZone: TIMEZONE },
+				end: { dateTime: endTime.toISOString(), timeZone: TIMEZONE },
 				description: row.contact,
+                extendedProperties: {
+                    private: { syncSource: 'produkt-ground-transport' }
+                },
 				attendees:
 					row.driverName !== 'UBER'
 						? (() => {
@@ -232,7 +226,6 @@ export async function syncToCalendar(
 								if (driverEmail) {
 									attendees.push({ email: driverEmail, responseStatus: 'needsAction' });
 								}
-								// Always add Eddy as an additional guest when Reza is the driver
 								if (row.driverName === 'Reza') {
 									const eddyEmail = getGuestEmail('Eddy');
 									if (eddyEmail && eddyEmail !== driverEmail) {
@@ -251,7 +244,8 @@ export async function syncToCalendar(
 			const existingEventId = eventIds[row.id];
 
 			if (existingEventId && (await findEventById(existingEventId))) {
-				await calendar.events.update({
+                // Using PATCH instead of UPDATE to only alter changed fields natively
+				await calendar.events.patch({
 					calendarId: CALENDAR_ID,
 					eventId: existingEventId,
 					requestBody: eventData,
@@ -264,6 +258,12 @@ export async function syncToCalendar(
 				if (duplicateEventId) {
 					eventIds[row.id] = duplicateEventId;
 					duplicatesFound++;
+                    await calendar.events.patch({
+                        calendarId: CALENDAR_ID,
+                        eventId: duplicateEventId,
+                        requestBody: eventData,
+                        sendUpdates: 'all'
+                    });
 				} else {
 					const response = await calendar.events.insert({
 						calendarId: CALENDAR_ID,

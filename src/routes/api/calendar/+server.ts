@@ -45,7 +45,6 @@ function calculateEventTimes(dateStr: string, timeStr: string, eventType: string
     let start: dayjs.Dayjs | null = null;
     let end: dayjs.Dayjs | null = null;
 
-    // 1. Try to Parse "OPS HOURS" if they exist
     if (timeStr) {
         const parts = timeStr.split(/[-–]| to /i).map(s => s.trim());
         
@@ -77,7 +76,6 @@ function calculateEventTimes(dateStr: string, timeStr: string, eventType: string
         }
     }
 
-    // 2. Defaults if parsing failed
     if (!start || !end) {
         const base = dayjs.tz(dateStr, "YYYY-MM-DD", TIMEZONE);
         
@@ -96,9 +94,7 @@ function calculateEventTimes(dateStr: string, timeStr: string, eventType: string
     return { start, end };
 }
 
-// --- NEW: DUPLICATE CHECK HELPER ---
 async function findExistingEvent(calendar: any, calendarId: string, summary: string, dateStr: string) {
-    // Search window: The target date (00:00 to 23:59:59)
     const timeMin = dayjs.tz(dateStr, TIMEZONE).startOf('day').toISOString();
     const timeMax = dayjs.tz(dateStr, TIMEZONE).add(1, 'day').endOf('day').toISOString();
 
@@ -108,12 +104,10 @@ async function findExistingEvent(calendar: any, calendarId: string, summary: str
             timeMin,
             timeMax,
             singleEvents: true,
-            q: summary // Let Google filter by text match first
+            q: summary
         });
 
         const events = res.data.items || [];
-        // Double check exact summary match to avoid partial matches
-        // e.g. "Artist A" matching "Artist A Soundcheck"
         return events.find((e: any) => e.summary === summary);
     } catch (e) {
         console.warn("Duplicate check failed, proceeding to insert:", e);
@@ -134,12 +128,10 @@ export const POST: RequestHandler = async ({ request }) => {
 
     const calendar = google.calendar({ version: 'v3', auth });
 
-    // 1. Determine Target Calendar
     const eventType = record?.type || old_record?.type;
     const targetKey = TYPE_MAP[eventType];
 
     if (!targetKey) {
-       // Cleanup if type changed to untracked
        if (old_record?.calendar_event_id && old_record?.type && TYPE_MAP[old_record.type]) {
             const oldKey = TYPE_MAP[old_record.type];
             try {
@@ -171,18 +163,29 @@ export const POST: RequestHandler = async ({ request }) => {
       return json({ success: true, action: "deleted" });
     }
 
-    // 3. Handle TYPE CHANGE (Delete old, treat as new)
+    // 3. Handle TYPE CHANGE safely using MOVE or standard PATCH
     if (type === 'UPDATE' && old_record && old_record.type !== record.type) {
         const oldKey = TYPE_MAP[old_record.type];
-        if (oldKey && old_record.calendar_event_id) {
+        
+        // If the event actually changes target calendars (e.g. NCG -> BAZART)
+        if (oldKey && targetKey && oldKey !== targetKey && old_record.calendar_event_id) {
             try {
-                await calendar.events.delete({
+                await calendar.events.move({
                     calendarId: CALENDARS[oldKey],
-                    eventId: old_record.calendar_event_id
+                    eventId: old_record.calendar_event_id,
+                    destination: CALENDARS[targetKey]
                 });
-            } catch(e) {}
+                // The event ID remains identical after a move, preventing sync storms!
+            } catch (e) {
+                console.warn("Move failed, falling back to recreate", e);
+                try {
+                    await calendar.events.delete({ calendarId: CALENDARS[oldKey], eventId: old_record.calendar_event_id });
+                } catch(delErr) {}
+                resultId = null; // Force recreate if move fails
+            }
         }
-        resultId = null; 
+        // Note: If oldKey === targetKey (e.g. NCG Show -> NCG 360), we do nothing here. 
+        // The PATCH command below will natively update the event title without deleting it.
     }
 
     // 4. Prepare Event Data
@@ -193,9 +196,12 @@ export const POST: RequestHandler = async ({ request }) => {
 
     const eventResource: any = {
         summary: summary,
-        start: { dateTime: start.format() },
-        end: { dateTime: end.format() },
+        start: { dateTime: start.format(), timeZone: TIMEZONE },
+        end: { dateTime: end.format(), timeZone: TIMEZONE },
         description: "",
+        extendedProperties: {
+            private: { syncSource: 'produkt-tech-schedule' }
+        }
     };
 
     const descLines = [
@@ -214,8 +220,6 @@ export const POST: RequestHandler = async ({ request }) => {
     eventResource.description = descLines.join("\n");
 
     // 5. INSERT / PATCH WITH DUPLICATE PREVENTION
-    
-    // A. Attempt Update if we have an ID
     if (resultId) {
         try {
             await calendar.events.patch({
@@ -224,23 +228,19 @@ export const POST: RequestHandler = async ({ request }) => {
                 requestBody: eventResource
             });
         } catch (e: any) {
-            // If 404 (Not Found), it was deleted externally. Clear ID and fall to step B.
             if (e.code === 404 || e.code === 410) {
                 console.warn(`Event ${resultId} not found, checking for duplicate...`);
                 resultId = null; 
             } else {
-                throw e; // Real error
+                throw e;
             }
         }
     }
 
-    // B. If ID is null (New or Recovered), check for duplicates before inserting
     if (!resultId) {
-        // Search for existing event with same name on same day
         const duplicate = await findExistingEvent(calendar, calendarId, summary, dateStr);
         
         if (duplicate) {
-            // FOUND DUPLICATE: Adopt its ID and update it
             console.log(`Duplicate found (${duplicate.id}). Updating instead of inserting.`);
             resultId = duplicate.id;
             await calendar.events.patch({
@@ -249,7 +249,6 @@ export const POST: RequestHandler = async ({ request }) => {
                 requestBody: eventResource
             });
         } else {
-            // NO DUPLICATE: Insert new
             const res = await calendar.events.insert({ 
                 calendarId, 
                 requestBody: eventResource 
