@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import SearchBar from '$lib/components/inputs/SearchBar.svelte';
 	import SetTimesCard from '$lib/components/booking/settimes/setTimesCard.svelte';
@@ -8,12 +8,14 @@
 		fetchAllEventsWithSetTimes,
 		updateEventTimetableActive,
 		updateEventTimetable,
-		type EventWithTimetable // Keep importing the base type
+		type EventWithTimetable
 	} from '$lib/services/eventsService';
 	import Button from '$lib/components/buttons/Button.svelte';
 	import SetTimesModal from '$lib/components/modals/SetTimesModal.svelte';
 
-	// 1. Define a new local type that correctly includes event_status
+	// 👇 IMPORTANT: Import your Supabase client here. Adjust the path to match your project.
+	import { supabase } from '$lib/supabase';
+
 	type EventWithStatus = EventWithTimetable & {
 		event_status: 'LIVE' | 'PAST';
 	};
@@ -23,21 +25,19 @@
 	let currentFilter: FilterType = 'none';
 	let loading = true;
 	let error: string | null = null;
+	let realtimeChannel: any; // Store the subscription channel
 
 	// --- MODAL STATE ---
 	let showSetTimesModal = false;
 	let selectedEventForModal: EventWithStatus | null = null;
 
 	const EXCLUDE_WORDS = ['TEST', 'TESTING', 'PASS', 'RÉSERVATIONS', 'RÉSERVATION', 'TEMPLATE'];
-
-	// 2. Use the new, corrected type for your events array
 	let allEvents: EventWithStatus[] = [];
 
 	// --- TOGGLE STATES ---
 	let showHiddenEvents = false;
 	let showLiveEvents = true;
 
-	// This filtering logic will now work without errors
 	$: events = allEvents
 		.filter((event) => {
 			const eventNameUpper = event.event_name.toUpperCase();
@@ -66,18 +66,69 @@
 	onMount(async () => {
 		setTimeout(() => (mounted = true), 150);
 		await loadEvents();
+
+		// 👇 Set up Supabase Realtime Subscription
+		realtimeChannel = supabase
+			.channel('public-events-changes')
+			.on(
+				'postgres_changes',
+				{ event: '*', schema: 'public', table: 'events' }, // Adjust 'events' if your table is named differently
+				(payload) => {
+					console.log('🔄 Realtime payload received:', payload);
+					handleRealtimeUpdate(payload);
+				}
+			)
+			/* NOTE: If 'timetables' is a completely separate SQL table (not a JSONB column on events),
+			   uncomment this secondary listener to capture those changes too!
+			*/
+			/*
+			.on(
+				'postgres_changes',
+				{ event: '*', schema: 'public', table: 'timetables' },
+				(payload) => {
+					// The simplest way to handle complex relational data on the fly is to quickly refetch
+					// OR you can map the specific nested payload to `allEvents` for true zero-lag.
+					loadEvents(); 
+				}
+			)
+			*/
+			.subscribe((status) => {
+				console.log('📡 Supabase Realtime Status:', status);
+			});
 	});
+
+	// Clean up the subscription when the user navigates away
+	onDestroy(() => {
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
+		}
+	});
+
+	// 👇 This function updates the local Svelte state INSTANTLY across all connected browsers
+	function handleRealtimeUpdate(payload: any) {
+		if (payload.eventType === 'UPDATE') {
+			allEvents = allEvents.map((event) =>
+				// Match by your primary key. Adjust 'event_id' if needed.
+				event.event_id === payload.new.event_id
+					? { ...event, ...payload.new } // Instantly merges the new DB state into the local array
+					: event
+			);
+		} else if (payload.eventType === 'INSERT') {
+			// For inserts, complex joins often mean `payload.new` is missing relational data (like artist names).
+			// Refetching is usually safer here, though you could push directly to the array.
+			loadEvents();
+		} else if (payload.eventType === 'DELETE') {
+			allEvents = allEvents.filter((event) => event.event_id !== payload.old.event_id);
+		}
+	}
 
 	async function loadEvents() {
 		try {
 			loading = true;
 			error = null;
 			console.log('🔄 Loading all events for set times...');
-
-			// 3. Cast the fetched data to your new, corrected type
 			const fetchedData = await fetchAllEventsWithSetTimes();
 			allEvents = fetchedData as EventWithStatus[];
-
 			console.log(`✅ Loaded ${allEvents.length} total events.`);
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -96,60 +147,32 @@
 			if (!isNaN(date.getTime())) {
 				return date;
 			}
-		} catch (e) {
-			// If that fails, try the original format
-		}
+		} catch (e) {}
 		return new Date(`${dateString}, ${currentYear}`);
 	}
 
 	function sortEvents(events: EventWithStatus[], filter: FilterType): EventWithStatus[] {
 		const sorted = [...events];
 		switch (filter) {
-			case 'a-z':
-				return sorted.sort((a, b) => a.event_name.localeCompare(b.event_name));
-			case 'z-a':
-				return sorted.sort((a, b) => b.event_name.localeCompare(a.event_name));
-			case 'date-asc':
-				return sorted.sort(
-					(a, b) => parseEventDate(a.event_date).getTime() - parseEventDate(b.event_date).getTime()
-				);
-			case 'date-desc':
-				return sorted.sort(
-					(a, b) => parseEventDate(b.event_date).getTime() - parseEventDate(a.event_date).getTime()
-				);
+			case 'a-z': return sorted.sort((a, b) => a.event_name.localeCompare(b.event_name));
+			case 'z-a': return sorted.sort((a, b) => b.event_name.localeCompare(a.event_name));
+			case 'date-asc': return sorted.sort((a, b) => parseEventDate(a.event_date).getTime() - parseEventDate(b.event_date).getTime());
+			case 'date-desc': return sorted.sort((a, b) => parseEventDate(b.event_date).getTime() - parseEventDate(a.event_date).getTime());
 			case 'none':
 			default:
 				if (showLiveEvents) {
-					return sorted.sort(
-						(a, b) => parseEventDate(a.event_date).getTime() - parseEventDate(b.event_date).getTime()
-					);
+					return sorted.sort((a, b) => parseEventDate(a.event_date).getTime() - parseEventDate(b.event_date).getTime());
 				} else {
-					return sorted.sort(
-						(a, b) => parseEventDate(b.event_date).getTime() - parseEventDate(a.event_date).getTime()
-					);
+					return sorted.sort((a, b) => parseEventDate(b.event_date).getTime() - parseEventDate(a.event_date).getTime());
 				}
 		}
 	}
 
-	function toggleHiddenEvents() {
-		showHiddenEvents = !showHiddenEvents;
-	}
-
-	function toggleLivePast() {
-		showLiveEvents = !showLiveEvents;
-	}
-
-	function handleSearch(event: CustomEvent<{ value: string }>) {
-		searchValue = event.detail.value;
-	}
-
-	function handleFilterChange(event: CustomEvent<{ filter: FilterType }>) {
-		currentFilter = event.detail.filter;
-	}
-
-	function handleRefresh() {
-		loadEvents();
-	}
+	function toggleHiddenEvents() { showHiddenEvents = !showHiddenEvents; }
+	function toggleLivePast() { showLiveEvents = !showLiveEvents; }
+	function handleSearch(event: CustomEvent<{ value: string }>) { searchValue = event.detail.value; }
+	function handleFilterChange(event: CustomEvent<{ filter: FilterType }>) { currentFilter = event.detail.filter; }
+	function handleRefresh() { loadEvents(); }
 
 	function handleAddSetTimes(event: CustomEvent<{ event: EventWithStatus }>) {
 		selectedEventForModal = event.detail.event;
@@ -158,8 +181,8 @@
 
 	async function handleResetSetTimes(event: CustomEvent<{ eventId: number }>) {
 		try {
+			// Realtime will instantly handle the UI update, so no need to explicitly await loadEvents() here unless desired
 			await updateEventTimetable(event.detail.eventId, null);
-			await loadEvents();
 		} catch (error) {
 			console.error('Failed to reset timetable', error);
 			alert('Could not reset the timetable.');
@@ -169,7 +192,6 @@
 	async function handleHideEvent(event: CustomEvent<{ eventId: number }>) {
 		try {
 			await updateEventTimetableActive(String(event.detail.eventId), false);
-			await loadEvents();
 			console.log(`✅ Event ${event.detail.eventId} hidden from timetable`);
 		} catch (err) {
 			console.error('❌ Failed to hide event:', err);
@@ -179,7 +201,6 @@
 	async function handleShowEvent(event: CustomEvent<{ eventId: number }>) {
 		try {
 			await updateEventTimetableActive(String(event.detail.eventId), true);
-			await loadEvents();
 			console.log(`✅ Event ${event.detail.eventId} shown in timetable`);
 		} catch (err) {
 			console.error('❌ Failed to show event:', err);
@@ -187,6 +208,7 @@
 	}
 
 	function handleModalSave() {
+		// Realtime should handle standard updates naturally, but this serves as a fallback
 		loadEvents();
 	}
 </script>
@@ -379,6 +401,7 @@
 />
 
 <style>
+/* (Keep your exact existing styles here) */
 	.fade-in {
 		opacity: 0;
 		transform: translateY(20px);
@@ -535,28 +558,16 @@
 		pointer-events: auto;
 	}
 	@media (min-width: 900px) {
-		.events-grid {
-			grid-template-columns: repeat(2, 400px);
-		}
-		.controls-container {
-			max-width: 824px;
-		}
+		.events-grid { grid-template-columns: repeat(2, 400px); }
+		.controls-container { max-width: 824px; }
 	}
 	@media (min-width: 1350px) {
-		.events-grid {
-			grid-template-columns: repeat(3, 400px);
-		}
-		.controls-container {
-			max-width: 1248px;
-		}
+		.events-grid { grid-template-columns: repeat(3, 400px); }
+		.controls-container { max-width: 1248px; }
 	}
 	@media (min-width: 1800px) {
-		.events-grid {
-			grid-template-columns: repeat(4, 400px);
-		}
-		.controls-container {
-			max-width: 1672px;
-		}
+		.events-grid { grid-template-columns: repeat(4, 400px); }
+		.controls-container { max-width: 1672px; }
 	}
 	@media (max-width: 899px) {
 		.controls-container {
@@ -565,26 +576,13 @@
 			align-items: stretch;
 			max-width: 400px;
 		}
-		.search-container {
-			width: 100%;
-		}
-		.buttons-container {
-			justify-content: flex-start;
-			width: 100%;
-		}
-		.buttons-left {
-			justify-content: flex-start;
-		}
+		.search-container { width: 100%; }
+		.buttons-container { justify-content: flex-start; width: 100%; }
+		.buttons-left { justify-content: flex-start; }
 	}
 	@keyframes spin {
-		from {
-			transform: rotate(0deg);
-		}
-		to {
-			transform: rotate(360deg);
-		}
+		from { transform: rotate(0deg); }
+		to { transform: rotate(360deg); }
 	}
-	.animate-spin {
-		animation: spin 1s linear infinite;
-	}
+	.animate-spin { animation: spin 1s linear infinite; }
 </style>
