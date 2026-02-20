@@ -229,7 +229,7 @@
 		if (calendarEvent.isDraft) return;
 
 		if (calendarEvent.status === 'CONFIRMED') {
-			goto(`/calendar/${calendarEvent.id}`);
+			goto(`/calendar/${calendarEvent.short_id}`); 
 			return;
 		}
 

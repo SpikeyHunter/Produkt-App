@@ -42,6 +42,7 @@ export interface VenueSettings {
 export interface CalendarEvent {
     id: string;
     user_id?: string;
+	short_id?: number;
     group_id?: string; 
     title: string;
     date: string; 

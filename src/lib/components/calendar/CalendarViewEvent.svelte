@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
+	import { goto } from '$app/navigation';
 	import { cubicOut } from 'svelte/easing';
 	import type { CalendarEvent, HoldLevel } from '$lib/types/calendar-types';
 	import { tick, createEventDispatcher } from 'svelte';
@@ -95,7 +96,7 @@
 					hold_level: localEvent.hold_level
 				})
 				.eq('id', localEvent.id);
-				
+
 			if (localEvent.group_id) {
 				await supabase
 					.from('calendar')
@@ -284,7 +285,13 @@
 					disabled={saving}
 					aria-label="Close modal"
 				>
-					<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						class="w-6 h-6"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
 					</svg>
 				</button>
@@ -294,7 +301,13 @@
 
 			<div class="px-6 py-4 flex items-center justify-between border-b border-gray2/10 shrink-0">
 				<div class="flex items-center gap-2">
-					<svg class="w-5 h-5 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						class="w-5 h-5 text-gray2"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
 						<circle cx="12" cy="10" r="3"></circle>
 					</svg>
@@ -308,9 +321,21 @@
 				<button
 					class="text-sm font-bold text-lime hover:underline flex items-center gap-1 cursor-pointer"
 					aria-label="View Event Details"
+					on:click={() => {
+						if (localEvent) {
+							show = false;
+							goto(`/calendar/${localEvent.short_id}`);
+						}
+					}}
 				>
-					View Event 
-					<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					View Event
+					<svg
+						class="w-3 h-3"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline>
 					</svg>
 				</button>
@@ -322,51 +347,81 @@
 						<p class="text-sm font-bold text-gray2 mb-3">Hold Level</p>
 						<div class="grid grid-cols-7 gap-2">
 							<button
-								class="py-2 rounded-2xl text-sm font-bold border transition-all cursor-pointer {localEvent.hold_level === 'P'
+								class="py-2 rounded-2xl text-sm font-bold border transition-all cursor-pointer {localEvent.hold_level ===
+								'P'
 									? 'bg-lime text-black border-lime'
 									: 'bg-black/50 text-gray2 border-gray2/30 hover:border-gray2 hover:text-white'}"
-								on:click={() => updateHoldLevel('P')}>P</button>
+								on:click={() => updateHoldLevel('P')}>P</button
+							>
 							{#each holdNumbers as num}
 								<button
-									class="py-2 rounded-2xl text-sm font-bold border transition-all cursor-pointer {localEvent.hold_level === `H${num}`
+									class="py-2 rounded-2xl text-sm font-bold border transition-all cursor-pointer {localEvent.hold_level ===
+									`H${num}`
 										? 'bg-lime text-black border-lime'
 										: 'bg-black/50 text-gray2 border-gray2/30 hover:border-gray2 hover:text-white'}"
-									on:click={() => updateHoldLevel(`H${num}` as HoldLevel)}>{num}</button>
+									on:click={() => updateHoldLevel(`H${num}` as HoldLevel)}>{num}</button
+								>
 							{/each}
 						</div>
 					</div>
 
 					<div class="flex flex-col gap-4">
-						<button 
+						<button
 							class="w-full py-3 rounded-2xl border border-gray2/30 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2 hover:bg-white/5 cursor-pointer"
-							on:click={() => { dispatch('manageHolds'); }}
+							on:click={() => {
+								dispatch('manageHolds');
+							}}
 						>
-							<svg class="w-4 h-4 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline>
+							<svg
+								class="w-4 h-4 text-gray2"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"
+								></polyline>
 							</svg>
 							Manage Holds
 						</button>
 
 						<div class="grid grid-cols-2 gap-3">
 							<button
-								class="py-2.5 rounded-2xl border font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer {localEvent.details.is_target
+								class="py-2.5 rounded-2xl border font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer {localEvent
+									.details.is_target
 									? 'text-confirmed border-confirmed bg-transparent'
 									: 'border-gray2/30 text-gray2 bg-transparent hover:text-white hover:border-gray2'}"
 								on:click={() => toggleFlag('is_target')}
 							>
-								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle>
+								<svg
+									class="w-4 h-4"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
+									></circle><circle cx="12" cy="12" r="2"></circle>
 								</svg>
 								{localEvent.details.is_target ? 'Remove Target' : 'Add Target'}
 							</button>
-							
+
 							<button
-								class="py-2.5 rounded-2xl border font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer {localEvent.details.is_challenge
+								class="py-2.5 rounded-2xl border font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer {localEvent
+									.details.is_challenge
 									? 'text-tentatif border-tentatif bg-transparent'
 									: 'border-gray2/30 text-gray2 bg-transparent hover:text-white hover:border-gray2'}"
 								on:click={() => toggleFlag('is_challenge')}
 							>
-								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<svg
+									class="w-4 h-4"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
 									<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
 								</svg>
 								{localEvent.details.is_challenge ? 'Remove Challenge' : 'Challenge Hold'}
@@ -379,21 +434,46 @@
 						<div class="relative">
 							<textarea
 								bind:value={tempNotes}
-								on:input={() => isEditingNotes = true}
+								on:input={() => (isEditingNotes = true)}
 								rows="4"
 								placeholder="Add notes..."
 								class="w-full px-4 py-3 bg-black/50 border border-gray2/30 rounded-2xl text-white placeholder-gray2/50 focus:border-lime focus:outline-none resize-none transition-colors"
 							></textarea>
-							
+
 							{#if isEditingNotes}
-								<div class="flex justify-end gap-2 mt-2" transition:fade={{duration: 150}}>
-									<button class="w-8 h-8 flex items-center justify-center rounded-lg border border-problem/50 text-problem hover:bg-problem/10 transition-colors cursor-pointer" on:click={cancelNotes} aria-label="Cancel edit">
-										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-											<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+								<div class="flex justify-end gap-2 mt-2" transition:fade={{ duration: 150 }}>
+									<button
+										class="w-8 h-8 flex items-center justify-center rounded-lg border border-problem/50 text-problem hover:bg-problem/10 transition-colors cursor-pointer"
+										on:click={cancelNotes}
+										aria-label="Cancel edit"
+									>
+										<svg
+											class="w-4 h-4"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
+											<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"
+											></line>
 										</svg>
 									</button>
-									<button class="w-8 h-8 flex items-center justify-center rounded-lg border border-lime/50 text-lime hover:bg-lime/10 transition-colors cursor-pointer" on:click={saveNotes} aria-label="Save edits">
-										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<button
+										class="w-8 h-8 flex items-center justify-center rounded-lg border border-lime/50 text-lime hover:bg-lime/10 transition-colors cursor-pointer"
+										on:click={saveNotes}
+										aria-label="Save edits"
+									>
+										<svg
+											class="w-4 h-4"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
 											<polyline points="20 6 9 17 4 12"></polyline>
 										</svg>
 									</button>
@@ -406,24 +486,36 @@
 				<div class="p-6 border-t border-gray2/20 flex gap-3 shrink-0">
 					<button
 						class="flex-1 py-3 px-2 border border-problem/50 text-problem font-bold text-sm rounded-2xl hover:bg-problem/10 transition-colors cursor-pointer"
-						on:click={() => (confirmMode = 'clearAll')}>Clear All Holds</button>
+						on:click={() => (confirmMode = 'clearAll')}>Clear All Holds</button
+					>
 					<button
 						class="flex-1 py-3 px-2 border border-gray2/30 text-gray2 hover:text-white font-bold text-sm rounded-2xl hover:bg-gray2/10 transition-colors cursor-pointer"
-						on:click={() => (confirmMode = 'clearSingle')}>Clear Hold</button>
+						on:click={() => (confirmMode = 'clearSingle')}>Clear Hold</button
+					>
 					<button
 						class="flex-1 py-3 px-2 bg-lime text-black font-bold text-sm rounded-2xl hover:bg-lime/90 transition-colors cursor-pointer"
 						on:click={setupConfirm}
-						disabled={saving}>Confirm</button>
+						disabled={saving}>Confirm</button
+					>
 				</div>
-
 			{:else if confirmMode === 'clearSingle' || confirmMode === 'clearAll'}
 				<div class="p-8 flex-1 flex flex-col items-center justify-center text-center">
 					<div class="w-16 h-16 rounded-full bg-problem/10 flex items-center justify-center mb-6">
-						<svg class="w-8 h-8 text-problem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-    <line x1="12" y1="9" x2="12" y2="13"></line>
-    <line x1="12" y1="17" x2="12.01" y2="17"></line>
-</svg>
+						<svg
+							class="w-8 h-8 text-problem"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path
+								d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"
+							></path>
+							<line x1="12" y1="9" x2="12" y2="13"></line>
+							<line x1="12" y1="17" x2="12.01" y2="17"></line>
+						</svg>
 					</div>
 					<h3 class="text-xl font-black text-white mb-2">Are you sure?</h3>
 					<p class="text-sm font-bold text-gray2 mb-8">
@@ -434,18 +526,21 @@
 					<div class="flex gap-3 w-full">
 						<button
 							class="flex-1 py-3 bg-transparent border border-gray2/20 text-gray2 font-bold rounded-2xl hover:bg-gray2/10 hover:text-white transition-colors cursor-pointer"
-							on:click={() => (confirmMode = 'none')}>Cancel</button>
+							on:click={() => (confirmMode = 'none')}>Cancel</button
+						>
 						<button
 							class="flex-1 py-3 bg-problem text-black font-bold rounded-2xl hover:bg-problem/90 transition-colors cursor-pointer"
 							on:click={confirmMode === 'clearAll' ? executeClearAll : executeClearSingle}
-							disabled={saving}>Confirm</button>
+							disabled={saving}>Confirm</button
+						>
 					</div>
 				</div>
-
 			{:else if confirmMode === 'confirm'}
 				<div class="p-6 flex-1 flex flex-col overflow-y-auto custom-scrollbar">
 					<div class="flex items-center gap-3 mb-6">
-						<div class="w-10 h-10 rounded-full bg-lime/20 flex items-center justify-center shrink-0">
+						<div
+							class="w-10 h-10 rounded-full bg-lime/20 flex items-center justify-center shrink-0"
+						>
 							<span class="text-lime font-black text-xl">✓</span>
 						</div>
 						<div class="text-left">
@@ -458,36 +553,86 @@
 
 					<div class="space-y-3 mb-8">
 						{#if sameEventOtherRoomsCount > 0}
-							<label class="flex items-start gap-3 p-4 bg-gray1/50 border border-gray2/20 rounded-xl cursor-pointer hover:bg-gray2/10 transition-colors {optConfirmAllRooms ? 'border-lime/50 bg-lime/5' : ''}">
-								<div class="relative flex items-center justify-center w-5 h-5 mt-0.5 rounded transition-all {optConfirmAllRooms ? 'bg-lime border-lime' : 'border-2 border-gray2 bg-transparent'}" aria-hidden="true">
+							<label
+								class="flex items-start gap-3 p-4 bg-gray1/50 border border-gray2/20 rounded-xl cursor-pointer hover:bg-gray2/10 transition-colors {optConfirmAllRooms
+									? 'border-lime/50 bg-lime/5'
+									: ''}"
+							>
+								<div
+									class="relative flex items-center justify-center w-5 h-5 mt-0.5 rounded transition-all {optConfirmAllRooms
+										? 'bg-lime border-lime'
+										: 'border-2 border-gray2 bg-transparent'}"
+									aria-hidden="true"
+								>
 									{#if optConfirmAllRooms}
-										<svg class="w-3.5 h-3.5 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+										<svg
+											class="w-3.5 h-3.5 text-black"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="4"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
 											<polyline points="20 6 9 17 4 12"></polyline>
 										</svg>
 									{/if}
 								</div>
-								<p class="text-sm font-bold text-white leading-tight">Confirm all holds for the same venue for this event</p>
-								<input type="checkbox" class="hidden" bind:checked={optConfirmAllRooms} aria-label="Confirm all holds for the same venue for this event"/>
+								<p class="text-sm font-bold text-white leading-tight">
+									Confirm all holds for the same venue for this event
+								</p>
+								<input
+									type="checkbox"
+									class="hidden"
+									bind:checked={optConfirmAllRooms}
+									aria-label="Confirm all holds for the same venue for this event"
+								/>
 							</label>
 						{/if}
 
 						{#if otherEventsOnDayCount > 0}
-							<label class="flex items-start gap-3 p-4 bg-gray1/50 border border-gray2/20 rounded-xl cursor-pointer hover:bg-gray2/10 transition-colors {optClearOtherHolds ? 'border-lime/50 bg-lime/5' : ''}">
-								<div class="relative flex items-center justify-center w-5 h-5 mt-0.5 rounded transition-all {optClearOtherHolds ? 'bg-lime border-lime' : 'border-2 border-gray2 bg-transparent'}" aria-hidden="true">
+							<label
+								class="flex items-start gap-3 p-4 bg-gray1/50 border border-gray2/20 rounded-xl cursor-pointer hover:bg-gray2/10 transition-colors {optClearOtherHolds
+									? 'border-lime/50 bg-lime/5'
+									: ''}"
+							>
+								<div
+									class="relative flex items-center justify-center w-5 h-5 mt-0.5 rounded transition-all {optClearOtherHolds
+										? 'bg-lime border-lime'
+										: 'border-2 border-gray2 bg-transparent'}"
+									aria-hidden="true"
+								>
 									{#if optClearOtherHolds}
-										<svg class="w-3.5 h-3.5 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+										<svg
+											class="w-3.5 h-3.5 text-black"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="4"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										>
 											<polyline points="20 6 9 17 4 12"></polyline>
 										</svg>
 									{/if}
 								</div>
-								<p class="text-sm font-bold text-white leading-tight">Clear all relevant holds (including pending) on this day</p>
-								<input type="checkbox" class="hidden" bind:checked={optClearOtherHolds} aria-label="Clear all relevant holds including pending on this day"/>
+								<p class="text-sm font-bold text-white leading-tight">
+									Clear all relevant holds (including pending) on this day
+								</p>
+								<input
+									type="checkbox"
+									class="hidden"
+									bind:checked={optClearOtherHolds}
+									aria-label="Clear all relevant holds including pending on this day"
+								/>
 							</label>
 						{/if}
 
 						{#if sameEventOtherRoomsCount === 0 && otherEventsOnDayCount === 0}
 							<div class="py-8 text-center">
-								<p class="text-sm font-bold text-gray2">No scheduling conflicts detected for this date!</p>
+								<p class="text-sm font-bold text-gray2">
+									No scheduling conflicts detected for this date!
+								</p>
 							</div>
 						{/if}
 					</div>
@@ -495,13 +640,16 @@
 					<div class="mt-auto flex gap-3 w-full shrink-0">
 						<button
 							class="flex-1 py-3 bg-transparent border border-gray2/20 text-gray2 font-bold rounded-2xl hover:bg-gray2/10 hover:text-white transition-colors cursor-pointer"
-							on:click={() => (confirmMode = 'none')}>Cancel</button>
+							on:click={() => (confirmMode = 'none')}>Cancel</button
+						>
 						<button
 							class="flex-[1.5] py-3 bg-lime text-black font-bold rounded-2xl hover:bg-lime/90 transition-colors cursor-pointer flex justify-center items-center"
 							on:click={executeConfirm}
 							disabled={saving}
 						>
-							{#if saving}<div class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"></div>{/if}
+							{#if saving}<div
+									class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"
+								></div>{/if}
 							Confirm Event
 						</button>
 					</div>
