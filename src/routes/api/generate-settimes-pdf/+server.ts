@@ -2,14 +2,10 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { dev } from '$app/environment';
 
-// The logo from your static folder, assuming it's accessible via your public URL
-// If you want to use the local static path natively, you would read the file system using 'fs',
-// but fetching via your app's URL is the easiest way to get it as a buffer.
-// Note: Make sure to replace this with your actual production logo URL or read locally via fs in SvelteKit.
-const LOGO_URL =
-	'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO_lockup.png';
+// The new Supabase URL you provided
+const LOGO_URL = 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO2.png';
 
-export const POST: RequestHandler = async ({ request, url }) => {
+export const POST: RequestHandler = async ({ request }) => {
 	let { htmlContent, fileName } = await request.json();
 
 	if (!htmlContent) {
@@ -18,27 +14,28 @@ export const POST: RequestHandler = async ({ request, url }) => {
 
 	let browser = null;
 	try {
-		// Fetch and embed the logo as base64
-		// (Using the same logic from your Advance reference)
+		// 1. Fetch the logo from Supabase and convert it to Base64
 		let dataUri = '';
 		try {
-			const logoToFetch = dev ? `${url.origin}/images/ProduktXX_LOGO2.png` : LOGO_URL;
-			const response = await fetch(logoToFetch);
+			const response = await fetch(LOGO_URL);
 			if (response.ok) {
 				const imageBuffer = await response.arrayBuffer();
 				const base64Image = Buffer.from(imageBuffer).toString('base64');
 				const mimeType = response.headers.get('content-type') || 'image/png';
 				dataUri = `data:${mimeType};base64,${base64Image}`;
+			} else {
+				console.warn('Failed to fetch logo from Supabase, status:', response.status);
 			}
 		} catch (e) {
-			console.warn('Could not fetch logo for PDF, proceeding without it.');
+			console.error('Error fetching logo:', e);
 		}
 
+		// Replace the placeholder in your Svelte template with the actual Base64 image
 		if (dataUri) {
 			htmlContent = htmlContent.replace(/src="LOGO_PLACEHOLDER"/g, `src="${dataUri}"`);
 		}
 
-		// Use different browser setup for dev vs production
+		// 2. Launch browser depending on environment
 		if (dev) {
 			const { chromium } = await import('playwright');
 			browser = await chromium.launch({ headless: true });
@@ -52,37 +49,39 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		}
 
 		const page = await browser.newPage();
+		
+		await page.setViewportSize({ width: 816, height: 1056 }); // 8.5x11 inches at 96dpi
 
-		await page.setViewportSize({ width: 816, height: 1056 });
-
+		// 3. Inject Google Fonts (Inter) and force it as the font family
 		const fullHtml = `
-	<!DOCTYPE html>
-	<html lang="en">
-		<head>
-			<meta charset="UTF-8">
-			<meta name="viewport" content="width=device-width, initial-scale=1.0">
-			<title>Set Times</title>
-			<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap" rel="stylesheet">
-			<style>
-				* {
-					-webkit-print-color-adjust: exact !important;
-					print-color-adjust: exact !important;
-				}
-				html, body {
-					margin: 0;
-					padding: 0;
-					background-color: white !important;
-					/* Force Inter */
-					font-family: 'Inter', Helvetica, Arial, sans-serif !important;
-				}
-			</style>
-		</head>
-		<body>
-			${htmlContent}
-		</body>
-	</html>
-`;
+			<!DOCTYPE html>
+			<html lang="en">
+				<head>
+					<meta charset="UTF-8">
+					<meta name="viewport" content="width=device-width, initial-scale=1.0">
+					<title>Set Times</title>
+					<link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,700;0,800;1,400;1,700&display=swap" rel="stylesheet">
+					<style>
+						* {
+							-webkit-print-color-adjust: exact !important;
+							print-color-adjust: exact !important;
+						}
+						html, body {
+							margin: 0;
+							padding: 0;
+							background-color: white !important;
+							/* Force Inter font everywhere */
+							font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+						}
+					</style>
+				</head>
+				<body>
+					${htmlContent}
+				</body>
+			</html>
+		`;
 
+		// Wait until network is idle to ensure Google Fonts finishes loading before printing
 		await page.setContent(fullHtml, { waitUntil: 'networkidle' });
 
 		const pdfBuffer = await page.pdf({
@@ -92,7 +91,7 @@ export const POST: RequestHandler = async ({ request, url }) => {
 			margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
 			displayHeaderFooter: false
 		});
-
+		
 		return new Response(new Uint8Array(pdfBuffer), {
 			status: 200,
 			headers: {
@@ -100,13 +99,11 @@ export const POST: RequestHandler = async ({ request, url }) => {
 				'Content-Disposition': `attachment; filename="${fileName}.pdf"`
 			}
 		});
+
 	} catch (error) {
 		console.error('PDF Generation Error:', error);
 		if (error instanceof Error) {
-			return json(
-				{ error: `Failed to generate PDF. Server error: ${error.message}` },
-				{ status: 500 }
-			);
+			return json({ error: `Failed to generate PDF. Server error: ${error.message}` }, { status: 500 });
 		}
 		return json({ error: 'An unknown error occurred during PDF generation.' }, { status: 500 });
 	} finally {

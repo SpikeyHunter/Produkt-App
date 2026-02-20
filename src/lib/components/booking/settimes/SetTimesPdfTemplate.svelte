@@ -31,7 +31,6 @@
 	$: headerText = `${displayEventType} - ${headlinerName}`;
 
 	// Dynamically shrink the font size if the text is longer than 20 characters
-	// Starts at 30pt, shrinks down to a minimum of 18pt for very long names
 	$: headerFontSize =
 		headerText.length > 20 ? Math.max(18, 30 - (headerText.length - 20) * 0.7) : 30;
 
@@ -53,7 +52,7 @@
 
 <div
 	id="set-times-print-container"
-	style="background-color: white; width: 8.5in; height: 11in; padding: 0; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; position: relative; box-sizing: border-box; color: black; overflow: hidden;"
+	style="background-color: white; width: 8.5in; height: 11in; padding: 0; font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; position: relative; box-sizing: border-box; color: black; overflow: hidden;"
 >
 	<div
 		style="position: absolute; top: 0.5in; bottom: 0.5in; left: 0.5in; width: 1.2in; background-color: black;"
