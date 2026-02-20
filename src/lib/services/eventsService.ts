@@ -359,6 +359,45 @@ function formatEventDate(dateString: string): string {
 	}
 }
 
+// Add this to the end of src/lib/services/eventsService.ts
+
+export async function fetchSetTimesPdfData(eventId: number, eventDate: string) {
+	try {
+		// 1. Get the headliner from events_advance
+		const { data: advanceData, error: advanceError } = await supabase
+			.from('events_advance')
+			.select('artist_name')
+			.eq('event_id', eventId)
+			.ilike('artist_type', '%Headliner%')
+			.limit(1)
+			.single();
+
+		if (advanceError && advanceError.code !== 'PGRST116') {
+			console.error('Error fetching advance data for PDF:', advanceError);
+		}
+
+		// 2. Get the event type from schedule_techs
+		const { data: techData, error: techError } = await supabase
+			.from('schedule_techs')
+			.select('type')
+			.eq('date', eventDate)
+			.limit(1)
+			.single();
+
+		if (techError && techError.code !== 'PGRST116') {
+			console.error('Error fetching schedule_techs data for PDF:', techError);
+		}
+
+		return {
+			headlinerName: advanceData?.artist_name || 'TBA',
+			eventType: techData?.type || 'Event',
+		};
+	} catch (err) {
+		console.error('Fatal error in fetchSetTimesPdfData:', err);
+		return { headlinerName: 'TBA', eventType: 'Event' };
+	}
+}
+
 export async function createEventAdvance(
 	eventId: number | null,
 	artistName: string,

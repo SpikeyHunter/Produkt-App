@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { EventWithTimetable, TimetableEntry } from '$lib/services/eventsService';
-	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
 	import { permissions } from '$lib/stores/authStore';
-	
+	import { fetchSetTimesPdfData } from '$lib/services/eventsService';
+	import SetTimesPdfTemplate from './SetTimesPdfTemplate.svelte';
+	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
+
 	export let event: EventWithTimetable;
 
 	// --- Component State ---
@@ -11,12 +13,15 @@
 	let justCopied = false;
 	let showPopup = false;
 	let popupMessage = '';
+	let isGeneratingPdf = false;
+	let pdfData = { headlinerName: 'TBA', eventType: 'Event' };
+	let templateContainer: HTMLDivElement;
 
 	// --- Reactive Logic ---
 
 	// Check if user has permission to edit set times
 	$: canEditSetTimes = $permissions.isAdmin || 
-		$permissions.hasPermission('Advance') || 
+		$permissions.hasPermission('Advance') ||
 		$permissions.hasPermission('Booking');
 
 	// Find the shared status of all artist entries.
@@ -31,7 +36,17 @@
 		const allHaveSameStatus = artistEntries.every((entry) => entry.status === firstStatus);
 		return allHaveSameStatus ? firstStatus : null;
 	})();
-	
+
+	// Check if ALL artist statuses are Confirmed (ignore DOORS and CURFEW)
+	$: allConfirmed = (() => {
+		if (!event.timetable || event.timetable.length === 0) return false;
+		const artistEntries = event.timetable.filter(
+			(entry) => entry.artist !== 'DOORS' && entry.artist !== 'CURFEW'
+		);
+		if (artistEntries.length === 0) return false;
+		return artistEntries.every((entry) => entry.status === 'Confirmed');
+	})();
+
 	// Generate plain text for clipboard
 	$: clipboardText = (() => {
 		if (!event.timetable || event.timetable.length === 0) return '';
@@ -51,7 +66,7 @@
 			.join('\n');
 		return [formattedHeader, ...formattedRows].join('\n');
 	})();
-	
+
 	// Generate HTML for clipboard
 	$: clipboardHtml = (() => {
 		if (!event.timetable || event.timetable.length === 0) return '';
@@ -72,6 +87,7 @@
 		html += `<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 40px;">Length</th>`;
 		html += `<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 225px;">Artist</th>`;
 		html += `</tr></thead><tbody>`;
+		
 		event.timetable.forEach((entry) => {
 			const isSpecialEntry = entry.artist === 'DOORS' || entry.artist === 'CURFEW';
 			const colors = isSpecialEntry ? { bg: '#ffffff', text: '#000000' } : getStatusColors(entry.status);
@@ -87,7 +103,70 @@
 
 	// --- Functions ---
 
-	// Handles the copy action and UI feedback
+	async function handleDownloadPdf(e: MouseEvent) {
+		e.stopPropagation();
+		if (!canEditSetTimes) {
+			popupMessage = 'You do not have permission to download set times';
+			showPopup = true;
+			return;
+		}
+		if (!allConfirmed) {
+			popupMessage = 'All artists must be Confirmed to generate PDF';
+			showPopup = true;
+			return;
+		}
+
+		try {
+			isGeneratingPdf = true;
+			
+			// 1. Fetch auxiliary data
+			pdfData = await fetchSetTimesPdfData(event.event_id, event.event_date);
+
+			// 2. Give Svelte a tick to render the hidden template
+			await new Promise(resolve => setTimeout(resolve, 50));
+
+			const sheetElement = templateContainer?.querySelector('#set-times-print-container');
+			if (!sheetElement) throw new Error('Template element not found.');
+
+			const htmlContent = sheetElement.outerHTML;
+			const fileName = `NCG_SetTimes_${event.event_date}`;
+
+			// 3. Post to API
+			const response = await fetch('/api/generate-settimes-pdf', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ htmlContent, fileName })
+			});
+
+			if (!response.ok) {
+				const errorResult = await response.json().catch(() => ({ error: 'PDF Generation failed' }));
+				throw new Error(errorResult.error || 'PDF Generation failed');
+			}
+
+			// 4. Trigger download in browser
+			const blob = await response.blob();
+			const url = window.URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `${fileName}.pdf`;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			window.URL.revokeObjectURL(url);
+
+			popupMessage = 'PDF Downloaded successfully!';
+			showPopup = true;
+
+		} catch (error) {
+			console.error('Error generating PDF:', error);
+			popupMessage = 'Failed to generate PDF';
+			showPopup = true;
+		} finally {
+			isGeneratingPdf = false;
+			setTimeout(() => { showPopup = false; }, 3000);
+		}
+	}
+
 	async function handleCopyClick(e: MouseEvent) {
 		e.stopPropagation();
 		if (!canEditSetTimes) {
@@ -182,7 +261,6 @@
 		dispatch('show', { eventId: event.event_id });
 	}
 
-	// Corrected function to avoid type error
 	function getStatusColorClass(entry: TimetableEntry): string {
 		let statusToRender = entry.status;
 		const isSpecialEntry = entry.artist === 'DOORS' || entry.artist === 'CURFEW';
@@ -191,7 +269,6 @@
 			if (sharedArtistStatus) {
 				statusToRender = sharedArtistStatus;
 			} else {
-				// If statuses are mixed or no artists, return the default color directly
 				return 'bg-[var(--color-gray2)]';
 			}
 		}
@@ -205,7 +282,6 @@
 		}
 	}
 
-	// Corrected function to avoid type error
 	function getStatusTextColorClass(entry: TimetableEntry): string {
 		let statusToRender = entry.status;
 		const isSpecialEntry = entry.artist === 'DOORS' || entry.artist === 'CURFEW';
@@ -214,7 +290,6 @@
 			if (sharedArtistStatus) {
 				statusToRender = sharedArtistStatus;
 			} else {
-				// If statuses are mixed or no artists, return the default color directly
 				return 'text-[var(--color-gray2)]';
 			}
 		}
@@ -234,6 +309,15 @@
 	];
 	const randomGradient = limeGradients[Math.floor(Math.random() * limeGradients.length)];
 </script>
+
+<div class="hidden" aria-hidden="true" bind:this={templateContainer}>
+	<SetTimesPdfTemplate 
+		eventDate={event.event_date}
+		headlinerName={pdfData.headlinerName}
+		eventType={pdfData.eventType}
+		timetable={event.timetable || []}
+	/>
+</div>
 
 <PopupNotification bind:show={showPopup} message={popupMessage} variant="navbar" iconType="success" />
 
@@ -271,7 +355,33 @@
 				</div>
 
 				{#if event.timetable && event.timetable.length > 0}
-					<div class="flex items-center">
+					<div class="flex items-center gap-1">
+						
+						<button
+							on:click={handleDownloadPdf}
+							class="p-2 rounded-lg transition-all duration-200 flex-shrink-0"
+							class:text-gray2={allConfirmed && canEditSetTimes}
+							class:hover:text-black={allConfirmed && canEditSetTimes}
+							class:hover:bg-lime={allConfirmed && canEditSetTimes}
+							class:opacity-50={!allConfirmed || !canEditSetTimes}
+							class:cursor-not-allowed={!allConfirmed || !canEditSetTimes}
+							class:cursor-pointer={allConfirmed && canEditSetTimes}
+							disabled={!allConfirmed || !canEditSetTimes || isGeneratingPdf}
+							aria-label="Download PDF"
+							title={!canEditSetTimes ? 'No permission' : !allConfirmed ? 'All artists must be Confirmed' : 'Download PDF'}
+						>
+							{#if isGeneratingPdf}
+								<svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								</svg>
+							{:else}
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+									<path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+								</svg>
+							{/if}
+						</button>
+
 						<button
 							on:click={handleCopyClick}
 							class="p-2 rounded-lg transition-all duration-200 flex-shrink-0"

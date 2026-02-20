@@ -167,6 +167,7 @@
 
 			allEvents = (data || []).map((row: any) => ({
 				id: row.id,
+				short_id: row.short_id, 
 				group_id: row.group_id,
 				user_id: row.user_id,
 				date: row.date,
