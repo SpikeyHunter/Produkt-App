@@ -74,6 +74,9 @@
 	"/booking/artistavailability": [],
 	"/booking/talentpayments": [],
 	"/calendar": [],
+	"/calendar/[id]": [
+		"src/routes/calendar/[id]/+page.ts"
+	],
 	"/dashboard": [],
 	"/letter": [],
 	"/login/forgot-password": [],

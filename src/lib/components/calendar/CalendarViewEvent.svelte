@@ -1,378 +1,525 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
-	import type { CalendarEvent } from '$lib/types/calendar-types';
-	import { tick } from 'svelte';
-	import { createEventDispatcher } from 'svelte';
+	import type { CalendarEvent, HoldLevel } from '$lib/types/calendar-types';
+	import { tick, createEventDispatcher } from 'svelte';
 	import { supabase } from '$lib/supabase';
 
 	export let show: boolean;
 	export let event: CalendarEvent | null;
 
 	let dialogEl: HTMLDivElement;
-	let copying = false;
-
+	let saving = false;
 	const dispatch = createEventDispatcher();
+	const holdNumbers = Array.from({ length: 20 }, (_, i) => i + 1);
 
-	const statusStyles: Record<string, string> = {
-		HOLD: 'bg-orange-500/30 text-orange-200 border border-orange-500/50',
-		CONFIRMED: 'bg-lime/30 text-lime border border-lime/50',
-		PENDING: 'bg-yellow-500/30 text-yellow-200 border border-yellow-500/50',
-		CANCELLED: 'bg-red-500/30 text-red-200 border border-red-500/50'
-	};
-	const holdLevelStyles: Record<string, string> = {
-		H1: 'bg-red-500/30 text-red-200',
-		H2: 'bg-orange-500/30 text-orange-200',
-		H3: 'bg-yellow-500/30 text-yellow-200',
-		H4: 'bg-green-500/30 text-green-200',
-		H5: 'bg-blue-500/30 text-blue-200',
-		H6: 'bg-purple-500/30 text-purple-200',
-		P: 'bg-gray-500/30 text-gray-200'
-	};
-	const eventTypeIcons: Record<string, string> = {
-		Show: '🎸',
-		Corpo: '💼',
-		Other: '🎉'
-	};
+	// 🚨 STATE CLONING: Prevents background refreshing while interacting
+	let localEvent: CalendarEvent | null = null;
+	let hasUnsavedChanges = false;
+
+	// Notes Editor State
+	let tempNotes = '';
+	let isEditingNotes = false;
+
+	$: if (show && event && (!localEvent || localEvent.id !== event.id)) {
+		localEvent = JSON.parse(JSON.stringify(event));
+		tempNotes = localEvent?.details?.notes || ''; // <-- Added '?' here
+		isEditingNotes = false;
+		hasUnsavedChanges = false;
+	}
+
+	$: if (!show) {
+		localEvent = null;
+		confirmMode = 'none';
+		hasUnsavedChanges = false;
+		isEditingNotes = false;
+	}
+
+	let confirmMode: 'none' | 'clearSingle' | 'clearAll' | 'confirm' = 'none';
+
+	let sameEventOtherRoomsCount = 0;
+	let otherEventsOnDayCount = 0;
+	let optConfirmAllRooms = false;
+	let optClearOtherHolds = false;
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === 'Escape') {
+		if (e.key === 'Escape') closeModal();
+		if ((e.key === 'Enter' || e.key === ' ') && e.target === dialogEl) {
 			e.preventDefault();
 			closeModal();
 		}
-
-		// Fix for a11y_click_events_have_key_events:
-		// Provide a keyboard equivalent for the `on:click={closeModal}` on the backdrop.
-		// If the backdrop `div` (dialogEl) is focused, 'Enter' or 'Space'
-		// should also close the modal, just like a click.
-		if (e.key === 'Enter' || e.key === ' ') {
-			// We check e.target to make sure this only fires if the dialogEl
-			// (the backdrop) itself is the target, not a button inside it.
-			if (e.target === dialogEl) {
-				e.preventDefault();
-				closeModal();
-			}
-		}
 	}
 
-	function closeModal() {
+	async function closeModal() {
+		if (hasUnsavedChanges) {
+			await flushChanges();
+		}
 		show = false;
 		dispatch('close');
 	}
 
-	function handleEdit() {
-		dispatch('edit', { event });
-		closeModal();
+	function updateHoldLevel(level: HoldLevel) {
+		if (!localEvent) return;
+		localEvent.hold_level = level;
+		localEvent.status = level === 'P' ? 'PENDING' : 'HOLD';
+		hasUnsavedChanges = true;
 	}
 
-	async function handleConfirm() {
-		if (!event) return;
+	function toggleFlag(flag: 'is_target' | 'is_challenge') {
+		if (!localEvent) return;
+		localEvent.details[flag] = !localEvent.details[flag];
+		hasUnsavedChanges = true;
+	}
+
+	function saveNotes() {
+		if (!localEvent) return;
+		localEvent.details.notes = tempNotes;
+		isEditingNotes = false;
+		hasUnsavedChanges = true;
+	}
+
+	function cancelNotes() {
+		if (!localEvent) return;
+		tempNotes = localEvent.details.notes || '';
+		isEditingNotes = false;
+	}
+
+	async function flushChanges() {
+		if (!localEvent || !hasUnsavedChanges) return;
+		saving = true;
 		try {
-			const { error } = await supabase
+			await supabase
 				.from('calendar_events')
 				.update({
-					status: 'CONFIRMED',
-					hold_level: null
+					status: localEvent.status,
+					hold_level: localEvent.hold_level
 				})
-				.eq('calendar_event_id', event.calendar_event_id);
-			if (error) throw error;
-
+				.eq('id', localEvent.id);
+				
+			if (localEvent.group_id) {
+				await supabase
+					.from('calendar')
+					.update({
+						details: localEvent.details,
+						title: localEvent.title
+					})
+					.eq('id', localEvent.group_id);
+			}
 			dispatch('update');
-			closeModal();
 		} catch (err) {
-			console.error('Error confirming event:', err);
+			console.error('Update failed:', err);
+		} finally {
+			saving = false;
+			hasUnsavedChanges = false;
 		}
 	}
 
-	async function copyEventInfo() {
-		if (!event) return;
-		copying = true;
-		let clipboardText = `Event: ${event.title}\n`;
-		if (event.artist_name) clipboardText += `Artist: ${event.artist_name}\n`;
-		clipboardText += `Date: ${new Date(event.date + 'T00:00:00').toLocaleDateString('en-US', {
-			weekday: 'long',
-			year: 'numeric',
-			month: 'long',
-			day: 'numeric'
-		})}\n`;
-		if (event.start_time) {
-			clipboardText += `Time: ${event.start_time}`;
-			if (event.end_time) clipboardText += ` - ${event.end_time}`;
-			clipboardText += '\n';
-		}
-		clipboardText += `Status: ${event.status}`;
-		if (event.hold_level) clipboardText += ` (${event.hold_level})`;
-		clipboardText += '\n';
-		if (event.venue_category) {
-			clipboardText += `Venue: ${event.venue_category}`;
-			if (event.venue_room) clipboardText += ` - ${event.venue_room}`;
-			clipboardText += '\n';
-		}
-		if (event.notes) clipboardText += `\nNotes: ${event.notes}`;
-
+	async function executeClearSingle() {
+		if (!localEvent) return;
+		saving = true;
 		try {
-			await navigator.clipboard.writeText(clipboardText);
-			setTimeout(() => (copying = false), 1000);
-		} catch (err) {
-			console.error('Failed to copy:', err);
-			copying = false;
+			const { count } = await supabase
+				.from('calendar_events')
+				.select('*', { count: 'exact', head: true })
+				.eq('group_id', localEvent.group_id)
+				.neq('id', localEvent.id);
+
+			if (count === 0 && localEvent.group_id) {
+				await supabase.from('calendar').delete().eq('id', localEvent.group_id);
+			} else {
+				await supabase.from('calendar_events').delete().eq('id', localEvent.id);
+			}
+			dispatch('update');
+			show = false;
+		} catch (e) {
+			console.error(e);
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function executeClearAll() {
+		if (!localEvent || !localEvent.group_id) return;
+		saving = true;
+		try {
+			const { count } = await supabase
+				.from('calendar_events')
+				.select('*', { count: 'exact', head: true })
+				.eq('group_id', localEvent.group_id)
+				.eq('status', 'CONFIRMED');
+
+			if (count === 0) {
+				await supabase.from('calendar').delete().eq('id', localEvent.group_id);
+			} else {
+				await supabase
+					.from('calendar_events')
+					.delete()
+					.eq('group_id', localEvent.group_id)
+					.neq('status', 'CONFIRMED');
+			}
+			dispatch('update');
+			show = false;
+		} catch (e) {
+			console.error(e);
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function setupConfirm() {
+		if (!localEvent) return;
+		saving = true;
+		try {
+			const { data } = await supabase
+				.from('calendar_events')
+				.select('id, group_id')
+				.eq('date', localEvent.date)
+				.in('status', ['HOLD', 'PENDING']);
+
+			if (data) {
+				sameEventOtherRoomsCount = data.filter(
+					(d) => d.group_id === localEvent?.group_id && d.id !== localEvent?.id
+				).length;
+				otherEventsOnDayCount = data.filter((d) => d.group_id !== localEvent?.group_id).length;
+			}
+			optConfirmAllRooms = false;
+			optClearOtherHolds = false;
+			confirmMode = 'confirm';
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function executeConfirm() {
+		if (!localEvent) return;
+		saving = true;
+		try {
+			await supabase
+				.from('calendar_events')
+				.update({ status: 'CONFIRMED', hold_level: null })
+				.eq('id', localEvent.id);
+
+			await supabase
+				.from('calendar_events')
+				.update({ status: 'HIDDEN' })
+				.eq('group_id', localEvent.group_id)
+				.in('status', ['HOLD', 'PENDING'])
+				.neq('id', localEvent.id)
+				.neq('date', localEvent.date);
+
+			if (sameEventOtherRoomsCount > 0) {
+				if (optConfirmAllRooms) {
+					await supabase
+						.from('calendar_events')
+						.update({ status: 'CONFIRMED', hold_level: null })
+						.eq('group_id', localEvent.group_id)
+						.eq('date', localEvent.date)
+						.in('status', ['HOLD', 'PENDING']);
+				} else {
+					await supabase
+						.from('calendar_events')
+						.update({ status: 'HIDDEN' })
+						.eq('group_id', localEvent.group_id)
+						.eq('date', localEvent.date)
+						.in('status', ['HOLD', 'PENDING'])
+						.neq('id', localEvent.id);
+				}
+			}
+
+			if (optClearOtherHolds && otherEventsOnDayCount > 0) {
+				await supabase
+					.from('calendar_events')
+					.update({ status: 'HIDDEN' })
+					.eq('date', localEvent.date)
+					.neq('group_id', localEvent.group_id)
+					.in('status', ['HOLD', 'PENDING']);
+			}
+
+			dispatch('update');
+			show = false;
+		} catch (e) {
+			console.error(e);
+		} finally {
+			saving = false;
 		}
 	}
 
 	$: if (show && dialogEl) {
-		tick().then(() => {
-			dialogEl.focus();
-		});
+		tick().then(() => dialogEl.focus());
 	}
 </script>
 
-{#if show && event}
+{#if show && localEvent}
 	<div
 		bind:this={dialogEl}
-		class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 outline-none"
-		style="z-index: 9999;"
-		transition:fade={{ duration: 250, easing: cubicOut }}
+		class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 outline-none z-[9999]"
+		transition:fade={{ duration: 200, easing: cubicOut }}
 		on:click|self={closeModal}
 		on:keydown={handleKeydown}
 		role="button"
-		aria-label="Close modal"
 		tabindex="0"
+		aria-label="Close modal backdrop"
 	>
 		<div
-			class="bg-gray1 rounded-2xl max-w-lg w-full relative shadow-2xl border border-gray2/20 transform"
+			class="bg-gray1 rounded-2xl max-w-md w-full relative shadow-2xl border border-gray2/20 flex flex-col max-h-[90vh] overflow-hidden"
 			transition:fly={{ y: 20, duration: 250, easing: cubicOut }}
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="event-title"
 		>
-			<div class="flex items-start justify-between p-6 pb-4 border-b border-gray2/20">
-				<div class="flex items-start gap-3 flex-1">
-					<span class="text-2xl mt-1">{eventTypeIcons[event.event_type]}</span>
-					<div class="flex-1">
-						<h3 id="event-title" class="text-xl font-bold text-white flex items-center gap-2">
-							{event.title}
-							{#if event.is_challenge}
-								<span class="text-red-400 text-sm" title="Challenge">⚡</span>
-							{/if}
-							{#if event.is_target}
-								<span class="text-green-400 text-sm" title="Target">🎯</span>
-							{/if}
-							{#if event.is_matinee}
-								<span class="text-blue-400 text-xs px-2 py-0.5 bg-blue-500/20 rounded-full"
-									>Matinee</span
-								>
-							{/if}
-						</h3>
-						{#if event.artist_name}
-							<p class="text-sm text-gray2 mt-1">{event.artist_name}</p>
-						{/if}
-					</div>
+			<div class="flex items-start justify-between p-6 pb-4 shrink-0">
+				<div>
+					<h3 class="text-xl font-black text-white leading-tight uppercase tracking-wide">
+						{localEvent.title}
+					</h3>
+					<p class="text-sm font-bold text-gray2 mt-1">
+						{new Date(localEvent.date + 'T00:00:00').toLocaleDateString('en-US', {
+							weekday: 'long',
+							month: 'long',
+							day: 'numeric',
+							year: 'numeric'
+						})}
+					</p>
 				</div>
 				<button
-					class="p-2 text-gray-400 hover:text-white hover:bg-gray2/10 rounded-lg transition-colors"
+					class="text-gray2 hover:text-white transition-colors cursor-pointer"
 					on:click={closeModal}
+					disabled={saving}
 					aria-label="Close modal"
 				>
-					<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-						<line x1="18" y1="6" x2="6" y2="18"></line>
-						<line x1="6" y1="6" x2="18" y2="18"></line>
+					<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
 					</svg>
 				</button>
 			</div>
 
-			<div class="p-6 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
-				<div class="flex items-center gap-3 flex-wrap">
-					<div class="flex items-center gap-2">
-						<span class="text-sm font-semibold text-gray2">Status:</span>
-						<span class="px-3 py-1 rounded-full text-xs font-bold {statusStyles[event.status]}">
-							{event.status}
-						</span>
+			<div class="border-b border-gray2/20 mx-6"></div>
+
+			<div class="px-6 py-4 flex items-center justify-between border-b border-gray2/10 shrink-0">
+				<div class="flex items-center gap-2">
+					<svg class="w-5 h-5 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+						<circle cx="12" cy="10" r="3"></circle>
+					</svg>
+					<p class="text-sm font-bold text-white">
+						{localEvent.venue.category || 'No Venue'}
+						{#if localEvent.venue.room}
+							<span class="text-gray2 font-normal">/ {localEvent.venue.room}</span>
+						{/if}
+					</p>
+				</div>
+				<button
+					class="text-sm font-bold text-lime hover:underline flex items-center gap-1 cursor-pointer"
+					aria-label="View Event Details"
+				>
+					View Event 
+					<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline>
+					</svg>
+				</button>
+			</div>
+
+			{#if confirmMode === 'none'}
+				<div class="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
+					<div>
+						<p class="text-sm font-bold text-gray2 mb-3">Hold Level</p>
+						<div class="grid grid-cols-7 gap-2">
+							<button
+								class="py-2 rounded-2xl text-sm font-bold border transition-all cursor-pointer {localEvent.hold_level === 'P'
+									? 'bg-lime text-black border-lime'
+									: 'bg-black/50 text-gray2 border-gray2/30 hover:border-gray2 hover:text-white'}"
+								on:click={() => updateHoldLevel('P')}>P</button>
+							{#each holdNumbers as num}
+								<button
+									class="py-2 rounded-2xl text-sm font-bold border transition-all cursor-pointer {localEvent.hold_level === `H${num}`
+										? 'bg-lime text-black border-lime'
+										: 'bg-black/50 text-gray2 border-gray2/30 hover:border-gray2 hover:text-white'}"
+									on:click={() => updateHoldLevel(`H${num}` as HoldLevel)}>{num}</button>
+							{/each}
+						</div>
 					</div>
 
-					{#if event.hold_level}
-						<div class="flex items-center gap-2">
-							<span class="text-sm font-semibold text-gray2">Hold:</span>
-							<span
-								class="px-3 py-1 rounded-full text-xs font-bold {holdLevelStyles[event.hold_level]}"
+					<div class="flex flex-col gap-4">
+						<button 
+							class="w-full py-3 rounded-2xl border border-gray2/30 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2 hover:bg-white/5 cursor-pointer"
+							on:click={() => { dispatch('manageHolds'); }}
+						>
+							<svg class="w-4 h-4 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline>
+							</svg>
+							Manage Holds
+						</button>
+
+						<div class="grid grid-cols-2 gap-3">
+							<button
+								class="py-2.5 rounded-2xl border font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer {localEvent.details.is_target
+									? 'text-confirmed border-confirmed bg-transparent'
+									: 'border-gray2/30 text-gray2 bg-transparent hover:text-white hover:border-gray2'}"
+								on:click={() => toggleFlag('is_target')}
 							>
-								{event.hold_level}
-							</span>
+								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle>
+								</svg>
+								{localEvent.details.is_target ? 'Remove Target' : 'Add Target'}
+							</button>
+							
+							<button
+								class="py-2.5 rounded-2xl border font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer {localEvent.details.is_challenge
+									? 'text-tentatif border-tentatif bg-transparent'
+									: 'border-gray2/30 text-gray2 bg-transparent hover:text-white hover:border-gray2'}"
+								on:click={() => toggleFlag('is_challenge')}
+							>
+								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+								</svg>
+								{localEvent.details.is_challenge ? 'Remove Challenge' : 'Challenge Hold'}
+							</button>
 						</div>
-					{/if}
+					</div>
+
+					<div>
+						<p class="text-[10px] font-bold text-gray2 uppercase mb-1 ml-1">Event Description</p>
+						<div class="relative">
+							<textarea
+								bind:value={tempNotes}
+								on:input={() => isEditingNotes = true}
+								rows="4"
+								placeholder="Add notes..."
+								class="w-full px-4 py-3 bg-black/50 border border-gray2/30 rounded-2xl text-white placeholder-gray2/50 focus:border-lime focus:outline-none resize-none transition-colors"
+							></textarea>
+							
+							{#if isEditingNotes}
+								<div class="flex justify-end gap-2 mt-2" transition:fade={{duration: 150}}>
+									<button class="w-8 h-8 flex items-center justify-center rounded-lg border border-problem/50 text-problem hover:bg-problem/10 transition-colors cursor-pointer" on:click={cancelNotes} aria-label="Cancel edit">
+										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+										</svg>
+									</button>
+									<button class="w-8 h-8 flex items-center justify-center rounded-lg border border-lime/50 text-lime hover:bg-lime/10 transition-colors cursor-pointer" on:click={saveNotes} aria-label="Save edits">
+										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+											<polyline points="20 6 9 17 4 12"></polyline>
+										</svg>
+									</button>
+								</div>
+							{/if}
+						</div>
+					</div>
 				</div>
 
-				<div class="grid grid-cols-2 gap-4">
-					<div>
-						<span class="text-sm font-semibold text-gray2">Date:</span>
-						<p class="text-white mt-1">
-							{new Date(event.date + 'T00:00:00').toLocaleDateString('en-US', {
-								weekday: 'long',
-								year: 'numeric',
-								month: 'long',
-								day: 'numeric'
-							})}
-						</p>
+				<div class="p-6 border-t border-gray2/20 flex gap-3 shrink-0">
+					<button
+						class="flex-1 py-3 px-2 border border-problem/50 text-problem font-bold text-sm rounded-2xl hover:bg-problem/10 transition-colors cursor-pointer"
+						on:click={() => (confirmMode = 'clearAll')}>Clear All Holds</button>
+					<button
+						class="flex-1 py-3 px-2 border border-gray2/30 text-gray2 hover:text-white font-bold text-sm rounded-2xl hover:bg-gray2/10 transition-colors cursor-pointer"
+						on:click={() => (confirmMode = 'clearSingle')}>Clear Hold</button>
+					<button
+						class="flex-1 py-3 px-2 bg-lime text-black font-bold text-sm rounded-2xl hover:bg-lime/90 transition-colors cursor-pointer"
+						on:click={setupConfirm}
+						disabled={saving}>Confirm</button>
+				</div>
+
+			{:else if confirmMode === 'clearSingle' || confirmMode === 'clearAll'}
+				<div class="p-8 flex-1 flex flex-col items-center justify-center text-center">
+					<div class="w-16 h-16 rounded-full bg-problem/10 flex items-center justify-center mb-6">
+						<svg class="w-8 h-8 text-problem" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+    <line x1="12" y1="9" x2="12" y2="13"></line>
+    <line x1="12" y1="17" x2="12.01" y2="17"></line>
+</svg>
 					</div>
-					{#if event.start_time}
-						<div>
-							<span class="text-sm font-semibold text-gray2">Time:</span>
-							<p class="text-white mt-1">
-								{event.start_time}{#if event.end_time} - {event.end_time}{/if}
+					<h3 class="text-xl font-black text-white mb-2">Are you sure?</h3>
+					<p class="text-sm font-bold text-gray2 mb-8">
+						{confirmMode === 'clearAll'
+							? 'This will permanently wipe all non-confirmed holds associated with this event globally.'
+							: 'This will permanently remove this specific hold from the calendar.'}
+					</p>
+					<div class="flex gap-3 w-full">
+						<button
+							class="flex-1 py-3 bg-transparent border border-gray2/20 text-gray2 font-bold rounded-2xl hover:bg-gray2/10 hover:text-white transition-colors cursor-pointer"
+							on:click={() => (confirmMode = 'none')}>Cancel</button>
+						<button
+							class="flex-1 py-3 bg-problem text-black font-bold rounded-2xl hover:bg-problem/90 transition-colors cursor-pointer"
+							on:click={confirmMode === 'clearAll' ? executeClearAll : executeClearSingle}
+							disabled={saving}>Confirm</button>
+					</div>
+				</div>
+
+			{:else if confirmMode === 'confirm'}
+				<div class="p-6 flex-1 flex flex-col overflow-y-auto custom-scrollbar">
+					<div class="flex items-center gap-3 mb-6">
+						<div class="w-10 h-10 rounded-full bg-lime/20 flex items-center justify-center shrink-0">
+							<span class="text-lime font-black text-xl">✓</span>
+						</div>
+						<div class="text-left">
+							<h3 class="text-lg font-black text-white">Confirm Event</h3>
+							<p class="text-[11px] font-bold text-gray2">
+								Finalizing this date will auto-hide alternate holds for this event.
 							</p>
 						</div>
-					{/if}
-				</div>
-
-				{#if event.venue_category || event.venue_room}
-					<div>
-						<span class="text-sm font-semibold text-gray2">Venue:</span>
-						<p class="text-white mt-1">
-							{event.venue_category || ''}
-							{#if event.venue_category && event.venue_room} - {/if}
-							{event.venue_room || ''}
-						</p>
 					</div>
-				{/if}
 
-				{#if event.tour_name || event.contact_name}
-					<div class="grid grid-cols-2 gap-4">
-						{#if event.tour_name}
-							<div>
-								<span class="text-sm font-semibold text-gray2">Tour:</span>
-								<p class="text-white mt-1">{event.tour_name}</p>
+					<div class="space-y-3 mb-8">
+						{#if sameEventOtherRoomsCount > 0}
+							<label class="flex items-start gap-3 p-4 bg-gray1/50 border border-gray2/20 rounded-xl cursor-pointer hover:bg-gray2/10 transition-colors {optConfirmAllRooms ? 'border-lime/50 bg-lime/5' : ''}">
+								<div class="relative flex items-center justify-center w-5 h-5 mt-0.5 rounded transition-all {optConfirmAllRooms ? 'bg-lime border-lime' : 'border-2 border-gray2 bg-transparent'}" aria-hidden="true">
+									{#if optConfirmAllRooms}
+										<svg class="w-3.5 h-3.5 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+											<polyline points="20 6 9 17 4 12"></polyline>
+										</svg>
+									{/if}
+								</div>
+								<p class="text-sm font-bold text-white leading-tight">Confirm all holds for the same venue for this event</p>
+								<input type="checkbox" class="hidden" bind:checked={optConfirmAllRooms} aria-label="Confirm all holds for the same venue for this event"/>
+							</label>
+						{/if}
+
+						{#if otherEventsOnDayCount > 0}
+							<label class="flex items-start gap-3 p-4 bg-gray1/50 border border-gray2/20 rounded-xl cursor-pointer hover:bg-gray2/10 transition-colors {optClearOtherHolds ? 'border-lime/50 bg-lime/5' : ''}">
+								<div class="relative flex items-center justify-center w-5 h-5 mt-0.5 rounded transition-all {optClearOtherHolds ? 'bg-lime border-lime' : 'border-2 border-gray2 bg-transparent'}" aria-hidden="true">
+									{#if optClearOtherHolds}
+										<svg class="w-3.5 h-3.5 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+											<polyline points="20 6 9 17 4 12"></polyline>
+										</svg>
+									{/if}
+								</div>
+								<p class="text-sm font-bold text-white leading-tight">Clear all relevant holds (including pending) on this day</p>
+								<input type="checkbox" class="hidden" bind:checked={optClearOtherHolds} aria-label="Clear all relevant holds including pending on this day"/>
+							</label>
+						{/if}
+
+						{#if sameEventOtherRoomsCount === 0 && otherEventsOnDayCount === 0}
+							<div class="py-8 text-center">
+								<p class="text-sm font-bold text-gray2">No scheduling conflicts detected for this date!</p>
 							</div>
 						{/if}
-						{#if event.contact_name}
-							<div>
-								<span class="text-sm font-semibold text-gray2">Contact:</span>
-								<p class="text-white mt-1">
-									{event.contact_name}
-									{#if event.contact_email}
-										<br /><span class="text-sm text-gray3">{event.contact_email}</span>
-									{/if}
-									{#if event.contact_phone}
-										<br /><span class="text-sm text-gray3">{event.contact_phone}</span>
-									{/if}
-								</p>
-							</div>
-						{/if}
 					</div>
-				{/if}
 
-				<div>
-					<span class="text-sm font-semibold text-gray2">Event Type:</span>
-					<p class="text-white mt-1">{event.event_type}</p>
-				</div>
-
-				{#if event.notes}
-					<div>
-						<span class="text-sm font-semibold text-gray2">Notes:</span>
-						<p class="text-gray3 mt-1 text-sm leading-relaxed whitespace-pre-wrap">
-							{event.notes}
-						</p>
-					</div>
-				{/if}
-
-				<div class="pt-3 border-t border-gray2/10 text-xs text-gray2">
-					{#if event.created_at}
-						Created: {new Date(event.created_at).toLocaleDateString()}
-					{/if}
-					{#if event.updated_at && event.updated_at !== event.created_at}
-						• Updated: {new Date(event.updated_at).toLocaleDateString()}
-					{/if}
-				</div>
-			</div>
-
-			<div class="flex gap-3 p-6 pt-4 border-t border-gray2/20">
-				{#if event.status === 'HOLD' || event.status === 'PENDING'}
-					<button
-						class="flex-1 px-4 py-2 bg-lime text-black font-bold rounded-xl 
-						       hover:bg-lime/90 transition-colors cursor-pointer"
-						on:click={handleConfirm}
-					>
-						Confirm Hold
-					</button>
-				{/if}
-				<button
-					class="flex-1 px-4 py-2 bg-gray2/20 text-white font-bold rounded-xl 
-					       hover:bg-gray2/30 transition-colors cursor-pointer"
-					on:click={handleEdit}
-				>
-					Edit Event
-				</button>
-				<button
-					class="px-4 py-2 bg-gray2/20 text-white font-bold rounded-xl 
-					       hover:bg-gray2/30 transition-colors cursor-pointer
-					       {copying ? 'bg-lime/30 text-lime' : ''}"
-					on:click={copyEventInfo}
-					title="Copy event details"
-				>
-					{#if copying}
-						✓
-					{:else}
-						<svg
-							class="w-5 h-5"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
+					<div class="mt-auto flex gap-3 w-full shrink-0">
+						<button
+							class="flex-1 py-3 bg-transparent border border-gray2/20 text-gray2 font-bold rounded-2xl hover:bg-gray2/10 hover:text-white transition-colors cursor-pointer"
+							on:click={() => (confirmMode = 'none')}>Cancel</button>
+						<button
+							class="flex-[1.5] py-3 bg-lime text-black font-bold rounded-2xl hover:bg-lime/90 transition-colors cursor-pointer flex justify-center items-center"
+							on:click={executeConfirm}
+							disabled={saving}
 						>
-							<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-							<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-						</svg>
-					{/if}
-				</button>
-			</div>
+							{#if saving}<div class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"></div>{/if}
+							Confirm Event
+						</button>
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}
 
 <style>
-	/* Custom animations for smooth transitions */
-	@keyframes fadeIn {
-		from {
-			opacity: 0;
-		}
-		to {
-			opacity: 1;
-		}
-	}
-
-	@keyframes slideUp {
-		from {
-			transform: translateY(20px);
-			opacity: 0;
-		}
-		to {
-			transform: translateY(0);
-			opacity: 1;
-		}
-	}
-
-	/* Apply animations when modal opens */
-	[role='button'] {
-		animation: fadeIn 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
-	}
-
-	[role='dialog'] {
-		animation: slideUp 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
-	}
-
 	.custom-scrollbar::-webkit-scrollbar {
-		width: 8px;
+		width: 4px;
 	}
-
-	.custom-scrollbar::-webkit-scrollbar-track {
-		background: rgba(255, 255, 255, 0.05);
-		border-radius: 4px;
-	}
-
 	.custom-scrollbar::-webkit-scrollbar-thumb {
-		background: rgba(255, 255, 255, 0.2);
-		border-radius: 4px;
+		background: rgba(247, 247, 247, 0.15);
+		border-radius: 10px;
 	}
-
 	.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-		background: rgba(225, 255, 0, 0.5);
+		background: var(--color-lime);
 	}
 </style>
