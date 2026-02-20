@@ -6,7 +6,8 @@ import { dev } from '$app/environment';
 // If you want to use the local static path natively, you would read the file system using 'fs',
 // but fetching via your app's URL is the easiest way to get it as a buffer.
 // Note: Make sure to replace this with your actual production logo URL or read locally via fs in SvelteKit.
-const LOGO_URL = 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO_lockup.png';
+const LOGO_URL =
+	'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO_lockup.png';
 
 export const POST: RequestHandler = async ({ request, url }) => {
 	let { htmlContent, fileName } = await request.json();
@@ -51,33 +52,36 @@ export const POST: RequestHandler = async ({ request, url }) => {
 		}
 
 		const page = await browser.newPage();
-		
+
 		await page.setViewportSize({ width: 816, height: 1056 });
 
 		const fullHtml = `
-			<!DOCTYPE html>
-			<html lang="en">
-				<head>
-					<meta charset="UTF-8">
-					<meta name="viewport" content="width=device-width, initial-scale=1.0">
-					<title>Set Times</title>
-					<style>
-						* {
-							-webkit-print-color-adjust: exact !important;
-							print-color-adjust: exact !important;
-						}
-						html, body {
-							margin: 0;
-							padding: 0;
-							background-color: white !important;
-						}
-					</style>
-				</head>
-				<body>
-					${htmlContent}
-				</body>
-			</html>
-		`;
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8">
+			<meta name="viewport" content="width=device-width, initial-scale=1.0">
+			<title>Set Times</title>
+			<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap" rel="stylesheet">
+			<style>
+				* {
+					-webkit-print-color-adjust: exact !important;
+					print-color-adjust: exact !important;
+				}
+				html, body {
+					margin: 0;
+					padding: 0;
+					background-color: white !important;
+					/* Force Inter */
+					font-family: 'Inter', Helvetica, Arial, sans-serif !important;
+				}
+			</style>
+		</head>
+		<body>
+			${htmlContent}
+		</body>
+	</html>
+`;
 
 		await page.setContent(fullHtml, { waitUntil: 'networkidle' });
 
@@ -88,7 +92,6 @@ export const POST: RequestHandler = async ({ request, url }) => {
 			margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
 			displayHeaderFooter: false
 		});
-		
 
 		return new Response(new Uint8Array(pdfBuffer), {
 			status: 200,
@@ -97,11 +100,13 @@ export const POST: RequestHandler = async ({ request, url }) => {
 				'Content-Disposition': `attachment; filename="${fileName}.pdf"`
 			}
 		});
-
 	} catch (error) {
 		console.error('PDF Generation Error:', error);
 		if (error instanceof Error) {
-			return json({ error: `Failed to generate PDF. Server error: ${error.message}` }, { status: 500 });
+			return json(
+				{ error: `Failed to generate PDF. Server error: ${error.message}` },
+				{ status: 500 }
+			);
 		}
 		return json({ error: 'An unknown error occurred during PDF generation.' }, { status: 500 });
 	} finally {
