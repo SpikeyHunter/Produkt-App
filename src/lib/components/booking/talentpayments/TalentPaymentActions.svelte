@@ -22,6 +22,7 @@
 	let isUploading = false;
 	let isConfirmingApprove = false;
 	let isGeneratingEml = false;
+	let isGeneratingSpark = false;
 	let statusDropdownOpen = false;
 
 	let notificationMessage = '';
@@ -335,6 +336,69 @@
 		}
 	}
 
+	async function handleSparkEmail() {
+		if (!invoiceUrl) return;
+		isGeneratingSpark = true;
+
+		try {
+			// Update the Database Status locally and to server instantly
+			status = 'Submitted';
+			await updatePaymentField('status', 'Submitted');
+
+			// 1. Format details for the email
+			const ccList = ['charles@produkt.ca', 'mezz@produkt.ca', 'willis@produkt.ca']
+				.filter((email) => email !== currentUserProfile?.email)
+				.join(','); // mailto uses strictly commas for multiple emails
+
+			const formattedDate = formatEventDate(eventDate);
+			const subject = `DJ Invoice - ${advance?.artist_name || 'Artist'} - ${formattedDate}`;
+			const approvalText = approvedBy ? `Approved by ${approvedBy}` : 'To be Approved';
+
+			const bodyText = `Hi Rachelle,\n\nHere's a DJ invoice for ${advance?.artist_name || 'Artist'} for the performance on ${formattedDate}.\n\n${approvalText}\n\nThanks,\n${currentUserProfile?.first_name || 'Team'}`;
+
+			// NEW: Fetch the authenticated user's email directly from Supabase Auth
+			const {
+				data: { user },
+				error: authError
+			} = await supabase.auth.getUser();
+			if (authError) console.warn('Could not fetch user from auth:', authError);
+
+			// Use the auth user email first, fallback to the profile prop if needed
+			const fromEmail = user?.email || currentUserProfile?.email;
+
+			// 2. Open default mail client (Spark) with pre-filled TO, CC, Subject, Body
+			let mailtoLink = `mailto:comptabilite@newcitygas.com?cc=${encodeURIComponent(ccList)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
+
+			// Append the From address if we successfully retrieved one
+			if (fromEmail) {
+				mailtoLink += `&from=${encodeURIComponent(fromEmail)}`;
+			}
+
+			window.location.href = mailtoLink;
+
+			// 3. Fetch and Download the PDF automatically
+			const response = await fetch(invoiceUrl);
+			if (!response.ok) throw new Error('Failed to fetch invoice PDF');
+			const blobFile = await response.blob();
+
+			const cleanFileName = `Invoice_${(advance?.artist_name || 'Artist').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+			const blobUrl = URL.createObjectURL(blobFile);
+
+			const a = document.createElement('a');
+			a.href = blobUrl;
+			a.download = cleanFileName;
+			document.body.appendChild(a);
+			a.click();
+			document.body.removeChild(a);
+			URL.revokeObjectURL(blobUrl);
+		} catch (error) {
+			console.error('Failed to generate Spark email:', error);
+			alert('Error preparing email or downloading the PDF.');
+		} finally {
+			isGeneratingSpark = false;
+		}
+	}
+
 	function portal(node: HTMLElement, target: string = 'body') {
 		// Svelte actions only run in the browser, so 'document' is safe here
 		const targetEl = document.querySelector(target);
@@ -571,15 +635,15 @@
 				</button>
 			{/if}
 
-			<div class="mt-6 pt-6 border-t border-gray1/50">
+			<div class="mt-6 pt-6 border-t border-gray1/50 flex flex-col gap-3">
 				<button
 					on:click={generateEml}
 					disabled={!invoiceUrl ||
 						!['invoiced', 'approved', 'submitted', 'paid'].includes(status?.toLowerCase()) ||
-						isGeneratingEml}
+						isGeneratingEml ||
+						isGeneratingSpark}
 					class="w-full py-4 rounded-2xl font-bold text-sm transition-all shadow-lg flex items-center justify-center gap-2
-                    {!invoiceUrl ||
-					!['invoiced', 'approved', 'submitted', 'paid'].includes(status?.toLowerCase())
+					{!invoiceUrl || !['invoiced', 'approved', 'submitted', 'paid'].includes(status?.toLowerCase())
 						? 'bg-gray1 text-gray2 cursor-not-allowed opacity-80'
 						: 'bg-gray2 text-black hover:bg-lime hover:text-black cursor-pointer'}"
 				>
@@ -598,6 +662,35 @@
 							></path></svg
 						>
 						<span>Email Invoice to Accounting</span>
+					{/if}
+				</button>
+
+				<button
+					on:click={handleSparkEmail}
+					disabled={!invoiceUrl ||
+						!['invoiced', 'approved', 'submitted', 'paid'].includes(status?.toLowerCase()) ||
+						isGeneratingEml ||
+						isGeneratingSpark}
+					class="w-full py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center justify-center gap-2 border border-gray2
+					{!invoiceUrl || !['invoiced', 'approved', 'submitted', 'paid'].includes(status?.toLowerCase())
+						? 'text-gray2 cursor-not-allowed opacity-80'
+						: 'text-white hover:border-lime hover:text-lime cursor-pointer bg-transparent'}"
+				>
+					{#if isGeneratingSpark}
+						<div
+							class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"
+						></div>
+						<span>Preparing Email...</span>
+					{:else}
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+							><path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M13 10V3L4 14h7v7l9-11h-7z"
+							></path></svg
+						>
+						<span>Email using Spark</span>
 					{/if}
 				</button>
 			</div>
