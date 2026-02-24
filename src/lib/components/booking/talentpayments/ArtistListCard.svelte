@@ -26,28 +26,19 @@
         maximumFractionDigits: 0
     });
 
-// Helper to format date like "Feb 13th 2025"
+    // Helper to format date like "Feb 13th 2025"
     function getFormattedDate(dateStr: string) {
         if (!dateStr) return '';
-
-        // FIX: Extract just the YYYY-MM-DD part and replace hyphens with slashes.
-        // This forces JS to parse the date in the local timezone instead of UTC.
-        const cleanDateStr = dateStr.split('T')[0].replace(/-/g, '/');
-        const date = new Date(cleanDateStr);
-
+        const date = new Date(dateStr);
         const day = date.getDate();
         const month = date.toLocaleDateString('en-US', { month: 'short' });
         const year = date.getFullYear();
 
         // Determine suffix (st, nd, rd, th)
-        const suffix = (day > 3 && day < 21) ?
-            'th' :
-            (day % 10 === 1) ?
-            'st' :
-            (day % 10 === 2) ?
-            'nd' :
-            (day % 10 === 3) ?
-            'rd' : 'th';
+        const suffix = (day > 3 && day < 21) ? 'th' :
+            (day % 10 === 1) ? 'st' :
+            (day % 10 === 2) ? 'nd' :
+            (day % 10 === 3) ? 'rd' : 'th';
 
         return `${month} ${day}${suffix} ${year}`;
     }

@@ -3,7 +3,6 @@
 
 	export let events: any[] = [];
 	export let loading = false;
-
 	// Controlled by Parent
 	export let mode: 'EVENT' | 'ALL' = 'EVENT';
 	export let timeFilter: 'ALL' | 'LIVE' | 'PAST' = 'ALL';
@@ -14,10 +13,9 @@
 	let listContainer: HTMLElement;
 
 	const timeFilterOptions: ('LIVE' | 'PAST' | 'ALL')[] = ['LIVE', 'PAST', 'ALL'];
-
-	// Auto-Scroll: Only triggers when selectedEventId actually changes
+	
+    // Auto-Scroll: Only triggers when selectedEventId actually changes
 	let lastScrolledId: number | null = null;
-
 	$: if (selectedEventId && listContainer && selectedEventId !== lastScrolledId) {
 		scrollToEvent(selectedEventId);
 	}
@@ -41,7 +39,7 @@
 		'piknic',
 		'oktoberfest'
 	];
-
+    
 	// Split Logic
 	let liveEvents: any[] = [];
 	let pastEvents: any[] = [];
@@ -64,11 +62,9 @@
 			}
 			return true;
 		});
-
 		liveEvents = filtered
 			.filter((e) => new Date(e.event_date) >= today)
 			.sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime());
-
 		pastEvents = filtered
 			.filter((e) => new Date(e.event_date) < today)
 			.sort((a, b) => new Date(b.event_date).getTime() - new Date(a.event_date).getTime());
@@ -84,7 +80,11 @@
 
 	function formatDate(dateString: string): string {
 		if (!dateString) return 'TBD';
-		return new Date(dateString).toLocaleDateString('en-US', {
+        // FIXED: Using local timezone trick to match ArtistListCard
+        const cleanDateStr = dateString.split('T')[0].replace(/-/g, '/');
+        const date = new Date(cleanDateStr);
+
+		return date.toLocaleDateString('en-US', {
 			month: 'short',
 			day: 'numeric',
 			year: 'numeric'
