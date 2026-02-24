@@ -1,136 +1,580 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import Modal from '$lib/components/modals/Modal.svelte';
-	import Button from '$lib/components/buttons/Button.svelte';
+	import { slide, fade } from 'svelte/transition';
 	import { supabase } from '$lib/supabase';
-	import type { CalendarEvent, HoldLevel } from '$lib/types/calendar-types';
+	import type { CalendarEvent, HoldLevel, VenueSettings } from '$lib/types/calendar-types';
 
 	export let isOpen: boolean = false;
 	export let events: CalendarEvent[] = [];
-	export let selectedDate: Date = new Date();
-	
-	// Fixes unused export warning safely
-	$: _date = selectedDate; 
+	export let venues: VenueSettings[] = [];
+	export let draftEvents: CalendarEvent[] = [];
+	export let deletedIds: string[] = [];
 
-	let editedEvents = [...events];
-	let saving = false;
-	let bulkAction: 'none' | 'clear' | 'restore' | 'delete' = 'none';
-	let selectedEventIds: Set<string> = new Set();
+	// Ensure this is accepted as a prop!
+	export let toggleDateTrigger: { date: string; ts: number } | null = null;
+
 	const dispatch = createEventDispatcher();
 
-	const holdLevels: (HoldLevel | 'CONFIRMED')[] = ['P', ...Array.from({length: 20}, (_, i) => `H${i+1}` as HoldLevel), 'CONFIRMED'];
+	let saving = false;
+	let holdPickerRef: HTMLElement;
+	let activeHoldPicker: string | 'bulk' | null = null;
+	const holdLevelsGrid = ['P', ...Array.from({ length: 20 }, (_, i) => `H${i + 1}`)];
 
-	$: if (isOpen && events) {
-		editedEvents = events.map(e => JSON.parse(JSON.stringify(e)));
-		selectedEventIds.clear();
+	// Working state for the modal
+	let drafts: any[] = [];
+	let selectedRows: string[] = [];
+	let isInitialized = false;
+
+	$: allRowsSelected = selectedRows.length === drafts.length && drafts.length > 0;
+
+	// Flatten venues into a simple list of stages for the dropdown
+	$: availableStages = venues.flatMap((v) => {
+		let stages = [];
+		if (typeof v.setting_params === 'string') {
+			try {
+				stages = JSON.parse(v.setting_params).stages;
+			} catch (e) {}
+		} else {
+			stages = v.setting_params?.stages;
+		}
+		return (stages || []).map((s: any) => ({
+			category: v.setting_name,
+			room: s.name,
+			color: s.color
+		}));
+	});
+
+	function getVenueColor(category: string | undefined, room: string | undefined) {
+		if (!category || !room) return '#828282';
+		const stage = availableStages.find((s) => s.category === category && s.room === room);
+		return stage ? stage.color : '#828282';
 	}
+
+	// Only initialize ONCE when opening. Prevents your clicks from being overwritten.
+
+	$: if (isOpen && events && !isInitialized) {
+		if (!saving) {
 	
-	function toggleEventSelection(eventId: string) {
-		if (selectedEventIds.has(eventId)) selectedEventIds.delete(eventId);
-		else selectedEventIds.add(eventId);
-		selectedEventIds = selectedEventIds;
-	}
-	
-	function selectAll() {
-		if (selectedEventIds.size === editedEvents.length) selectedEventIds.clear();
-		else selectedEventIds = new Set(editedEvents.map(e => e.id));
-	}
-	
-	function updateHoldLevel(eventId: string, newLevel: string) {
-		const eventIndex = editedEvents.findIndex(e => e.id === eventId);
-		if (eventIndex !== -1) {
-			if (newLevel === 'CONFIRMED') {
-				editedEvents[eventIndex].status = 'CONFIRMED';
-				editedEvents[eventIndex].hold_level = null;
-			} else if (newLevel === 'P') {
-				editedEvents[eventIndex].status = 'PENDING';
-				editedEvents[eventIndex].hold_level = 'P';
-			} else {
-				editedEvents[eventIndex].status = 'HOLD';
-				editedEvents[eventIndex].hold_level = newLevel as HoldLevel;
-			}
-			editedEvents = editedEvents;
+			drafts = events.map((e) => ({
+				id: e.id,
+				group_id: e.group_id,
+				date: e.date,
+				hold_level: e.hold_level || 'P',
+				allDay: !e.time?.start,
+				start: e.time?.start || '',
+				end: e.time?.end || '',
+				venue: e.venue,
+				venueString: `${e.venue?.category}:::${e.venue?.room}`, // <--- ADD THIS LINE
+				title: e.title,
+				isNew: false
+			}));
+			drafts = drafts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+			deletedIds = [];
+			selectedRows = [];
+			activeHoldPicker = null;
+			isInitialized = true;
 		}
 	}
-	
-	async function applyBulkAction() {
-		if (bulkAction === 'none' || selectedEventIds.size === 0) return;
-		const selectedEvents = editedEvents.filter(e => selectedEventIds.has(e.id));
+
+	// Reset initialization when closed
+	$: if (!isOpen) {
+		isInitialized = false;
+	}
+
+	// NEW: Keeps track of the last click so we don't infinitely loop!
+	let lastProcessedTs = 0;
+
+	// Watcher for calendar body clicks
+	$: if (toggleDateTrigger && toggleDateTrigger.ts !== lastProcessedTs) {
+		lastProcessedTs = toggleDateTrigger.ts; // Lock it so it only runs once
+
 		
-		switch (bulkAction) {
-			case 'clear':
-				selectedEvents.forEach(event => {
-					const idx = editedEvents.findIndex(e => e.id === event.id);
-					if (idx !== -1) { editedEvents[idx].hold_level = null; editedEvents[idx].status = 'CANCELLED'; }
-				}); break;
-			case 'restore':
-				selectedEvents.forEach(event => {
-					const idx = editedEvents.findIndex(e => e.id === event.id);
-					if (idx !== -1) { editedEvents[idx].hold_level = 'H1'; editedEvents[idx].status = 'HOLD'; }
-				}); break;
-			case 'delete':
-				editedEvents = editedEvents.filter(e => !selectedEventIds.has(e.id)); break;
+		const dateStr = toggleDateTrigger.date;
+		const existingDrafts = drafts.filter((d) => d.date === dateStr);
+
+		if (existingDrafts.length > 0) {
+			
+			existingDrafts.forEach((d) => removeDateRow(d.id));
+		} else {
+		
+			// Add new date
+			const baseEvent = events[0] || {};
+			const newId = `new-${Date.now()}`;
+			const baseCategory = baseEvent.venue?.category || '';
+			const baseRoom = baseEvent.venue?.room || '';
+
+			// Copy the exact time settings from the original event
+			const baseAllDay = !baseEvent.time?.start;
+			const baseStart = baseEvent.time?.start || '';
+			const baseEnd = baseEvent.time?.end || '';
+
+			drafts = [
+				...drafts,
+				{
+					id: newId,
+					group_id: baseEvent.group_id,
+					title: baseEvent.title,
+					date: dateStr,
+					hold_level: 'H2',
+					allDay: baseAllDay,
+					start: baseStart,
+					end: baseEnd,
+					venueString: `${baseCategory}:::${baseRoom}`,
+					venue: { category: baseCategory, room: baseRoom }, // <-- Added so UI renders it as static text
+					isNew: true
+				}
+			];
+			drafts = drafts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 		}
-		selectedEventIds.clear(); bulkAction = 'none'; editedEvents = editedEvents;
 	}
-	
-	async function saveChanges() {
+
+	// Reactively sync ALL drafts (new and modified) to `draftEvents` so the calendar body renders them instantly
+	$: {
+		draftEvents = drafts.map((d) => {
+			const [cat, room] = (d.venueString || ':::').split(':::');
+			return {
+				id: d.id,
+				group_id: d.group_id,
+				title: d.title,
+				date: d.date,
+				status: d.hold_level === 'P' ? 'PENDING' : 'HOLD',
+				hold_level: d.hold_level,
+				venue: d.isNew ? { category: cat, room: room } : d.venue || { category: cat, room: room },
+				time: d.allDay ? { start: null, end: null } : { start: d.start, end: d.end },
+				details: events[0]?.details || {},
+				event_details: events[0]?.event_details || { is_target: false, is_challenge: false },
+				isDraft: true
+			};
+		});
+	}
+
+	function closeSidebar() {
+		isOpen = false;
+		drafts = [];
+		draftEvents = [];
+		deletedIds = [];
+		dispatch('close');
+	}
+
+	function handleWindowClick(e: MouseEvent) {
+		if (activeHoldPicker && holdPickerRef && !holdPickerRef.contains(e.target as Node)) {
+			activeHoldPicker = null;
+		}
+	}
+
+	function toggleSelectAllRows() {
+		if (allRowsSelected) selectedRows = [];
+		else selectedRows = drafts.map((d) => d.id);
+	}
+
+	function setBulkAllDay(allDay: boolean) {
+		drafts = drafts.map((d) => {
+			if (selectedRows.includes(d.id)) {
+				return { ...d, allDay };
+			}
+			return d;
+		});
+	}
+
+	function deleteSelectedRows() {
+		const toDelete = selectedRows.filter((id) => !id.startsWith('new-'));
+		deletedIds = [...deletedIds, ...toDelete];
+		drafts = drafts.filter((d) => !selectedRows.includes(d.id));
+		selectedRows = [];
+		if (drafts.length === 0 && deletedIds.length === 0) closeSidebar();
+	}
+
+	function removeDateRow(id: string) {
+		if (!id.startsWith('new-')) {
+			deletedIds = [...deletedIds, id];
+		}
+		drafts = drafts.filter((d) => d.id !== id);
+		selectedRows = selectedRows.filter((rowId) => rowId !== id);
+		if (drafts.length === 0 && deletedIds.length === 0) closeSidebar();
+	}
+
+	function applyHoldSelection(level: HoldLevel) {
+		if (activeHoldPicker === 'bulk') {
+			drafts = drafts.map((d) => {
+				if (selectedRows.includes(d.id)) return { ...d, hold_level: level };
+				return d;
+			});
+		} else if (activeHoldPicker) {
+			drafts = drafts.map((d) => {
+				if (d.id === activeHoldPicker) return { ...d, hold_level: level };
+				return d;
+			});
+		}
+		activeHoldPicker = null;
+	}
+
+	async function saveAction() {
 		saving = true;
 		try {
-			for (const event of editedEvents) {
-				const { error } = await supabase.from('calendar_events').update({ status: event.status, hold_level: event.hold_level, details: event.details }).eq('id', event.id);
-				if (error) throw error;
+			if (deletedIds.length > 0) {
+				await supabase.from('calendar_events').delete().in('id', deletedIds);
 			}
-			
-			const currentIds = editedEvents.map(e => e.id);
-			const toDelete = events.filter(e => !currentIds.includes(e.id));
-			if (toDelete.length > 0) {
-				const { error } = await supabase.from('calendar_events').delete().in('id', toDelete.map(e => e.id));
-				if (error) throw error;
+
+			const toInsert = drafts
+				.filter((d) => d.isNew)
+				.map((d) => {
+					const [cat, room] = (d.venueString || ':::').split(':::');
+					return {
+						group_id: d.group_id,
+						date: d.date,
+						status: d.hold_level === 'P' ? 'PENDING' : 'HOLD',
+						hold_level: d.hold_level,
+						venue: { category: cat, room: room },
+						time: d.allDay ? { start: null, end: null } : { start: d.start, end: d.end },
+						event_details: events[0]?.event_details || { is_target: false, is_challenge: false }
+					};
+				});
+			if (toInsert.length > 0) {
+				await supabase.from('calendar_events').insert(toInsert);
 			}
-			dispatch('update'); closeModal();
-		} catch (err: any) { dispatch('error', { message: err.message || 'Failed to save changes' }); } finally { saving = false; }
-	}
-	
-	function closeModal() {
-		isOpen = false; editedEvents = []; selectedEventIds.clear(); bulkAction = 'none'; dispatch('close');
+
+			const toUpdate = drafts.filter((d) => !d.isNew);
+			for (const draft of toUpdate) {
+				await supabase
+					.from('calendar_events')
+					.update({
+						hold_level: draft.hold_level,
+						status: draft.hold_level === 'P' ? 'PENDING' : 'HOLD',
+						time: draft.allDay ? { start: null, end: null } : { start: draft.start, end: draft.end }
+					})
+					.eq('id', draft.id);
+			}
+
+			dispatch('update');
+			closeSidebar();
+		} catch (err: any) {
+			console.error('Save Error:', err);
+		} finally {
+			saving = false;
+		}
 	}
 </script>
 
-<Modal bind:isOpen title="Manage Holds" maxWidth="max-w-3xl" hasFooter={true} on:close={closeModal}>
-	<div class="space-y-4">
-		<div class="flex items-center justify-between p-3 bg-black/30 rounded-xl">
-			<div class="flex items-center gap-4">
-				<button class="text-sm text-lime font-bold hover:underline transition-colors" on:click={selectAll}>
-					{selectedEventIds.size === editedEvents.length ? 'Deselect All' : 'Select All'}
-				</button>
-				{#if selectedEventIds.size > 0}
-					<select bind:value={bulkAction} on:change={applyBulkAction} class="px-3 py-2 bg-black/50 border border-gray2/30 rounded-lg text-sm text-white focus:outline-none">
-						<option value="none">Bulk Actions...</option>
-						<option value="clear">Clear Selected</option>
-						<option value="restore">Restore Selected</option>
-						<option value="delete">Delete Selected</option>
-					</select>
-				{/if}
+<svelte:window on:click={handleWindowClick} />
+
+{#if isOpen}
+	<div
+		class="w-[380px] h-full flex-shrink-0 bg-gray1 shadow-2xl border border-gray2/10 rounded-xl flex flex-col overflow-hidden z-[10000] relative"
+		transition:slide={{ axis: 'x', duration: 250 }}
+	>
+		<div class="flex items-center justify-between p-4 border-b border-gray2/10">
+			<h2 class="font-bold text-white text-base pl-2">Manage Holds</h2>
+			<button
+				class="p-1 text-gray2 hover:text-white transition-colors cursor-pointer"
+				on:click={closeSidebar}
+				aria-label="Close"
+			>
+				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<line x1="18" y1="6" x2="6" y2="18"></line>
+					<line x1="6" y1="6" x2="18" y2="18"></line>
+				</svg>
+			</button>
+		</div>
+
+		<div
+			class="flex-1 overflow-y-auto p-4 pb-32 space-y-4 custom-scrollbar flex flex-col"
+			bind:this={holdPickerRef}
+		>
+			<div
+				class="grid grid-cols-3 items-center bg-gray1/50 px-3 py-2 rounded-xl border border-gray2/10"
+			>
+				<div class="flex items-center gap-2">
+					<label class="flex items-center gap-1.5 cursor-pointer">
+						<input
+							type="checkbox"
+							class="hidden"
+							checked={allRowsSelected}
+							on:change={toggleSelectAllRows}
+						/>
+						<div
+							class="w-4 h-4 rounded border flex items-center justify-center {allRowsSelected
+								? 'bg-lime border-lime'
+								: 'border-gray2/50'}"
+						>
+							{#if allRowsSelected}
+								<svg
+									class="w-3 h-3 text-black"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="4"
+								>
+									<polyline points="20 6 9 17 4 12"></polyline>
+								</svg>
+							{/if}
+						</div>
+						<span class="text-[10px] font-bold text-white uppercase tracking-wider">All</span>
+					</label>
+				</div>
+
+				<div class="flex items-center justify-center border-l border-gray2/20">
+					<label
+						class="flex items-center gap-1.5 cursor-pointer {selectedRows.length === 0
+							? 'opacity-30 pointer-events-none'
+							: ''}"
+					>
+						<input
+							type="checkbox"
+							class="hidden"
+							on:change={(e) => setBulkAllDay(e.currentTarget.checked)}
+						/>
+						<div
+							class="w-4 h-4 rounded border border-gray2/50 flex items-center justify-center"
+						></div>
+						<span class="text-[10px] font-bold text-white uppercase tracking-wider">All Day</span>
+					</label>
+				</div>
+
+				<div class="flex items-center justify-end gap-2">
+					<div class="relative flex items-center justify-center">
+						<button
+							class="w-6 h-6 flex items-center justify-center rounded-lg bg-lime/10 text-lime border border-lime/20 font-bold text-[10px] hover:bg-lime/20 transition-colors {selectedRows.length ===
+							0
+								? 'opacity-30 pointer-events-none'
+								: ''}"
+							on:click={() => (activeHoldPicker = activeHoldPicker === 'bulk' ? null : 'bulk')}
+						>
+							H
+						</button>
+
+						{#if activeHoldPicker === 'bulk'}
+							<div
+								class="absolute right-0 top-[calc(100%+8px)] w-[200px] bg-navbar p-2.5 rounded-2xl border border-gray2/20 z-[60] shadow-2xl"
+								transition:fade={{ duration: 150 }}
+							>
+								<div class="grid grid-cols-7 gap-1">
+									{#each holdLevelsGrid as lvl}
+										<button
+											type="button"
+											class="aspect-square rounded flex items-center justify-center bg-navbar text-white text-[10px] font-bold hover:bg-lime hover:text-black border border-gray2/10 transition-colors"
+											on:click={() => applyHoldSelection(lvl as HoldLevel)}
+										>
+											{lvl.replace('H', '')}
+										</button>
+									{/each}
+								</div>
+							</div>
+						{/if}
+					</div>
+
+					<button
+						class="w-6 h-6 flex items-center justify-center rounded-lg text-gray2 hover:text-problem hover:bg-problem/10 transition-colors {selectedRows.length ===
+						0
+							? 'opacity-30 pointer-events-none'
+							: ''}"
+						on:click={deleteSelectedRows}
+						aria-label="Delete selected holds"
+					>
+						<svg
+							class="w-3.5 h-3.5"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<polyline points="3 6 5 6 21 6"></polyline>
+							<path
+								d="M19 6v14a2 2 0 0 1-2-2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+							></path>
+						</svg>
+					</button>
+				</div>
+			</div>
+
+			<div class="flex-1 flex flex-col gap-2">
+				{#each drafts as draft, i (draft.id)}
+					<div
+						class="p-3 rounded-xl flex flex-col gap-2 w-full transition-all border-2 bg-navbar
+						{drafts[i].isNew ? 'border-lime' : 'border-gray2/10'}"
+					>
+						<div class="grid grid-cols-3 items-center w-full">
+							<div class="flex items-center gap-2 overflow-hidden col-span-1">
+								<label class="flex items-center cursor-pointer shrink-0">
+									<input
+										type="checkbox"
+										class="hidden"
+										bind:group={selectedRows}
+										value={drafts[i].id}
+									/>
+									<div
+										class="w-4 h-4 rounded border flex items-center justify-center {selectedRows.includes(
+											drafts[i].id
+										)
+											? 'bg-lime border-lime'
+											: 'border-gray2/50'}"
+									>
+										{#if selectedRows.includes(drafts[i].id)}
+											<svg
+												class="w-3 h-3 text-black"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="4"
+											>
+												<polyline points="20 6 9 17 4 12"></polyline>
+											</svg>
+										{/if}
+									</div>
+								</label>
+
+								<div class="flex flex-col truncate w-full min-w-[120px]">
+									<p class="text-xs font-bold text-white leading-tight truncate">
+										{new Date(drafts[i].date + 'T00:00:00').toLocaleDateString('en-US', {
+											weekday: 'short',
+											month: 'short',
+											day: 'numeric'
+										})}
+									</p>
+									<div class="flex items-center gap-1.5 mt-0.5">
+										<span
+											class="w-2.5 h-2.5 rounded-full shadow-sm shrink-0"
+											style="background-color: {getVenueColor(
+												drafts[i].venue?.category,
+												drafts[i].venue?.room
+											)}"
+										></span>
+										<p class="text-[9px] text-gray2 font-bold uppercase truncate">
+											{drafts[i].venue?.room || 'No Venue'}
+										</p>
+									</div>
+								</div>
+							</div>
+
+							<div class="flex items-center justify-center col-span-1">
+								<label class="flex items-center gap-1.5 cursor-pointer">
+									<input type="checkbox" class="hidden" bind:checked={drafts[i].allDay} />
+									<div
+										class="w-3.5 h-3.5 rounded border flex items-center justify-center {drafts[i]
+											.allDay
+											? 'bg-lime border-lime'
+											: 'border-gray2/50'}"
+									>
+										{#if drafts[i].allDay}
+											<svg
+												class="w-2.5 h-2.5 text-black"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="4"
+											>
+												<polyline points="20 6 9 17 4 12"></polyline>
+											</svg>
+										{/if}
+									</div>
+									<span class="text-[10px] font-bold text-white uppercase tracking-wider"
+										>All day</span
+									>
+								</label>
+							</div>
+
+							<div class="flex items-center justify-end gap-1.5 col-span-1">
+								<div class="relative flex items-center justify-center">
+									<button
+										type="button"
+										class="w-7 h-7 rounded-lg border border-lime/50 text-lime font-bold text-[10px] flex items-center justify-center hover:bg-lime/10 transition-colors"
+										on:click|stopPropagation={() =>
+											(activeHoldPicker = activeHoldPicker === drafts[i].id ? null : drafts[i].id)}
+									>
+										{drafts[i].hold_level}
+									</button>
+
+									{#if activeHoldPicker === drafts[i].id}
+										<div
+											class="absolute right-0 top-[calc(100%+8px)] w-[200px] bg-navbar p-2.5 rounded-2xl border border-gray2/20 z-[60] shadow-2xl"
+											transition:fade={{ duration: 150 }}
+										>
+											<div class="grid grid-cols-7 gap-1">
+												{#each holdLevelsGrid as lvl}
+													<button
+														type="button"
+														class="aspect-square rounded flex items-center justify-center bg-navbar text-white text-[10px] font-bold hover:bg-lime hover:text-black border border-gray2/10 transition-colors"
+														on:click={() => applyHoldSelection(lvl as HoldLevel)}
+													>
+														{lvl.replace('H', '')}
+													</button>
+												{/each}
+											</div>
+										</div>
+									{/if}
+								</div>
+
+								<button
+									type="button"
+									class="w-7 h-7 rounded-lg border border-gray2/20 text-gray2 flex items-center justify-center hover:text-problem hover:border-problem transition-colors"
+									on:click={() => removeDateRow(drafts[i].id)}
+									aria-label="Remove this hold"
+								>
+									<svg
+										class="w-3.5 h-3.5"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
+										<polyline points="3 6 5 6 21 6"></polyline>
+										<path
+											d="M19 6v14a2 2 0 0 1-2-2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+										></path>
+									</svg>
+								</button>
+							</div>
+						</div>
+
+						{#if !drafts[i].allDay}
+							<div
+								class="flex items-center gap-2 w-full pt-1 pb-1"
+								transition:slide={{ duration: 150 }}
+							>
+								<input
+									type="time"
+									lang="en-US"
+									bind:value={drafts[i].start}
+									class="w-full bg-gray1 border border-gray2/20 rounded-lg text-xs px-3 py-2 text-white focus:outline-none focus:border-lime"
+								/>
+								<span class="text-[10px] font-bold text-gray2 shrink-0">-</span>
+								<input
+									type="time"
+									lang="en-US"
+									bind:value={drafts[i].end}
+									class="w-full bg-gray1 border border-gray2/20 rounded-lg text-xs px-3 py-2 text-white focus:outline-none focus:border-lime"
+								/>
+							</div>
+						{/if}
+					</div>
+				{/each}
 			</div>
 		</div>
-		
-		<div class="max-h-[400px] overflow-y-auto space-y-3 pr-2 custom-scrollbar">
-			{#each editedEvents as event}
-				<div class="flex items-center gap-4 p-3 bg-black/30 rounded-lg border border-gray2/20">
-					<input type="checkbox" checked={selectedEventIds.has(event.id)} on:change={() => toggleEventSelection(event.id)} aria-label="Select Event" class="w-4 h-4 rounded bg-black/50 text-lime focus:ring-0" />
-					<select value={event.status === 'CONFIRMED' ? 'CONFIRMED' : event.hold_level || 'none'} on:change={(e) => updateHoldLevel(event.id, e.currentTarget.value)} aria-label="Hold Level" class="px-3 py-2 bg-black/50 border border-gray2/30 rounded-lg text-sm font-bold text-white focus:outline-none w-20 text-center">
-						<option value="none">NA</option>
-						{#each holdLevels as level}<option value={level}>{level}</option>{/each}
-					</select>
-					<div class="flex-1 text-sm font-bold text-white truncate">{event.title}</div>
-				</div>
-			{/each}
+
+		<div class="p-4 border-t border-gray2/10 flex flex-col gap-3">
+			<button
+				type="button"
+				class="w-full py-3 bg-lime text-black text-sm font-bold rounded-2xl hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center"
+				on:click={saveAction}
+				disabled={saving || (drafts.length === 0 && deletedIds.length === 0)}
+			>
+				{#if saving}
+					<div
+						class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"
+					></div>
+				{/if}
+				Save Changes
+			</button>
 		</div>
 	</div>
-	
-	<div slot="footer" class="flex gap-3 justify-end">
-		<Button variant="outline" on:click={closeModal}>Cancel</Button>
-		<Button variant={saving ? 'loading' : 'filled'} disabled={saving} on:click={saveChanges}>{saving ? 'Saving...' : 'Save'}</Button>
-	</div>
-</Modal>
+{/if}
+
+<style>
+	::-webkit-scrollbar {
+		display: none;
+	}
+	* {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+</style>

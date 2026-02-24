@@ -20,6 +20,7 @@ module.exports = {
 				question: '#93c5fd', 
 				black: '#000000',
 				white: '#F7F7F7',
+		
 				
 				// Semantic theme colors (dynamic via CSS variables)
 				primary: 'var(--color-primary)',

@@ -25,6 +25,9 @@
 	"/api/booking/piknic/cancel": [
 		"src/routes/api/booking/piknic/cancel/+server.ts"
 	],
+	"/api/bug-report": [
+		"src/routes/api/bug-report/+server.ts"
+	],
 	"/api/calendar": [
 		"src/routes/api/calendar/+server.ts"
 	],

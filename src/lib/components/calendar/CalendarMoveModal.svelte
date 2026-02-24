@@ -21,7 +21,6 @@
 
 	$: oldDateObj = event ? new Date(event.date + 'T00:00:00') : null;
 	$: newDateObj = newDateStr ? new Date(newDateStr + 'T00:00:00') : null;
-
 	$: dayDiff = (oldDateObj && newDateObj) ? Math.round((newDateObj.getTime() - oldDateObj.getTime()) / (1000 * 3600 * 24)) : 0;
 	$: diffText = dayDiff > 0 ? `+ ${dayDiff} day${dayDiff > 1 ? 's' : ''}` : `${dayDiff} day${Math.abs(dayDiff) > 1 ? 's' : ''}`;
 
@@ -50,9 +49,8 @@
 			e.title === event?.title &&
 			e.id !== event?.id
 		);
-
 		if (isDuplicate) {
-			close(); // Closes the modal immediately to reveal underlying app
+			close(); 
 			setTimeout(() => { showError("A hold-date already exists on this date for this event"); }, 100);
 			return;
 		}
@@ -61,8 +59,6 @@
 		try {
 			const venueConfig = getVenueSettings();
 			let params = venueConfig?.setting_params;
-			
-			// Failsafe for Supabase JSONB strings
 			if (typeof params === 'string') {
 				try { params = JSON.parse(params); } catch (e) { console.error('Parse err:', e) }
 			}
@@ -75,29 +71,62 @@
 			const updates = [];
 
 			if (event.status === 'HOLD') {
-				// 1. Calculate destination Hold Level (GLOBAL per date)
-				const newDateHolds = existingEvents.filter(e => e.date === newDateStr && e.status === 'HOLD' && e.id !== event?.id);
-				const existingNums = newDateHolds.map(e => parseInt((e.hold_level || '').replace(/\D/g, ''))).filter(n => !isNaN(n));
-				
-				let startNum = event.details?.is_priority ? 1 : (parseInt(defaultLevel.replace(/\D/g, '')) || 2);
-				let nextNum = startNum;
-				while (existingNums.includes(nextNum)) {
-					nextNum++;
+				// 1. Calculate destination Hold Level
+				const sameEventHoldsOnNewDate = existingEvents.filter(e => e.date === newDateStr && e.group_id === event?.group_id && e.id !== event?.id && e.status === 'HOLD');
+				let desiredLevel = event.hold_level;
+
+				if (sameEventHoldsOnNewDate.length > 0) {
+					// We found other rooms occupied by the same event on this new date. Let's try matching their level.
+					desiredLevel = sameEventHoldsOnNewDate[0].hold_level;
 				}
-				newHoldLevel = `H${nextNum}` as HoldLevel;
+
+				// Check if the desired hold level is blocked in this specific target room by ANY other event
+				const isTakenInRoom = existingEvents.some(e =>
+					e.date === newDateStr &&
+					e.venue.category === event?.venue.category && // <-- ADDED
+					e.venue.room === event?.venue.room &&         // <-- ADDED
+					e.hold_level === desiredLevel &&
+					e.status === 'HOLD' &&
+					e.id !== event?.id
+				);
+
+				if (isTakenInRoom) {
+					// Fallback: Pick next available hold level for that specific ROOM
+					const newDateHolds = existingEvents.filter(e => 
+						e.date === newDateStr && 
+						e.status === 'HOLD' && 
+						e.id !== event?.id &&
+						e.venue.category === event?.venue.category && // <-- ADDED
+						e.venue.room === event?.venue.room            // <-- ADDED
+					);
+					const existingNums = newDateHolds.map(e => parseInt((e.hold_level || '').replace(/\D/g, ''))).filter(n => !isNaN(n));
+					
+					let startNum = event.details?.is_priority ? 1 : (parseInt(defaultLevel.replace(/\D/g, '')) || 2);
+					let nextNum = startNum;
+					while (existingNums.includes(nextNum)) {
+						nextNum++;
+					}
+					newHoldLevel = `H${nextNum}` as HoldLevel;
+				} else {
+					newHoldLevel = desiredLevel;
+				}
 
 				// 2. Perform Hold Shifting for the origin Date
 				if (autoPromote && event.hold_level && event.hold_level.startsWith('H')) {
 					const movedNum = parseInt(event.hold_level.replace(/\D/g, ''));
-					
 					if (!isNaN(movedNum) && movedNum > 0) {
-						// Global holds on the old date
-						const oldDateHolds = existingEvents.filter(e => e.date === event?.date && e.status === 'HOLD' && e.id !== event?.id);
+						// Ensure we ONLY promote holds in the exact same room/venue
+						const oldDateHolds = existingEvents.filter(e => 
+							e.date === event?.date && 
+							e.status === 'HOLD' && 
+							e.id !== event?.id &&
+							e.venue.category === event?.venue.category &&
+							e.venue.room === event?.venue.room
+						);
 						
 						for (const oldHold of oldDateHolds) {
 							if (oldHold.hold_level && oldHold.hold_level.startsWith('H')) {
 								const oldNum = parseInt(oldHold.hold_level.replace(/\D/g, ''));
-								// If the remaining hold was mathematically behind the one we just moved, shift it up (e.g. H2 -> H1)
 								if (!isNaN(oldNum) && oldNum > movedNum) {
 									const promotedLevel = `H${oldNum - 1}` as HoldLevel;
 									updates.push(

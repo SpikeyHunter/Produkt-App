@@ -53,9 +53,9 @@
 	<div class="h-full w-full p-2 overflow-hidden flex flex-col">
 		<div class="flex justify-between items-center mb-3 px-1 fade-in {mounted ? 'mounted' : ''}">
 			<div class="flex gap-1 bg-[#BDBDBB]/10 p-1 rounded-full">
-				<button class="px-6 py-2 rounded-full text-sm font-bold transition-all {viewType === 'month' ? 'bg-[#E1FF00] text-black' : 'text-[#BDBDBB] hover:bg-[#BDBDBB]/20 hover:text-white'}" on:click={() => (viewType = 'month')}>Month</button>
-				<button class="px-6 py-2 rounded-full text-sm font-bold transition-all {viewType === 'week' ? 'bg-[#E1FF00] text-black' : 'text-[#BDBDBB] hover:bg-[#BDBDBB]/20 hover:text-white'}" on:click={() => (viewType = 'week')}>Week</button>
-				<button class="px-6 py-2 rounded-full text-sm font-bold transition-all {viewType === 'list' ? 'bg-[#E1FF00] text-black' : 'text-[#BDBDBB] hover:bg-[#BDBDBB]/20 hover:text-white'}" on:click={() => (viewType = 'list')}>List</button>
+				<button class="px-6 py-2 rounded-full text-sm font-bold transition-all cursor-pointer {viewType === 'month' ? 'bg-[#E1FF00] text-black' : 'text-[#BDBDBB] hover:bg-[#BDBDBB]/20 hover:text-white'}" on:click={() => (viewType = 'month')}>Month</button>
+				<button class="px-6 py-2 rounded-full text-sm font-bold transition-all cursor-pointer {viewType === 'week' ? 'bg-[#E1FF00] text-black' : 'text-[#BDBDBB] hover:bg-[#BDBDBB]/20 hover:text-white'}" on:click={() => (viewType = 'week')}>Week</button>
+				<button class="px-6 py-2 rounded-full text-sm font-bold transition-all cursor-pointer {viewType === 'list' ? 'bg-[#E1FF00] text-black' : 'text-[#BDBDBB] hover:bg-[#BDBDBB]/20 hover:text-white'}" on:click={() => (viewType = 'list')}>List</button>
 			</div>
 		</div>
 

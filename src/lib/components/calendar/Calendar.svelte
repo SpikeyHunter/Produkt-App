@@ -3,13 +3,21 @@
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/supabase';
 	import CalendarHeader from './CalendarHeader.svelte';
-	import CalendarBody from './CalendarBody.svelte';
+	import CalendarBodyMonth from './CalendarBodyMonth.svelte';
+	import CalendarBodyWeek from './CalendarBodyWeek.svelte';
+	import CalendarBodyList from './CalendarBodyList.svelte';
 	import CalendarAddEvent from './CalendarAddEvent.svelte';
 	import CalendarViewEvent from './CalendarViewEvent.svelte';
 	import CalendarManageHolds from './CalendarManageHolds.svelte';
 	import VenueSettingsModal from './VenueSettingsModal.svelte';
 	import { portal } from '$lib/utils/portalUtils';
-	import type { CalendarEvent, CalendarDay, GroupedEvents, VenueSettings, StageConfig } from '$lib/types/calendar-types';
+	import type {
+		CalendarEvent,
+		CalendarDay,
+		GroupedEvents,
+		VenueSettings,
+		StageConfig
+	} from '$lib/types/calendar-types';
 	import CalendarMoveModal from './CalendarMoveModal.svelte';
 
 	export let selectedDate: Date = new Date();
@@ -22,6 +30,8 @@
 	let stages: StageConfig[] = [];
 
 	let loading = true;
+	let listLayoutMode: 'list' | 'grid' = 'list';
+	let currentListFilter: 'past' | 'all' | 'upcoming' = 'all';
 
 	let selectedEvent: CalendarEvent | null = null;
 	let selectedDayEvents: CalendarEvent[] = [];
@@ -35,11 +45,42 @@
 	let showMoveModal = false;
 	let moveModalEvent: CalendarEvent | null = null;
 	let moveModalNewDate: string | null = null;
+	let manageHoldsDrafts: CalendarEvent[] = [];
+	let manageHoldsDeletedIds: string[] = [];
+	let toggleDateTrigger: { date: string; ts: number } | null = null;
 
 	const weekDayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
-	const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+	const monthNames = [
+		'January', 'February', 'March', 'April', 'May', 'June',
+		'July', 'August', 'September', 'October', 'November', 'December'
+	];
 
-	$: displayEvents = [...allEvents, ...draftEvents];
+	$: displayEvents = showManageHoldsModal ?
+		[
+			...allEvents.filter(
+				(e) =>
+					!manageHoldsDeletedIds.includes(e.id) &&
+					!manageHoldsDrafts.some((md) => md.id === e.id)
+			),
+			...draftEvents,
+			...manageHoldsDrafts
+		] : [
+			...allEvents,
+			...draftEvents
+		];
+
+	$: if (showManageHoldsModal) {
+		activeSelectedDates = manageHoldsDrafts.map((d) => d.date);
+	} else if (!showAddSidebar) {
+		activeSelectedDates = [];
+	}
+
+	function handleManageHoldsClose() {
+		showManageHoldsModal = false;
+		manageHoldsDrafts = [];
+		manageHoldsDeletedIds = [];
+		selectedDayEvents = [];
+	}
 
 	function handleMoveEvent(event: CustomEvent<{ event: CalendarEvent; newDate: string }>) {
 		moveModalEvent = event.detail.event;
@@ -95,6 +136,7 @@
 		const days: CalendarDay[] = [];
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
+
 		for (let i = 0; i < 7; i++) {
 			const date = new Date(startDate);
 			date.setDate(startDate.getDate() + i);
@@ -117,8 +159,9 @@
 	function groupEventsForList(month: Date, events: CalendarEvent[]): GroupedEvents {
 		const filteredEvents = events.filter((event) => {
 			const eventDate = new Date(event.date + 'T00:00:00');
+			// Removed the absolute "Today" restriction so past events in the loaded month show up correctly.
 			return viewType === 'list'
-				? eventDate >= new Date(new Date().setHours(0, 0, 0, 0))
+				? true
 				: eventDate.getMonth() === month.getMonth() &&
 						eventDate.getFullYear() === month.getFullYear();
 		});
@@ -133,8 +176,8 @@
 		return grouped;
 	}
 
-	async function loadEventsAndSettings(date: Date) {
-		loading = true;
+	async function loadEventsAndSettings(date: Date, isBackgroundRefresh = false) {
+		if (!isBackgroundRefresh) loading = true;
 		try {
 			const { data: settingsData, error: settingsError } = await supabase
 				.from('calendar_settings')
@@ -144,7 +187,9 @@
 				venues = settingsData;
 				stages = venues.flatMap((v) => {
 					let parsed = v.setting_params;
-					if (typeof parsed === 'string') { try { parsed = JSON.parse(parsed); } catch(e){} }
+					if (typeof parsed === 'string') {
+						try { parsed = JSON.parse(parsed); } catch (e) {}
+					}
 					return parsed.stages || [];
 				});
 			}
@@ -158,29 +203,28 @@
 
 			const { data, error } = await supabase
 				.from('calendar_events')
-				.select('*, calendar(*)') 
+				.select('*, calendar(*)')
 				.gte('date', startRange.toISOString().split('T')[0])
 				.lte('date', endRange.toISOString().split('T')[0])
-				.neq('status', 'HIDDEN') // 🚨 EXCLUDE HIDDEN STATUSES
+				.neq('status', 'HIDDEN')
 				.order('date', { ascending: true });
-			if (error) throw error;
 
+			if (error) throw error;
 			allEvents = (data || []).map((row: any) => ({
 				id: row.id,
-				short_id: row.short_id, 
+				short_id: row.short_id,
 				group_id: row.group_id,
-				user_id: row.user_id,
+				creator_name: row.calendar?.creator_name || 'Unknown',
 				date: row.date,
 				status: row.status,
 				hold_level: row.hold_level,
 				venue: row.venue,
 				time: row.time,
 				isDraft: false,
+				event_details: row.event_details || { is_target: false, is_challenge: false },
 				title: row.calendar?.title || '(No Title)',
-				details: row.calendar?.details || {},
-				contact: row.calendar?.contact || {}
+				details: row.calendar?.details || {}
 			}));
-
 		} catch (error) {
 			console.error('Error loading data:', error);
 		} finally {
@@ -209,6 +253,12 @@
 	function handleDayClick(event: CustomEvent<{ day: CalendarDay; clickedDate: Date }>) {
 		const { clickedDate } = event.detail;
 		const dateStr = clickedDate.toISOString().split('T')[0];
+
+		if (showManageHoldsModal) {
+			toggleDateTrigger = { date: dateStr, ts: Date.now() };
+			return;
+		}
+
 		if (showAddSidebar) {
 			if (activeSelectedDates.includes(dateStr)) {
 				activeSelectedDates = activeSelectedDates.filter((d) => d !== dateStr);
@@ -223,22 +273,29 @@
 		showAddSidebar = true;
 	}
 
-	function handleEventClick(event: CustomEvent<{ event: CalendarEvent; e: MouseEvent | KeyboardEvent }>) {
-		if (showAddSidebar) return;
-		const { event: calendarEvent, e } = event.detail;
-		e.stopPropagation();
+	function handleEventClick(
+		event: CustomEvent<{ event: CalendarEvent; e: MouseEvent | KeyboardEvent; forceOpenPage?: boolean }>
+	) {
+		const { event: calendarEvent, e, forceOpenPage } = event.detail;
+		e?.stopPropagation();
 		if (calendarEvent.isDraft) return;
 
-		if (calendarEvent.status === 'CONFIRMED') {
-			goto(`/calendar/${calendarEvent.short_id}`); 
+		// Force open page explicitly requested by list view
+		if (forceOpenPage || calendarEvent.status === 'CONFIRMED') {
+			goto(`/calendar/${calendarEvent.short_id}`);
 			return;
 		}
+		
+		if (showAddSidebar || showManageHoldsModal) return;
 
 		selectedEvent = calendarEvent;
 		showEventModal = true;
 	}
 
 	function handleAddEventClick() {
+		if (viewType === 'list') {
+			viewType = 'month'; // Instantly switch back to visual calendar to pick dates
+		}
 		activeSelectedDates = [new Date().toISOString().split('T')[0]];
 		showAddSidebar = true;
 	}
@@ -247,24 +304,36 @@
 		await loadEventsAndSettings(currentViewDate);
 		const createdEvents = e.detail.events;
 		if (createdEvents && createdEvents.length > 0) {
-			selectedEvent = allEvents.find(ev => ev.id === createdEvents[0].id) || null;
+			selectedEvent = allEvents.find((ev) => ev.id === createdEvents[0].id) || null;
 			showEventModal = true;
 		}
 	}
 
 	onMount(() => {
-		const eventsSub = supabase.channel('public:calendar_events').on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events' }, () => { loadEventsAndSettings(currentViewDate); }).subscribe();
-		const calendarSub = supabase.channel('public:calendar').on('postgres_changes', { event: '*', schema: 'public', table: 'calendar' }, () => { loadEventsAndSettings(currentViewDate); }).subscribe();
+		const eventsSub = supabase
+			.channel('public:calendar_events')
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events' }, () => {
+				loadEventsAndSettings(currentViewDate);
+			})
+			.subscribe();
+		const calendarSub = supabase
+			.channel('public:calendar')
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'calendar' }, () => {
+				loadEventsAndSettings(currentViewDate);
+			})
+			.subscribe();
 
 		return () => {
 			eventsSub.unsubscribe();
 			calendarSub.unsubscribe();
 		};
 	});
-	$: monthViewDays = viewType === 'month' ? generateMonthDays(currentViewDate, displayEvents) : [];
-	$: weekViewDays = viewType === 'week' ? generateWeekDays(currentViewDate, displayEvents) : [];
-	$: listEventsGrouped = viewType === 'list' ? groupEventsForList(currentViewDate, displayEvents) : {};
-	$: listDates = viewType === 'list' ? Object.keys(listEventsGrouped) : [];
+
+	$: monthViewDays = generateMonthDays(currentViewDate, displayEvents);
+	$: weekViewDays = generateWeekDays(currentViewDate, displayEvents);
+	$: listEventsGrouped = groupEventsForList(currentViewDate, displayEvents);
+	$: listDates = Object.keys(listEventsGrouped);
+
 	$: headerText = (() => {
 		const year = currentViewDate.getFullYear();
 		const monthName = monthNames[currentViewDate.getMonth()];
@@ -277,18 +346,17 @@
 		}
 		return viewType === 'list' ? 'Upcoming Events' : `${monthName} · ${year}`;
 	})();
+
 	let lastLoadedMonth = -1;
 	let lastLoadedYear = -1;
-	let lastViewType = viewType;
 
 	$: {
 		const currentMonth = currentViewDate.getMonth();
 		const currentYear = currentViewDate.getFullYear();
-		if (currentMonth !== lastLoadedMonth || currentYear !== lastLoadedYear || viewType !== lastViewType) {
+		if (currentMonth !== lastLoadedMonth || currentYear !== lastLoadedYear) {
 			loadEventsAndSettings(currentViewDate);
 			lastLoadedMonth = currentMonth;
 			lastLoadedYear = currentYear;
-			lastViewType = viewType;
 		}
 	}
 </script>
@@ -297,22 +365,23 @@
 	<CalendarViewEvent
 		bind:show={showEventModal}
 		event={selectedEvent}
-		on:close={() => { showEventModal = false; selectedEvent = null; }}
-		on:update={() => loadEventsAndSettings(currentViewDate)}
+		on:close={() => {
+			showEventModal = false;
+			selectedEvent = null;
+		}}
+		on:update={() => loadEventsAndSettings(currentViewDate, true)}
 		on:manageHolds={() => {
 			showEventModal = false;
-			if (selectedEvent) {
-				selectedDayEvents = displayEvents.filter((e) => e.date === selectedEvent?.date);
+			const currentEvent = selectedEvent;
+			if (currentEvent) {
+				selectedDayEvents = displayEvents.filter(
+					(e) =>
+						(currentEvent.group_id && e.group_id === currentEvent.group_id) ||
+						e.id === currentEvent.id
+				);
 				showManageHoldsModal = true;
 			}
 		}}
-	/>
-	<CalendarManageHolds
-		bind:isOpen={showManageHoldsModal}
-		events={selectedDayEvents}
-		{selectedDate}
-		on:close={() => (showManageHoldsModal = false)}
-		on:update={() => loadEventsAndSettings(currentViewDate)}
 	/>
 	<VenueSettingsModal
 		bind:isOpen={showSettingsModal}
@@ -325,27 +394,69 @@
 	<div class="flex-1 w-full min-w-0 bg-gray1 rounded-xl flex flex-col transition-all duration-300 border border-gray2/10 overflow-hidden">
 		<CalendarHeader
 			{headerText}
+			{currentViewDate}
+			{viewType}
+			bind:listFilterMode={currentListFilter}
+			bind:listLayoutMode
 			on:today={goToToday}
 			on:previous={previousPeriod}
 			on:next={nextPeriod}
 			on:addEvent={handleAddEventClick}
+			on:jumpToDate={(e) => {
+				currentViewDate = e.detail;
+			}}
 		/>
-		<CalendarBody
-			{loading}
-			{viewType}
-			{monthViewDays}
-			{weekViewDays}
-			{listEventsGrouped}
-			{listDates}
-			{weekDayNames}
-			{monthNames}
-			{stages}
-			activeDates={activeSelectedDates}
-			isAddingEvent={showAddSidebar}
-			on:dayClick={handleDayClick}
-			on:eventClick={handleEventClick}
-			on:moveEvent={handleMoveEvent}
-		/>
+		
+		<div class="flex-1 overflow-hidden" class:hidden={viewType !== 'month'}>
+			<CalendarBodyMonth
+				{loading}
+				{monthViewDays}
+				{weekDayNames}
+				{stages}
+				activeDates={activeSelectedDates}
+				isAddingEvent={showAddSidebar}
+				deletedIds={manageHoldsDeletedIds}
+				managingGroupId={showManageHoldsModal && selectedDayEvents.length > 0 ? selectedDayEvents[0].group_id : null} 
+				on:dayClick={handleDayClick}
+				on:eventClick={handleEventClick}
+				on:moveEvent={handleMoveEvent}
+			/>
+		</div>
+
+		<div class="flex-1 overflow-hidden" class:hidden={viewType !== 'week'}>
+			<CalendarBodyWeek
+				{loading}
+				{weekViewDays}
+				{weekDayNames}
+				{stages}
+				activeDates={activeSelectedDates}
+				isAddingEvent={showAddSidebar}
+				deletedIds={manageHoldsDeletedIds}
+				managingGroupId={showManageHoldsModal && selectedDayEvents.length > 0 ? selectedDayEvents[0].group_id : null} 
+				on:dayClick={handleDayClick}
+				on:eventClick={handleEventClick}
+				on:moveEvent={handleMoveEvent}
+			/>
+		</div>
+
+		<div class="flex-1 overflow-hidden" class:hidden={viewType !== 'list'}>
+			<CalendarBodyList
+				{loading}
+				{listEventsGrouped}
+				{listDates}
+				{monthNames}
+				{stages}
+				{venues}
+				layoutMode={listLayoutMode}
+				isAddingEvent={showAddSidebar}
+				deletedIds={manageHoldsDeletedIds}
+				managingGroupId={showManageHoldsModal && selectedDayEvents.length > 0 ? selectedDayEvents[0].group_id : null} 
+				{currentViewDate}
+				on:eventClick={handleEventClick}
+				on:jumpToDate={(e) => { currentViewDate = e.detail; }}
+				bind:listFilterMode={currentListFilter}
+			/>
+		</div>
 	</div>
 
 	<CalendarAddEvent
@@ -363,13 +474,24 @@
 		on:close={() => (showAddSidebar = false)}
 	/>
 
-	<CalendarMoveModal 
-		bind:show={showMoveModal} 
-		event={moveModalEvent} 
-		newDateStr={moveModalNewDate} 
+	<CalendarManageHolds
+		bind:isOpen={showManageHoldsModal}
+		events={selectedDayEvents}
+		{venues}
+		bind:draftEvents={manageHoldsDrafts}
+		bind:deletedIds={manageHoldsDeletedIds}
+		bind:toggleDateTrigger={toggleDateTrigger}
+		on:close={handleManageHoldsClose} 
+		on:update={() => loadEventsAndSettings(currentViewDate, true)}
+	/>
+
+	<CalendarMoveModal
+		bind:show={showMoveModal}
+		event={moveModalEvent}
+		newDateStr={moveModalNewDate}
 		existingEvents={allEvents}
-		venues={venues} 
-		on:success={() => loadEventsAndSettings(currentViewDate)} 
-		on:close={() => showMoveModal = false}
+		{venues}
+		on:success={() => loadEventsAndSettings(currentViewDate)}
+		on:close={() => (showMoveModal = false)}
 	/>
 </div>

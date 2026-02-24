@@ -6,21 +6,24 @@
 	import { quintOut } from 'svelte/easing';
 	import { logout } from '$lib/stores/auth';
 	import { authStore } from '$lib/stores/authStore';
+	import BugReportModal from '$lib/components/modals/BugReportModal.svelte';
 
 	// Props
 	// svelte-ignore unused-export-let
 	export let pageTitle: string | undefined = undefined;
 
-	// REMOVED: export let requiredPermission... (Handled in +layout.svelte now)
-
 	// Navigation state
 	let isNavExpanded = true;
 	let activeSubMenu: string | null = null;
+	
 	// UI state
 	let isLoading = false;
 	let isMounted = false;
 	let playAnimations = false;
 	let navElement: HTMLElement;
+	
+	// Bug Report Modal state
+	let isBugModalOpen = false;
 
 	// --- TYPES ---
 	interface SubMenuItem {
@@ -35,7 +38,8 @@
 		icon: string;
 		subItems: SubMenuItem[];
 		route?: string;
-		requiredPermission?: string | string[]; // Section permission
+		requiredPermission?: string | string[];
+		// Section permission
 	}
 
 	// --- DATA ---
@@ -53,7 +57,8 @@
 		toggle: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>`,
 		schedules: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>`,
 		ncgapp: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>`,
-		sultan: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 24px; height: 24px;"><div style="width: 100%; height: 2px; background-color: currentColor;"></div><span style="font-family: sans-serif; font-weight: bold; font-size: 14px; line-height: 1; margin: 3px 0;">S+S</span><div style="width: 100%; height: 2px; background-color: currentColor;"></div></div>`
+		sultan: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 24px; height: 24px;"><div style="width: 100%; height: 2px; background-color: currentColor;"></div><span style="font-family: sans-serif; font-weight: bold; font-size: 14px; line-height: 1; margin: 3px 0;">S+S</span><div style="width: 100%; height: 2px; background-color: currentColor;"></div></div>`,
+		bug: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>`
 	};
 
 	const menuItems: MenuItem[] = [
@@ -200,8 +205,6 @@
 		activeSubMenu = null;
 	}
 
-	// REMOVED: Reactive check on requiredPermission since +layout handles it now.
-
 	// Filter menu items
 	$: visibleMenuItems = menuItems.filter((item) => hasMenuItemAccess(item, $authStore.profile));
 
@@ -315,6 +318,8 @@
 	}
 </script>
 
+<BugReportModal bind:isOpen={isBugModalOpen} userProfile={$authStore.profile} />
+
 <div class="flex h-screen bg-gray1 text-white font-sans">
 	{#if !$authStore.isInitialized}
 		<div class="flex-1 flex items-center justify-center">
@@ -404,15 +409,11 @@
 						<div class="nav-item-container">
 							<button
 								type="button"
-								class="nav-button"
-								class:active={$page.url.pathname.startsWith('/settings') &&
-									$authStore.profile?.role === 'Admin'}
-								class:blocked={!($authStore.profile?.role === 'Admin')}
-								on:click={() => navigateToRoute('/settings')}
-								disabled={!($authStore.profile?.role === 'Admin')}
+								class="nav-button hover:text-lime group"
+								on:click={() => (isBugModalOpen = true)}
 							>
-								<span class="icon">{@html icons.settings}</span>
-								<span class="label">Settings</span>
+								<span class="icon group-hover:text-lime">{@html icons.bug}</span>
+								<span class="label">Report a Bug</span>
 							</button>
 						</div>
 						<div class="nav-item-container">
@@ -454,6 +455,7 @@
 		--text-tertiary: #6b7280;
 		--hover-bg: rgba(var(--color-lime-rgb), 0.1);
 	}
+
 	.navbar {
 		width: var(--nav-width-expanded);
 		background-color: var(--nav-bg);

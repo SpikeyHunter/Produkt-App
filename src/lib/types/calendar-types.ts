@@ -41,8 +41,8 @@ export interface VenueSettings {
 
 export interface CalendarEvent {
     id: string;
-    user_id?: string;
-	short_id?: number;
+    creator_name?: string;
+    short_id?: number;
     group_id?: string; 
     title: string;
     date: string; 
@@ -56,20 +56,17 @@ export interface CalendarEvent {
         start: string | null;
         end: string | null;
     };
+    // Parent calendar details
     details: {
         artist: string | null;
-        tour: string | null;
         notes: string | null;
         type: EventType | string | null;
-        is_challenge: boolean;
-        is_target: boolean;
-        is_matinee: boolean;
         is_priority?: boolean; 
     };
-    contact: {
-        name: string | null;
-        email: string | null;
-        phone: string | null;
+    // Child calendar_events details
+    event_details?: {
+        is_challenge?: boolean;
+        is_target?: boolean;
     };
     isDraft?: boolean;
     created_at?: string;

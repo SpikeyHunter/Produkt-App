@@ -73,7 +73,7 @@
 		if (datesToAdd.length > 0) {
 			const newRows = datesToAdd.map(date => ({
 				group_id: event.group_id,
-				user_id: event.user_id,
+				creator_name: event.creator_name,
 				date: date,
 				status: event.status === 'CONFIRMED' ? 'CONFIRMED' : 'HOLD',
 				hold_level: event.status === 'CONFIRMED' ? null : 'P',

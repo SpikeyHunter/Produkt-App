@@ -46,6 +46,11 @@ declare module '$env/static/private' {
 	export const GITHUB_TOKEN: string;
 	export const TICKETMASTER_CONSUMER_KEY: string;
 	export const TICKETMASTER_CONSUMER_SECRET: string;
+	export const AWS_REGION: string;
+	export const AWS_ACCESS_KEY_ID: string;
+	export const AWS_SECRET_ACCESS_KEY: string;
+	export const BUG_REPORT_FROM_EMAIL: string;
+	export const BUG_REPORT_TO_EMAIL: string;
 	export const TERM_PROGRAM: string;
 	export const NODE: string;
 	export const INIT_CWD: string;
@@ -162,6 +167,11 @@ declare module '$env/dynamic/private' {
 		GITHUB_TOKEN: string;
 		TICKETMASTER_CONSUMER_KEY: string;
 		TICKETMASTER_CONSUMER_SECRET: string;
+		AWS_REGION: string;
+		AWS_ACCESS_KEY_ID: string;
+		AWS_SECRET_ACCESS_KEY: string;
+		BUG_REPORT_FROM_EMAIL: string;
+		BUG_REPORT_TO_EMAIL: string;
 		TERM_PROGRAM: string;
 		NODE: string;
 		INIT_CWD: string;

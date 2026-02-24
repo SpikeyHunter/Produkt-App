@@ -5,6 +5,7 @@
 	import type { CalendarEvent, HoldLevel } from '$lib/types/calendar-types';
 	import { tick, createEventDispatcher } from 'svelte';
 	import { supabase } from '$lib/supabase';
+	import { portal } from '$lib/utils/portalUtils';
 
 	export let show: boolean;
 	export let event: CalendarEvent | null;
@@ -22,9 +23,37 @@
 	let tempNotes = '';
 	let isEditingNotes = false;
 
+	// Conflict Management State
+	let conflictingEventDate: string | null = null;
+	let conflictingEventId: string | null = null;
+	let pendingFlag: 'is_target' | 'is_challenge' | null = null;
+	let showConflictOverlay = false;
+
+	// Date Math for Conflict Overlay
+	$: oldDateObj = conflictingEventDate ? new Date(conflictingEventDate + 'T00:00:00') : null;
+	$: newDateObj = localEvent?.date ? new Date(localEvent.date + 'T00:00:00') : null;
+	$: dayDiff =
+		oldDateObj && newDateObj
+			? Math.round((newDateObj.getTime() - oldDateObj.getTime()) / (1000 * 3600 * 24))
+			: 0;
+	$: diffText =
+		dayDiff > 0
+			? `+ ${dayDiff} day${dayDiff > 1 ? 's' : ''}`
+			: `${dayDiff} day${Math.abs(dayDiff) > 1 ? 's' : ''}`;
+
+	function formatDate(dateStr: string | null) {
+		if (!dateStr) return { month: '', day: '', year: '' };
+		const d = new Date(dateStr + 'T00:00:00');
+		return {
+			month: d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase(),
+			day: d.toLocaleDateString('en-US', { day: '2-digit' }),
+			year: d.getFullYear()
+		};
+	}
+
 	$: if (show && event && (!localEvent || localEvent.id !== event.id)) {
 		localEvent = JSON.parse(JSON.stringify(event));
-		tempNotes = localEvent?.details?.notes || ''; // <-- Added '?' here
+		tempNotes = localEvent?.details?.notes || '';
 		isEditingNotes = false;
 		hasUnsavedChanges = false;
 	}
@@ -34,16 +63,28 @@
 		confirmMode = 'none';
 		hasUnsavedChanges = false;
 		isEditingNotes = false;
+		conflictingEventDate = null;
+		conflictingEventId = null;
+		pendingFlag = null;
+		showConflictOverlay = false;
 	}
 
 	let confirmMode: 'none' | 'clearSingle' | 'clearAll' | 'confirm' = 'none';
-
 	let sameEventOtherRoomsCount = 0;
 	let otherEventsOnDayCount = 0;
 	let optConfirmAllRooms = false;
 	let optClearOtherHolds = false;
 
 	function handleKeydown(e: KeyboardEvent) {
+		// Prevent closing the main modal if the conflict overlay is active
+		if (showConflictOverlay) {
+			if (e.key === 'Escape') {
+				showConflictOverlay = false;
+				pendingFlag = null;
+			}
+			return;
+		}
+
 		if (e.key === 'Escape') closeModal();
 		if ((e.key === 'Enter' || e.key === ' ') && e.target === dialogEl) {
 			e.preventDefault();
@@ -66,10 +107,91 @@
 		hasUnsavedChanges = true;
 	}
 
-	function toggleFlag(flag: 'is_target' | 'is_challenge') {
+	async function toggleFlag(flag: 'is_target' | 'is_challenge') {
 		if (!localEvent) return;
-		localEvent.details[flag] = !localEvent.details[flag];
+		if (!localEvent.event_details) {
+			localEvent.event_details = { is_target: false, is_challenge: false };
+		}
+
+		const isTurningOn = !localEvent.event_details[flag];
+
+		// Check for conflicts if we are enabling a flag
+		if (isTurningOn && localEvent.group_id) {
+			saving = true;
+			try {
+				const { data, error } = await supabase
+					.from('calendar_events')
+					.select('id, date, event_details')
+					.eq('group_id', localEvent.group_id)
+					.neq('id', localEvent.id);
+
+				if (!error && data) {
+					// ONLY check if the specific flag being turned on is already active elsewhere
+					const conflict = data.find((e) => e.event_details && e.event_details[flag] === true);
+
+					if (conflict) {
+						conflictingEventDate = conflict.date;
+						conflictingEventId = conflict.id;
+						pendingFlag = flag;
+						showConflictOverlay = true;
+						return; // Wait for modal confirmation
+					}
+				}
+			} finally {
+				saving = false;
+			}
+		}
+
+		// Apply locally if no conflict or if we are just turning it off
+		// This now preserves the other flag's state
+		localEvent.event_details[flag] = isTurningOn;
 		hasUnsavedChanges = true;
+	}
+
+	async function resolveConflict() {
+		if (!localEvent || !conflictingEventId || !pendingFlag) return;
+		saving = true;
+		try {
+			// 1. Wipe ONLY the conflicting flag on the old event globally
+			const { data: oldEventData } = await supabase
+				.from('calendar_events')
+				.select('event_details')
+				.eq('id', conflictingEventId)
+				.single();
+
+			if (oldEventData) {
+				const updatedOldDetails = {
+					...(oldEventData.event_details || {})
+				};
+				// Only remove the flag we are moving
+				updatedOldDetails[pendingFlag] = false;
+
+				await supabase
+					.from('calendar_events')
+					.update({ event_details: updatedOldDetails })
+					.eq('id', conflictingEventId);
+			}
+
+			// 2. Set new flag on current local event without touching the other flag
+			if (!localEvent.event_details) {
+				localEvent.event_details = { is_target: false, is_challenge: false };
+			}
+			localEvent.event_details[pendingFlag] = true;
+
+			hasUnsavedChanges = true;
+
+			// Force save to database so parent view refreshes immediately
+			await flushChanges();
+
+			showConflictOverlay = false;
+			conflictingEventId = null;
+			conflictingEventDate = null;
+			pendingFlag = null;
+		} catch (e) {
+			console.error('Failed to resolve target conflict:', e);
+		} finally {
+			saving = false;
+		}
 	}
 
 	function saveNotes() {
@@ -93,7 +215,8 @@
 				.from('calendar_events')
 				.update({
 					status: localEvent.status,
-					hold_level: localEvent.hold_level
+					hold_level: localEvent.hold_level,
+					event_details: localEvent.event_details
 				})
 				.eq('id', localEvent.id);
 
@@ -202,7 +325,7 @@
 
 			await supabase
 				.from('calendar_events')
-				.update({ status: 'HIDDEN' })
+				.update({ status: 'HIDDEN', hold_level: null })
 				.eq('group_id', localEvent.group_id)
 				.in('status', ['HOLD', 'PENDING'])
 				.neq('id', localEvent.id)
@@ -230,9 +353,11 @@
 			if (optClearOtherHolds && otherEventsOnDayCount > 0) {
 				await supabase
 					.from('calendar_events')
-					.update({ status: 'HIDDEN' })
+					.update({ status: 'HIDDEN', hold_level: null })
 					.eq('date', localEvent.date)
 					.neq('group_id', localEvent.group_id)
+					.eq('venue->>category', localEvent.venue.category)
+					.eq('venue->>room', localEvent.venue.room)
 					.in('status', ['HOLD', 'PENDING']);
 			}
 
@@ -368,7 +493,14 @@
 					<div class="flex flex-col gap-4">
 						<button
 							class="w-full py-3 rounded-2xl border border-gray2/30 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2 hover:bg-white/5 cursor-pointer"
-							on:click={() => {
+							on:click={async () => {
+								// 1. Save any pending changes made in this modal first
+								if (hasUnsavedChanges) {
+									await flushChanges();
+								}
+								// 2. Hide the current modal
+								show = false;
+								// 3. Tell the parent (Calendar.svelte) to open the sidebar
 								dispatch('manageHolds');
 							}}
 						>
@@ -390,7 +522,7 @@
 						<div class="grid grid-cols-2 gap-3">
 							<button
 								class="py-2.5 rounded-2xl border font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer {localEvent
-									.details.is_target
+									.event_details?.is_target
 									? 'text-confirmed border-confirmed bg-transparent'
 									: 'border-gray2/30 text-gray2 bg-transparent hover:text-white hover:border-gray2'}"
 								on:click={() => toggleFlag('is_target')}
@@ -405,12 +537,12 @@
 									<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
 									></circle><circle cx="12" cy="12" r="2"></circle>
 								</svg>
-								{localEvent.details.is_target ? 'Remove Target' : 'Add Target'}
+								{localEvent.event_details?.is_target ? 'Remove Target' : 'Add Target'}
 							</button>
 
 							<button
 								class="py-2.5 rounded-2xl border font-bold text-sm transition-colors flex items-center justify-center gap-2 cursor-pointer {localEvent
-									.details.is_challenge
+									.event_details?.is_challenge
 									? 'text-tentatif border-tentatif bg-transparent'
 									: 'border-gray2/30 text-gray2 bg-transparent hover:text-white hover:border-gray2'}"
 								on:click={() => toggleFlag('is_challenge')}
@@ -424,7 +556,7 @@
 								>
 									<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
 								</svg>
-								{localEvent.details.is_challenge ? 'Remove Challenge' : 'Challenge Hold'}
+								{localEvent.event_details?.is_challenge ? 'Remove Challenge' : 'Challenge Hold'}
 							</button>
 						</div>
 					</div>
@@ -658,6 +790,144 @@
 		</div>
 	</div>
 {/if}
+
+<div use:portal>
+	{#if showConflictOverlay && pendingFlag && localEvent}
+		<div
+			class="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+			transition:fade={{ duration: 200 }}
+		>
+			<div
+				class="absolute inset-0"
+				on:click={() => {
+					showConflictOverlay = false;
+					pendingFlag = null;
+				}}
+				on:keydown={(e) => {
+					if (e.key === 'Enter' || e.key === ' ') {
+						showConflictOverlay = false;
+						pendingFlag = null;
+					}
+				}}
+				role="button"
+				tabindex="0"
+				aria-label="Close modal"
+			></div>
+			<div
+				class="bg-gray1 border border-gray2/20 rounded-2xl shadow-2xl p-8 w-full max-w-md relative z-10 text-center"
+				transition:fly={{ y: 20, duration: 200 }}
+			>
+				<div
+					class="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-6 {pendingFlag ===
+					'is_target'
+						? 'bg-confirmed/10 text-confirmed'
+						: 'bg-tentatif/10 text-tentatif'}"
+				>
+					{#if pendingFlag === 'is_target'}
+						<svg
+							class="w-8 h-8"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
+							></circle><circle cx="12" cy="12" r="2"></circle></svg
+						>
+					{:else}
+						<svg
+							class="w-8 h-8"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg
+						>
+					{/if}
+				</div>
+
+				<h3 class="text-xl font-black text-white mb-6">
+					Change {pendingFlag === 'is_target' ? 'Target' : 'Challenge'} Status?
+				</h3>
+
+				<div class="flex items-center justify-between mb-8">
+					<div class="flex flex-col items-center gap-2">
+						<span class="text-xs font-bold text-gray2">From</span>
+						<div
+							class="border border-gray2/30 rounded-xl px-6 py-4 flex flex-col items-center justify-center min-w-[90px] bg-black/20"
+						>
+							<span class="text-[10px] font-black text-gray2"
+								>{formatDate(conflictingEventDate).month}</span
+							>
+							<span class="text-2xl font-black text-white my-0.5"
+								>{formatDate(conflictingEventDate).day}</span
+							>
+							<span class="text-[10px] font-bold text-gray2"
+								>{formatDate(conflictingEventDate).year}</span
+							>
+						</div>
+					</div>
+
+					<div class="flex flex-col items-center justify-center pt-6">
+						<svg
+							class="w-6 h-6 text-white mb-1"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"
+							></polyline></svg
+						>
+						<span class="text-xs font-bold text-gray2">{diffText}</span>
+					</div>
+
+					<div class="flex flex-col items-center gap-2">
+						<span class="text-xs font-bold text-gray2">To</span>
+						<div
+							class="border {pendingFlag === 'is_target'
+								? 'border-confirmed/50'
+								: 'border-tentatif/50'} rounded-xl px-6 py-4 flex flex-col items-center justify-center min-w-[90px] bg-black/20"
+						>
+							<span class="text-[10px] font-black text-gray2"
+								>{formatDate(localEvent.date).month}</span
+							>
+							<span
+								class="text-2xl font-black {pendingFlag === 'is_target'
+									? 'text-confirmed'
+									: 'text-tentatif'} my-0.5">{formatDate(localEvent.date).day}</span
+							>
+							<span class="text-[10px] font-bold text-gray2"
+								>{formatDate(localEvent.date).year}</span
+							>
+						</div>
+					</div>
+				</div>
+
+				<p class="text-sm font-bold text-white mb-8 leading-relaxed">
+					Do you want to change the {pendingFlag === 'is_target' ? 'target' : 'challenge'} to this new
+					date?
+				</p>
+
+				<div class="flex gap-3 w-full">
+					<button
+						class="flex-1 py-3 border border-problem text-problem bg-transparent font-bold rounded-2xl hover:bg-problem/20 transition-colors cursor-pointer"
+						on:click={() => {
+							showConflictOverlay = false;
+							pendingFlag = null;
+						}}
+						disabled={saving}>No</button
+					>
+					<button
+						class="flex-1 py-3 border border-confirmed text-confirmed bg-transparent font-bold rounded-2xl hover:bg-confirmed/20 transition-colors cursor-pointer"
+						on:click={resolveConflict}
+						disabled={saving}>Yes</button
+					>
+				</div>
+			</div>
+		</div>
+	{/if}
+</div>
 
 <style>
 	.custom-scrollbar::-webkit-scrollbar {
