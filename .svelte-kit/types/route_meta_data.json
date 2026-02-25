@@ -28,6 +28,9 @@
 	"/api/bug-report": [
 		"src/routes/api/bug-report/+server.ts"
 	],
+	"/api/calendar-invite-mail": [
+		"src/routes/api/calendar-invite-mail/+server.ts"
+	],
 	"/api/calendar": [
 		"src/routes/api/calendar/+server.ts"
 	],
@@ -79,7 +82,9 @@
 	"/auth/verify": [],
 	"/booking/artistavailability": [],
 	"/booking/talentpayments": [],
-	"/calendar": [],
+	"/calendar": [
+		"src/routes/calendar/+page.server.ts"
+	],
 	"/calendar/[id]": [
 		"src/routes/calendar/[id]/+page.ts"
 	],

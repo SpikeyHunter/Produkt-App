@@ -7,6 +7,7 @@
 	export let viewType: 'month' | 'week' | 'list';
 	export let listLayoutMode: 'list' | 'grid' = 'list';
 	export let listFilterMode: 'past' | 'all' | 'upcoming' = 'all';
+	export let isEditor: boolean;
 
 	const dispatch = createEventDispatcher();
 
@@ -338,16 +339,18 @@
 	</div>
 
 	<div class="flex items-center gap-3">
-		<button
-			class="px-6 py-2.5 bg-[var(--color-lime)] text-[var(--color-black)] rounded-3xl font-bold text-sm flex items-center gap-2 hover:opacity-90 transition-all shadow-sm cursor-pointer"
-			on:click={() => dispatch('addEvent')}
-		>
-			<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
-				><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"
-				></line></svg
+		{#if isEditor}
+			<button
+				class="px-6 py-2.5 bg-[var(--color-lime)] text-[var(--color-black)] rounded-3xl font-bold text-sm flex items-center gap-2 hover:opacity-90 transition-all shadow-sm cursor-pointer"
+				on:click={() => dispatch('addEvent')}
 			>
-			Add Event
-		</button>
+				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+					><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"
+					></line></svg
+				>
+				Add Event
+			</button>
+		{/if}
 	</div>
 </div>
 

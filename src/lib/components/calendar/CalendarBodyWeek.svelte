@@ -9,7 +9,9 @@
 	export let stages: StageConfig[] = [];
 	export let isAddingEvent: boolean = false;
 	export let deletedIds: string[] = [];
-	export let managingGroupId: string | null = null; 
+	export let managingGroupId: string | null = null;
+	export let canEdit: boolean;
+	export let canViewHolds: boolean;
 
 	const dispatch = createEventDispatcher();
 
@@ -42,8 +44,10 @@
 				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
 
 				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
-					const numA = a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
-					const numB = b.hold_level === 'P' ? 0 : parseInt((b.hold_level || '').replace(/\D/g, '')) || 100;
+					const numA =
+						a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
+					const numB =
+						b.hold_level === 'P' ? 0 : parseInt((b.hold_level || '').replace(/\D/g, '')) || 100;
 					if (numA !== numB) return numA - numB;
 				}
 
@@ -61,7 +65,10 @@
 	}
 
 	function handleDragStart(e: DragEvent, event: CalendarEvent) {
-		if (isAddingEvent || event.isDraft) { e.preventDefault(); return; }
+		if (isAddingEvent || event.isDraft) {
+			e.preventDefault();
+			return;
+		}
 		if (e.dataTransfer) {
 			e.dataTransfer.setData('text/plain', JSON.stringify(event));
 			e.dataTransfer.effectAllowed = 'move';
@@ -77,14 +84,23 @@
 				const event = JSON.parse(data);
 				const newDateStr = dateObj.toISOString().split('T')[0];
 				if (event.date !== newDateStr) dispatch('moveEvent', { event, newDate: newDateStr });
-			} catch (err) { console.error('Drag drop error:', err); }
+			} catch (err) {
+				console.error('Drag drop error:', err);
+			}
 		}
 	}
 
-	function handleDayClick(day: CalendarDay) { dispatch('dayClick', { day, clickedDate: day.date }); }
-	function handleEventClick(event: CalendarEvent, e: MouseEvent | KeyboardEvent) { dispatch('eventClick', { event, e }); }
+	function handleDayClick(day: CalendarDay) {
+		dispatch('dayClick', { day, clickedDate: day.date });
+	}
+	function handleEventClick(event: CalendarEvent, e: MouseEvent | KeyboardEvent) {
+		dispatch('eventClick', { event, e });
+	}
 	function handleKeydown(e: KeyboardEvent, callback: Function) {
-		if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); callback(); }
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			callback();
+		}
 	}
 
 	function formatEventTitle(event: CalendarEvent): string {
@@ -108,54 +124,117 @@
 {:else}
 	<div class="flex flex-col h-full w-full overflow-hidden bg-transparent">
 		<div class="flex-1 w-full overflow-y-auto custom-scrollbar bg-gray2/10 flex flex-col relative">
-			<div class="grid gap-px w-full flex-1" style="grid-template-columns: repeat(7, minmax(13%, auto)); grid-template-rows: auto 1fr;">
+			<div
+				class="grid gap-px w-full flex-1"
+				style="grid-template-columns: repeat(7, minmax(13%, auto)); grid-template-rows: auto 1fr;"
+			>
 				{#each weekDayNames as day, i}
-					<div class="sticky top-0 z-40 bg-black/35 p-2 text-center text-[10px] font-black text-gray2 tracking-widest uppercase shadow-[0_1px_2px_rgba(0,0,0,0.5)]">
+					<div
+						class="sticky top-0 z-40 bg-black/35 p-2 text-center text-[10px] font-black text-gray2 tracking-widest uppercase shadow-[0_1px_2px_rgba(0,0,0,0.5)]"
+					>
 						{day}
-						<span class="text-white text-base block mt-1 {weekViewDays[i].isToday ? 'bg-lime !text-black px-2 py-0.5 rounded-full' : ''}">{weekViewDays[i].dayNumber}</span>
+						<span
+							class="text-white text-base block mt-1 {weekViewDays[i].isToday
+								? 'bg-lime !text-black px-2 py-0.5 rounded-full'
+								: ''}">{weekViewDays[i].dayNumber}</span
+						>
 					</div>
 				{/each}
 
 				{#each weekViewDays as day}
 					{@const isSelected = activeDates.includes(day.date.toISOString().split('T')[0])}
-					<div class="bg-navbar p-3 flex flex-col relative {isSelected ? 'border-2 border-lime' : ''}"
+					<div
+						class="bg-navbar p-3 flex flex-col relative {isSelected ? 'border-2 border-lime' : ''}"
 						on:click={() => handleDayClick(day)}
 						on:keydown={(e) => handleKeydown(e, () => handleDayClick(day))}
 						on:dragover|preventDefault
 						on:drop={(e) => handleDrop(e, day.date)}
-						role="button" tabindex="0">
+						role="button"
+						tabindex="0"
+					>
 						<div class="flex flex-col gap-2 z-10">
 							{#each sortEventsForDisplay(day.events) as event}
 								{@const color = getBaseColor(event)}
-								{@const isDimmed = (isAddingEvent && !event.isDraft) || (managingGroupId !== null && event.group_id !== managingGroupId)}
-								{@const isDisabled = isAddingEvent || (managingGroupId !== null && event.group_id !== managingGroupId)}
-
+								{@const isDimmed =
+									(isAddingEvent && !event.isDraft) ||
+									(managingGroupId !== null && event.group_id !== managingGroupId)}
+								{@const isDisabled =
+									isAddingEvent ||
+									(managingGroupId !== null && event.group_id !== managingGroupId) ||
+									!canViewHolds}
 								{#if event.status === 'CONFIRMED'}
-									<div class="flex items-center gap-2 px-2 py-2.5 rounded-lg min-h-[30px] transition-transform active:scale-95 shadow-md overflow-hidden text-black {isDimmed ? 'opacity-40' : ''} {isDisabled ? 'pointer-events-none' : 'cursor-grab active:cursor-grabbing'}"
+									<div
+										class="flex items-center gap-2 px-2 py-2.5 rounded-lg min-h-[30px] transition-transform active:scale-95 shadow-md overflow-hidden text-black {isDimmed
+											? 'opacity-40'
+											: ''} {isDisabled
+											? 'pointer-events-none'
+											: canEdit
+												? 'cursor-grab active:cursor-grabbing'
+												: 'cursor-pointer'}"
+										draggable={!isAddingEvent && canEdit}
 										style="background-color: {color};"
-										draggable={!isAddingEvent}
 										on:dragstart={(e) => handleDragStart(e, event)}
 										on:click|stopPropagation={(e) => handleEventClick(event, e)}
 										on:keydown={(e) => handleKeydown(e, () => handleEventClick(event, e))}
-										role="button" tabindex="0">
-										<svg class="w-4 h-4 shrink-0 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-										<span class="truncate font-bold text-sm leading-none max-w-[14vw]">{formatEventTitle(event)}</span>
+										role="button"
+										tabindex="0"
+									>
+										<svg
+											class="w-4 h-4 shrink-0 text-black"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="4"
+											stroke-linecap="round"
+											stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg
+										>
+										<span class="truncate font-bold text-sm leading-none max-w-[14vw]"
+											>{formatEventTitle(event)}</span
+										>
 									</div>
 								{:else}
-									<div class="flex items-center gap-2 rounded-lg min-h-[30px] transition-transform active:scale-95 overflow-hidden {isDimmed ? 'opacity-40' : ''} {isDisabled ? 'pointer-events-none' : 'cursor-grab active:cursor-grabbing'}"
+									<div
+										class="flex items-center gap-2 rounded-lg min-h-[30px] transition-transform active:scale-95 overflow-hidden {isDimmed
+											? 'opacity-40'
+											: ''} {isDisabled
+											? 'pointer-events-none'
+											: 'cursor-grab active:cursor-grabbing'}"
 										draggable={!isAddingEvent}
 										on:dragstart={(e) => handleDragStart(e, event)}
 										on:click|stopPropagation={(e) => handleEventClick(event, e)}
 										on:keydown={(e) => handleKeydown(e, () => handleEventClick(event, e))}
-										role="button" tabindex="0">
-										<div class="w-[30px] h-[30px] rounded-lg flex items-center justify-center text-black font-black text-xs shrink-0" style="background-color: {color};">
+										role="button"
+										tabindex="0"
+									>
+										<div
+											class="w-[30px] h-[30px] rounded-lg flex items-center justify-center text-black font-black text-xs shrink-0"
+											style="background-color: {color};"
+										>
 											{formatLabel(event)}
 										</div>
-										<span class="truncate font-bold text-sm text-white leading-none max-w-[14vw]">{formatEventTitle(event)}</span>
+										<span class="truncate font-bold text-sm text-white leading-none max-w-[14vw]"
+											>{formatEventTitle(event)}</span
+										>
 										{#if event.event_details?.is_target || event.event_details?.is_challenge}
 											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-[#828282]">
-												{#if event.event_details?.is_target}<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>{/if}
-												{#if event.event_details?.is_challenge}<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>{/if}
+												{#if event.event_details?.is_target}<svg
+														class="w-3 h-3"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
+														></circle><circle cx="12" cy="12" r="2"></circle></svg
+													>{/if}
+												{#if event.event_details?.is_challenge}<svg
+														class="w-3 h-3"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+														></polygon></svg
+													>{/if}
 											</div>
 										{/if}
 									</div>
@@ -170,7 +249,14 @@
 {/if}
 
 <style>
-	.custom-scrollbar::-webkit-scrollbar { width: 4px; }
-	.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(247, 247, 247, 0.15); border-radius: 10px; }
-	.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--color-lime); }
+	.custom-scrollbar::-webkit-scrollbar {
+		width: 4px;
+	}
+	.custom-scrollbar::-webkit-scrollbar-thumb {
+		background: rgba(247, 247, 247, 0.15);
+		border-radius: 10px;
+	}
+	.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+		background: var(--color-lime);
+	}
 </style>

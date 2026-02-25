@@ -18,7 +18,6 @@
 		'/production/emailtech',
 		'/marketing',
 		'/settings',
-		'/calendar',
 		'/ncgapp',
 		'/sultanshepard'
 		// '/schedules' and '/settimes' removed for public access
@@ -31,7 +30,7 @@
 	const PERMISSION_MAP: Record<string, string | string[]> = {
 		// --- Base Sections ---
 		'/dashboard': [], // Accessible to all logged in users
-		'/calendar': 'Admin',
+		
 		'/settings': 'Admin',
 		'/settimes': ['Advance', 'Booking', 'Production', 'Marketing'], // Any of these
 

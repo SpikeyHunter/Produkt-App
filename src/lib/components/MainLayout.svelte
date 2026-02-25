@@ -75,7 +75,7 @@
 			icon: icons.calendar,
 			route: '/calendar',
 			subItems: [],
-			requiredPermission: 'Admin'
+			requiredPermission: ['Calendar']
 		},
 		{
 			id: 'settimes',

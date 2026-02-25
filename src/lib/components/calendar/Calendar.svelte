@@ -24,6 +24,10 @@
 	export let viewType: 'month' | 'week' | 'list' = 'month';
 	export let currentViewDate: Date = new Date();
 
+	// Replaced isEditor with explicit granular roles
+	export let canEdit: boolean = false;
+	export let canViewHolds: boolean = false;
+
 	let allEvents: CalendarEvent[] = [];
 	let draftEvents: CalendarEvent[] = [];
 	let venues: VenueSettings[] = [];
@@ -48,26 +52,32 @@
 	let manageHoldsDrafts: CalendarEvent[] = [];
 	let manageHoldsDeletedIds: string[] = [];
 	let toggleDateTrigger: { date: string; ts: number } | null = null;
-
 	const weekDayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 	const monthNames = [
-		'January', 'February', 'March', 'April', 'May', 'June',
-		'July', 'August', 'September', 'October', 'November', 'December'
+		'January',
+		'February',
+		'March',
+		'April',
+		'May',
+		'June',
+		'July',
+		'August',
+		'September',
+		'October',
+		'November',
+		'December'
 	];
 
-	$: displayEvents = showManageHoldsModal ?
-		[
-			...allEvents.filter(
-				(e) =>
-					!manageHoldsDeletedIds.includes(e.id) &&
-					!manageHoldsDrafts.some((md) => md.id === e.id)
-			),
-			...draftEvents,
-			...manageHoldsDrafts
-		] : [
-			...allEvents,
-			...draftEvents
-		];
+	$: displayEvents = showManageHoldsModal
+		? [
+				...allEvents.filter(
+					(e) =>
+						!manageHoldsDeletedIds.includes(e.id) && !manageHoldsDrafts.some((md) => md.id === e.id)
+				),
+				...draftEvents,
+				...manageHoldsDrafts
+			]
+		: [...allEvents, ...draftEvents];
 
 	$: if (showManageHoldsModal) {
 		activeSelectedDates = manageHoldsDrafts.map((d) => d.date);
@@ -136,7 +146,6 @@
 		const days: CalendarDay[] = [];
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
-
 		for (let i = 0; i < 7; i++) {
 			const date = new Date(startDate);
 			date.setDate(startDate.getDate() + i);
@@ -159,7 +168,6 @@
 	function groupEventsForList(month: Date, events: CalendarEvent[]): GroupedEvents {
 		const filteredEvents = events.filter((event) => {
 			const eventDate = new Date(event.date + 'T00:00:00');
-			// Removed the absolute "Today" restriction so past events in the loaded month show up correctly.
 			return viewType === 'list'
 				? true
 				: eventDate.getMonth() === month.getMonth() &&
@@ -188,7 +196,9 @@
 				stages = venues.flatMap((v) => {
 					let parsed = v.setting_params;
 					if (typeof parsed === 'string') {
-						try { parsed = JSON.parse(parsed); } catch (e) {}
+						try {
+							parsed = JSON.parse(parsed);
+						} catch (e) {}
 					}
 					return parsed.stages || [];
 				});
@@ -210,21 +220,28 @@
 				.order('date', { ascending: true });
 
 			if (error) throw error;
-			allEvents = (data || []).map((row: any) => ({
-				id: row.id,
-				short_id: row.short_id,
-				group_id: row.group_id,
-				creator_name: row.calendar?.creator_name || 'Unknown',
-				date: row.date,
-				status: row.status,
-				hold_level: row.hold_level,
-				venue: row.venue,
-				time: row.time,
-				isDraft: false,
-				event_details: row.event_details || { is_target: false, is_challenge: false },
-				title: row.calendar?.title || '(No Title)',
-				details: row.calendar?.details || {}
-			}));
+
+			allEvents = (data || []).map((row: any) => {
+				const isHold = row.status === 'HOLD' || row.status === 'PENDING';
+				// Applies masking logic depending on canViewHolds
+				const displayTitle = !canViewHolds && isHold ? 'Hold' : row.calendar?.title || '(No Title)';
+
+				return {
+					id: row.id,
+					short_id: row.short_id,
+					group_id: row.group_id,
+					creator_name: row.calendar?.creator_name || 'Unknown',
+					date: row.date,
+					status: row.status,
+					hold_level: row.hold_level,
+					venue: row.venue,
+					time: row.time,
+					isDraft: false,
+					event_details: row.event_details || { is_target: false, is_challenge: false },
+					title: displayTitle,
+					details: row.calendar?.details || {}
+				};
+			});
 		} catch (error) {
 			console.error('Error loading data:', error);
 		} finally {
@@ -253,6 +270,7 @@
 	function handleDayClick(event: CustomEvent<{ day: CalendarDay; clickedDate: Date }>) {
 		const { clickedDate } = event.detail;
 		const dateStr = clickedDate.toISOString().split('T')[0];
+		if (!canEdit) return;
 
 		if (showManageHoldsModal) {
 			toggleDateTrigger = { date: dateStr, ts: Date.now() };
@@ -272,20 +290,30 @@
 		activeSelectedDates = [dateStr];
 		showAddSidebar = true;
 	}
-
 	function handleEventClick(
-		event: CustomEvent<{ event: CalendarEvent; e: MouseEvent | KeyboardEvent; forceOpenPage?: boolean }>
+		event: CustomEvent<{
+			event: CalendarEvent;
+			e: MouseEvent | KeyboardEvent;
+			forceOpenPage?: boolean;
+		}>
 	) {
 		const { event: calendarEvent, e, forceOpenPage } = event.detail;
 		e?.stopPropagation();
+
 		if (calendarEvent.isDraft) return;
 
-		// Force open page explicitly requested by list view
+		// 1. "View Only" cannot access the page ID. If they don't have canViewHolds (Manager+), stop here.
+		if (!canViewHolds) return;
+
+		// 2. Manager, Editor, and Admin can access the page[id]
 		if (forceOpenPage || calendarEvent.status === 'CONFIRMED') {
 			goto(`/calendar/${calendarEvent.short_id}`);
 			return;
 		}
-		
+
+		// 3. Only Editor and Admin can open the Edit/Hold modal
+		if (!canEdit) return;
+
 		if (showAddSidebar || showManageHoldsModal) return;
 
 		selectedEvent = calendarEvent;
@@ -293,8 +321,9 @@
 	}
 
 	function handleAddEventClick() {
+		if (!canEdit) return;
 		if (viewType === 'list') {
-			viewType = 'month'; // Instantly switch back to visual calendar to pick dates
+			viewType = 'month';
 		}
 		activeSelectedDates = [new Date().toISOString().split('T')[0]];
 		showAddSidebar = true;
@@ -391,11 +420,14 @@
 </div>
 
 <div class="flex items-stretch gap-2 h-full w-full overflow-hidden">
-	<div class="flex-1 w-full min-w-0 bg-gray1 rounded-xl flex flex-col transition-all duration-300 border border-gray2/10 overflow-hidden">
+	<div
+		class="flex-1 w-full min-w-0 bg-gray1 rounded-xl flex flex-col transition-all duration-300 border border-gray2/10 overflow-hidden"
+	>
 		<CalendarHeader
 			{headerText}
 			{currentViewDate}
 			{viewType}
+			isEditor={canEdit}
 			bind:listFilterMode={currentListFilter}
 			bind:listLayoutMode
 			on:today={goToToday}
@@ -406,17 +438,21 @@
 				currentViewDate = e.detail;
 			}}
 		/>
-		
+
 		<div class="flex-1 overflow-hidden" class:hidden={viewType !== 'month'}>
 			<CalendarBodyMonth
 				{loading}
 				{monthViewDays}
 				{weekDayNames}
 				{stages}
+				{canEdit}
+				{canViewHolds}
 				activeDates={activeSelectedDates}
 				isAddingEvent={showAddSidebar}
 				deletedIds={manageHoldsDeletedIds}
-				managingGroupId={showManageHoldsModal && selectedDayEvents.length > 0 ? selectedDayEvents[0].group_id : null} 
+				managingGroupId={showManageHoldsModal && selectedDayEvents.length > 0
+					? selectedDayEvents[0].group_id
+					: null}
 				on:dayClick={handleDayClick}
 				on:eventClick={handleEventClick}
 				on:moveEvent={handleMoveEvent}
@@ -429,10 +465,14 @@
 				{weekViewDays}
 				{weekDayNames}
 				{stages}
+				{canEdit}
+				{canViewHolds}
 				activeDates={activeSelectedDates}
 				isAddingEvent={showAddSidebar}
 				deletedIds={manageHoldsDeletedIds}
-				managingGroupId={showManageHoldsModal && selectedDayEvents.length > 0 ? selectedDayEvents[0].group_id : null} 
+				managingGroupId={showManageHoldsModal && selectedDayEvents.length > 0
+					? selectedDayEvents[0].group_id
+					: null}
 				on:dayClick={handleDayClick}
 				on:eventClick={handleEventClick}
 				on:moveEvent={handleMoveEvent}
@@ -447,51 +487,58 @@
 				{monthNames}
 				{stages}
 				{venues}
+				{canViewHolds}
 				layoutMode={listLayoutMode}
 				isAddingEvent={showAddSidebar}
 				deletedIds={manageHoldsDeletedIds}
-				managingGroupId={showManageHoldsModal && selectedDayEvents.length > 0 ? selectedDayEvents[0].group_id : null} 
+				managingGroupId={showManageHoldsModal && selectedDayEvents.length > 0
+					? selectedDayEvents[0].group_id
+					: null}
 				{currentViewDate}
 				on:eventClick={handleEventClick}
-				on:jumpToDate={(e) => { currentViewDate = e.detail; }}
+				on:jumpToDate={(e) => {
+					currentViewDate = e.detail;
+				}}
 				bind:listFilterMode={currentListFilter}
 			/>
 		</div>
 	</div>
 
-	<CalendarAddEvent
-		bind:isOpen={showAddSidebar}
-		bind:dates={activeSelectedDates}
-		bind:draftEvents
-		{allEvents}
-		{venues}
-		on:openSettings={(e) => {
-			selectedSettingsVenueId = e.detail?.venueId || null;
-			showSettingsModal = true;
-		}}
-		on:success={() => loadEventsAndSettings(currentViewDate)}
-		on:successAndView={handleSaveAndView}
-		on:close={() => (showAddSidebar = false)}
-	/>
+	{#if canEdit}
+		<CalendarAddEvent
+			bind:isOpen={showAddSidebar}
+			bind:dates={activeSelectedDates}
+			bind:draftEvents
+			{allEvents}
+			{venues}
+			on:openSettings={(e) => {
+				selectedSettingsVenueId = e.detail?.venueId || null;
+				showSettingsModal = true;
+			}}
+			on:success={() => loadEventsAndSettings(currentViewDate)}
+			on:successAndView={handleSaveAndView}
+			on:close={() => (showAddSidebar = false)}
+		/>
 
-	<CalendarManageHolds
-		bind:isOpen={showManageHoldsModal}
-		events={selectedDayEvents}
-		{venues}
-		bind:draftEvents={manageHoldsDrafts}
-		bind:deletedIds={manageHoldsDeletedIds}
-		bind:toggleDateTrigger={toggleDateTrigger}
-		on:close={handleManageHoldsClose} 
-		on:update={() => loadEventsAndSettings(currentViewDate, true)}
-	/>
+		<CalendarManageHolds
+			bind:isOpen={showManageHoldsModal}
+			events={selectedDayEvents}
+			{venues}
+			bind:draftEvents={manageHoldsDrafts}
+			bind:deletedIds={manageHoldsDeletedIds}
+			bind:toggleDateTrigger
+			on:close={handleManageHoldsClose}
+			on:update={() => loadEventsAndSettings(currentViewDate, true)}
+		/>
 
-	<CalendarMoveModal
-		bind:show={showMoveModal}
-		event={moveModalEvent}
-		newDateStr={moveModalNewDate}
-		existingEvents={allEvents}
-		{venues}
-		on:success={() => loadEventsAndSettings(currentViewDate)}
-		on:close={() => (showMoveModal = false)}
-	/>
+		<CalendarMoveModal
+			bind:show={showMoveModal}
+			event={moveModalEvent}
+			newDateStr={moveModalNewDate}
+			existingEvents={allEvents}
+			{venues}
+			on:success={() => loadEventsAndSettings(currentViewDate)}
+			on:close={() => (showMoveModal = false)}
+		/>
+	{/if}
 </div>

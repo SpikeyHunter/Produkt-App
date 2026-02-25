@@ -51,7 +51,7 @@ export const dictionary = {
 		"/auth/verify": [8],
 		"/booking/artistavailability": [9],
 		"/booking/talentpayments": [10],
-		"/calendar": [11],
+		"/calendar": [~11],
 		"/calendar/[id]": [12],
 		"/dashboard": [13],
 		"/letter": [14],
