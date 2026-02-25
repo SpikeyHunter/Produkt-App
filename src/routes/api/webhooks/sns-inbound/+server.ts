@@ -28,7 +28,6 @@ export const POST: RequestHandler = async ({ request }) => {
             const senderPhone = messageData.originationNumber || '';
             const messageBody = (messageData.messageBody || '').trim().toUpperCase();
 
-            // Keywords recognized by carriers
             const optOutKeywords = ['STOP', 'UNSUBSCRIBE', 'CANCEL', 'QUIT', 'END'];
             const optInKeywords = ['START', 'UNSTOP', 'RESUME'];
 
@@ -37,25 +36,45 @@ export const POST: RequestHandler = async ({ request }) => {
             const last10Digits = cleanSenderPhone.slice(-10);
 
             if (last10Digits.length === 10) {
-                if (optOutKeywords.includes(messageBody)) {
-                    // Update DB to FALSE
-                    const { error } = await supabaseAdmin
-                        .from('calendar_users')
-                        .update({ confirmation_phone: false })
-                        .like('phone', `%${last10Digits}%`);
+                // Determine if this is an opt-out or opt-in
+                const isOptOut = optOutKeywords.includes(messageBody);
+                const isOptIn = optInKeywords.includes(messageBody);
 
-                    if (error) console.error('Failed to opt-out user in DB:', error);
-                    else console.log(`User with phone ending in ${last10Digits} opted OUT.`);
-                    
-                } else if (optInKeywords.includes(messageBody)) {
-                    // Update DB to TRUE
-                    const { error } = await supabaseAdmin
+                if (isOptOut || isOptIn) {
+                    // Fetch all users with a phone number to do a clean JS match
+                    const { data: users, error: fetchError } = await supabaseAdmin
                         .from('calendar_users')
-                        .update({ confirmation_phone: true })
-                        .like('phone', `%${last10Digits}%`);
+                        .select('id, phone')
+                        .not('phone', 'is', null);
 
-                    if (error) console.error('Failed to opt-in user in DB:', error);
-                    else console.log(`User with phone ending in ${last10Digits} opted IN.`);
+                    if (fetchError || !users) {
+                        console.error('Failed to fetch users:', fetchError);
+                        return new Response('OK', { status: 200 });
+                    }
+
+                    // Find the matching user by stripping formatting from the DB phone numbers
+                    const matchedUser = users.find(u => {
+                        const cleanDbPhone = u.phone.replace(/\D/g, '');
+                        return cleanDbPhone.endsWith(last10Digits);
+                    });
+
+                    if (matchedUser) {
+                        const newStatus = isOptIn ? true : false;
+                        
+                        // Update the specific user by ID
+                        const { error: updateError } = await supabaseAdmin
+                            .from('calendar_users')
+                            .update({ confirmation_phone: newStatus })
+                            .eq('id', matchedUser.id);
+
+                        if (updateError) {
+                            console.error('Failed to update user status in DB:', updateError);
+                        } else {
+                            console.log(`Successfully updated user ${matchedUser.id} to ${newStatus ? 'OPTED-IN' : 'OPTED-OUT'}`);
+                        }
+                    } else {
+                        console.log(`No user found in DB matching phone ending in ${last10Digits}`);
+                    }
                 }
             }
         }
