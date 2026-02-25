@@ -91,14 +91,14 @@
 			icon: icons.marketing,
 			requiredPermission: 'Marketing',
 			subItems: [
-				{ label: 'Events Info', route: '/marketing/eventsinfo', requiredPermission: 'Marketing' },
+				{ label: 'Events Info', route: '/marketing/eventsinfo', requiredPermission: 'EventsInfo' },
 				{
 					label: 'Comp Tickets',
 					route: '/marketing/comptickets',
 					requiredPermission: 'CompTickets'
 				},
-				{ label: 'Compare Hub', route: '/marketing/comparehub', requiredPermission: 'Marketing' },	
-				{ label: 'Customers Database', route: '/marketing/customers', requiredPermission: 'Marketing' }
+				{ label: 'Compare Hub', route: '/marketing/comparehub', requiredPermission: 'CompareHub' },	
+				{ label: 'Customers Database', route: '/marketing/customers', requiredPermission: 'CustomersDB' }
 			]
 		},
 		{
@@ -127,6 +127,7 @@
 					requiredPermission: 'Advance'
 				},
 				{ label: 'Hotel Tracker', route: '/advancing/hoteltracker', requiredPermission: 'Advance' },
+				{ label: 'Merch Settlement', route: '/advancing/merchsettlement', requiredPermission: 'Advance' },
 				{ label: 'Local Artists', route: '/advancing/localartists', requiredPermission: 'Advance' }
 			]
 		},
