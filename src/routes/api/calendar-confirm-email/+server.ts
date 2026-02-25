@@ -8,16 +8,16 @@ import { createClient } from '@supabase/supabase-js';
 
 // Setup AWS SES
 const sesClient = new SESClient({
-	region: privateEnv.AWS_REGION || '',
-	credentials: {
-		accessKeyId: privateEnv.AWS_ACCESS_KEY_ID || '',
-		secretAccessKey: privateEnv.AWS_SECRET_ACCESS_KEY || '',
-	}
+    region: privateEnv.AWS_REGION || '',
+    credentials: {
+        accessKeyId: privateEnv.AWS_ACCESS_KEY_ID || '',
+        secretAccessKey: privateEnv.AWS_SECRET_ACCESS_KEY || '',
+    }
 });
 
 const transporter = nodemailer.createTransport({
-	streamTransport: true,
-	buffer: true
+    streamTransport: true,
+    buffer: true
 });
 
 // Setup Supabase Admin Client to bypass RLS
@@ -27,36 +27,46 @@ const supabaseAdmin = createClient(
 );
 
 export const POST: RequestHandler = async ({ request }) => {
-	try {
-		const { eventId, eventTitle, eventType, eventDate, venueName, authUserName } = await request.json();
+    try {
+        const { eventId, eventTitle, eventType, eventDate, venueName, authUserName, action } = await request.json();
 
-		// Fetch all users who opted into emails
-		const { data: users, error } = await supabaseAdmin
-			.from('calendar_users')
-			.select('id, email, name')
-			.eq('confirmation_email', true)
+        // Fetch all users who opted into emails
+        const { data: users, error } = await supabaseAdmin
+            .from('calendar_users')
+            .select('id, email, name')
+            .eq('confirmation_email', true)
             .not('email', 'is', null)
             .neq('email', '');
 
-		if (error || !users || users.length === 0) {
-			return json({ success: true, message: 'No users to email' });
-		}
+        if (error || !users || users.length === 0) {
+            return json({ success: true, message: 'No users to email' });
+        }
 
-		const currentYear = new Date().getFullYear();
-		const formattedDate = new Date(eventDate + 'T00:00:00').toLocaleDateString('en-US', {
-			month: 'long',
-			day: 'numeric',
-			year: 'numeric'
-		});
+        const currentYear = new Date().getFullYear();
+        const formattedDate = new Date(eventDate + 'T00:00:00').toLocaleDateString('en-US', {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric'
+        });
 
-		// Loop through users to send unique unsubscribe links
-		for (const user of users) {
-			if (!user.email) continue;
-			
-			const eventUrl = `https://app.produkt.ca/calendar/${eventId}`;
-			const unsubscribeUrl = `https://app.produkt.ca/calendar/unsubscribe?id=${user.id}`;
+        const isCancel = action === 'cancel';
+        const subjectText = isCancel ? 'CANCELED' : 'CONFIRMED';
+        const titleText = isCancel ? 'Canceled' : 'Confirmed!';
+        const subtitleText = isCancel ? 'canceled' : 'confirmed';
+        
+        // The placeholder button vs real button logic
+        const buttonHtml = isCancel 
+            ? `<p style="color: #FF4D4D; font-weight: 700; font-size: 16px;">Event Canceled</p>` 
+            : `<a href="https://app.produkt.ca/calendar/${eventId}" class="verify-button"><span>View in Calendar</span></a>`;
 
-			const htmlTemplate = `
+        // Loop through users to send unique unsubscribe links
+        for (const user of users) {
+            if (!user.email) continue;
+            
+            const eventUrl = `https://app.produkt.ca/calendar/${eventId}`;
+            const unsubscribeUrl = `https://app.produkt.ca/calendar/unsubscribe?id=${user.id}`;
+
+            const htmlTemplate = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -64,7 +74,7 @@ export const POST: RequestHandler = async ({ request }) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
     <meta name="supported-color-schemes" content="light dark">
-    <title>Confirmed: ${eventDate} ${eventTitle} - [${eventType}]</title>
+    <title>${subjectText}: ${eventDate} ${eventTitle} - [${eventType}]</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Helvetica+Neue:wght@400;700&display=swap');
         
@@ -72,7 +82,6 @@ export const POST: RequestHandler = async ({ request }) => {
         body { background-color: #FFFFFF; margin: 0; padding: 0; font-family: 'Helvetica Neue', sans-serif; letter-spacing: -0.01em; }
         .email-container { max-width: 100%; width: 100%; background-color: #FFFFFF; }
         .header { background-color: #FFFFFF; padding: 40px 30px 20px 30px; text-align: center; border-bottom: 2px solid #E4E4E4; }
-        /* Increased max-width to 300px and added width: 100% so it scales down on tiny screens without cutting off */
         .logo { width: 100%; max-width: 300px; height: auto; }
         .content { padding: 40px 30px; text-align: center; background-color: #FFFFFF; }
         .welcome-title { color: #2F2F2F; font-size: 20px; font-weight: 700; margin: 0 0 16px 0; line-height: 1.3; }
@@ -105,19 +114,19 @@ export const POST: RequestHandler = async ({ request }) => {
             <img src="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/NCG_ProduktXX.png" alt="ProduktXX" class="logo">
         </div>
         <div class="content">
-            <h1 class="welcome-title">Event: ${eventTitle} - [${eventType}] Confirmed!</h1>
+            <h1 class="welcome-title">Event: ${eventTitle} - [${eventType}] ${titleText}</h1>
             <p class="welcome-subtitle">
-                ${authUserName} has confirmed the event for ${formattedDate}.
+                ${authUserName} has ${subtitleText} the event for ${formattedDate}.
             </p>
             
-            <a href="${eventUrl}" class="verify-button">
-                <span>View in Calendar</span>
-            </a>
+            ${buttonHtml}
             
+            ${!isCancel ? `
             <p class="alternative-link">
                 If you're having trouble clicking the "View in Calendar" button, copy and paste the URL below into your web browser:<br><br>
                 <a href="${eventUrl}">${eventUrl}</a>
-            </p>
+            </p>` : ''}
+            
             <div class="signature">
                 Regards,<br/>
                 Produkt App
@@ -133,28 +142,28 @@ export const POST: RequestHandler = async ({ request }) => {
 </body>
 </html>`;
 
-			const mailOptions: any = {
-				from: `"Produkt App" <support@produkt.ca>`,
-				to: user.email,
-				subject: `Confirmed: ${eventTitle} - [${eventType}]`,
-				text: `Event: ${eventTitle} - [${eventType}] Confirmed!\n\n${authUserName} has confirmed the event for ${formattedDate}.\n\nView in Calendar: ${eventUrl}\n\nUnsubscribe: ${unsubscribeUrl}`,
-				html: htmlTemplate
-			};
+            const mailOptions: any = {
+                from: `"Produkt App" <support@produkt.ca>`,
+                to: user.email,
+                subject: `${subjectText}: ${eventTitle} - [${eventType}]`,
+                text: `Event: ${eventTitle} - [${eventType}] ${titleText}\n\n${authUserName} has ${subtitleText} the event for ${formattedDate}.\n\n${isCancel ? 'Event Canceled' : `View in Calendar: ${eventUrl}`}\n\nUnsubscribe: ${unsubscribeUrl}`,
+                html: htmlTemplate
+            };
 
-			const info = await transporter.sendMail(mailOptions);
-			const rawEmailBuffer = info.message as Buffer;
+            const info = await transporter.sendMail(mailOptions);
+            const rawEmailBuffer = info.message as Buffer;
 
-			const command = new SendRawEmailCommand({
-				RawMessage: { Data: rawEmailBuffer }
-			});
+            const command = new SendRawEmailCommand({
+                RawMessage: { Data: rawEmailBuffer }
+            });
 
-			await sesClient.send(command);
-		}
+            await sesClient.send(command);
+        }
 
-		return json({ success: true, message: `Sent ${users.length} confirmations` });
+        return json({ success: true, message: `Sent ${users.length} notifications` });
 
-	} catch (error) {
-		console.error('Error sending confirmation emails:', error);
-		return json({ success: false, message: 'Failed to send confirmation emails' }, { status: 500 });
-	}
+    } catch (error) {
+        console.error('Error sending emails:', error);
+        return json({ success: false, message: 'Failed to send emails' }, { status: 500 });
+    }
 };
