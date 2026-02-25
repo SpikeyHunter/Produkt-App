@@ -43,8 +43,10 @@
 				</svg>
 			</div>
 			<h1 class="text-2xl font-black text-white mb-4">Unsubscribed</h1>
-			<p class="text-gray2">
-				You've been unsubscribed from Produkt App - Calendar.<br/>
+			<p class="text-lime mb-3">
+				You've been unsubscribed from Produkt App
+			</p>
+            <p class="text-gray2">
 				You will not receive these emails from us anymore. Thank you!
 			</p>
 			

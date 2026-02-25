@@ -72,7 +72,8 @@ export const POST: RequestHandler = async ({ request }) => {
         body { background-color: #FFFFFF; margin: 0; padding: 0; font-family: 'Helvetica Neue', sans-serif; letter-spacing: -0.01em; }
         .email-container { max-width: 100%; width: 100%; background-color: #FFFFFF; }
         .header { background-color: #FFFFFF; padding: 40px 30px 20px 30px; text-align: center; border-bottom: 2px solid #E4E4E4; }
-        .logo { max-width: 250px; height: auto; }
+        /* Increased max-width to 300px and added width: 100% so it scales down on tiny screens without cutting off */
+        .logo { width: 100%; max-width: 300px; height: auto; }
         .content { padding: 40px 30px; text-align: center; background-color: #FFFFFF; }
         .welcome-title { color: #2F2F2F; font-size: 20px; font-weight: 700; margin: 0 0 16px 0; line-height: 1.3; }
         .welcome-subtitle { color: #7A7A7A; font-size: 14px; font-weight: 400; margin: 0 0 40px 0; line-height: 1.5; }
@@ -114,7 +115,7 @@ export const POST: RequestHandler = async ({ request }) => {
             </a>
             
             <p class="alternative-link">
-                If you're having trouble clicking the "View in Calendar" button, copy and paste the URL below into your web browser:<br>
+                If you're having trouble clicking the "View in Calendar" button, copy and paste the URL below into your web browser:<br><br>
                 <a href="${eventUrl}">${eventUrl}</a>
             </p>
             <div class="signature">
