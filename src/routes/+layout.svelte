@@ -24,13 +24,15 @@
 	];
 
 	const PUBLIC_ONLY_ROUTES = ['/', '/login', '/login/register', '/login/forgot-password'];
+	// Add this under PUBLIC_ONLY_ROUTES
+	const UNPROTECTED_ROUTES = ['/calendar/unsubscribe'];
 
 	// --- PERMISSION CONFIGURATION ---
 	// This map defines all routes that require specific permission *if the user is logged in*.
 	const PERMISSION_MAP: Record<string, string | string[]> = {
 		// --- Base Sections ---
 		'/dashboard': [], // Accessible to all logged in users
-		
+
 		'/settings': 'Admin',
 		'/settimes': ['Advance', 'Booking', 'Production', 'Marketing'], // Any of these
 
@@ -158,15 +160,21 @@
 			data: { subscription }
 		} = supabase.auth.onAuthStateChange(async (event, session) => {
 			const currentPath = $page.url.pathname;
+
+			// NEW: Bail out early for completely unprotected routes
+			if (UNPROTECTED_ROUTES.some((route) => currentPath.startsWith(route))) {
+				return;
+			}
+
 			const userIsLoggedIn = !!session?.user;
 
-			// --- 1. PRIMARY AUTHENTICATION GUARD (Redirects unauthenticated users from PROTECTED_ROUTES) ---
+			// --- 1. PRIMARY AUTHENTICATION GUARD ---
 			if (!userIsLoggedIn && PROTECTED_ROUTES.some((route) => currentPath.startsWith(route))) {
 				await goto('/');
 				return;
 			}
 
-			// --- 2. LOGGED IN REDIRECT GUARD (Redirects logged-in users from public-only pages) ---
+			// --- 2. LOGGED IN REDIRECT GUARD ---
 			if (userIsLoggedIn && PUBLIC_ONLY_ROUTES.includes(currentPath)) {
 				await goto('/dashboard');
 				return;

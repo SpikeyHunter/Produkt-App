@@ -17,6 +17,7 @@
 
 	// Custom Delete Modal State
 	let memberToDelete: any = null;
+	let memberToInvite: any = null;
 
 	// Search Query
 	let searchQuery = '';
@@ -47,6 +48,7 @@
 		role: string;
 		password: string;
 		confirmation_email: boolean;
+		confirmation_phone: boolean;
 		reset_password?: boolean;
 	}
 
@@ -58,7 +60,8 @@
 		job: '',
 		role: '',
 		password: DEFAULT_PASSWORD,
-		confirmation_email: false
+		confirmation_email: false,
+		confirmation_phone: false
 	};
 
 	$: isFormValid = !!(
@@ -123,7 +126,8 @@
 			job: '',
 			role: '',
 			password: DEFAULT_PASSWORD,
-			confirmation_email: true
+			confirmation_email: true,
+			confirmation_phone: false
 		};
 		showForm = true;
 	}
@@ -165,7 +169,8 @@
 					phone: formData.phone,
 					job: formData.job,
 					role: formData.role,
-					confirmation_email: formData.confirmation_email
+					confirmation_email: formData.confirmation_email,
+					confirmation_phone: formData.confirmation_phone
 				};
 				if (passwordWasReset) {
 					updates.password = DEFAULT_PASSWORD;
@@ -193,6 +198,7 @@
 							job: formData.job,
 							role: formData.role,
 							confirmation_email: formData.confirmation_email,
+							confirmation_phone: formData.confirmation_phone,
 							password: formData.password,
 							has_default_password: applyDefaultPassword,
 							invite_status: defaultInviteStatus
@@ -215,6 +221,49 @@
 		}
 	}
 
+	async function sendPhoneInvite(member: any, event: Event) {
+		const button = event.target as HTMLButtonElement;
+		const originalText = button.innerText;
+		button.innerText = 'Sending SMS...';
+		button.disabled = true;
+
+		try {
+			if (!member.phone) throw new Error("This user doesn't have a phone number.");
+
+			const res = await fetch('/api/calendar-invite-phone', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ phone: member.phone, name: member.name })
+			});
+
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.message);
+
+			// Update the database to reflect the "Pending" status
+			await supabase
+				.from('calendar_users')
+				.update({ invite_status: 'Pending' })
+				.eq('id', member.id);
+
+			// Update UI Locally immediately removing the button and replacing it with the badge
+			members = members.map((m) => (m.id === member.id ? { ...m, invite_status: 'Pending' } : m));
+
+			// Close the modal
+			memberToInvite = null;
+		} catch (error: any) {
+			console.error('Failed to send SMS invite:', error);
+			button.innerText = 'Failed';
+			button.classList.add('border-problem', 'text-problem', 'bg-problem/20');
+			alert(error.message);
+
+			setTimeout(() => {
+				button.innerText = originalText;
+				button.classList.remove('border-problem', 'text-problem', 'bg-problem/20');
+				button.disabled = false;
+			}, 3000);
+		}
+	}
+
 	async function sendInvite(member: any, event: Event) {
 		const button = event.target as HTMLButtonElement;
 		const originalText = button.innerText;
@@ -229,13 +278,22 @@
 			});
 			const data = await res.json();
 			if (!res.ok) throw new Error(data.message);
-			// Update the database to reflect the "Pending" status
-			await supabase
-				.from('calendar_users')
-				.update({ invite_status: 'Pending' })
-				.eq('id', member.id);
-			// Update UI Locally immediately removing the button and replacing it with the badge
-			members = members.map((m) => (m.id === member.id ? { ...m, invite_status: 'Pending' } : m));
+
+			// ONLY update to 'Pending' if they aren't already 'Joined'
+			if (member.invite_status !== 'Joined') {
+				// Update the database to reflect the "Pending" status
+				await supabase
+					.from('calendar_users')
+					.update({ invite_status: 'Pending' })
+					.eq('id', member.id);
+
+				// Update UI Locally immediately removing the button and replacing it with the badge
+				members = members.map((m) => (m.id === member.id ? { ...m, invite_status: 'Pending' } : m));
+			}
+
+			// Revert button text on success if it's a re-invite
+			button.innerText = originalText;
+			button.disabled = false;
 		} catch (error) {
 			console.error('Failed to send invite:', error);
 			button.innerText = 'Failed';
@@ -245,6 +303,31 @@
 				button.classList.remove('border-problem', 'text-problem');
 				button.disabled = false;
 			}, 3000);
+		}
+	}
+
+	async function updateInlinePhoneConfirmation(member: any, event: Event) {
+		const target = event.target as HTMLInputElement;
+		const newStatus = target.checked;
+
+		// Optimistic UI update
+		members = members.map((m) =>
+			m.id === member.id ? { ...m, confirmation_phone: newStatus } : m
+		);
+
+		try {
+			const { error } = await supabase
+				.from('calendar_users')
+				.update({ confirmation_phone: newStatus })
+				.eq('id', member.id);
+
+			if (error) throw error;
+		} catch (error) {
+			console.error('Failed to update inline phone confirmation:', error);
+			// Rollback on failure
+			members = members.map((m) =>
+				m.id === member.id ? { ...m, confirmation_phone: !newStatus } : m
+			);
 		}
 	}
 
@@ -295,14 +378,23 @@
 
 	function downloadCSV() {
 		if (sortedMembers.length === 0) return;
-		const headers = ['Name', 'Email', 'Phone', 'Job', 'Role', 'Confirmation Email'];
+		const headers = [
+			'Name',
+			'Email',
+			'Phone',
+			'Job',
+			'Role',
+			'Confirmation Email',
+			'Confirmation Phone'
+		];
 		const rows = sortedMembers.map((m) => [
 			`"${m.name || ''}"`,
 			`"${m.email || ''}"`,
 			`"${m.phone || ''}"`,
 			`"${m.job || ''}"`,
 			`"${m.role || ''}"`,
-			m.confirmation_email ? 'Yes' : 'No'
+			m.confirmation_email ? 'Yes' : 'No',
+			m.confirmation_phone ? 'Yes' : 'No'
 		]);
 		let csvContent =
 			'data:text/csv;charset=utf-8,' +
@@ -355,6 +447,45 @@
 					<button
 						class="px-4 py-2.5 bg-problem text-black font-bold rounded-full hover:bg-red-500 hover:text-white transition-opacity cursor-pointer w-full"
 						on:click={executeDelete}>Confirm</button
+					>
+				</div>
+			</div>
+		</div>
+	{/if}
+	{#if memberToInvite}
+		<div use:portal class="fixed inset-0 z-[99999] flex items-center justify-center">
+			<div
+				class="absolute inset-0 bg-black/80"
+				transition:fade={{ duration: 200 }}
+				on:click={() => (memberToInvite = null)}
+				aria-hidden="true"
+			></div>
+
+			<div
+				class="bg-gray1 p-8 rounded-3xl max-w-sm w-full text-center border border-gray2/20 shadow-2xl relative z-10"
+				transition:fly={{ y: 30, duration: 300 }}
+			>
+				<h3 class="text-lime text-xl font-bold mb-3">SEND INVITE</h3>
+				<p class="text-gray3 mb-8">
+					How would you like to invite <strong class="text-white">{memberToInvite.name}</strong>?
+				</p>
+				<div class="flex flex-col gap-4 justify-center">
+					<button
+						class="px-4 py-2.5 bg-lime text-black font-bold rounded-full hover:bg-lime/80 transition-opacity cursor-pointer w-full"
+						on:click={(e) => {
+							sendInvite(memberToInvite, e);
+							memberToInvite = null;
+						}}>Send by Email</button
+					>
+					<button
+						class="px-4 py-2.5 bg-gray2/20 text-white font-bold rounded-full hover:bg-gray2/40 transition-opacity cursor-pointer w-full"
+						on:click={(e) => {
+							sendPhoneInvite(memberToInvite, e);
+						}}>Send by Phone</button
+					>
+					<button
+						class="px-4 py-2.5 mt-2 border-2 border-gray3 text-gray3 font-bold rounded-full hover:bg-gray3 hover:text-black transition-opacity cursor-pointer w-full"
+						on:click={() => (memberToInvite = null)}>Cancel</button
 					>
 				</div>
 			</div>
@@ -482,34 +613,66 @@
 			</div>
 
 			<div class="mt-8 flex items-center justify-between border-t border-gray2/20 pt-6">
-				<div class="flex items-center gap-3">
-					<div
-						class="relative flex items-center justify-center w-5 h-5 bg-gray2/20 border border-transparent rounded cursor-pointer has-[:checked]:bg-lime has-[:checked]:border-lime transition-colors"
-					>
-						<input
-							id="confirm-email-checkbox"
-							type="checkbox"
-							class="appearance-none w-full h-full absolute inset-0 cursor-pointer peer"
-							bind:checked={formData.confirmation_email}
-						/>
-						<svg
-							class="w-3.5 h-3.5 text-black opacity-0 peer-checked:opacity-100 pointer-events-none z-10"
-							viewBox="0 0 14 10"
-							fill="none"
-							xmlns="http://www.w3.org/2000/svg"
+				<div class="flex items-center gap-6">
+					<div class="flex items-center gap-3">
+						<div
+							class="relative flex items-center justify-center w-5 h-5 bg-gray2/20 border border-transparent rounded cursor-pointer has-[:checked]:bg-lime has-[:checked]:border-lime transition-colors"
 						>
-							<path
-								d="M1 5L4.5 8.5L13 1"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
+							<input
+								id="confirm-email-checkbox"
+								type="checkbox"
+								class="appearance-none w-full h-full absolute inset-0 cursor-pointer peer"
+								bind:checked={formData.confirmation_email}
 							/>
-						</svg>
+							<svg
+								class="w-3.5 h-3.5 text-black opacity-0 peer-checked:opacity-100 pointer-events-none z-10"
+								viewBox="0 0 14 10"
+								fill="none"
+								xmlns="http://www.w3.org/2000/svg"
+							>
+								<path
+									d="M1 5L4.5 8.5L13 1"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</div>
+						<label for="confirm-email-checkbox" class="text-white font-bold cursor-pointer text-sm"
+							>Confirmation Email</label
+						>
 					</div>
-					<label for="confirm-email-checkbox" class="text-white font-bold cursor-pointer text-sm"
-						>Confirmation Email</label
-					>
+
+					<div class="flex items-center gap-3">
+						<div
+							class="relative flex items-center justify-center w-5 h-5 bg-gray2/20 border border-transparent rounded cursor-pointer has-[:checked]:bg-lime has-[:checked]:border-lime transition-colors"
+						>
+							<input
+								id="confirm-phone-checkbox"
+								type="checkbox"
+								class="appearance-none w-full h-full absolute inset-0 cursor-pointer peer"
+								bind:checked={formData.confirmation_phone}
+							/>
+							<svg
+								class="w-3.5 h-3.5 text-black opacity-0 peer-checked:opacity-100 pointer-events-none z-10"
+								viewBox="0 0 14 10"
+								fill="none"
+								xmlns="http://www.w3.org/2000/svg"
+							>
+								<path
+									d="M1 5L4.5 8.5L13 1"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</div>
+						<label for="confirm-phone-checkbox" class="text-white font-bold cursor-pointer text-sm"
+							>Confirmation Phone</label
+						>
+					</div>
 				</div>
 
 				<div class="flex gap-4 items-center">
@@ -550,8 +713,8 @@
 					<input
 						type="text"
 						bind:value={searchQuery}
-						placeholder="Search by name, email, role..."
-						class="w-full bg-white/5 border border-transparent text-white rounded-full pl-11 pr-5 py-2.5 focus:outline-none focus:border-lime transition-all placeholder:text-gray2"
+						placeholder="Search by name, email, role"
+						class="w-full bg-white/5 border-2 border-transparent text-white rounded-full pl-11 pr-5 py-2.5 focus:outline-none focus:border-lime transition-all placeholder:text-gray2/50"
 					/>
 				</div>
 
@@ -585,48 +748,53 @@
 				</div>
 			</div>
 
-			<div class="w-full overflow-y-auto overflow-x-hidden border-10 border-navbar h-[508px]">
-				<table class="w-full text-left whitespace-nowrap" style="border-collapse: collapse;">
+			<div class="w-full overflow-y-auto overflow-x-auto h-[508px] relative">
+				<table
+					class="w-full text-left whitespace-nowrap"
+					style="border-spacing: 0; border-collapse: separate;"
+				>
 					<thead>
 						<tr class="text-gray2 text-xs uppercase tracking-wider">
 							<th
-								class="sticky top-0 z-[100] bg-[#1e1e1e] py-4 px-3 w-8 rounded-tl-xl shadow-[0_1px_0_rgba(255,255,255,0.05)]"
+								class="sticky top-0 z-[50] bg-[#1e1e1e] py-4 px-3 rounded-tl-xl w-8 shadow-[0_1px_0_rgba(255,255,255,0.05)]"
 							></th>
 							<th
-								class="sticky top-0 z-[100] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
+								class="sticky top-0 z-[50] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
 								>Name</th
 							>
 							<th
-								class="sticky top-0 z-[100] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
+								class="sticky top-0 z-[50] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
 								>Email</th
 							>
 							<th
-								class="sticky top-0 z-[100] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
+								class="sticky top-0 z-[50] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
 								>Phone</th
 							>
 							<th
-								class="sticky top-0 z-[100] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
+								class="sticky top-0 z-[50] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
 								>Job</th
 							>
 							<th
-								class="sticky top-0 z-[100] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
+								class="sticky top-0 z-[50] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)]"
 								>Role</th
 							>
 							<th
-								class="sticky top-0 z-[100] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)] text-center"
-								>Mail Confirm</th
+								class="sticky top-0 z-[50] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)] text-center leading-tight"
+								>Mail<br />Confirm</th
 							>
 							<th
-								class="sticky top-0 z-[100] bg-[#1e1e1e] py-4 px-4 font-bold rounded-tr-xl shadow-[0_1px_0_rgba(255,255,255,0.05)] pr-8"
+								class="sticky top-0 z-[50] bg-[#1e1e1e] py-4 px-4 font-bold shadow-[0_1px_0_rgba(255,255,255,0.05)] text-center leading-tight"
+								>Phone<br />Confirm</th
+							>
+							<th
+								class="sticky top-0 z-[50] bg-[#1e1e1e] py-4 px-4 font-bold rounded-tr-xl shadow-[0_1px_0_rgba(255,255,255,0.05)] pr-8"
 								>Actions</th
 							>
 						</tr>
 					</thead>
 					<tbody class="text-gray3">
 						{#each sortedMembers as member (member.id)}
-							<tr
-								class="hover:bg-white/5 transition-colors border-b border-gray2/10 last:border-none"
-							>
+							<tr class="hover:bg-white/5 transition-colors">
 								<td class="py-5 px-3 text-center align-middle">
 									{#if member.role === 'Admin'}
 										<svg
@@ -679,25 +847,61 @@
 										</div>
 									</div>
 								</td>
+
+								<td class="py-5 px-4">
+									<div class="flex justify-center">
+										<div
+											class="relative flex items-center justify-center w-5 h-5 bg-gray2/20 border border-transparent rounded cursor-pointer has-[:checked]:bg-lime has-[:checked]:border-lime transition-colors"
+										>
+											<input
+												type="checkbox"
+												class="appearance-none w-full h-full absolute inset-0 cursor-pointer peer"
+												checked={member.confirmation_phone}
+												on:change={(e) => updateInlinePhoneConfirmation(member, e)}
+											/>
+											<svg
+												class="w-3.5 h-3.5 text-black opacity-0 peer-checked:opacity-100 pointer-events-none z-10"
+												viewBox="0 0 14 10"
+												fill="none"
+												xmlns="http://www.w3.org/2000/svg"
+											>
+												<path
+													d="M1 5L4.5 8.5L13 1"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												/>
+											</svg>
+										</div>
+									</div>
+								</td>
+
 								<td class="py-5 px-4 pr-8">
 									<div class="flex justify-start items-center gap-2">
 										<div class="w-[76px] shrink-0">
-											{#if member.has_default_password}
-												{#if member.invite_status === 'Pending'}
-													<span
-														class="w-full inline-block text-center text-xs font-bold py-1.5 rounded-full border border-yellow-500 text-yellow-500"
-													>
-														Pending
-													</span>
-												{:else}
-													<button
-														type="button"
-														class="w-full text-xs font-bold py-1.5 rounded-full border border-lime text-lime hover:bg-lime hover:text-black transition-colors cursor-pointer"
-														on:click={(e) => sendInvite(member, e)}
-													>
-														Invite
-													</button>
-												{/if}
+											{#if member.invite_status === 'Pending'}
+												<span
+													class="w-full inline-block text-center text-xs font-bold py-1.5 rounded-full border border-yellow-500 text-yellow-500"
+												>
+													Pending
+												</span>
+											{:else if member.invite_status === 'Joined'}
+												<button
+													type="button"
+													class="w-full text-xs font-bold py-1.5 rounded-full border border-question text-question hover:bg-question hover:text-black transition-colors cursor-pointer"
+													on:click={() => (memberToInvite = member)}
+												>
+													Re-Invite
+												</button>
+											{:else if member.has_default_password}
+												<button
+													type="button"
+													class="w-full text-xs font-bold py-1.5 rounded-full border border-lime text-lime hover:bg-lime hover:text-black transition-colors cursor-pointer"
+													on:click={() => (memberToInvite = member)}
+												>
+													Invite
+												</button>
 											{/if}
 										</div>
 										<button
@@ -720,7 +924,7 @@
 						{/each}
 						{#if sortedMembers.length === 0}
 							<tr>
-								<td colspan="8" class="py-16 text-center text-gray2 font-medium">
+								<td colspan="9" class="py-16 text-center text-gray2 font-medium">
 									{searchQuery ? 'No members match your search.' : 'No members found.'}
 								</td>
 							</tr>

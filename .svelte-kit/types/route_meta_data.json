@@ -28,8 +28,17 @@
 	"/api/bug-report": [
 		"src/routes/api/bug-report/+server.ts"
 	],
+	"/api/calendar-confirm-email": [
+		"src/routes/api/calendar-confirm-email/+server.ts"
+	],
+	"/api/calendar-confirm-sms": [
+		"src/routes/api/calendar-confirm-sms/+server.ts"
+	],
 	"/api/calendar-invite-mail": [
 		"src/routes/api/calendar-invite-mail/+server.ts"
+	],
+	"/api/calendar-invite-phone": [
+		"src/routes/api/calendar-invite-phone/+server.ts"
 	],
 	"/api/calendar": [
 		"src/routes/api/calendar/+server.ts"
@@ -85,6 +94,7 @@
 	"/calendar": [
 		"src/routes/calendar/+page.server.ts"
 	],
+	"/calendar/unsubscribe": [],
 	"/calendar/[id]": [
 		"src/routes/calendar/[id]/+page.ts"
 	],

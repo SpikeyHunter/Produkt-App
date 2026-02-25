@@ -6,6 +6,9 @@
 	import { tick, createEventDispatcher } from 'svelte';
 	import { supabase } from '$lib/supabase';
 	import { portal } from '$lib/utils/portalUtils';
+	import { authStore } from '$lib/stores/authStore';
+	import Modal from '$lib/components/modals/Modal.svelte';
+	import CalendarContactList from '$lib/components/calendar/CalendarContactList.svelte';
 
 	export let show: boolean;
 	export let event: CalendarEvent | null;
@@ -28,6 +31,16 @@
 	let conflictingEventId: string | null = null;
 	let pendingFlag: 'is_target' | 'is_challenge' | null = null;
 	let showConflictOverlay = false;
+
+	// Add these state variables
+	let optSendEmail = false;
+	let optSendSms = false;
+	let emailUsersCount = 0;
+	let smsUsersCount = 0;
+	let showContactListModal = false;
+
+	// Check if current user is an admin
+	$: isAdmin = $authStore?.profile?.role === 'Admin';
 
 	// Date Math for Conflict Overlay
 	$: oldDateObj = conflictingEventDate ? new Date(conflictingEventDate + 'T00:00:00') : null;
@@ -290,6 +303,25 @@
 		}
 	}
 
+	async function refreshUserCounts() {
+		try {
+			const [{ count: eCount }, { count: sCount }] = await Promise.all([
+				supabase
+					.from('calendar_users')
+					.select('*', { count: 'exact', head: true })
+					.eq('confirmation_email', true),
+				supabase
+					.from('calendar_users')
+					.select('*', { count: 'exact', head: true })
+					.eq('confirmation_phone', true)
+			]);
+
+			emailUsersCount = eCount || 0;
+			smsUsersCount = sCount || 0;
+		} catch (err) {
+			console.error('Failed to fetch user counts:', err);
+		}
+	}
 	async function setupConfirm() {
 		if (!localEvent) return;
 		saving = true;
@@ -306,8 +338,17 @@
 				).length;
 				otherEventsOnDayCount = data.filter((d) => d.group_id !== localEvent?.group_id).length;
 			}
+
+			// Fetch the user counts
+			await refreshUserCounts();
+
 			optConfirmAllRooms = false;
 			optClearOtherHolds = false;
+
+			// NEW: Auto-select email confirmation if venue is New City Gas
+			optSendEmail = localEvent.venue?.category === 'New City Gas';
+
+			optSendSms = false;
 			confirmMode = 'confirm';
 		} finally {
 			saving = false;
@@ -318,6 +359,7 @@
 		if (!localEvent) return;
 		saving = true;
 		try {
+			// 1. Database Updates
 			await supabase
 				.from('calendar_events')
 				.update({ status: 'CONFIRMED', hold_level: null })
@@ -361,10 +403,58 @@
 					.in('status', ['HOLD', 'PENDING']);
 			}
 
+			// 2. Dispatch Emails and SMS
+			const authUser = $authStore?.profile;
+			const authName = authUser
+				? `${authUser.first_name || ''} ${authUser.last_name || ''}`.trim()
+				: 'An Admin';
+
+			const payload = {
+				eventId: localEvent.short_id || localEvent.id,
+				eventTitle: localEvent.title,
+				eventType: localEvent.details?.type || 'Event',
+				eventDate: localEvent.date,
+				venueName:
+					`${localEvent.venue?.category || ''} ${localEvent.venue?.room ? '/ ' + localEvent.venue.room : ''}`.trim(),
+				authUserName: authName
+			};
+
+			const promises = [];
+
+			if (optSendEmail) {
+				promises.push(
+					fetch('/api/calendar-confirm-email', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(payload)
+					})
+						.then((res) => res.json())
+						.catch((err) => console.error('Email API failed:', err))
+				);
+			}
+
+			if (optSendSms) {
+				promises.push(
+					fetch('/api/calendar-confirm-sms', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(payload)
+					})
+						.then((res) => res.json())
+						.catch((err) => console.error('SMS API failed:', err))
+				);
+			}
+
+			// Wait for notifications to send before closing
+			if (promises.length > 0) {
+				await Promise.allSettled(promises);
+			}
+
+			// 3. Update UI
 			dispatch('update');
 			show = false;
 		} catch (e) {
-			console.error(e);
+			console.error('Execute Confirm Error:', e);
 		} finally {
 			saving = false;
 		}
@@ -749,7 +839,7 @@
 									{/if}
 								</div>
 								<p class="text-sm font-bold text-white leading-tight">
-									Clear all relevant holds (including pending) on this day
+									Clear all holds (including pending) on this day
 								</p>
 								<input
 									type="checkbox"
@@ -767,6 +857,90 @@
 								</p>
 							</div>
 						{/if}
+						<div class="mt-4 pt-4 border-t border-gray2/20 space-y-3">
+							<p class="text-sm font-bold text-gray2 mb-2">Share confirmation</p>
+
+							<div
+								class="flex items-start gap-3 p-3 bg-gray1/50 border rounded-xl cursor-pointer transition-colors {optSendEmail
+									? 'border-lime bg-lime/5'
+									: 'border-gray2/20 hover:bg-gray2/10'}"
+								on:click={() => (optSendEmail = !optSendEmail)}
+								role="button"
+								tabindex="0"
+								on:keydown={(e) =>
+									(e.key === 'Enter' || e.key === ' ') && (optSendEmail = !optSendEmail)}
+							>
+								<div class="mt-0.5 transition-colors {optSendEmail ? 'text-lime' : 'text-gray2'}">
+									<svg
+										class="w-5 h-5"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path
+											d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
+										></path>
+										<polyline points="22,6 12,13 2,6"></polyline>
+									</svg>
+								</div>
+								<div class="flex-1">
+									<p class="text-sm font-bold text-white leading-tight">
+										Send Email confirmation to <span class="text-lime">{emailUsersCount}</span>
+										user{emailUsersCount !== 1 ? 's' : ''}
+									</p>
+								</div>
+								{#if isAdmin}
+									<button
+										type="button"
+										class="text-xs text-lime font-bold hover:underline cursor-pointer"
+										on:click|stopPropagation={() => (showContactListModal = true)}
+										>(view list)</button
+									>
+								{/if}
+							</div>
+
+							<div
+								class="flex items-start gap-3 p-3 bg-gray1/50 border rounded-xl cursor-pointer transition-colors {optSendSms
+									? 'border-lime bg-lime/5'
+									: 'border-gray2/20 hover:bg-gray2/10'}"
+								on:click={() => (optSendSms = !optSendSms)}
+								role="button"
+								tabindex="0"
+								on:keydown={(e) =>
+									(e.key === 'Enter' || e.key === ' ') && (optSendSms = !optSendSms)}
+							>
+								<div class="mt-0.5 transition-colors {optSendSms ? 'text-lime' : 'text-gray2'}">
+									<svg
+										class="w-5 h-5"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+									</svg>
+								</div>
+								<div class="flex-1">
+									<p class="text-sm font-bold text-white leading-tight">
+										Send SMS confirmation to <span class="text-lime">{smsUsersCount}</span>
+										user{smsUsersCount !== 1 ? 's' : ''}
+									</p>
+								</div>
+								{#if isAdmin}
+									<button
+										type="button"
+										class="text-xs text-lime font-bold hover:underline cursor-pointer"
+										on:click|stopPropagation={() => (showContactListModal = true)}
+										>(view list)</button
+									>
+								{/if}
+							</div>
+						</div>
 					</div>
 
 					<div class="mt-auto flex gap-3 w-full shrink-0">
@@ -927,6 +1101,21 @@
 			</div>
 		</div>
 	{/if}
+	<Modal
+		bind:isOpen={showContactListModal}
+		title="Contact List"
+		maxWidth="max-w-7xl"
+		showCloseButton={true}
+		on:close={() => {
+			showContactListModal = false;
+			// Re-fetch the counts just in case changes were made in the contact list
+			if (confirmMode === 'confirm') {
+				refreshUserCounts();
+			}
+		}}
+	>
+		<CalendarContactList />
+	</Modal>
 </div>
 
 <style>

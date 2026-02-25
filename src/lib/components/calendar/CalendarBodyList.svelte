@@ -19,7 +19,6 @@
 	export let deletedIds: string[] = [];
 	export let currentViewDate: Date = new Date();
 	export let managingGroupId: string | null = null;
-	export let canEdit: boolean;
 	export let canViewHolds: boolean;
 
 	// This prop must be bound in the parent for the filter state to be received!
@@ -204,17 +203,33 @@
 	}
 
 	function formatEventTitle(event: CalendarEvent): string {
-		const eventType = event.details?.type;
 		const title = event.title || '';
+		const eventType = event.details?.type;
+
+		// 1. Check for the "Corpo" Hold exception specifically
+		// If it's a Corpo event, always show the prefix regardless of status
+		if (eventType === 'Corpo') {
+			return `Corpo - ${title}`;
+		}
+
+		// 2. Original logic: If it's a Hold/Pending (and not the Corpo exception above),
+		// return just the title without prefix/suffix
+		if (event.status !== 'CONFIRMED') {
+			return title;
+		}
 
 		if (!eventType) return title;
-		const prefixTypes = ['Moet City', 'NCG 360', 'DSTRKT', 'Corpo'];
+
+		// 3. Only Confirmed events reach this point (other than Corpo which was handled)
+		const prefixTypes = ['NCG 360', 'DSTRKT']; // Removed Corpo from here as it's handled in step 1
 
 		if (prefixTypes.includes(eventType)) {
 			const displayType = eventType === 'NCG 360' ? 'NCG360' : eventType;
 			return `${displayType} - ${title}`;
 		}
+
 		if (eventType === 'Bazart Nuits') return `${title} - ${eventType}`;
+
 		return title;
 	}
 
@@ -233,6 +248,17 @@
 		return [...events]
 			.filter((e) => e.status !== 'HIDDEN' && !deletedIds.includes(e.id))
 			.sort((a, b) => {
+				// 1. CONFIRMED always goes at the absolute top, no matter what
+				if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
+				if (a.status !== 'CONFIRMED' && b.status === 'CONFIRMED') return 1;
+
+				// 2. Keep NOTES at the top of the REMAINING unconfirmed events
+				const aIsNotes = a.venue?.room === 'NOTES' && a.venue?.category === 'NOTES';
+				const bIsNotes = b.venue?.room === 'NOTES' && b.venue?.category === 'NOTES';
+				if (aIsNotes && !bIsNotes) return -1;
+				if (!aIsNotes && bIsNotes) return 1;
+
+				// 3. VENUE/ROOM PRIORITY (Sorted by the order they appear in your Venue Settings)
 				const getRoomIndex = (roomName: string | null) => {
 					if (!roomName) return 999;
 					const idx = stages.findIndex((s) => s.name === roomName);
@@ -242,9 +268,12 @@
 				const roomIdxB = getRoomIndex(b.venue.room);
 				if (roomIdxA !== roomIdxB) return roomIdxA - roomIdxB;
 
-				if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
-				if (a.status !== 'CONFIRMED' && b.status === 'CONFIRMED') return 1;
+				// 4. PRIORITY HOLDS (Checked Priority toggles)
+				const aIsPrio = a.details?.is_priority ? 1 : 0;
+				const bIsPrio = b.details?.is_priority ? 1 : 0;
+				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
 
+				// 5. HOLD LEVELS (H1 before H2, etc.)
 				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
 					const numA =
 						a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
@@ -253,6 +282,7 @@
 					if (numA !== numB) return numA - numB;
 				}
 
+				// 6. Finally, sort alphabetically if everything else is identical
 				return (a.title || '').localeCompare(b.title || '');
 			});
 	}

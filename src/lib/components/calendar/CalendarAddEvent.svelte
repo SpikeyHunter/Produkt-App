@@ -101,7 +101,8 @@
 		const titleWords = titleStr.split(/\s+/);
 
 		for (const type of eventTypes) {
-			if (type === 'Other') continue;
+			// Ignore Other and Moet City from the title warning
+			if (type === 'Other' || type === 'Moet City') continue;
 			const typeStr = type.toLowerCase();
 			const typeWords = typeStr.split(/\s+/);
 
@@ -639,7 +640,7 @@
 					<button
 						class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer {eventStatus ===
 						'CONFIRMED'
-							? 'bg-white text-black'
+							? 'bg-lime text-black'
 							: 'text-gray2 hover:text-white'}"
 						on:click={() => (eventStatus = 'CONFIRMED')}>Confirmed</button
 					>
@@ -656,7 +657,7 @@
 							type="text"
 							bind:value={artist}
 							placeholder="Enter artist name"
-							class="w-full px-3 py-2.5 bg-black/40 border border-gray2/20 rounded-2xl text-white text-sm focus:border-lime focus:outline-none transition-colors"
+							class="w-full px-3 py-2.5 bg-black/40 border-2 border-gray2/20 rounded-2xl text-white placeholder:text-gray2/50 text-sm focus:border-lime focus:outline-none transition-colors"
 						/>
 					</div>
 					<div>
@@ -670,9 +671,9 @@
 							type="text"
 							bind:value={title}
 							placeholder="Enter event name"
-							class="w-full px-3 py-2.5 bg-black/40 border {titleContainsType
+							class="w-full px-3 py-2.5 bg-black/40 border-2 {titleContainsType
 								? 'border-lime'
-								: 'border-gray2/20'} rounded-2xl text-white text-sm focus:border-lime focus:outline-none transition-colors"
+								: 'border-gray2/20'} rounded-2xl text-white placeholder:text-gray2/50 text-sm focus:border-lime focus:outline-none transition-colors"
 						/>
 						{#if titleContainsType}
 							<p class="text-lime text-[10px] mt-1 ml-1 font-bold transition-all">
@@ -1048,7 +1049,7 @@
 							bind:value={notes}
 							rows="3"
 							placeholder=""
-							class="w-full px-3 py-2.5 bg-black/40 border border-gray2/20 rounded-2xl text-white text-sm focus:border-lime focus:outline-none transition-colors resize-none"
+							class="w-full px-3 py-2.5 bg-black/40 border-2 border-gray2/20 rounded-2xl text-white text-sm focus:border-lime focus:outline-none transition-colors resize-none"
 						></textarea>
 					</div>
 				</div>

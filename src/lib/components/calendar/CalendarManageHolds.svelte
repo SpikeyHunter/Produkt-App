@@ -44,6 +44,10 @@
 		}));
 	});
 
+	function generateSafeId(existingId?: string | null): string {
+		return existingId || `new-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+	}
+
 	function getVenueColor(category: string | undefined, room: string | undefined) {
 		if (!category || !room) return '#828282';
 		const stage = availableStages.find((s) => s.category === category && s.room === room);
@@ -54,26 +58,71 @@
 
 	$: if (isOpen && events && !isInitialized) {
 		if (!saving) {
-	
-			drafts = events.map((e) => ({
-				id: e.id,
-				group_id: e.group_id,
-				date: e.date,
-				hold_level: e.hold_level || 'P',
-				allDay: !e.time?.start,
-				start: e.time?.start || '',
-				end: e.time?.end || '',
-				venue: e.venue,
-				venueString: `${e.venue?.category}:::${e.venue?.room}`, // <--- ADD THIS LINE
-				title: e.title,
-				isNew: false
-			}));
-			drafts = drafts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+			isInitialized = true; // Lock immediately to prevent loops
+
+			// 1. Immediately render the visible events we already have
+			drafts = events
+				.map((e) => ({
+					id: generateSafeId(e.id),
+					group_id: e.group_id,
+					date: e.date,
+					hold_level: e.hold_level || 'P',
+					allDay: !e.time?.start,
+					start: e.time?.start || '',
+					end: e.time?.end || '',
+					venue: e.venue,
+					venueString: `${e.venue?.category}:::${e.venue?.room}`,
+					title: e.title,
+					isNew: !e.id // If it lacks a DB ID, flag it as a new draft
+				}))
+				.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
 			deletedIds = [];
 			selectedRows = [];
 			activeHoldPicker = null;
-			isInitialized = true;
+
+			// 2. Fetch the off-screen dates for this group from the database
+			if (events[0]?.group_id) {
+				fetchFullGroup(events[0].group_id);
+			}
+		}
+	}
+
+	// Helper to pull the rest of the series from Supabase
+	async function fetchFullGroup(groupId: string) {
+		try {
+			const { data, error } = await supabase
+				.from('calendar_events')
+				.select('*')
+				.eq('group_id', groupId);
+
+			if (data && data.length > 0) {
+				const dbDrafts = data.map((e) => ({
+					id: e.id,
+					group_id: e.group_id,
+					date: e.date,
+					hold_level: e.hold_level || 'P',
+					allDay: !e.time?.start,
+					start: e.time?.start || '',
+					end: e.time?.end || '',
+					venue: e.venue,
+					venueString: `${e.venue?.category}:::${e.venue?.room}`,
+					title: e.title,
+					isNew: false
+				}));
+
+				// Keep any newly clicked dates from the UI that aren't in the database yet
+				const unsavedDrafts = drafts.filter(
+					(d) => d.isNew && !data.some((dbE) => dbE.date === d.date)
+				);
+
+				// Merge DB data with local unsaved drafts
+				drafts = [...dbDrafts, ...unsavedDrafts].sort(
+					(a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+				);
+			}
+		} catch (err) {
+			console.error('Failed to fetch full group holds', err);
 		}
 	}
 
@@ -89,18 +138,15 @@
 	$: if (toggleDateTrigger && toggleDateTrigger.ts !== lastProcessedTs) {
 		lastProcessedTs = toggleDateTrigger.ts; // Lock it so it only runs once
 
-		
 		const dateStr = toggleDateTrigger.date;
 		const existingDrafts = drafts.filter((d) => d.date === dateStr);
 
 		if (existingDrafts.length > 0) {
-			
 			existingDrafts.forEach((d) => removeDateRow(d.id));
 		} else {
-		
 			// Add new date
 			const baseEvent = events[0] || {};
-			const newId = `new-${Date.now()}`;
+			const newId = generateSafeId(null);
 			const baseCategory = baseEvent.venue?.category || '';
 			const baseRoom = baseEvent.venue?.room || '';
 
@@ -130,19 +176,20 @@
 	}
 
 	// Reactively sync ALL drafts (new and modified) to `draftEvents` so the calendar body renders them instantly
+	// Look for this block in your code
 	$: {
 		draftEvents = drafts.map((d) => {
 			const [cat, room] = (d.venueString || ':::').split(':::');
 			return {
 				id: d.id,
 				group_id: d.group_id,
-				title: d.title,
+				title: d.title || events[0]?.title, // <--- ADD FALLBACK HERE
 				date: d.date,
 				status: d.hold_level === 'P' ? 'PENDING' : 'HOLD',
 				hold_level: d.hold_level,
 				venue: d.isNew ? { category: cat, room: room } : d.venue || { category: cat, room: room },
 				time: d.allDay ? { start: null, end: null } : { start: d.start, end: d.end },
-				details: events[0]?.details || {},
+				details: events[0]?.details || {}, // <--- ALSO ensure this is copying safely
 				event_details: events[0]?.event_details || { is_target: false, is_challenge: false },
 				isDraft: true
 			};

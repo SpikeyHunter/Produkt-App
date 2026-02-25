@@ -204,18 +204,50 @@
 				});
 			}
 
-			const year = date.getFullYear();
-			const month = date.getMonth();
-			let startRange = new Date(year, month, 1);
-			startRange.setDate(startRange.getDate() - 20);
-			let endRange = new Date(year, month + 1, 0);
-			endRange.setDate(endRange.getDate() + 20);
+			let startRangeStr: string;
+			let endRangeStr: string;
+
+			if (viewType === 'list') {
+				const today = new Date();
+				today.setHours(0, 0, 0, 0);
+
+				if (currentListFilter === 'upcoming') {
+					startRangeStr = today.toISOString().split('T')[0];
+					const end = new Date(today);
+					end.setFullYear(end.getFullYear() + 2); // Fetch 2 years forward
+					endRangeStr = end.toISOString().split('T')[0];
+				} else if (currentListFilter === 'past') {
+					const start = new Date(today);
+					start.setFullYear(start.getFullYear() - 2); // Fetch 2 years backward
+					startRangeStr = start.toISOString().split('T')[0];
+					endRangeStr = today.toISOString().split('T')[0];
+				} else {
+					// 'all'
+					const start = new Date(today);
+					start.setFullYear(start.getFullYear() - 2);
+					startRangeStr = start.toISOString().split('T')[0];
+					const end = new Date(today);
+					end.setFullYear(end.getFullYear() + 2);
+					endRangeStr = end.toISOString().split('T')[0];
+				}
+			} else {
+				// Keep existing month/week buffer behavior
+				const year = date.getFullYear();
+				const month = date.getMonth();
+				let startRange = new Date(year, month, 1);
+				startRange.setDate(startRange.getDate() - 20);
+				let endRange = new Date(year, month + 1, 0);
+				endRange.setDate(endRange.getDate() + 20);
+
+				startRangeStr = startRange.toISOString().split('T')[0];
+				endRangeStr = endRange.toISOString().split('T')[0];
+			}
 
 			const { data, error } = await supabase
 				.from('calendar_events')
 				.select('*, calendar(*)')
-				.gte('date', startRange.toISOString().split('T')[0])
-				.lte('date', endRange.toISOString().split('T')[0])
+				.gte('date', startRangeStr)
+				.lte('date', endRangeStr)
 				.neq('status', 'HIDDEN')
 				.order('date', { ascending: true });
 
@@ -378,14 +410,24 @@
 
 	let lastLoadedMonth = -1;
 	let lastLoadedYear = -1;
+	let lastLoadedViewType: 'month' | 'week' | 'list' = viewType;
+	let lastLoadedListFilter: 'past' | 'all' | 'upcoming' = currentListFilter;
 
 	$: {
 		const currentMonth = currentViewDate.getMonth();
 		const currentYear = currentViewDate.getFullYear();
-		if (currentMonth !== lastLoadedMonth || currentYear !== lastLoadedYear) {
+
+		if (
+			currentMonth !== lastLoadedMonth ||
+			currentYear !== lastLoadedYear ||
+			viewType !== lastLoadedViewType ||
+			(viewType === 'list' && currentListFilter !== lastLoadedListFilter)
+		) {
 			loadEventsAndSettings(currentViewDate);
 			lastLoadedMonth = currentMonth;
 			lastLoadedYear = currentYear;
+			lastLoadedViewType = viewType;
+			lastLoadedListFilter = currentListFilter;
 		}
 	}
 </script>
