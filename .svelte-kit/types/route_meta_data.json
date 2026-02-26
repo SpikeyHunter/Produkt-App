@@ -44,6 +44,9 @@
 	"/api/calendar": [
 		"src/routes/api/calendar/+server.ts"
 	],
+	"/api/download-tech-rider": [
+		"src/routes/api/download-tech-rider/+server.ts"
+	],
 	"/api/flight-lookup": [
 		"src/routes/api/flight-lookup/+server.ts"
 	],
@@ -121,6 +124,7 @@
 	],
 	"/production/emailtech": [],
 	"/production/showbudget": [],
+	"/production/techrider": [],
 	"/public/invoice/[token]": [],
 	"/schedules/stagemanager": [],
 	"/schedules/tech": [],

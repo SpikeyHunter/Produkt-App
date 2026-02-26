@@ -152,7 +152,8 @@
 			subItems: [
 				{ label: 'Backline', route: '/production/backline', requiredPermission: 'Production' },
 				{ label: 'Show Budget', route: '/production/showbudget', requiredPermission: 'ShowBudget' },
-				{ label: 'Email Tech', route: '/production/emailtech', requiredPermission: 'Production' }
+				{ label: 'Email Tech', route: '/production/emailtech', requiredPermission: 'Production' },
+				{ label: 'Tech Rider', route: '/production/techrider', requiredPermission: 'Production' }
 			]
 		},
 		{

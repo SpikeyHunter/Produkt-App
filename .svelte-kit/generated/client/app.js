@@ -38,7 +38,8 @@ export const nodes = [
 	() => import('./nodes/34'),
 	() => import('./nodes/35'),
 	() => import('./nodes/36'),
-	() => import('./nodes/37')
+	() => import('./nodes/37'),
+	() => import('./nodes/38')
 ];
 
 export const server_loads = [];
@@ -71,15 +72,16 @@ export const dictionary = {
 		"/production/backline": [~26],
 		"/production/emailtech": [27],
 		"/production/showbudget": [28],
-		"/public/invoice/[token]": [29],
-		"/schedules/stagemanager": [30],
-		"/schedules/tech": [31],
-		"/settimes": [32],
-		"/settings": [33],
-		"/sultanshepard/djshow": [34],
-		"/sultanshepard/djshow/[id]": [35],
-		"/wifi/corpo": [36],
-		"/wifi/ncg": [37]
+		"/production/techrider": [29],
+		"/public/invoice/[token]": [30],
+		"/schedules/stagemanager": [31],
+		"/schedules/tech": [32],
+		"/settimes": [33],
+		"/settings": [34],
+		"/sultanshepard/djshow": [35],
+		"/sultanshepard/djshow/[id]": [36],
+		"/wifi/corpo": [37],
+		"/wifi/ncg": [38]
 	};
 
 export const hooks = {
