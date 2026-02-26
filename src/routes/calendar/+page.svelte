@@ -612,7 +612,7 @@
 	<Modal
 		bind:isOpen={showContactModal}
 		title="Contact List"
-		maxWidth="max-w-7xl"
+		maxWidth="max-w-[1400px]"
 		showCloseButton={true}
 		on:close={() => (showContactModal = false)}
 	>

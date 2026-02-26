@@ -880,28 +880,30 @@
 								<td class="py-5 px-4 pr-8">
 									<div class="flex justify-start items-center gap-2">
 										<div class="w-[76px] shrink-0">
-											{#if member.invite_status === 'Pending'}
-												<span
-													class="w-full inline-block text-center text-xs font-bold py-1.5 rounded-full border border-yellow-500 text-yellow-500"
-												>
-													Pending
-												</span>
-											{:else if member.invite_status === 'Joined'}
-												<button
-													type="button"
-													class="w-full text-xs font-bold py-1.5 rounded-full border border-question text-question hover:bg-question hover:text-black transition-colors cursor-pointer"
-													on:click={() => (memberToInvite = member)}
-												>
-													Re-Invite
-												</button>
-											{:else if member.has_default_password}
-												<button
-													type="button"
-													class="w-full text-xs font-bold py-1.5 rounded-full border border-lime text-lime hover:bg-lime hover:text-black transition-colors cursor-pointer"
-													on:click={() => (memberToInvite = member)}
-												>
-													Invite
-												</button>
+											{#if member.role !== 'Email Only'}
+												{#if member.invite_status === 'Pending'}
+													<span
+														class="w-full inline-block text-center text-xs font-bold py-1.5 rounded-full border border-yellow-500 text-yellow-500"
+													>
+														Pending
+													</span>
+												{:else if member.invite_status === 'Joined'}
+													<button
+														type="button"
+														class="w-full text-xs font-bold py-1.5 rounded-full border border-question text-question hover:bg-question hover:text-black transition-colors cursor-pointer"
+														on:click={() => (memberToInvite = member)}
+													>
+														Re-Invite
+													</button>
+												{:else if member.has_default_password}
+													<button
+														type="button"
+														class="w-full text-xs font-bold py-1.5 rounded-full border border-lime text-lime hover:bg-lime hover:text-black transition-colors cursor-pointer"
+														on:click={() => (memberToInvite = member)}
+													>
+														Invite
+													</button>
+												{/if}
 											{/if}
 										</div>
 										<button

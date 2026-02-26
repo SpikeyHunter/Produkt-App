@@ -15,13 +15,13 @@
 	// Navigation state
 	let isNavExpanded = true;
 	let activeSubMenu: string | null = null;
-	
+
 	// UI state
 	let isLoading = false;
 	let isMounted = false;
 	let playAnimations = false;
 	let navElement: HTMLElement;
-	
+
 	// Bug Report Modal state
 	let isBugModalOpen = false;
 
@@ -97,8 +97,12 @@
 					route: '/marketing/comptickets',
 					requiredPermission: 'CompTickets'
 				},
-				{ label: 'Compare Hub', route: '/marketing/comparehub', requiredPermission: 'CompareHub' },	
-				{ label: 'Customers Database', route: '/marketing/customers', requiredPermission: 'CustomersDB' }
+				{ label: 'Compare Hub', route: '/marketing/comparehub', requiredPermission: 'CompareHub' },
+				{
+					label: 'Customers Database',
+					route: '/marketing/customers',
+					requiredPermission: 'CustomersDB'
+				}
 			]
 		},
 		{
@@ -107,12 +111,17 @@
 			icon: icons.booking,
 			requiredPermission: 'Booking',
 			subItems: [
-			{ label: 'Talent Payments', route: '/booking/talentpayments', requiredPermission: 'Booking' },	
-			{
+				{
+					label: 'Talent Payments',
+					route: '/booking/talentpayments',
+					requiredPermission: 'Booking'
+				},
+				{
 					label: 'Artist Availability',
 					route: '/booking/artistavailability',
 					requiredPermission: 'Booking'
-				}]
+				}
+			]
 		},
 		{
 			id: 'advancing',
@@ -127,7 +136,11 @@
 					requiredPermission: 'Advance'
 				},
 				{ label: 'Hotel Tracker', route: '/advancing/hoteltracker', requiredPermission: 'Advance' },
-				{ label: 'Merch Settlement', route: '/advancing/merchsettlement', requiredPermission: 'Advance' },
+				{
+					label: 'Merch Settlement',
+					route: '/advancing/merchsettlement',
+					requiredPermission: 'Advance'
+				},
 				{ label: 'Local Artists', route: '/advancing/localartists', requiredPermission: 'Advance' }
 			]
 		},
@@ -414,9 +427,22 @@
 								on:click={() => (isBugModalOpen = true)}
 							>
 								<span class="icon group-hover:text-lime">{@html icons.bug}</span>
-								<span class="label">Report a Bug</span>
+								<span class="label">Report Bug</span>
 							</button>
 						</div>
+						{#if $authStore.profile?.role === 'Admin'}
+							<div class="nav-item-container">
+								<button
+									type="button"
+									class="nav-button hover:text-lime group"
+									class:active={$page.url.pathname.startsWith('/settings')}
+									on:click={() => navigateToRoute('/settings')}
+								>
+									<span class="icon group-hover:text-lime">{@html icons.settings}</span>
+									<span class="label">Settings</span>
+								</button>
+							</div>
+						{/if}
 						<div class="nav-item-container">
 							<button type="button" class="nav-button" on:click={handleLogout} disabled={isLoading}>
 								<span class="icon">
