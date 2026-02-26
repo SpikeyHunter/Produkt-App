@@ -68,7 +68,11 @@
 			const response = await fetch('/api/download-tech-rider', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ htmlContent, theme })
+				body: JSON.stringify({
+					htmlContent,
+					theme,
+					secondaryLogoUrl: documentData.secondary_logo_url || null // Pass the secondary logo
+				})
 			});
 
 			if (!response.ok) throw new Error('PDF generation failed');
