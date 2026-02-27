@@ -4,6 +4,7 @@
 	import { supabase } from '$lib/supabase';
 	import Modal from '$lib/components/modals/Modal.svelte';
 	import TechRiderTemplate from './TechRiderTemplate.svelte';
+	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
 
 	export let documentData: any;
 	export let onSave: (data: any) => void;
@@ -21,6 +22,11 @@
 			website2: ''
 		};
 	}
+
+	let showNotif = false;
+	let notifMessage = '';
+	let notifIconType: 'success' | 'error' | 'warning' | 'info' | 'question' | 'login' | 'confirmed' =
+		'success';
 
 	// --- Save Logic ---
 	let saveTimeout: any;
@@ -123,7 +129,6 @@
 			let email = user?.email || '';
 
 			if (user) {
-				// Fetch their profile from user_profiles table
 				const { data: profile } = await supabase
 					.from('user_profiles')
 					.select('first_name, last_name, email')
@@ -137,7 +142,7 @@
 				}
 			}
 
-			// Stamp the document
+			// Stamp the document data
 			documentData.last_updated_by_name = `${firstName} ${lastName}`.trim() || 'Unknown User';
 			documentData.last_updated_by_email = email;
 			documentData.last_updated_at = new Date().toLocaleString('en-US', {
@@ -145,14 +150,70 @@
 				timeStyle: 'short'
 			});
 
-			// Save to database
+			// Helper to generate a PDF blob
+			const generatePdfBlob = async (theme: 'color' | 'bw') => {
+				const comp = mount(TechRiderTemplate, {
+					target: hiddenPdfContainer,
+					props: { documentData, theme }
+				});
+
+				// Wait for Svelte to mount the DOM
+				await new Promise((resolve) => setTimeout(resolve, 150));
+				const htmlContent = hiddenPdfContainer.innerHTML;
+
+				unmount(comp);
+				hiddenPdfContainer.innerHTML = ''; // Clean up
+
+				const dateStr = new Date().toISOString().split('T')[0];
+				// Format filename with _BW as requested
+				const filename =
+					theme === 'bw' ? `NCG_TECH-RIDER_${dateStr}_BW.pdf` : `NCG_TECH-RIDER_${dateStr}.pdf`;
+
+				const pdfResponse = await fetch('/api/download-tech-rider', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						htmlContent,
+						theme,
+						secondaryLogoUrl: documentData.secondary_logo_url || null
+					})
+				});
+
+				if (!pdfResponse.ok) throw new Error(`${theme} PDF generation failed`);
+
+				return { blob: await pdfResponse.blob(), filename };
+			};
+
+			// Run sequentially to prevent race conditions on the hidden DOM container
+			const colorData = await generatePdfBlob('color');
+			const bwData = await generatePdfBlob('bw');
+
+			// Bundle both files into a single payload
+			const formData = new FormData();
+			formData.append('files', colorData.blob, colorData.filename);
+			formData.append('files', bwData.blob, bwData.filename);
+
+			// Send the single request to the backend
+			const syncRes = await fetch('/api/sync-drive-rider', { method: 'POST', body: formData });
+
+			if (!syncRes.ok) {
+				notifMessage = 'Database updated, but Drive sync failed.';
+				notifIconType = 'warning';
+			} else {
+				notifMessage = 'Rider updated & both versions synced to Google Drive!';
+				notifIconType = 'success';
+			}
+			showNotif = true;
+
+			// Final Database Save
 			documentData = documentData;
 			triggerSave();
-
-			// Set the new baseline for "changes" tracking
 			stampedStateStr = JSON.stringify(documentData);
 		} catch (error) {
 			console.error('Error updating rider stamp:', error);
+			notifMessage = 'An error occurred during update.';
+			notifIconType = 'error';
+			showNotif = true;
 		} finally {
 			isUpdatingStamp = false;
 			isUpdateModalOpen = false;
@@ -1306,6 +1367,14 @@
 	</div>
 </Modal>
 <div bind:this={hiddenPdfContainer} class="hidden"></div>
+
+<PopupNotification
+	bind:show={showNotif}
+	message={notifMessage}
+	iconType={notifIconType}
+	variant="navbar"
+	duration={4000}
+/>
 
 <Modal
 	bind:isOpen={isDownloadModalOpen}

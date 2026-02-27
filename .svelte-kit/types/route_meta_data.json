@@ -77,6 +77,9 @@
 	"/api/register": [
 		"src/routes/api/register/+server.ts"
 	],
+	"/api/sync-drive-rider": [
+		"src/routes/api/sync-drive-rider/+server.ts"
+	],
 	"/api/upload": [
 		"src/routes/api/upload/+server.ts"
 	],

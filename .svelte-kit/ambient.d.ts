@@ -51,6 +51,10 @@ declare module '$env/static/private' {
 	export const AWS_SECRET_ACCESS_KEY: string;
 	export const BUG_REPORT_FROM_EMAIL: string;
 	export const BUG_REPORT_TO_EMAIL: string;
+	export const GOOGLE_DRIVE_CLIENT_EMAIL: string;
+	export const GOOGLE_DRIVE_PRIVATE_KEY: string;
+	export const GOOGLE_DRIVE_ACTIVE_FOLDER_ID: string;
+	export const GOOGLE_DRIVE_ARCHIVE_FOLDER_ID: string;
 	export const TERM_PROGRAM: string;
 	export const NODE: string;
 	export const INIT_CWD: string;
@@ -172,6 +176,10 @@ declare module '$env/dynamic/private' {
 		AWS_SECRET_ACCESS_KEY: string;
 		BUG_REPORT_FROM_EMAIL: string;
 		BUG_REPORT_TO_EMAIL: string;
+		GOOGLE_DRIVE_CLIENT_EMAIL: string;
+		GOOGLE_DRIVE_PRIVATE_KEY: string;
+		GOOGLE_DRIVE_ACTIVE_FOLDER_ID: string;
+		GOOGLE_DRIVE_ARCHIVE_FOLDER_ID: string;
 		TERM_PROGRAM: string;
 		NODE: string;
 		INIT_CWD: string;
