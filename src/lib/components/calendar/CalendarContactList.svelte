@@ -8,6 +8,7 @@
 	let members: any[] = [];
 	let isLoading = true;
 	const dispatch = createEventDispatcher();
+	$: dispatch('countUpdate', members.length);
 	let showForm = false;
 	let isEditMode = false;
 	let passwordWasReset = false;

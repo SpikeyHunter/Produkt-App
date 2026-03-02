@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import { portal } from '$lib/utils/portalUtils';
 
 	// --- PROPS ---
 	export let message: string = '';
 	export let show: boolean = false;
 	export let duration: number = 3000;
 	export let variant: 'lime' | 'white' | 'navbar' | 'gray1' = 'white';
+	
 	// MODIFIED: Added 'confirmed' as a valid option
 	export let iconType: 'success' | 'error' | 'warning' | 'info' | 'question' | 'login' | 'confirmed' = 'success';
 
@@ -25,16 +27,6 @@
 		info: { text: 'text-info', bg: 'bg-info', border: 'border-info' },
 		question: { text: 'text-question', bg: 'bg-question', border: 'border-question' }
 	};
-	function portal(node: HTMLElement) {
-		document.body.appendChild(node);
-		return {
-			destroy() {
-				if (document.body.contains(node)) {
-					document.body.removeChild(node);
-				}
-			}
-		};
-	}
 
 	// Gets styling classes based on the notification variant and icon type
 	function getNotificationClasses(
@@ -47,6 +39,7 @@
 			white: 'bg-transparent',
 			lime: 'bg-lime'
 		}[variant];
+
 		const styles = typeStyles[iconType];
 
 		return {
@@ -57,6 +50,7 @@
 	}
 
 	$: notificationClasses = getNotificationClasses(variant, iconType);
+
 	$: if (show && duration > 0) {
 		if (timeoutId) clearTimeout(timeoutId);
 		isLeaving = false;
@@ -184,7 +178,7 @@
 		position: fixed;
 		top: 20px;
 		right: 20px;
-		z-index: 1000;
+		z-index: 99999; /* Boosted significantly to place above standard modals (10000) */
 		min-width: 300px;
 		max-width: 400px;
 	}

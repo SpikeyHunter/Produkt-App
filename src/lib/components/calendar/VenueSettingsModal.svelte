@@ -29,7 +29,6 @@
 		convertToUsd: false,
 		facilityFee: null
 	};
-
 	let holdSettings = { defaultHoldLevel: 'H2', autoPromote: true };
 	let stages = [{ name: 'Main Room', capacity: 2500, color: '#FFB3BA', active: true }];
 
@@ -64,19 +63,19 @@
 	];
 
 	// Pastel matrix (4 rows of 4)
-const pastelColorsMatrix = [
-    // Row 1: Light (Derived from your pastels - Higher brightness)
-    ['#DBEAFE', '#E6F9D7', '#FFF0C4', '#FCD8C4', '#FDBDC7', '#FCE7F3', '#EEDEF6', '#F5F5F5'],
+	const pastelColorsMatrix = [
+		// Row 1: Light (Derived from your pastels - Higher brightness)
+		['#DBEAFE', '#E6F9D7', '#FFF0C4', '#FCD8C4', '#FDBDC7', '#FCE7F3', '#EEDEF6', '#F5F5F5'],
 
-    // Row 2: Pastel (Your specific requested colors)
-    ['#93C5FD', '#C4EF9B', '#FFE089', '#F8A679', '#FA7A90', '#F9A8D4', '#D7B8E8', '#E4E4E4'],
+		// Row 2: Pastel (Your specific requested colors)
+		['#93C5FD', '#C4EF9B', '#FFE089', '#F8A679', '#FA7A90', '#F9A8D4', '#D7B8E8', '#E4E4E4'],
 
-    // Row 3: Strong (Derived from your pastels - Higher saturation)
-    ['#3B82F6', '#92D64D', '#FFC107', '#F36E21', '#F73155', '#F472B6', '#B276D8', '#BDBDBB'],
+		// Row 3: Strong (Derived from your pastels - Higher saturation)
+		['#3B82F6', '#92D64D', '#FFC107', '#F36E21', '#F73155', '#F472B6', '#B276D8', '#BDBDBB'],
 
-    // Row 4: Fluo / Flash (Derived from your pastels - Neon/Vivid)
-    ['#00FFFF', '#66FF00', '#FFFF00', '#FF5E00', '#FF003C', '#FF00FF', '#BC13FE', '#2F2F2F']
-];
+		// Row 4: Fluo / Flash (Derived from your pastels - Neon/Vivid)
+		['#00FFFF', '#66FF00', '#FFFF00', '#FF5E00', '#FF003C', '#FF00FF', '#BC13FE', '#2F2F2F']
+	];
 
 	// Validation
 	$: isFormValid =
@@ -93,7 +92,8 @@ const pastelColorsMatrix = [
 			loadVenueData();
 		} else {
 			resetForm();
-			fetchLogos(); // Still need to get logos for a new venue
+			fetchLogos();
+			// Still need to get logos for a new venue
 		}
 	}
 
@@ -121,6 +121,7 @@ const pastelColorsMatrix = [
 			.select('*')
 			.eq('id', venueId)
 			.maybeSingle();
+
 		if (data) {
 			const p = data.setting_params;
 			venueName = data.setting_name;
@@ -140,6 +141,7 @@ const pastelColorsMatrix = [
 
 	async function fetchLogos() {
 		const { data, error } = await supabase.storage.from('public-assets').list('calendar/logos');
+
 		if (data && !error) {
 			availableLogos = data
 				.filter((file) => file.name !== '.emptyFolderPlaceholder')
@@ -157,32 +159,40 @@ const pastelColorsMatrix = [
 		const img = new Image();
 		img.crossOrigin = 'Anonymous';
 		img.src = url;
+
 		img.onload = () => {
 			const canvas = document.createElement('canvas');
 			canvas.width = img.width;
 			canvas.height = img.height;
 			const ctx = canvas.getContext('2d');
+
 			if (!ctx) return;
 
 			ctx.drawImage(img, 0, 0);
 			try {
 				const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
 				let r = 0,
 					g = 0,
 					b = 0,
 					count = 0;
+
 				for (let i = 0; i < data.length; i += 4) {
 					if (data[i + 3] < 50) continue;
+
 					r += data[i];
 					g += data[i + 1];
 					b += data[i + 2];
 					count++;
 				}
 				if (count === 0) return;
+
 				r = Math.floor(r / count);
 				g = Math.floor(g / count);
 				b = Math.floor(b / count);
+
 				const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+
 				logoBgTheme = brightness < 128 ? 'light' : 'dark';
 			} catch (e) {
 				console.warn('CORS prevented image analysis, defaulting to dark theme.');
@@ -195,6 +205,7 @@ const pastelColorsMatrix = [
 	function addStage() {
 		const randomRow = pastelColorsMatrix[Math.floor(Math.random() * pastelColorsMatrix.length)];
 		const randomColor = randomRow[Math.floor(Math.random() * randomRow.length)];
+
 		stages = [...stages, { name: '', capacity: 0, color: randomColor, active: true }];
 	}
 
@@ -202,10 +213,12 @@ const pastelColorsMatrix = [
 		const file = e.detail.file;
 		const customName = e.detail.fileName;
 		isUploadingLogo = true;
+
 		const path = `logos/${Date.now()}_${customName.replace(/\s+/g, '-')}`;
 		const { data, error } = await supabase.storage
 			.from('public-assets')
 			.upload(`calendar/${path}`, file);
+
 		if (data) {
 			const { data: urlData } = supabase.storage
 				.from('public-assets')
@@ -222,8 +235,10 @@ const pastelColorsMatrix = [
 		saving = true;
 		const payload = {
 			setting_name: venueName,
+			setting_type: 'VENUE', // <-- NEW
 			setting_params: { location, timezone, logoUrl, financials, holdSettings, stages }
 		};
+
 		const { error } = venueId
 			? await supabase.from('calendar_settings').update(payload).eq('id', venueId)
 			: await supabase.from('calendar_settings').insert([payload]);
@@ -231,6 +246,8 @@ const pastelColorsMatrix = [
 		if (!error) {
 			dispatch('success');
 			isOpen = false;
+		} else {
+			console.error("Failed to save venue:", error);
 		}
 		saving = false;
 	}
@@ -826,8 +843,7 @@ const pastelColorsMatrix = [
 						</div>
 
 						<div>
-							<span class="block text-xs font-bold text-[#BDBDBB] mb-1.5 ml-1">Convert to USD$</span
-							>
+							<span class="block text-xs font-bold text-[#BDBDBB] mb-1.5 ml-1">Convert to USD$</span>
 							<button
 								type="button"
 								class="w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl px-4 py-3 text-[#F7F7F7] focus:border-[#E1FF00] focus:outline-none transition-colors cursor-pointer text-sm text-left flex justify-between items-center font-bold h-[46px]"
@@ -869,7 +885,7 @@ const pastelColorsMatrix = [
 			<div class="p-6 border-t border-[#BDBDBB]/10 flex gap-4 bg-[#212121] justify-end">
 				<button
 					type="button"
-					class="py-3 px-6 bg-gray3 text-black font-bold text-sm rounded-3xl hover:bg-[#BDBDBB]/20 transition-colors cursor-pointer"
+					class="py-3 px-6 bg-gray3 text-black hover:bg-gray3/80 font-bold text-sm rounded-3xl hover:bg- transition-colors cursor-pointer"
 					on:click={() => (isOpen = false)}>Cancel</button
 				>
 				<button
@@ -880,7 +896,7 @@ const pastelColorsMatrix = [
 					on:click={saveVenue}
 					disabled={saving || !isFormValid}
 				>
-					{saving ? 'SAVING...' : 'SAVE'}
+					{saving ? 'Saving...' : 'Save'}
 				</button>
 			</div>
 		</div>

@@ -181,10 +181,10 @@
 							<div class="absolute inset-0 border-2 border-lime z-0 pointer-events-none"></div>
 						{/if}
 
-						<div class="absolute top-1.5 right-1.5 z-10 text-right shrink-0">
+						<div class="absolute top-0 right-1.5 z-10 text-right shrink-0">
 							<span
 								class="text-[11px] font-bold text-white {day.isToday
-									? 'bg-lime !text-black px-1.5 py-0.5 rounded-full'
+									? 'absolute top-0.5 !right-0 bg-lime !text-black px-1.5 py-0.25 rounded-full'
 									: ''}"
 							>
 								{day.dayNumber}

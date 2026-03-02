@@ -395,7 +395,7 @@
 					<button
 						on:click={addEntry}
 						class="px-3 py-1.5 bg-lime text-black rounded-full font-bold text-xs hover:brightness-110 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-						disabled={entries.length >= 7}>Add Line</button
+						disabled={entries.length >= 9}>Add Line</button
 					>
 				</div>
 			</div>

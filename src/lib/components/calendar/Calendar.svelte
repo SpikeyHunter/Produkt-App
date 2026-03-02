@@ -10,6 +10,7 @@
 	import CalendarViewEvent from './CalendarViewEvent.svelte';
 	import CalendarManageHolds from './CalendarManageHolds.svelte';
 	import VenueSettingsModal from './VenueSettingsModal.svelte';
+	import CalendarShareAvails from './CalendarShareAvails.svelte';
 	import { portal } from '$lib/utils/portalUtils';
 	import type {
 		CalendarEvent,
@@ -41,6 +42,7 @@
 	let selectedDayEvents: CalendarEvent[] = [];
 	let showEventModal = false;
 	let showAddSidebar = false;
+	let showAvailsModal = false;
 	let showManageHoldsModal = false;
 	let showSettingsModal = false;
 	let selectedSettingsVenueId: string | null = null;
@@ -433,6 +435,7 @@
 </script>
 
 <div use:portal>
+	<CalendarShareAvails bind:show={showAvailsModal} />
 	<CalendarViewEvent
 		bind:show={showEventModal}
 		event={selectedEvent}
@@ -476,6 +479,7 @@
 			on:previous={previousPeriod}
 			on:next={nextPeriod}
 			on:addEvent={handleAddEventClick}
+			on:shareAvails={() => (showAvailsModal = true)}
 			on:jumpToDate={(e) => {
 				currentViewDate = e.detail;
 			}}

@@ -121,7 +121,7 @@
 <div
 	class="flex items-center justify-between p-4 border-b border-[var(--color-border)]/10 shrink-0"
 >
-	<div class="flex items-center gap-3">
+	<div class="flex ml-2 items-center gap-3">
 		<button
 			class="px-6 py-2.5 text-sm text-[var(--color-gray2)] border border-[var(--color-border)]/30 rounded-3xl font-bold transition-all hover:bg-[var(--color-white)] hover:text-[var(--color-black)] cursor-pointer"
 			on:click={handleTodayClick}>Today</button
@@ -149,7 +149,7 @@
 		{/if}
 	</div>
 
-	<div class="flex items-center gap-4">
+	<div class="flex items-center ml-16 gap-4">
 		{#if viewType !== 'list'}
 			<button
 				class="p-2 text-[var(--color-gray2)] hover:text-[var(--color-white)] transition-all cursor-pointer rounded-full hover:bg-[var(--color-gray1)]"
@@ -338,9 +338,23 @@
 		{/if}
 	</div>
 
-	<div class="flex items-center gap-3">
+<div class="flex items-center gap-3">
 		{#if isEditor}
-			<button
+            <button
+				class="px-5 py-2.5 bg-transparent border border-[var(--color-border)]/30 text-[var(--color-white)] rounded-3xl font-bold text-sm flex items-center gap-2 hover:bg-[var(--color-gray1)] transition-all cursor-pointer"
+				on:click={() => dispatch('shareAvails')}
+			>
+				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="18" cy="5" r="3"></circle>
+					<circle cx="6" cy="12" r="3"></circle>
+					<circle cx="18" cy="19" r="3"></circle>
+					<line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+					<line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+				</svg>
+				Avails
+			</button>
+
+            <button
 				class="px-6 py-2.5 bg-[var(--color-lime)] text-[var(--color-black)] rounded-3xl font-bold text-sm flex items-center gap-2 hover:opacity-90 transition-all shadow-sm cursor-pointer"
 				on:click={() => dispatch('addEvent')}
 			>

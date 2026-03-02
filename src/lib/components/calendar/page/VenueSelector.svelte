@@ -12,6 +12,10 @@
 	let showPopover = false;
 	let popupRef: HTMLElement;
 
+	// FILTER: Ensure we only process settings that are explicitly labeled as venues.
+	// Fallback to empty array prevents JS map/filter crashes if venues is briefly undefined during HMR.
+	$: filteredVenues = venues?.filter((v: any) => v.setting_type === 'VENUE') || [];
+
 	$: uniqueRooms = Array.from(
 		new Set(
 			groupEvents
@@ -24,17 +28,16 @@
 		if (uniqueRooms.length === 0) return 'Select Stage';
 		const firstRoom = uniqueRooms[0].split(':::');
 		
-		// firstRoom[1] is the Room, firstRoom[0] is the Venue
 		if (uniqueRooms.length === 1) return `${firstRoom[1]} - ${firstRoom[0]}`;
 		
 		return `${firstRoom[1]} - ${firstRoom[0]} +${uniqueRooms.length - 1}`;
 	})();
 
-	// FIXED: Formats location to only show "City, Country", avoiding blank spaces and hanging commas
 	$: displayLocation = (() => {
 		if (uniqueRooms.length === 0) return '';
 		const firstCategory = uniqueRooms[0].split(':::')[0];
-		const vObj = venues.find((v) => v.setting_name === firstCategory);
+		
+		const vObj = filteredVenues.find((v) => v.setting_name === firstCategory);
 
 		if (vObj) {
 			let params =
@@ -43,7 +46,6 @@
 					: vObj.setting_params;
 			const loc = params.location || {};
 
-			// Only include city and country, remove empty ones, and join
 			return [loc.city, loc.country].filter((part) => part && part.trim() !== '').join(', ');
 		}
 		return '';
@@ -59,7 +61,10 @@
 				.filter((e) => e.venue.category === vName && e.venue.room === rName)
 				.map((e) => e.id);
 
-			await supabase.from('calendar_events').delete().in('id', idsToDelete);
+			// Prevent 400 Bad Request error by making sure the array isn't empty
+			if (idsToDelete.length > 0) {
+				await supabase.from('calendar_events').delete().in('id', idsToDelete);
+			}
 
 			if (idsToDelete.includes(event.id)) {
 				const survivor = groupEvents.find((e) => !idsToDelete.includes(e.id));
@@ -78,6 +83,7 @@
 				venue: { category: vName, room: rName },
 				time: event.time
 			}));
+
 			await supabase.from('calendar_events').insert(newRows);
 			invalidateAll();
 		}
@@ -136,7 +142,7 @@
 				>
 			</div>
 
-			{#each venues as venue}
+			{#each filteredVenues as venue}
 				{@const stages =
 					typeof venue.setting_params === 'string'
 						? JSON.parse(venue.setting_params).stages
