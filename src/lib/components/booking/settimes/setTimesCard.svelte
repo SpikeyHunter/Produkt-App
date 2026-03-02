@@ -457,10 +457,11 @@
 
 			<div class="flex-1 flex flex-col justify-center min-h-0">
 				{#if event.timetable && event.timetable.length > 0}
-					<ul class="space-y-1.5">
+					{@const isDense = event.timetable.length > 7}
+					<ul class={isDense ? "space-y-0.5" : "space-y-1.5"}>
 						{#each event.timetable as entry (entry.id)}
-							<li class="flex items-center text-sm gap-2">
-								<span class="block w-1.5 h-4 rounded-full {getStatusColorClass(entry)}" title="Status: {entry.status}"></span>
+							<li class="flex items-center gap-2 {isDense ? 'text-[13px]' : 'text-sm'}">
+								<span class="block w-1.5 rounded-full {isDense ? 'h-3' : 'h-4'} {getStatusColorClass(entry)}" title="Status: {entry.status}"></span>
 								<span class="w-16 font-bold flex-shrink-0 {getStatusTextColorClass(entry)}">{entry.time}</span>
 								<span class="{getStatusTextColorClass(entry)} truncate">{entry.artist}</span>
 							</li>

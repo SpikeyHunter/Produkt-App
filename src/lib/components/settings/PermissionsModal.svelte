@@ -7,7 +7,6 @@
 
 	// Permissions mapped exactly from MainLayout.svelte
 	const ROLES = ['Admin', 'User'];
-
 	let MAIN_PERMISSIONS = [
 		'Advance',
 		'Booking',
@@ -128,6 +127,7 @@
 		if (selectedUser) {
 			selectedUser.role = role;
 			roleDropdownOpen = false;
+			selectedUser = { ...selectedUser }; // Force Svelte reactivity update
 		}
 	}
 
@@ -142,6 +142,7 @@
 					(p: string) => p !== perm
 				);
 			}
+			selectedUser = { ...selectedUser }; // Force Svelte reactivity update
 		}
 	}
 
@@ -153,6 +154,7 @@
 		} else {
 			selectedUser.secondary_permission = [...selectedUser.secondary_permission, perm];
 		}
+		selectedUser = { ...selectedUser }; // Force Svelte reactivity update
 	}
 
 	function togglePagePerm(perm: string) {
@@ -163,6 +165,7 @@
 		} else {
 			selectedUser.page_permissions = [...selectedUser.page_permissions, perm];
 		}
+		selectedUser = { ...selectedUser }; // Force Svelte reactivity update
 	}
 
 	function capitalize(str: string) {
@@ -174,15 +177,15 @@
 		if (!selectedUser) return;
 		isSaving = true;
 
-		// Double-check no duplicates are saved to the DB
-		const uniqueSecondary = Array.from(new Set(selectedUser.secondary_permission));
-		const uniquePage = Array.from(new Set(selectedUser.page_permissions));
+		// Double-check no duplicates are saved to the DB and drop any weird null/undefined instances
+		const uniqueSecondary = Array.from(new Set(selectedUser.secondary_permission)).filter(Boolean);
+		const uniquePage = Array.from(new Set(selectedUser.page_permissions)).filter(Boolean);
 
 		const { error } = await supabase
 			.from('user_profiles')
 			.update({
 				role: selectedUser.role,
-				main_permission: selectedUser.main_permission,
+				main_permission: selectedUser.main_permission || null, // Write null to DB if empty string
 				secondary_permission: uniqueSecondary,
 				page_permissions: uniquePage,
 				updated_at: new Date().toISOString()
@@ -191,14 +194,17 @@
 
 		if (!error) {
 			const index = users.findIndex((u) => u.id === selectedUser.id);
+
 			if (index !== -1) {
 				// Update local state with the cleaned arrays
 				selectedUser.secondary_permission = uniqueSecondary;
 				selectedUser.page_permissions = uniquePage;
 				users[index] = { ...selectedUser };
+				users = [...users]; // Crucial: Reassign array so Svelte re-renders the users list UI
 			}
 		} else {
 			console.error('Failed to save user:', error);
+			alert(`Failed to save user updates: ${error.message}`);
 		}
 
 		isSaving = false;
