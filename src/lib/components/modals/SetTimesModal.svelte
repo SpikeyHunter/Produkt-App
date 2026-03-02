@@ -271,7 +271,7 @@
 	}
 
 	function addEntry() {
-		if (entries.length >= 7) return;
+		if (entries.length >= 9) return;
 		const newEntry = createEntry('12:00AM', '', '', 'Default');
 		if (entries.length > 1) {
 			entries = [...entries.slice(0, -1), newEntry, entries[entries.length - 1]];
