@@ -14,12 +14,19 @@
 	import { portal } from '$lib/utils/portalUtils';
 
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte'; // Adjust path if necessary
+	import ArtistSearch from '$lib/components/calendar/page/tabs/deals/ArtistSearch.svelte';
 
 	export let isOpen: boolean = false;
 	export let dates: string[] = [];
 	export let allEvents: CalendarEvent[] = [];
 	export let draftEvents: CalendarEvent[] = [];
 	export let venues: VenueSettings[] = [];
+	export let selectedArtist: {
+		name: string;
+		id?: string | number;
+		picture?: string;
+		isCustom?: boolean;
+	} | null = null;
 
 	const dispatch = createEventDispatcher();
 
@@ -28,7 +35,7 @@
 
 	let eventStatus: 'HOLD' | 'CONFIRMED' = 'HOLD';
 	let title = '';
-	let artist = '';
+
 	let notes = '';
 	let eventType: EventType | '' = '';
 	let priorityHold = false;
@@ -209,7 +216,7 @@
 		isOpen = false;
 		view = 'form';
 		title = '';
-		artist = '';
+		selectedArtist = null;
 		notes = '';
 		eventType = '';
 		eventStatus = 'HOLD';
@@ -345,8 +352,25 @@
 		return {
 			type: eventType || null,
 			notes: notes && notes.trim() !== '' ? notes.trim() : null,
-			artist: artist && artist.trim() !== '' ? artist.trim() : null,
 			is_priority: isPrio
+		};
+	}
+
+function buildEventDeal() {
+        const fallbackIcon = "https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktIcon-iOS-Default-1024x1024@1x%20(1).png";
+
+		if (!selectedArtist?.name) {
+			return {
+				headliner_name: "NULL",
+				headliner_id: "NULL",
+				headliner_pic: "NULL"
+			};
+		}
+		
+		return {
+			headliner_name: selectedArtist.name.trim(),
+			headliner_id: selectedArtist.id ? String(selectedArtist.id) : "NULL",
+			headliner_pic: selectedArtist.picture || fallbackIcon
 		};
 	}
 
@@ -399,6 +423,7 @@
 						venue: { category: vName, room: roomName },
 						time: tSet.allDay ? { start: null, end: null } : { start: tSet.start, end: tSet.end },
 						details: buildDetails(isItPriority),
+						event_deal: buildEventDeal(), // 🚀 NEW: Add to local draft
 						event_details: {
 							is_target: false,
 							is_challenge: false
@@ -552,7 +577,8 @@
 						.insert({
 							title: title,
 							creator_name: creatorName,
-							details: buildDetails(priorityHold)
+							details: buildDetails(priorityHold),
+							event_deal: buildEventDeal() // 🚀 NEW: Save in new column
 						})
 						.select('id')
 						.single();
@@ -583,7 +609,8 @@
 					.insert({
 						title: title,
 						creator_name: creatorName,
-						details: buildDetails(priorityHold)
+						details: buildDetails(priorityHold),
+						event_deal: buildEventDeal() // 🚀 NEW: Save in new column
 					})
 					.select('id')
 					.single();
@@ -744,13 +771,7 @@
 							for="artistInput"
 							class="block text-[10px] font-bold text-gray2 uppercase mb-1 ml-1">Artist Name</label
 						>
-						<input
-							id="artistInput"
-							type="text"
-							bind:value={artist}
-							placeholder="Enter artist name"
-							class="w-full px-3 py-2.5 bg-black/40 border-2 border-gray2/20 rounded-2xl text-white placeholder:text-gray2/50 text-sm focus:border-lime focus:outline-none transition-colors"
-						/>
+						<ArtistSearch bind:selectedArtist placeholder="Enter artist name" />
 					</div>
 					<div>
 						<label
@@ -763,9 +784,9 @@
 							type="text"
 							bind:value={title}
 							placeholder="Enter event name"
-							class="w-full px-3 py-2.5 bg-black/40 border-2 {titleContainsType
-								? 'border-lime'
-								: 'border-gray2/20'} rounded-2xl text-white placeholder:text-gray2/50 text-sm focus:border-lime focus:outline-none transition-colors"
+							class="w-full px-3 py-2.5 bg-navbar focus:outline-none focus:ring-2 focus:ring-lime{titleContainsType
+								? 'focus:ring-2'
+								: ''} rounded-2xl text-white placeholder:text-gray2/50 text-sm focus:border-lime focus:outline-none transition-colors"
 						/>
 						{#if titleContainsType}
 							<p class="text-lime text-[10px] mt-1 ml-1 font-bold transition-all">
@@ -1595,14 +1616,19 @@
 			class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[9999]"
 			transition:fade={{ duration: 200 }}
 		>
-			<div class="bg-gray1 rounded-2xl max-w-md w-full relative shadow-2xl border border-gray2/20 flex flex-col p-8 text-center">
-				
-				<div class="w-12 h-12 rounded-full bg-lime/20 flex items-center justify-center mx-auto mb-4">
+			<div
+				class="bg-gray1 rounded-2xl max-w-md w-full relative shadow-2xl border border-gray2/20 flex flex-col p-8 text-center"
+			>
+				<div
+					class="w-12 h-12 rounded-full bg-lime/20 flex items-center justify-center mx-auto mb-4"
+				>
 					<span class="text-lime font-black text-2xl">✓</span>
 				</div>
 
 				<h3 class="text-xl font-black text-white mb-2">Confirm Event</h3>
-				<p class="text-xs font-bold text-gray2 mb-6">You are creating confirmed event(s). Do you want to notify users?</p>
+				<p class="text-xs font-bold text-gray2 mb-6">
+					You are creating confirmed event(s). Do you want to notify users?
+				</p>
 
 				<div class="space-y-3 mb-8 text-left">
 					<div
@@ -1612,11 +1638,22 @@
 						on:click={() => (optSendEmail = !optSendEmail)}
 						role="button"
 						tabindex="0"
-						on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && (optSendEmail = !optSendEmail)}
+						on:keydown={(e) =>
+							(e.key === 'Enter' || e.key === ' ') && (optSendEmail = !optSendEmail)}
 					>
 						<div class="mt-0.5 transition-colors {optSendEmail ? 'text-lime' : 'text-gray2'}">
-							<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+							<svg
+								class="w-5 h-5"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
+								<path
+									d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
+								></path>
 								<polyline points="22,6 12,13 2,6"></polyline>
 							</svg>
 						</div>
@@ -1638,7 +1675,15 @@
 						on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && (optSendSms = !optSendSms)}
 					>
 						<div class="mt-0.5 transition-colors {optSendSms ? 'text-lime' : 'text-gray2'}">
-							<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<svg
+								class="w-5 h-5"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							>
 								<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
 							</svg>
 						</div>
@@ -1664,7 +1709,9 @@
 						disabled={saving}
 					>
 						{#if saving}
-							<div class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"></div>
+							<div
+								class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"
+							></div>
 						{/if}
 						Confirm & Save
 					</button>

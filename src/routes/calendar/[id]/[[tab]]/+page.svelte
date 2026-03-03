@@ -23,7 +23,6 @@
 	import FilesTab from '$lib/components/calendar/page/tabs/FilesTab.svelte';
 
 	export let data: PageData;
-	// Grab the tabSlug passed from +page.ts
 	$: ({ event, groupEvents, venues, tabSlug } = data);
 
 	const tabs = [
@@ -38,7 +37,6 @@
 		'Files'
 	];
 
-	// Map string tab names to their Svelte components
 	const tabComponents: Record<string, any> = {
 		Deals: DealsTab,
 		Revenue: RevenueTab,
@@ -54,34 +52,40 @@
 	let activeTab = tabs[0];
 	let isSidebarOpen = true;
 
-	// Automatically map the URL param to your active tab safely using SvelteKit data
 	$: if (tabSlug) {
-		const matchedTab = tabs.find((t) => t.toLowerCase() === tabSlug.replace(/-/g, ' ').toLowerCase());
+		const matchedTab = tabs.find(
+			(t) => t.toLowerCase() === tabSlug.replace(/-/g, ' ').toLowerCase()
+		);
 		if (matchedTab) {
 			activeTab = matchedTab;
 		}
 	} else {
-		activeTab = tabs[0]; // Fallback to first tab if no slug is provided
+		activeTab = tabs[0];
 	}
 
-	// Venue Settings Modal State
 	let showSettingsModal = false;
 	let selectedSettingsVenueId: string | null = null;
 
-	// --- NEW PERMISSION & AUTH LOGIC ---
 	let authState: 'loading' | 'authenticated' = 'loading';
 	let showMainLayout = false;
 	let userRole = 'Email Only';
 
-	// Only Editor and Admin can edit things on this page
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 
+	// 🔥 ONE-LINE TOGGLE: Set to true to block UI on deployed app
+	const DeployedAppBlockage = true;
+	let shouldDisableUI = false;
+
+	// Svelte reactive statement to safely check hostname only in the browser
+	$: if (browser) {
+		shouldDisableUI =
+			DeployedAppBlockage && !['localhost', '127.0.0.1'].includes(window.location.hostname);
+	}
+
 	onMount(() => {
-		// Check Authentication
 		checkAuth();
 	});
 
-	// Wait for authStore to initialize before checking
 	$: if (browser && $authStore.isInitialized && authState === 'loading') {
 		checkAuth();
 	}
@@ -97,7 +101,6 @@
 
 			if (hasBasePerm) {
 				showMainLayout = true;
-				// OVERRIDE: If they are a global App Admin, force the Calendar Admin role
 				if (sessionUser.role === 'Admin') {
 					userRole = 'Admin';
 					authState = 'authenticated';
@@ -120,7 +123,6 @@
 			.eq('email', email)
 			.single();
 
-		// Only Manager, Editor, and Admin can access the page [id]
 		if (data && ['Manager', 'Editor', 'Admin'].includes(data.role)) {
 			userRole = data.role;
 			authState = 'authenticated';
@@ -145,31 +147,34 @@
 
 		goto('/calendar', { replaceState: true });
 	}
-	// -----------------------------------
 
 	function handleTabChange(e: CustomEvent<string>) {
-		// BLOCK NAVIGATION FOR MANAGERS
-		if (userRole === 'Manager' && e.detail !== 'Deals') {
-			return;
-		}
+		if (shouldDisableUI) return; // 🛑 Prevents changing tabs if locked
 
+		if (userRole === 'Manager' && e.detail !== 'Deals') return;
 		activeTab = e.detail;
 		const slug = activeTab.toLowerCase().replace(/\s+/g, '-');
 		window.history.pushState({}, '', `/calendar/${event.short_id}/${slug}`);
 	}
 
 	function handleOpenSettings(e: CustomEvent<{ venueId: string | null }>) {
+		// Allowing settings to be opened since it's part of the header, 
+		// but you can uncomment the line below to lock this too.
+		// if (shouldDisableUI) return; 
+
 		selectedSettingsVenueId = e.detail.venueId;
 		showSettingsModal = true;
 	}
 
 	function toggleSidebar() {
+		if (shouldDisableUI) return; // 🛑 Prevents sidebar toggle if locked
+
 		isSidebarOpen = !isSidebarOpen;
 	}
 </script>
 
 <svelte:head>
-	<title>{event.calendar?.title || 'Event'} - Produkt App</title>
+	<title>{event?.calendar?.title || 'Event'}</title>
 </svelte:head>
 
 <div class="absolute z-[9999]">
@@ -185,7 +190,7 @@
 		<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-lime"></div>
 	</div>
 {:else if showMainLayout}
-	<MainLayout pageTitle={event.calendar?.title || 'Event Details'}>
+	<MainLayout pageTitle={event?.calendar?.title || 'Event Details'}>
 		<slot name="page-content">
 			<div class="h-full w-full flex flex-col bg-gray1 overflow-hidden text-white">
 				<EventHeader
@@ -195,14 +200,21 @@
 					{tabs}
 					{activeTab}
 					{isSidebarOpen}
-					{userRole} 
+					{userRole}
 					on:tabChange={handleTabChange}
 					on:openSettings={handleOpenSettings}
 					on:toggleSidebar={toggleSidebar}
 				/>
-				<div class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative">
-					<div class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden">
-						<svelte:component this={tabComponents[activeTab]} {userRole} />
+				
+				<div class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative" class:locked-ui={shouldDisableUI}>
+					<div
+						class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden"
+					>
+						<svelte:component
+							this={tabComponents[activeTab]}
+							{userRole}
+							eventDealData={event?.calendar?.event_deal || event?.event_deal}
+						/>
 					</div>
 					<EventSidebar {activeTab} {isSidebarOpen} {userRole} />
 				</div>
@@ -224,12 +236,35 @@
 				on:openSettings={handleOpenSettings}
 				on:toggleSidebar={toggleSidebar}
 			/>
-			<div class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative">
-				<div class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden">
-					<svelte:component this={tabComponents[activeTab]} {userRole} />
+			
+			<div class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative" class:locked-ui={shouldDisableUI}>
+				<div
+					class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden"
+				>
+					<svelte:component
+						this={tabComponents[activeTab]}
+						{userRole}
+						eventDealData={event?.event_deal}
+					/>
 				</div>
 				<EventSidebar {activeTab} {isSidebarOpen} {userRole} />
 			</div>
 		</div>
 	</div>
 {/if}
+
+<style>
+	/* The main wrapper gets the disabled cursor and grayed-out look */
+	:global(.locked-ui) {
+		opacity: 0.4 !important;
+		filter: grayscale(80%);
+		cursor: not-allowed !important;
+	}
+	
+	/* The children lose pointer events so they can't be clicked, hovered, or highlighted, 
+	   but the parent's cursor:not-allowed will still show up */
+	:global(.locked-ui *) {
+		pointer-events: none !important;
+		user-select: none !important;
+	}
+</style>

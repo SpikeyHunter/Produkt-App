@@ -1,38 +1,50 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount } from 'svelte';
+	import { createEventDispatcher } from 'svelte';
 
-	export let value = '';
-	export let placeholder = 'Search Spotify or type custom artist...';
+	export let selectedArtist: {
+		name: string;
+		id?: string | number;
+		picture?: string;
+		isCustom?: boolean;
+	} | null = null;
+	export let placeholder = 'Search for an artist';
+
+	const fallbackIcon =
+		'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktIcon-iOS-Default-1024x1024@1x%20(1).png';
 
 	const dispatch = createEventDispatcher();
 
-	let searchQuery = value;
+	let searchQuery = '';
 	let results: any[] = [];
 	let isLoading = false;
 	let isOpen = false;
 	let debounceTimer: ReturnType<typeof setTimeout>;
 
-	// Sync external value changes
-	$: if (value !== searchQuery && !isOpen) {
-		searchQuery = value;
-	}
+	const searchCache = new Map<string, any[]>();
 
-	async function searchSpotify(query: string) {
-		if (!query.trim()) {
+	async function searchArtist(query: string) {
+		const trimmedQuery = query.trim().toLowerCase();
+
+		if (!trimmedQuery) {
 			results = [];
+			return;
+		}
+
+		if (searchCache.has(trimmedQuery)) {
+			results = searchCache.get(trimmedQuery)!;
 			return;
 		}
 
 		isLoading = true;
 		try {
-			// NOTE: We call an internal API route to keep the Spotify token secure
-			const res = await fetch(`/api/spotify/search?q=${encodeURIComponent(query)}`);
+			const res = await fetch(`/api/deezer/search?q=${encodeURIComponent(trimmedQuery)}&limit=6`);
 			if (res.ok) {
 				const data = await res.json();
-				results = data.artists.items;
+				results = data.data;
+				searchCache.set(trimmedQuery, results);
 			}
 		} catch (error) {
-			console.error("Spotify search failed:", error);
+			console.error('Artist search failed:', error);
 		} finally {
 			isLoading = false;
 		}
@@ -42,28 +54,49 @@
 		const target = e.target as HTMLInputElement;
 		searchQuery = target.value;
 		isOpen = true;
-		value = searchQuery; // Optimistically bind the custom typed value
 
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => {
-			searchSpotify(searchQuery);
-		}, 300); // 300ms debounce
+			searchArtist(searchQuery);
+		}, 150);
 	}
 
 	function selectArtist(artist: any) {
-		searchQuery = artist.name;
-		value = artist.name;
+		// 🚀 THE UPGRADE: Map to the highest quality image available
+		selectedArtist = {
+			name: artist.name,
+			id: artist.id,
+			picture:
+				artist.picture_xl ||
+				artist.picture_big ||
+				artist.picture_medium ||
+				artist.picture ||
+				fallbackIcon,
+			isCustom: false
+		};
+		searchQuery = '';
 		isOpen = false;
-		dispatch('select', { artist });
+		dispatch('select', { artist: selectedArtist });
 	}
 
 	function selectCustom() {
-		value = searchQuery;
+		selectedArtist = {
+			name: searchQuery,
+			isCustom: true,
+			picture: fallbackIcon
+		};
+		searchQuery = '';
 		isOpen = false;
-		dispatch('select', { artist: { name: searchQuery, isCustom: true } });
+		dispatch('select', { artist: selectedArtist });
 	}
 
-	// Action to handle clicking outside the dropdown
+	// 🚀 THE UPGRADE: Function to remove the selected artist and go back to searching
+	function clearSelection() {
+		selectedArtist = null;
+		searchQuery = '';
+		dispatch('clear');
+	}
+
 	function clickOutside(node: HTMLElement) {
 		const handleClick = (event: MouseEvent) => {
 			if (node && !node.contains(event.target as Node) && !event.defaultPrevented) {
@@ -80,42 +113,57 @@
 </script>
 
 <div class="relative w-full" use:clickOutside>
-	<input 
-		type="text" 
-		bind:value={searchQuery}
-		on:input={handleInput}
-		on:focus={() => isOpen = true}
-		{placeholder} 
-		class="w-full bg-black border-transparent rounded-3xl px-6 py-3.5 text-white placeholder-gray2 focus:outline-none focus:ring-1 focus:ring-lime transition-all"
-	/>
+	{#if selectedArtist}
+		<div class="w-full bg-black/40 border border-gray2/20 rounded-2xl p-1.5 pl-2 flex items-center justify-between transition-all">
+			<div class="flex items-center gap-3">
+                <img src={selectedArtist.picture} alt={selectedArtist.name} class="w-8 h-8 rounded-full object-cover bg-black" loading="lazy" />
+				<div class="flex-1 truncate font-bold text-white text-sm">{selectedArtist.name}</div>
+			</div>
+			<button 
+				type="button" 
+				class="w-8 h-8 flex items-center justify-center text-gray2 hover:text-problem cursor-pointer transition-colors rounded-full hover:bg-problem/10"
+				on:click={clearSelection}
+				aria-label="Remove artist"
+			>
+				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+			</button>
+		</div>
+	{:else}
+		<input 
+			type="text" 
+			bind:value={searchQuery}
+			on:input={handleInput}
+			on:focus={() => isOpen = true}
+			{placeholder} 
+			class="w-full bg-navbar border-transparent text-sm rounded-2xl px-3 py-2.5 text-white placeholder:text-gray2/50 focus:outline-none focus:ring-2 focus:ring-lime transition-all"
+		/>
 
-	{#if isLoading}
-		<div class="absolute right-5 top-4 w-4 h-4 border-2 border-gray2 border-t-lime rounded-full animate-spin"></div>
+		{#if isLoading}
+			<div class="absolute right-5 top-4 w-4 h-4 border-2 border-gray2 border-t-lime rounded-full animate-spin"></div>
+		{/if}
 	{/if}
 
-	{#if isOpen && (searchQuery.length > 0)}
+	{#if isOpen && (searchQuery.length > 0) && !selectedArtist}
 		<div class="absolute z-50 w-full mt-2 bg-gray1 border border-navbar rounded-2xl shadow-xl overflow-hidden max-h-80 overflow-y-auto flex flex-col">
 			
 			{#each results as artist}
 				<button 
+					type="button"
 					class="w-full flex items-center gap-4 px-5 py-3 text-left hover:bg-lime/10 hover:text-lime transition-colors cursor-pointer border-b border-navbar/50 last:border-0"
 					on:click={() => selectArtist(artist)}
 				>
-					{#if artist.images && artist.images.length > 0}
-						<img src={artist.images[artist.images.length - 1].url} alt={artist.name} class="w-10 h-10 rounded-full object-cover bg-black" />
-					{:else}
-						<div class="w-10 h-10 rounded-full bg-black flex items-center justify-center text-gray2 text-xs">?</div>
-					{/if}
+                    <img src={artist.picture_xl || artist.picture_big || artist.picture_small || fallbackIcon} alt={artist.name} class="w-10 h-10 rounded-full object-cover bg-black" loading="lazy" />
 					<div class="flex-1 truncate font-bold">{artist.name}</div>
 				</button>
 			{/each}
 
 			{#if !isLoading}
 				<button 
+					type="button"
 					class="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-lime/10 hover:text-lime transition-colors cursor-pointer bg-black/20"
 					on:click={selectCustom}
 				>
-					<div class="w-10 h-10 rounded-full bg-black border border-dashed border-gray2 flex items-center justify-center text-lime font-bold">+</div>
+					<img src={fallbackIcon} alt="Custom Artist" class="w-10 h-10 rounded-full object-cover bg-black" loading="lazy" />
 					<div class="flex-1 truncate">
 						<span class="block text-xs text-gray2 font-normal">Use custom artist:</span>
 						<span class="font-bold">"{searchQuery}"</span>

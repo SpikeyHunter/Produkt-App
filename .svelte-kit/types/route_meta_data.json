@@ -44,6 +44,9 @@
 	"/api/calendar": [
 		"src/routes/api/calendar/+server.ts"
 	],
+	"/api/deezer/search": [
+		"src/routes/api/deezer/search/+server.ts"
+	],
 	"/api/download-tech-rider": [
 		"src/routes/api/download-tech-rider/+server.ts"
 	],
