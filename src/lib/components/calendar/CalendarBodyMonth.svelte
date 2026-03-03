@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { CalendarEvent, CalendarDay, StageConfig } from '$lib/types/calendar-types';
 	import { createEventDispatcher } from 'svelte';
+	import { tweened } from 'svelte/motion';
+	import { cubicOut } from 'svelte/easing';
 
 	export let loading: boolean;
 	export let monthViewDays: CalendarDay[] = [];
@@ -10,6 +12,9 @@
 	export let isAddingEvent: boolean = false;
 	export let minRowHeight: number = 100;
 	export let deletedIds: string[] = [];
+	let windowHeight = 0;
+	$: minRowHeight = windowHeight > 900 ? 125 : 105;
+
 	export let managingGroupId: string | null = null;
 	export let canEdit: boolean;
 	export let canViewHolds: boolean;
@@ -145,6 +150,8 @@
 	}
 </script>
 
+<svelte:window bind:innerHeight={windowHeight} />
+
 {#if loading}
 	<div class="flex items-center justify-center h-full min-h-[400px]">
 		<div class="w-10 h-10 border-4 border-gray2/20 border-t-lime rounded-full animate-spin"></div>
@@ -236,10 +243,10 @@
 										</span>
 
 										{#if event.event_details?.is_target || event.event_details?.is_challenge}
-											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-[#828282]">
+											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-gray3">
 												{#if event.event_details?.is_target}
 													<svg
-														class="w-2.5 h-2.5"
+														class="w-3 h-3"
 														viewBox="0 0 24 24"
 														fill="none"
 														stroke="currentColor"
@@ -251,7 +258,7 @@
 												{/if}
 												{#if event.event_details?.is_challenge}
 													<svg
-														class="w-2.5 h-2.5"
+														class="w-3 h-3"
 														viewBox="0 0 24 24"
 														fill="none"
 														stroke="currentColor"
@@ -296,10 +303,10 @@
 										</span>
 
 										{#if event.event_details?.is_target || event.event_details?.is_challenge}
-											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-black/60">
+											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-gray3">
 												{#if event.event_details?.is_target}
 													<svg
-														class="w-2.5 h-2.5"
+														class="w-3 h-3"
 														viewBox="0 0 24 24"
 														fill="none"
 														stroke="currentColor"
@@ -311,7 +318,7 @@
 												{/if}
 												{#if event.event_details?.is_challenge}
 													<svg
-														class="w-2.5 h-2.5"
+														class="w-3 h-3"
 														viewBox="0 0 24 24"
 														fill="none"
 														stroke="currentColor"
@@ -350,10 +357,10 @@
 										</span>
 
 										{#if event.event_details?.is_target || event.event_details?.is_challenge}
-											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-[#828282]">
+											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-gray3">
 												{#if event.event_details?.is_target}
 													<svg
-														class="w-2.5 h-2.5"
+														class="w-3 h-3"
 														viewBox="0 0 24 24"
 														fill="none"
 														stroke="currentColor"
@@ -365,7 +372,7 @@
 												{/if}
 												{#if event.event_details?.is_challenge}
 													<svg
-														class="w-2.5 h-2.5"
+														class="w-3 h-3"
 														viewBox="0 0 24 24"
 														fill="none"
 														stroke="currentColor"
