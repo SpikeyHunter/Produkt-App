@@ -153,6 +153,7 @@
 	const holdLevelsGrid = ['P', ...Array.from({ length: 20 }, (_, i) => `H${i + 1}`)];
 
 	$: activeVenueId = selectedRooms.length > 0 ? selectedRooms[0].split(':::')[0] : null;
+	$: venueOptions = venues.filter((v) => v.setting_type === 'VENUE'); // ADD THIS LINE
 	$: allRowsSelected = selectedDateRows.length === dates.length && dates.length > 0;
 
 	$: {
@@ -249,9 +250,16 @@
 		return stage?.color || '#828282';
 	}
 
-	$: if (isOpen && venues.length > 0 && selectedRooms.length === 0 && !hasInitializedDefaultVenue) {
-		let defaultVenue = venues.find((v) => v.setting_name.toLowerCase().includes('new city gas'));
-		if (!defaultVenue) defaultVenue = venues[0];
+	$: if (
+		isOpen &&
+		venueOptions.length > 0 &&
+		selectedRooms.length === 0 &&
+		!hasInitializedDefaultVenue
+	) {
+		let defaultVenue = venueOptions.find((v) =>
+			v.setting_name.toLowerCase().includes('new city gas')
+		);
+		if (!defaultVenue) defaultVenue = venueOptions[0];
 
 		let stages = [];
 		if (typeof defaultVenue.setting_params === 'string') {
@@ -356,20 +364,21 @@
 		};
 	}
 
-function buildEventDeal() {
-        const fallbackIcon = "https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktIcon-iOS-Default-1024x1024@1x%20(1).png";
+	function buildEventDeal() {
+		const fallbackIcon =
+			'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktIcon-iOS-Default-1024x1024@1x%20(1).png';
 
 		if (!selectedArtist?.name) {
 			return {
-				headliner_name: "NULL",
-				headliner_id: "NULL",
-				headliner_pic: "NULL"
+				headliner_name: 'NULL',
+				headliner_id: 'NULL',
+				headliner_pic: 'NULL'
 			};
 		}
-		
+
 		return {
 			headliner_name: selectedArtist.name.trim(),
-			headliner_id: selectedArtist.id ? String(selectedArtist.id) : "NULL",
+			headliner_id: selectedArtist.id ? String(selectedArtist.id) : 'NULL',
 			headliner_pic: selectedArtist.picture || fallbackIcon
 		};
 	}
@@ -880,12 +889,12 @@ function buildEventDeal() {
 									}}>+ Add</button
 								>
 							</div>
-							{#if venues.length === 0}
+							{#if venueOptions.length === 0}
 								<div class="p-4 text-center">
 									<p class="text-xs text-gray2 mb-2">No venues configured.</p>
 								</div>
 							{:else}
-								{#each venues as venue}
+								{#each venueOptions as venue}
 									{@const venueStages =
 										typeof venue.setting_params === 'string'
 											? JSON.parse(venue.setting_params).stages || []
@@ -1243,7 +1252,7 @@ function buildEventDeal() {
 						<div
 							class="absolute top-[calc(100%+4px)] left-0 bg-navbar border border-gray2/20 rounded-2xl shadow-xl z-50 w-full overflow-hidden max-h-[300px] overflow-y-auto custom-scrollbar"
 						>
-							{#each venues as venue}
+							{#each venueOptions as venue}
 								{@const venueStages =
 									typeof venue.setting_params === 'string'
 										? JSON.parse(venue.setting_params).stages || []
