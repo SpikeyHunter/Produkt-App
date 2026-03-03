@@ -82,7 +82,7 @@
 	}
 
 	function addPerson() {
-		if (people.length < 25) { // Reasonable limit
+		if (people.length < 50) { // Reasonable limit
 			people = [...people, createEmptyPerson()];
 		}
 	}
@@ -267,10 +267,10 @@ async function handleSave() {
 				<button
 					type="button"
 					class="px-3 py-1.5 bg-lime text-black rounded-full font-bold text-xs hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-					disabled={people.length >= 25}
+					disabled={people.length >= 50}
 					on:click={addPerson}
 				>
-					Add Person ({people.length}/25)
+					Add Person ({people.length}/50)
 				</button>
 			</div>
 
