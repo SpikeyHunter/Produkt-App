@@ -225,17 +225,43 @@
 											stroke-width="4"
 											stroke-linecap="round"
 											stroke-linejoin="round"
-											><line x1="18" y1="6" x2="6" y2="18"></line><line
-												x1="6"
-												y1="6"
-												x2="18"
-												y2="18"
-											></line></svg
 										>
+											<line x1="18" y1="6" x2="6" y2="18"></line>
+											<line x1="6" y1="6" x2="18" y2="18"></line>
+										</svg>
 										<span
-											class="truncate font-bold text-[11px] leading-none pb-[1px] max-w-[14vw] line-through opacity-80"
-											>{formatEventTitle(event)}</span
+											class="truncate font-bold text-[11px] text-white leading-none pb-[1px] max-w-[14vw]"
 										>
+											{formatEventTitle(event)}
+										</span>
+
+										{#if event.event_details?.is_target || event.event_details?.is_challenge}
+											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-[#828282]">
+												{#if event.event_details?.is_target}
+													<svg
+														class="w-2.5 h-2.5"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+													>
+														<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
+														></circle><circle cx="12" cy="12" r="2"></circle>
+													</svg>
+												{/if}
+												{#if event.event_details?.is_challenge}
+													<svg
+														class="w-2.5 h-2.5"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+													>
+														<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+													</svg>
+												{/if}
+											</div>
+										{/if}
 									</div>
 								{:else if event.status === 'CONFIRMED'}
 									<div
@@ -261,11 +287,41 @@
 											stroke="currentColor"
 											stroke-width="4"
 											stroke-linecap="round"
-											stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg
+											stroke-linejoin="round"
 										>
-										<span class="truncate font-bold text-[11px] leading-none pb-[1px] max-w-[14vw]"
-											>{formatEventTitle(event)}</span
-										>
+											<polyline points="20 6 9 17 4 12"></polyline>
+										</svg>
+										<span class="truncate font-bold text-[11px] leading-none pb-[1px] max-w-[14vw]">
+											{formatEventTitle(event)}
+										</span>
+
+										{#if event.event_details?.is_target || event.event_details?.is_challenge}
+											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-black/60">
+												{#if event.event_details?.is_target}
+													<svg
+														class="w-2.5 h-2.5"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+													>
+														<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
+														></circle><circle cx="12" cy="12" r="2"></circle>
+													</svg>
+												{/if}
+												{#if event.event_details?.is_challenge}
+													<svg
+														class="w-2.5 h-2.5"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+													>
+														<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+													</svg>
+												{/if}
+											</div>
+										{/if}
 									</div>
 								{:else}
 									<div
@@ -289,8 +345,37 @@
 										</div>
 										<span
 											class="truncate font-bold text-[11px] text-white leading-none pb-[1px] max-w-[14vw]"
-											>{formatEventTitle(event)}</span
 										>
+											{formatEventTitle(event)}
+										</span>
+
+										{#if event.event_details?.is_target || event.event_details?.is_challenge}
+											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-[#828282]">
+												{#if event.event_details?.is_target}
+													<svg
+														class="w-2.5 h-2.5"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+													>
+														<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
+														></circle><circle cx="12" cy="12" r="2"></circle>
+													</svg>
+												{/if}
+												{#if event.event_details?.is_challenge}
+													<svg
+														class="w-2.5 h-2.5"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+													>
+														<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+													</svg>
+												{/if}
+											</div>
+										{/if}
 									</div>
 								{/if}
 							{/each}
