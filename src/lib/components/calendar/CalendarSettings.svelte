@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
-	import { cubicOut } from 'svelte/easing';
+	import { cubicOut, cubicIn } from 'svelte/easing';
 	import { portal } from '$lib/utils/portalUtils';
 	import { supabase } from '$lib/supabase';
 	import VenueSettingsModal from '$lib/components/calendar/VenueSettingsModal.svelte';
@@ -13,22 +13,49 @@
 	let showVenueModal = false;
 	let selectedVenueId: string | null = null;
 
-	async function fetchVenues() {
-		loading = true;
-		const { data, error } = await supabase
-			.from('calendar_settings')
-			.select('*')
-			.eq('setting_type', 'VENUE')
-			.order('setting_name', { ascending: true });
+	// SMS Template state
+	let smsTemplate = '';
+	let smsSettingId: string | null = null;
+	let isSavingSms = false;
+	let showSavedState = false; // Added for the success animation state
 
-		if (!error && data) {
-			venues = data;
+	async function fetchSettings() {
+		loading = true;
+
+		// Fetch both Venues and SMS Template concurrently
+		const [venuesRes, templateRes] = await Promise.all([
+			supabase
+				.from('calendar_settings')
+				.select('*')
+				.eq('setting_type', 'VENUE')
+				.order('setting_name', { ascending: true }),
+			supabase
+				.from('calendar_settings')
+				.select('*')
+				.eq('setting_type', 'TEMPLATE')
+				.eq('setting_name', 'SMS')
+				.maybeSingle()
+		]);
+
+		if (!venuesRes.error && venuesRes.data) {
+			venues = venuesRes.data;
 		}
+
+		if (!templateRes.error && templateRes.data) {
+			smsTemplate = templateRes.data.setting_params?.body || '';
+			smsSettingId = templateRes.data.id;
+		} else {
+			// Default template layout
+			smsTemplate =
+				'{eventTitle} - [{eventType}]\n\n📅 {eventDate}\n📍 {venueName}\n\n{actionLabel} by {authUserName}';
+			smsSettingId = null;
+		}
+
 		loading = false;
 	}
 
 	$: if (isOpen) {
-		fetchVenues();
+		fetchSettings();
 	}
 
 	function getVenueColor(venue: any) {
@@ -47,7 +74,39 @@
 	}
 
 	function handleVenueSuccess() {
-		fetchVenues();
+		fetchSettings();
+	}
+
+	async function saveSmsTemplate() {
+		isSavingSms = true;
+		showSavedState = false; // Reset just in case
+
+		const payload = {
+			setting_type: 'TEMPLATE',
+			setting_name: 'SMS',
+			setting_params: { body: smsTemplate }
+		};
+
+		if (smsSettingId) {
+			await supabase.from('calendar_settings').update(payload).eq('id', smsSettingId);
+		} else {
+			const { data, error } = await supabase
+				.from('calendar_settings')
+				.insert([payload])
+				.select()
+				.single();
+			if (!error && data) {
+				smsSettingId = data.id;
+			}
+		}
+
+		isSavingSms = false;
+		showSavedState = true; // Trigger success state
+
+		// Revert back to normal after 1.5 seconds
+		setTimeout(() => {
+			showSavedState = false;
+		}, 1500);
 	}
 
 	function closeModal() {
@@ -59,23 +118,30 @@
 	<div use:portal class="fixed inset-0 z-[90] flex items-center justify-center p-4">
 		<div
 			class="absolute inset-0 bg-black/80 backdrop-blur-sm"
-			transition:fade={{ duration: 200 }}
+			transition:fade|local={{ duration: 200 }}
 			on:click={closeModal}
 			aria-hidden="true"
 		></div>
 
 		<div
 			class="bg-gray1 border border-gray2/20 rounded-3xl shadow-2xl w-full max-w-4xl relative z-10 flex flex-col max-h-[90vh]"
-			transition:fly={{ y: 20, duration: 250, easing: cubicOut }}
+			in:fly|local={{ y: 20, duration: 250, easing: cubicOut }}
+			out:fly|local={{ y: 20, duration: 200, easing: cubicIn }}
 		>
 			<div class="flex items-center justify-between p-6 border-b border-gray2/10 shrink-0">
-				<h2 class="text-xl font-black text-white uppercase tracking-wide">Calendar Settings</h2>
+				<h2 class="text-xl font-black text-white tracking-wide">Calendar Settings</h2>
 				<button
 					class="text-gray2 hover:text-white transition-colors cursor-pointer"
 					on:click={closeModal}
 					aria-label="Close modal"
 				>
-					<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						class="w-6 h-6"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<line x1="18" y1="6" x2="6" y2="18"></line>
 						<line x1="6" y1="6" x2="18" y2="18"></line>
 					</svg>
@@ -87,7 +153,7 @@
 					<div class="flex items-center justify-between">
 						<h3 class="text-sm font-black text-lime uppercase tracking-widest">Venues</h3>
 						<button
-							class="px-4 py-2 bg-lime text-black font-bold text-xs rounded-full hover:bg-lime/90 transition-all shadow-lg shadow-lime/10 cursor-pointer"
+							class="px-4 py-2 bg-lime text-black font-bold text-xs rounded-full hover:bg-lime/90 transition-all cursor-pointer"
 							on:click={() => openVenueModal(null)}
 						>
 							+ Add Venue
@@ -96,7 +162,9 @@
 
 					{#if loading}
 						<div class="flex justify-center p-8">
-							<div class="w-8 h-8 border-4 border-lime/20 border-t-lime rounded-full animate-spin"></div>
+							<div
+								class="w-8 h-8 border-4 border-lime border-t-lime rounded-full animate-spin"
+							></div>
 						</div>
 					{:else if venues.length === 0}
 						<div class="p-8 border border-dashed border-gray2/30 rounded-2xl text-center">
@@ -105,30 +173,130 @@
 					{:else}
 						<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 							{#each venues as venue}
-								<button 
+								<button
 									type="button"
-									class="w-full text-left bg-black/30 border border-gray2/20 rounded-2xl p-4 flex items-center justify-between hover:border-lime/50 transition-colors cursor-pointer group"
+									class="w-full text-left bg-black/30 border-2 border-black/0 rounded-2xl p-4 flex items-center justify-between hover:border-lime transition-colors cursor-pointer group"
 									on:click={() => openVenueModal(venue.id)}
 								>
 									<div class="flex items-center gap-4">
-										<div 
-											class="w-5 h-5 rounded-full shadow-sm transition-transform group-hover:scale-110" 
+										<div
+											class="w-5 h-5 rounded-full shadow-sm transition-transform group-hover:scale-110"
 											style="background-color: {getVenueColor(venue)}"
 										></div>
 										<div>
 											<p class="text-white font-bold text-sm">{venue.setting_name}</p>
-											<p class="text-gray2 text-xs">{venue.setting_params?.location?.city || 'No Location'}</p>
+											<p class="text-gray2 text-xs">
+												{venue.setting_params?.location?.city || 'No Location'}
+											</p>
 										</div>
 									</div>
 									<div class="text-gray2 group-hover:text-white transition-colors p-2">
 										<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												stroke-width="2"
+												d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+											/>
 										</svg>
 									</div>
 								</button>
 							{/each}
 						</div>
 					{/if}
+				</section>
+
+				<section class="space-y-4">
+					<div class="flex items-center justify-between">
+						<h3 class="text-sm font-black text-lime uppercase tracking-widest">
+							EVENT - SMS Template
+						</h3>
+					</div>
+					<div class="bg-black/30 rounded-2xl p-4 space-y-4">
+						<p class="text-xs text-gray2 leading-relaxed">
+							Customize the body of the text message. Use these exact tags to insert dynamic data: <br
+							/>
+							<code class="text-white bg-white/10 px-1.5 py-0.5 rounded-full mr-1"
+								>{'{eventTitle}'}</code
+							>
+							<code class="text-white bg-white/10 px-1.5 py-0.5 rounded-full mr-1"
+								>{'{eventType}'}</code
+							>
+							<code class="text-white bg-white/10 px-1.5 py-0.5 rounded-full mr-1"
+								>{'{eventDate}'}</code
+							>
+							<code class="text-white bg-white/10 px-1.5 py-0.5 rounded-full mr-1"
+								>{'{venueName}'}</code
+							>
+							<code class="text-white bg-white/10 px-1.5 py-0.5 rounded-full mr-1"
+								>{'{actionLabel}'}</code
+							>
+							<code class="text-white bg-white/10 px-1.5 py-0.5 rounded-full mr-1"
+								>{'{authUserName}'}</code
+							>
+						</p>
+						<textarea
+							bind:value={smsTemplate}
+							class="w-full bg-black/20 rounded-xl p-3 text-white text-sm focus:border-lime/50 outline-none resize-y min-h-[160px] custom-scrollbar placeholder-gray2/50"
+							placeholder="Enter your SMS template here..."
+						></textarea>
+						<div class="flex justify-end relative">
+							<button
+								class="px-5 py-2.5 font-bold text-xs rounded-full transition-all duration-300 flex items-center justify-center min-w-[140px] cursor-pointer disabled:cursor-not-allowed {showSavedState
+									? 'bg-gray3 text-black'
+									: 'bg-lime text-black'} {!showSavedState && !isSavingSms
+									? 'hover:bg-lime/90'
+									: ''} {isSavingSms || loading ? 'opacity-50' : ''}"
+								on:click={saveSmsTemplate}
+								disabled={isSavingSms || loading || showSavedState}
+							>
+								{#if isSavingSms}
+									<div in:fade={{ duration: 150 }} class="flex items-center">
+										<svg
+											class="animate-spin -ml-1 mr-2 h-4 w-4 text-black"
+											xmlns="http://www.w3.org/2000/svg"
+											fill="none"
+											viewBox="0 0 24 24"
+										>
+											<circle
+												class="opacity-25"
+												cx="12"
+												cy="12"
+												r="10"
+												stroke="currentColor"
+												stroke-width="4"
+											></circle>
+											<path
+												class="opacity-75"
+												fill="currentColor"
+												d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+											></path>
+										</svg>
+										Saving...
+									</div>
+								{:else if showSavedState}
+									<div in:fade={{ duration: 150 }} class="flex items-center">
+										<svg
+											class="w-4 h-4 mr-1.5"
+											fill="none"
+											stroke="currentColor"
+											viewBox="0 0 24 24"
+										>
+											<path
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												stroke-width="3"
+												d="M5 13l4 4L19 7"
+											></path>
+										</svg>
+										Saved!
+									</div>
+								{:else}
+									<div in:fade={{ duration: 150 }}>Save Template</div>
+								{/if}
+							</button>
+						</div>
+					</div>
 				</section>
 			</div>
 		</div>

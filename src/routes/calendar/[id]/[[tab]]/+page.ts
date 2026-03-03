@@ -5,6 +5,7 @@ import type { PageLoad } from './$types';
 export const load: PageLoad = async ({ params }) => {
     // The ID from the URL is now the short_id
     const shortId = params.id; 
+    const tabSlug = params.tab; // SvelteKit captures 'deals', 'revenue', etc. from the [[tab]] folder
     
     // Fetch the specific event using the short_id
     const { data: event, error: fetchError } = await supabase
@@ -32,6 +33,7 @@ export const load: PageLoad = async ({ params }) => {
     return { 
         event, 
         groupEvents: groupEvents || [], 
-        venues: venues || [] 
+        venues: venues || [],
+        tabSlug // Add this to the returned object
     };
 };

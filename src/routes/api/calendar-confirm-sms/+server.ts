@@ -37,6 +37,14 @@ export const POST: RequestHandler = async ({ request }) => {
             return json({ success: true, message: 'No users to SMS' });
         }
 
+        // Fetch SMS template
+        const { data: templateData } = await supabaseAdmin
+            .from('calendar_settings')
+            .select('setting_params')
+            .eq('setting_type', 'TEMPLATE')
+            .eq('setting_name', 'SMS')
+            .maybeSingle();
+
         const formattedDate = new Date(eventDate + 'T00:00:00').toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
@@ -46,15 +54,32 @@ export const POST: RequestHandler = async ({ request }) => {
         const isCancel = action === 'cancel';
         const actionWord = isCancel ? '𝗖𝗮𝗻𝗰𝗲𝗹𝗲𝗱' : '𝗖𝗼𝗻𝗳𝗶𝗿𝗺𝗲𝗱';
         const actionLabel = isCancel ? 'Canceled' : 'Confirmed';
+        const emoji = isCancel ? '🚫' : '✅';
+        
+        // Header stays consistent but gains emojis
+        const headerText = `${emoji} 𝗘𝘃𝗲𝗻𝘁 ${actionWord}!`;
 
-        let message = `𝗘𝘃𝗲𝗻𝘁 ${actionWord}!\n${eventTitle} - [${eventType}]\n\n📅 ${formattedDate}\n📍 ${venueName}\n\n${actionLabel} by ${authUserName}\n\n`;
+        // Apply fallback template if none found in DB
+        const templateBodyString = templateData?.setting_params?.body || `{eventTitle} - [{eventType}]\n\n📅 {eventDate}\n📍 {venueName}\n\n{actionLabel} by {authUserName}`;
+
+        // Replace tags with actual variables
+        const parsedBody = templateBodyString
+            .replace(/{eventTitle}/g, eventTitle || '')
+            .replace(/{eventType}/g, eventType || '')
+            .replace(/{eventDate}/g, formattedDate || '')
+            .replace(/{venueName}/g, venueName || '')
+            .replace(/{actionLabel}/g, actionLabel)
+            .replace(/{authUserName}/g, authUserName || '');
+
+        let message = `${headerText}\n${parsedBody}\n\n`;
         
         // Only append the URL if the event is being confirmed
         if (!isCancel) {
             message += `https://app.produkt.ca/calendar/${eventId}\n\n`;
         }
         
-        message += `Reply STOP to cancel`;
+        // Updated Footer
+        message += `Reply STOP to unsubscribe`;
 
         for (const user of users) {
             if (!user.phone) continue;

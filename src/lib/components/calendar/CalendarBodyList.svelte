@@ -428,12 +428,22 @@
 									</div>
 
 									<div class="flex-1 flex flex-col justify-center p-4 pl-6">
-										<h2 class="font-black text-2xl tracking-wide text-gray3">
+										<h2
+											class="font-black text-2xl tracking-wide {event.status === 'CANCELED'
+												? 'text-problem/60 line-through'
+												: 'text-gray3'}"
+										>
 											{formatEventTitle(event)}
 										</h2>
 
 										<div class="flex items-center gap-2 mt-3">
-											{#if event.status === 'CONFIRMED'}
+											{#if event.status === 'CANCELED'}
+												<span
+													class="px-3 py-1 rounded-full text-xs font-bold shadow-sm border-2 border-solid border-problem text-problem bg-transparent"
+												>
+													✕ CANCELED
+												</span>
+											{:else if event.status === 'CONFIRMED'}
 												<span
 													class="px-3 py-1 rounded-full text-xs font-bold shadow-sm"
 													style="background-color: {color}; color: #000;"
@@ -446,29 +456,6 @@
 													style="color: {color}; border-color: {color}; background-color: transparent;"
 												>
 													{event.hold_level === 'P' ? 'P' : event.hold_level}
-												</span>
-											{/if}
-
-											{#if event.status !== 'CONFIRMED' && (event.event_details?.is_target || event.event_details?.is_challenge)}
-												<span class="inline-flex items-center gap-1.5 ml-1 text-[#828282]">
-													{#if event.event_details?.is_target}<svg
-															class="w-4 h-4"
-															viewBox="0 0 24 24"
-															fill="none"
-															stroke="currentColor"
-															stroke-width="2"
-															><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
-															></circle><circle cx="12" cy="12" r="2"></circle></svg
-														>{/if}
-													{#if event.event_details?.is_challenge}<svg
-															class="w-4 h-4"
-															viewBox="0 0 24 24"
-															fill="none"
-															stroke="currentColor"
-															stroke-width="2"
-															><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-															></polygon></svg
-														>{/if}
 												</span>
 											{/if}
 										</div>

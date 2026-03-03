@@ -521,7 +521,22 @@
 					</div>
 					<div class="flex flex-col gap-2 relative">
 						<span class="text-white font-bold text-xs">Role *</span>
+						<div class="flex flex-col g relative">
 
+						<div class="group relative w-max">
+							<span class="text-gray2 text-[11px] font-medium cursor-help border-b border-dashed border-gray2/50 hover:text-white hover:border-white transition-colors">
+								Permissions Description (?)
+							</span>
+							
+							<div class="absolute left-0 top-full mt-2 w-64 p-3.5 bg-[#2a2a2a] border border-[#333333] rounded-xl shadow-2xl text-xs text-gray3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-[60] flex flex-col gap-2 pointer-events-none">
+								<p><strong class="text-lime">Email Only:</strong> Receives emails/SMS, no app access</p>
+								<p><strong class="text-lime">View Only:</strong> Can log in and view main calendar, no event details</p>
+								<p><strong class="text-lime">Manager:</strong> Can view event details, cannot edit or view full deals</p>
+								<p><strong class="text-lime">Editor:</strong> Can view and edit event details (deals, settlement, etc.)</p>
+								<p><strong class="text-lime">Admin:</strong> Full system access and user management</p>
+							</div>
+						</div>
+					</div>
 						<div class="relative w-full" id="custom-role-dropdown">
 							<button
 								type="button"
@@ -567,6 +582,7 @@
 								</div>
 							{/if}
 						</div>
+						
 					</div>
 				</div>
 

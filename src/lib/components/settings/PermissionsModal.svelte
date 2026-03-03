@@ -177,34 +177,47 @@
 		if (!selectedUser) return;
 		isSaving = true;
 
-		// Double-check no duplicates are saved to the DB and drop any weird null/undefined instances
+		// Clean arrays to ensure they are native JS arrays (removes any Svelte proxies)
 		const uniqueSecondary = Array.from(new Set(selectedUser.secondary_permission)).filter(Boolean);
 		const uniquePage = Array.from(new Set(selectedUser.page_permissions)).filter(Boolean);
 
-		const { error } = await supabase
+		const updatePayload = {
+			role: selectedUser.role,
+			main_permission: selectedUser.main_permission || null,
+			// If Postgres rejects empty arrays [], you might need to change this to:
+			// uniqueSecondary.length > 0 ? uniqueSecondary : null
+			secondary_permission: uniqueSecondary,
+			page_permissions: uniquePage,
+			updated_at: new Date().toISOString()
+		};
+
+		// 1. Log exactly what we are sending to the DB
+		console.log('Sending payload to Supabase:', updatePayload);
+
+		const { data, error } = await supabase
 			.from('user_profiles')
-			.update({
-				role: selectedUser.role,
-				main_permission: selectedUser.main_permission || null, // Write null to DB if empty string
-				secondary_permission: uniqueSecondary,
-				page_permissions: uniquePage,
-				updated_at: new Date().toISOString()
-			})
-			.eq('id', selectedUser.id);
+			.update(updatePayload)
+			.eq('id', selectedUser.id)
+			.select(); // <-- Crucial: This forces Supabase to return the newly updated row
 
-		if (!error) {
+		// 2. Log what the DB actually did
+		console.log('Supabase response:', { data, error });
+
+		if (!error && data && data.length > 0) {
+			const updatedDBUser = data[0]; // The actual source of truth from Postgres
+
 			const index = users.findIndex((u) => u.id === selectedUser.id);
-
 			if (index !== -1) {
-				// Update local state with the cleaned arrays
-				selectedUser.secondary_permission = uniqueSecondary;
-				selectedUser.page_permissions = uniquePage;
-				users[index] = { ...selectedUser };
-				users = [...users]; // Crucial: Reassign array so Svelte re-renders the users list UI
+				// Sync our local state perfectly with what the DB just confirmed
+				users[index] = { ...updatedDBUser };
+				users = [...users]; // Trigger UI re-render
+
+				// Keep modal in sync and re-run our separator logic just to be safe
+				selectUser(updatedDBUser);
 			}
 		} else {
 			console.error('Failed to save user:', error);
-			alert(`Failed to save user updates: ${error.message}`);
+			alert(`Failed to save: ${error?.message || 'Database rejected the update silently.'}`);
 		}
 
 		isSaving = false;

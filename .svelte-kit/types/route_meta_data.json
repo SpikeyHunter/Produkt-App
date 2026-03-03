@@ -108,8 +108,8 @@
 		"src/routes/calendar/+page.server.ts"
 	],
 	"/calendar/unsubscribe": [],
-	"/calendar/[id]": [
-		"src/routes/calendar/[id]/+page.ts"
+	"/calendar/[id]/[[tab]]": [
+		"src/routes/calendar/[id]/[[tab]]/+page.ts"
 	],
 	"/dashboard": [],
 	"/letter": [],

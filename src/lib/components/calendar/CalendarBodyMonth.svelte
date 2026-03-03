@@ -201,7 +201,43 @@
 									isAddingEvent ||
 									(managingGroupId !== null && event.group_id !== managingGroupId) ||
 									!canViewHolds}
-								{#if event.status === 'CONFIRMED'}
+								{#if event.status === 'CANCELED'}
+									<div
+										class="flex items-center gap-1.5 px-1.5 py-1 rounded-[4px] min-h-[20px] transition-transform active:scale-95 shadow-sm overflow-hidden text-problem border border-problem/50 bg-transparent {isDimmed
+											? 'opacity-40'
+											: ''} {isDisabled
+											? 'pointer-events-none'
+											: canEdit
+												? 'cursor-grab active:cursor-grabbing'
+												: 'cursor-pointer'}"
+										draggable={!isAddingEvent && canEdit}
+										on:dragstart={(e) => handleDragStart(e, event)}
+										on:click|stopPropagation={(e) => handleEventClick(event, e)}
+										on:keydown={(e) => handleKeydown(e, () => handleEventClick(event, e))}
+										role="button"
+										tabindex="0"
+									>
+										<svg
+											class="w-3 h-3 shrink-0 text-problem"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="4"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											><line x1="18" y1="6" x2="6" y2="18"></line><line
+												x1="6"
+												y1="6"
+												x2="18"
+												y2="18"
+											></line></svg
+										>
+										<span
+											class="truncate font-bold text-[11px] leading-none pb-[1px] max-w-[14vw] line-through opacity-80"
+											>{formatEventTitle(event)}</span
+										>
+									</div>
+								{:else if event.status === 'CONFIRMED'}
 									<div
 										class="flex items-center gap-1.5 px-1.5 py-1 rounded-[4px] min-h-[20px] transition-transform active:scale-95 shadow-sm overflow-hidden text-black {isDimmed
 											? 'opacity-40'
@@ -255,29 +291,6 @@
 											class="truncate font-bold text-[11px] text-white leading-none pb-[1px] max-w-[14vw]"
 											>{formatEventTitle(event)}</span
 										>
-
-										{#if event.event_details?.is_target || event.event_details?.is_challenge}
-											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-[#828282]">
-												{#if event.event_details?.is_target}<svg
-														class="w-3 h-3"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-														><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
-														></circle><circle cx="12" cy="12" r="2"></circle></svg
-													>{/if}
-												{#if event.event_details?.is_challenge}<svg
-														class="w-3 h-3"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-														><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
-														></polygon></svg
-													>{/if}
-											</div>
-										{/if}
 									</div>
 								{/if}
 							{/each}

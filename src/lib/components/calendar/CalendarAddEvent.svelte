@@ -11,6 +11,7 @@
 		VenueSettings,
 		StageConfig
 	} from '$lib/types/calendar-types';
+	import { portal } from '$lib/utils/portalUtils';
 
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte'; // Adjust path if necessary
 
@@ -56,6 +57,14 @@
 	// Add these state variables for the popup
 	let showPopup = false;
 	let popupMessage = '';
+
+	// Confirmation Modal State
+	let showConfirmModal = false;
+	let pendingSaveView = false;
+	let optSendEmail = false;
+	let optSendSms = false;
+	let emailUsersCount = 0;
+	let smsUsersCount = 0;
 
 	// Add a reactive variable to track if saving should be blocked
 	$: isSaveDisabled =
@@ -487,27 +496,46 @@
 			return; // Stop execution
 		}
 
+		// 2. Intercept CONFIRMED events to show the notification modal
+		if (eventStatus === 'CONFIRMED') {
+			saving = true; // Briefly show loading while fetching user counts
+			await refreshUserCounts();
+
+			// Auto-select email confirmation if venue is New City Gas
+			const venueName = venues.find((v) => v.id === activeVenueId)?.setting_name || '';
+			optSendEmail = venueName.toLowerCase().includes('new city gas');
+			optSendSms = false;
+
+			pendingSaveView = openModalAfter;
+			showConfirmModal = true;
+			saving = false;
+		} else {
+			// 3. If it's a HOLD, save directly without notification modal
+			await executeFinalSave(openModalAfter);
+		}
+	}
+
+	async function executeFinalSave(openModalAfter: boolean) {
 		saving = true;
 		let creatorName = 'Unknown User';
 
 		try {
-			// 1. Get the Auth user ID (from your store or directly from Supabase Auth)
+			// 1. Get the Auth user ID
 			const { data: authData } = await supabase.auth.getUser();
 			const userId = $user?.id || authData?.user?.id;
 
-			// 2. If we have an ID, fetch their first and last name from your 'users' table
+			// 2. Fetch creator name
 			if (userId) {
 				const { data: profileData, error: profileError } = await supabase
 					.from('user_profiles')
 					.select('first_name, last_name, email')
 					.eq('id', userId)
 					.single();
-
 				if (!profileError && profileData) {
 					if (profileData.first_name || profileData.last_name) {
 						creatorName = `${profileData.first_name || ''} ${profileData.last_name || ''}`.trim();
 					} else if (profileData.email) {
-						creatorName = profileData.email.split('@')[0]; // Fallback to email prefix
+						creatorName = profileData.email.split('@')[0];
 					}
 				} else if (authData?.user?.email) {
 					creatorName = authData.user.email.split('@')[0];
@@ -516,14 +544,14 @@
 
 			let allSavedEvents = [];
 
-			// 3. SCENARIO A: Dates saved as completely separate single events
+			// 3. SCENARIO A: Single Events
 			if (datesAsSingleEvents) {
 				for (const dateStr of dates) {
 					const { data: calData, error: calErr } = await supabase
 						.from('calendar')
 						.insert({
 							title: title,
-							creator_name: creatorName, // 👈 Successfully passes the fetched name!
+							creator_name: creatorName,
 							details: buildDetails(priorityHold)
 						})
 						.select('id')
@@ -548,13 +576,13 @@
 					allSavedEvents.push(...(data || []));
 				}
 			}
-			// 4. SCENARIO B: Standard event with multiple holds grouped under one ID
+			// 4. SCENARIO B: Grouped Events
 			else {
 				const { data: calData, error: calErr } = await supabase
 					.from('calendar')
 					.insert({
 						title: title,
-						creator_name: creatorName, // 👈 Successfully passes the fetched name!
+						creator_name: creatorName,
 						details: buildDetails(priorityHold)
 					})
 					.select('id')
@@ -579,6 +607,52 @@
 				allSavedEvents = data || [];
 			}
 
+			// 5. SEND NOTIFICATIONS IF CONFIRMED
+			if (
+				eventStatus === 'CONFIRMED' &&
+				(optSendEmail || optSendSms) &&
+				allSavedEvents.length > 0
+			) {
+				const firstEvent = allSavedEvents[0];
+				const payload = {
+					eventId: firstEvent.calendar?.short_id || firstEvent.short_id || firstEvent.group_id,
+					eventTitle: title,
+					eventType: eventType || 'Event',
+					eventDate: firstEvent.date,
+					venueName:
+						`${firstEvent.venue?.category || ''} ${firstEvent.venue?.room ? '/ ' + firstEvent.venue.room : ''}`.trim(),
+					authUserName: creatorName
+				};
+
+				const promises = [];
+				if (optSendEmail) {
+					promises.push(
+						fetch('/api/calendar-confirm-email', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify(payload)
+						}).catch((err) => console.error('Email API failed:', err))
+					);
+				}
+				if (optSendSms) {
+					promises.push(
+						fetch('/api/calendar-confirm-sms', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify(payload)
+						}).catch((err) => console.error('SMS API failed:', err))
+					);
+				}
+
+				if (promises.length > 0) {
+					await Promise.allSettled(promises);
+				}
+			}
+
+			// Hide modal
+			showConfirmModal = false;
+
+			// 6. Navigation / Callback
 			if (openModalAfter && allSavedEvents && allSavedEvents.length > 0) {
 				const shortId = allSavedEvents[0].calendar?.short_id || allSavedEvents[0].short_id;
 				closeSidebar();
@@ -595,6 +669,24 @@
 			console.error('Save Error:', err);
 		} finally {
 			saving = false;
+		}
+	}
+	async function refreshUserCounts() {
+		try {
+			const [{ count: eCount }, { count: sCount }] = await Promise.all([
+				supabase
+					.from('calendar_users')
+					.select('*', { count: 'exact', head: true })
+					.eq('confirmation_email', true),
+				supabase
+					.from('calendar_users')
+					.select('*', { count: 'exact', head: true })
+					.eq('confirmation_phone', true)
+			]);
+			emailUsersCount = eCount || 0;
+			smsUsersCount = sCount || 0;
+		} catch (err) {
+			console.error('Failed to fetch user counts:', err);
 		}
 	}
 </script>
@@ -1495,13 +1587,92 @@
 		</div>
 	</div>
 {/if}
+<PopupNotification bind:show={showPopup} message={popupMessage} variant="navbar" iconType="error" />
 
-<PopupNotification
-	bind:show={showPopup}
-	message={popupMessage}
-	variant="navbar"
-	iconType="error"
-/>
+<div use:portal>
+	{#if showConfirmModal}
+		<div
+			class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[9999]"
+			transition:fade={{ duration: 200 }}
+		>
+			<div class="bg-gray1 rounded-2xl max-w-md w-full relative shadow-2xl border border-gray2/20 flex flex-col p-8 text-center">
+				
+				<div class="w-12 h-12 rounded-full bg-lime/20 flex items-center justify-center mx-auto mb-4">
+					<span class="text-lime font-black text-2xl">✓</span>
+				</div>
+
+				<h3 class="text-xl font-black text-white mb-2">Confirm Event</h3>
+				<p class="text-xs font-bold text-gray2 mb-6">You are creating confirmed event(s). Do you want to notify users?</p>
+
+				<div class="space-y-3 mb-8 text-left">
+					<div
+						class="flex items-start gap-3 p-3 bg-gray1/50 border rounded-xl cursor-pointer transition-colors {optSendEmail
+							? 'border-lime bg-lime/5'
+							: 'border-gray2/20 hover:bg-gray2/10'}"
+						on:click={() => (optSendEmail = !optSendEmail)}
+						role="button"
+						tabindex="0"
+						on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && (optSendEmail = !optSendEmail)}
+					>
+						<div class="mt-0.5 transition-colors {optSendEmail ? 'text-lime' : 'text-gray2'}">
+							<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+								<polyline points="22,6 12,13 2,6"></polyline>
+							</svg>
+						</div>
+						<div class="flex-1">
+							<p class="text-sm font-bold text-white leading-tight">
+								Send Email confirmation to <span class="text-lime">{emailUsersCount}</span>
+								user{emailUsersCount !== 1 ? 's' : ''}
+							</p>
+						</div>
+					</div>
+
+					<div
+						class="flex items-start gap-3 p-3 bg-gray1/50 border rounded-xl cursor-pointer transition-colors {optSendSms
+							? 'border-lime bg-lime/5'
+							: 'border-gray2/20 hover:bg-gray2/10'}"
+						on:click={() => (optSendSms = !optSendSms)}
+						role="button"
+						tabindex="0"
+						on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && (optSendSms = !optSendSms)}
+					>
+						<div class="mt-0.5 transition-colors {optSendSms ? 'text-lime' : 'text-gray2'}">
+							<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+							</svg>
+						</div>
+						<div class="flex-1">
+							<p class="text-sm font-bold text-white leading-tight">
+								Send SMS confirmation to <span class="text-lime">{smsUsersCount}</span>
+								user{smsUsersCount !== 1 ? 's' : ''}
+							</p>
+						</div>
+					</div>
+				</div>
+
+				<div class="flex gap-3 w-full">
+					<button
+						class="flex-1 py-3 bg-transparent border border-gray2/20 text-gray2 font-bold rounded-2xl hover:bg-gray2/10 hover:text-white transition-colors cursor-pointer"
+						on:click={() => (showConfirmModal = false)}
+					>
+						Cancel
+					</button>
+					<button
+						class="flex-[1.5] py-3 bg-lime text-black font-bold rounded-2xl hover:bg-lime/90 transition-colors flex justify-center items-center cursor-pointer"
+						on:click={() => executeFinalSave(pendingSaveView)}
+						disabled={saving}
+					>
+						{#if saving}
+							<div class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"></div>
+						{/if}
+						Confirm & Save
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+</div>
 
 <style>
 	::-webkit-scrollbar {

@@ -1,4 +1,4 @@
-export type EventStatus = 'HOLD' | 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'HIDDEN';
+export type EventStatus = 'HOLD' | 'CONFIRMED' | 'PENDING' | 'CANCELED' | 'HIDDEN';
 export type HoldLevel = 'P' | 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'H6' | 'H7' | 'H8' | 'H9' | 'H10' | 'H11' | 'H12' | 'H13' | 'H14' | 'H15' | 'H16' | 'H17' | 'H18' | 'H19' | 'H20' | null;
 
 export type EventType = 'Corpo' | 'Bazart Nuits' | 'Moet City' | 'NCG Show' | 'NCG 360' | 'DSTRKT' | 'Tour Prod' | 'Other';
@@ -13,6 +13,7 @@ export interface StageConfig {
 export interface VenueSettings {
     id: string;
     setting_name: string;
+    setting_type: string;
     setting_params: {
         location: {
             street: string;
@@ -87,4 +88,40 @@ export interface GroupedEvents {
         dateObj: Date;
         events: CalendarEvent[];
     };
+}
+
+export type DealRole = 'Headliner' | 'Support';
+export type DealTypeOption = 'Flat' | 'Door Deal' | 'Plus' | 'Versus';
+export type DepositType = 'Percent' | 'Flat';
+export type DueDateType = 'Relative' | 'Specific';
+
+export interface ExchangeRateData {
+    rate: number;
+    targetCurrency: string; // e.g., 'CAD'
+    dateFetched: string; // ISO string
+}
+
+export interface Deposit {
+    id: string;
+    type: DepositType;
+    amount: number; // Stored as a flat number or percentage
+    dueDateType: DueDateType;
+    daysBeforeEvent?: number;
+    specificDate?: string;
+}
+
+export interface Deal {
+    id: string;
+    artistName: string;
+    role: DealRole;
+    dealType: DealTypeOption;
+    guaranteeUsd: number; // Always store the USD base amount
+    deposits: Deposit[];
+    description: string;
+    exchangeData?: ExchangeRateData; // Snapshot of the rate when created/updated
+}
+
+export interface EventDealData {
+    deals: Deal[];
+    // Future expansion: runOfShowItems: any[];
 }

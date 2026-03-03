@@ -187,7 +187,36 @@
 									isAddingEvent ||
 									(managingGroupId !== null && event.group_id !== managingGroupId) ||
 									!canViewHolds}
-								{#if event.status === 'CONFIRMED'}
+								{#if event.status === 'CANCELED'}
+									<div
+										class="flex items-center gap-2 px-2 py-2.5 rounded-lg min-h-[30px] transition-transform active:scale-95 shadow-md overflow-hidden text-problem border border-problem/50 bg-transparent {isDimmed
+											? 'opacity-40'
+											: ''} {isDisabled
+											? 'pointer-events-none'
+											: canEdit
+												? 'cursor-grab active:cursor-grabbing'
+												: 'cursor-pointer'}"
+										draggable={!isAddingEvent && canEdit}
+										on:dragstart={(e) => handleDragStart(e, event)}
+										on:click|stopPropagation={(e) => handleEventClick(event, e)}
+										on:keydown={(e) => handleKeydown(e, () => handleEventClick(event, e))}
+										role="button"
+										tabindex="0"
+									>
+										<svg
+											class="w-4 h-4 shrink-0 text-problem"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="4"
+											stroke-linecap="round"
+											stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg
+										>
+										<span class="truncate font-bold text-sm leading-none max-w-[14vw] line-through opacity-80"
+											>{formatEventTitle(event)}</span
+										>
+									</div>
+								{:else if event.status === 'CONFIRMED'}
 									<div
 										class="flex items-center gap-2 px-2 py-2.5 rounded-lg min-h-[30px] transition-transform active:scale-95 shadow-md overflow-hidden text-black {isDimmed
 											? 'opacity-40'
