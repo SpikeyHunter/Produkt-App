@@ -48,7 +48,21 @@
 				if (aIsNotes && !bIsNotes) return -1;
 				if (!aIsNotes && bIsNotes) return 1;
 
-				// 3. VENUE/ROOM PRIORITY (Sorted by the order they appear in your Venue Settings)
+				// 3. PRIORITY HOLDS (Checked Priority toggles)
+				const aIsPrio = a.details?.is_priority ? 1 : 0;
+				const bIsPrio = b.details?.is_priority ? 1 : 0;
+				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
+
+				// 4. HOLD LEVELS (H1 before H2, etc.)
+				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
+					const numA =
+						a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
+					const numB =
+						b.hold_level === 'P' ? 0 : parseInt((b.hold_level || '').replace(/\D/g, '')) || 100;
+					if (numA !== numB) return numA - numB;
+				}
+
+				// 5. VENUE/ROOM PRIORITY (Sorted by the order they appear in your Venue Settings)
 				const getRoomIndex = (roomName: string | null) => {
 					if (!roomName) return 999;
 					const idx = stages.findIndex((s) => s.name === roomName);
@@ -57,20 +71,6 @@
 				const roomIdxA = getRoomIndex(a.venue.room);
 				const roomIdxB = getRoomIndex(b.venue.room);
 				if (roomIdxA !== roomIdxB) return roomIdxA - roomIdxB;
-
-				// 4. PRIORITY HOLDS (Checked Priority toggles)
-				const aIsPrio = a.details?.is_priority ? 1 : 0;
-				const bIsPrio = b.details?.is_priority ? 1 : 0;
-				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
-
-				// 5. HOLD LEVELS (H1 before H2, etc.)
-				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
-					const numA =
-						a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
-					const numB =
-						b.hold_level === 'P' ? 0 : parseInt((b.hold_level || '').replace(/\D/g, '')) || 100;
-					if (numA !== numB) return numA - numB;
-				}
 
 				// 6. Finally, sort alphabetically if everything else is identical
 				return (a.title || '').localeCompare(b.title || '');
