@@ -135,26 +135,137 @@
 	let lastProcessedTs = 0;
 
 	// Watcher for calendar body clicks
+	// Watcher for calendar body clicks
 	$: if (toggleDateTrigger && toggleDateTrigger.ts !== lastProcessedTs) {
-		lastProcessedTs = toggleDateTrigger.ts; // Lock it so it only runs once
+		lastProcessedTs = toggleDateTrigger.ts;
+		handleDateToggle(toggleDateTrigger.date);
+	}
 
-		const dateStr = toggleDateTrigger.date;
+	async function handleDateToggle(dateStr: string) {
 		const existingDrafts = drafts.filter((d) => d.date === dateStr);
 
 		if (existingDrafts.length > 0) {
+			// If it's already in our working drafts, remove it (toggle off)
 			existingDrafts.forEach((d) => removeDateRow(d.id));
 		} else {
-			// Add new date
+			// Add new date (toggle on)
 			const baseEvent = events[0] || {};
 			const newId = generateSafeId(null);
-			const baseCategory = baseEvent.venue?.category || '';
-			const baseRoom = baseEvent.venue?.room || '';
+			
+			// 1. Aggressively parse the Venue (Handles both JS Objects and DB JSON Strings)
+			let baseCategory = '';
+			let baseRoom = '';
+			
+			if (baseEvent.venue) {
+				if (typeof baseEvent.venue === 'string') {
+					try { 
+						const parsed = JSON.parse(baseEvent.venue); 
+						baseCategory = parsed.category || ''; 
+						baseRoom = parsed.room || ''; 
+					} catch(e){}
+				} else {
+					baseCategory = baseEvent.venue.category || '';
+					baseRoom = baseEvent.venue.room || '';
+				}
+			}
+			if (!baseCategory || !baseRoom) {
+				const parts = ((baseEvent as any).venueString || ':::').split(':::');
+				baseCategory = parts[0];
+				baseRoom = parts[1];
+			}
 
-			// Copy the exact time settings from the original event
 			const baseAllDay = !baseEvent.time?.start;
 			const baseStart = baseEvent.time?.start || '';
 			const baseEnd = baseEvent.time?.end || '';
 
+			// 2. Fetch Default Hold Level from Venue Settings
+			let defaultHoldLevel = 'H2'; 
+			const venueSetting = venues.find(v => v.setting_name === baseCategory);
+			if (venueSetting) {
+				let params = venueSetting.setting_params;
+				if (typeof params === 'string') {
+					try { params = JSON.parse(params); } catch(e) {}
+				}
+				if (params?.holdSettings?.defaultHoldLevel) {
+					defaultHoldLevel = params.holdSettings.defaultHoldLevel;
+				}
+			}
+			let startNum = parseInt(defaultHoldLevel.replace('H', ''), 10);
+			if (isNaN(startNum)) startNum = 2;
+
+			// 3. Query the Database for ALL events on this specific date
+			const takenHolds = new Set();
+			
+			try {
+				const { data, error } = await supabase
+					.from('calendar_events')
+					.select('hold_level, venue')
+					.eq('date', dateStr);
+					
+				if (data && !error) {
+					data.forEach(dbEv => {
+						let dbCat = '';
+						let dbRoom = '';
+						
+						// Parse the DB venue JSON string
+						if (typeof dbEv.venue === 'string') {
+							try { 
+								const v = JSON.parse(dbEv.venue); 
+								dbCat = v.category; 
+								dbRoom = v.room; 
+							} catch(e){}
+						} else if (dbEv.venue) {
+							dbCat = dbEv.venue.category;
+							dbRoom = dbEv.venue.room;
+						}
+						
+						// If it's the exact same venue and room, block this hold number
+						if (dbCat === baseCategory && dbRoom === baseRoom) {
+							const level = dbEv.hold_level || '';
+							if (level.startsWith('H')) {
+								const num = parseInt(level.replace('H', ''), 10);
+								if (!isNaN(num)) takenHolds.add(num);
+							}
+						}
+					});
+				}
+			} catch (err) {
+				console.error("Failed to check date availability:", err);
+			}
+
+			// 4. Also check your local unsaved drafts for conflicts!
+			drafts.forEach(d => {
+				if (d.date === dateStr) {
+					let dCat = d.venue?.category || (d.venueString ? d.venueString.split(':::')[0] : '');
+					let dRoom = d.venue?.room || (d.venueString ? d.venueString.split(':::')[1] : '');
+					
+					if (dCat === baseCategory && dRoom === baseRoom) {
+						const level = d.hold_level || '';
+						if (level.startsWith('H')) {
+							const num = parseInt(level.replace('H', ''), 10);
+							if (!isNaN(num)) takenHolds.add(num);
+						}
+					}
+				}
+			});
+
+			// 5. Find the gap starting from the venue default
+			let nextNum = startNum;
+			while (takenHolds.has(nextNum) && nextNum <= 20) {
+				nextNum++;
+			}
+			
+			// Failsafe: If H2 through H20 are taken, loop back to check H1
+			if (nextNum > 20) {
+				nextNum = 1;
+				while (takenHolds.has(nextNum) && nextNum <= 20) {
+					nextNum++;
+				}
+			}
+			
+			const nextHoldLevel = `H${Math.min(nextNum, 20)}`;
+
+			// 6. Push the mathematically verified draft
 			drafts = [
 				...drafts,
 				{
@@ -162,12 +273,12 @@
 					group_id: baseEvent.group_id,
 					title: baseEvent.title,
 					date: dateStr,
-					hold_level: 'H2',
+					hold_level: nextHoldLevel,
 					allDay: baseAllDay,
 					start: baseStart,
 					end: baseEnd,
 					venueString: `${baseCategory}:::${baseRoom}`,
-					venue: { category: baseCategory, room: baseRoom }, // <-- Added so UI renders it as static text
+					venue: { category: baseCategory, room: baseRoom },
 					isNew: true
 				}
 			];
