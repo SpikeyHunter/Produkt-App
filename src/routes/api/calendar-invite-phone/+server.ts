@@ -37,10 +37,10 @@ export const POST: RequestHandler = async ({ request }) => {
             .eq('setting_name', 'AWS_SNS')
             .maybeSingle();
 
-        const originationNumber = configData?.setting_params?.originationNumber || '+17824923543';
+        const originationNumber = configData?.setting_params?.originationNumber || '+15067145757';
         
         // REPLACE THIS URL with your actual hosted .vcf file URL
-        const vcfUrl = 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/contact_card/Produkt%20Calendar.vcf';
+        const vcfUrl = 'http://app.produkt.ca/contact-card';
 
         // 3. Format the single requested phone number
         let cleanPhone = phone.replace(/\D/g, '');
