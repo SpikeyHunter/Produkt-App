@@ -67,6 +67,7 @@
 					group_id: e.group_id,
 					date: e.date,
 					hold_level: e.hold_level || 'P',
+					original_hold_level: e.hold_level || 'P', // <-- ADD THIS LINE
 					allDay: !e.time?.start,
 					start: e.time?.start || '',
 					end: e.time?.end || '',
@@ -102,6 +103,7 @@
 					group_id: e.group_id,
 					date: e.date,
 					hold_level: e.hold_level || 'P',
+					original_hold_level: e.hold_level || 'P', // <-- ADD THIS LINE
 					allDay: !e.time?.start,
 					start: e.time?.start || '',
 					end: e.time?.end || '',
@@ -323,14 +325,16 @@
 			return {
 				id: d.id,
 				group_id: d.group_id,
-				title: d.title || events[0]?.title, // <--- ADD FALLBACK HERE
+				title: d.title || events[0]?.title, 
 				date: d.date,
 				status: d.hold_level === 'P' ? 'PENDING' : 'HOLD',
 				hold_level: d.hold_level,
 				venue: d.isNew ? { category: cat, room: room } : d.venue || { category: cat, room: room },
 				time: d.allDay ? { start: null, end: null } : { start: d.start, end: d.end },
-				details: events[0]?.details || {}, // <--- ALSO ensure this is copying safely
-				event_details: events[0]?.event_details || { is_target: false, is_challenge: false },
+				// --- UPDATE THESE TWO LINES ---
+				details: d.details || events[0]?.details || {}, 
+				event_details: d.event_details || events[0]?.event_details || { is_target: false, is_challenge: false },
+				// ------------------------------
 				isDraft: true
 			};
 		});
@@ -381,19 +385,84 @@
 		if (drafts.length === 0 && deletedIds.length === 0) closeSidebar();
 	}
 
-	function applyHoldSelection(level: HoldLevel) {
-		if (activeHoldPicker === 'bulk') {
-			drafts = drafts.map((d) => {
-				if (selectedRows.includes(d.id)) return { ...d, hold_level: level };
-				return d;
-			});
-		} else if (activeHoldPicker) {
-			drafts = drafts.map((d) => {
-				if (d.id === activeHoldPicker) return { ...d, hold_level: level };
-				return d;
-			});
+	async function applyHoldSelection(level: HoldLevel) {
+		const isBulk = activeHoldPicker === 'bulk';
+		const targets = isBulk ? [...selectedRows] : [activeHoldPicker];
+		activeHoldPicker = null; // Close the dropdown menu instantly for a snappy feel
+
+		for (const targetId of targets) {
+			if (!targetId) continue;
+
+			const targetIndex = drafts.findIndex((d) => d.id === targetId);
+			if (targetIndex === -1) continue;
+
+			const targetDraft = drafts[targetIndex];
+			const oldLevel = targetDraft.hold_level;
+
+			// If they clicked the same level it already is, do nothing
+			if (oldLevel === level) continue;
+
+			// 1. Instantly update the target in the UI
+			drafts = drafts.map((d) => (d.id === targetId ? { ...d, hold_level: level } : d));
+
+			// 2. Look for the conflict (the hold we are replacing)
+			const [cat, room] = (targetDraft.venueString || ':::').split(':::');
+
+			// First, check if the conflict is already loaded in our local sidebar drafts
+			const localConflictIndex = drafts.findIndex(
+				(d) =>
+					d.id !== targetId &&
+					d.date === targetDraft.date &&
+					d.venueString === targetDraft.venueString &&
+					d.hold_level === level
+			);
+
+			if (localConflictIndex !== -1) {
+				// We found it locally! Just swap it.
+				drafts = drafts.map((d, i) =>
+					i === localConflictIndex ? { ...d, hold_level: oldLevel } : d
+				);
+			} else {
+				// 3. Not found locally? Let's fetch it on the fly!
+				// ADDED: `calendar(title, details)` to get the parent group's real name and colors
+				const { data: conflicts } = await supabase
+					.from('calendar_events')
+					.select('*, calendar(title, details)')
+					.eq('date', targetDraft.date)
+					.eq('venue->>category', cat)
+					.eq('venue->>room', room)
+					.eq('hold_level', level)
+					.neq('id', targetId);
+
+				if (conflicts && conflicts.length > 0) {
+					const externalConflict = conflicts[0];
+					// Safely resolve the title and details from the parent table if needed
+					const resolvedTitle = externalConflict.title || externalConflict.calendar?.title || 'Unknown Event';
+					const resolvedDetails = externalConflict.calendar?.details || {};
+					
+					// Inject the external event into our drafts with its REAL data
+					drafts = [
+						...drafts,
+						{
+							id: externalConflict.id,
+							group_id: externalConflict.group_id,
+							date: externalConflict.date,
+							hold_level: oldLevel, 
+							original_hold_level: externalConflict.hold_level, 
+							allDay: !externalConflict.time?.start,
+							start: externalConflict.time?.start || '',
+							end: externalConflict.time?.end || '',
+							venue: externalConflict.venue,
+							venueString: `${cat}:::${room}`,
+							title: resolvedTitle, // <--- Now uses its own title
+							details: resolvedDetails, // <--- Now uses its own colors/metadata
+							event_details: externalConflict.event_details || { is_target: false, is_challenge: false },
+							isNew: false
+						}
+					].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+				}
+			}
 		}
-		activeHoldPicker = null;
 	}
 
 	async function saveAction() {
@@ -422,7 +491,40 @@
 			}
 
 			const toUpdate = drafts.filter((d) => !d.isNew);
+			const toUpdateIds = toUpdate.map((d) => d.id); // <-- ADD THIS ARRAY
+
 			for (const draft of toUpdate) {
+				// --- START HOLD SWAP LOGIC ---
+				if (draft.hold_level !== draft.original_hold_level) {
+					const [cat, room] = (draft.venueString || ':::').split(':::');
+
+					// Find conflicts in the DB
+					const { data: rawConflicts } = await supabase
+						.from('calendar_events')
+						.select('id')
+						.eq('date', draft.date)
+						.eq('venue->>category', cat)
+						.eq('venue->>room', room)
+						.eq('hold_level', draft.hold_level)
+						.neq('id', draft.id);
+
+					// Exclude conflicts that are already being updated in this save batch
+					const conflicts = (rawConflicts || []).filter((c) => !toUpdateIds.includes(c.id));
+
+					if (conflicts.length > 0) {
+						for (const conflict of conflicts) {
+							await supabase
+								.from('calendar_events')
+								.update({
+									hold_level: draft.original_hold_level,
+									status: draft.original_hold_level === 'P' ? 'PENDING' : 'HOLD'
+								})
+								.eq('id', conflict.id);
+						}
+					}
+				}
+				// --- END HOLD SWAP LOGIC ---
+
 				await supabase
 					.from('calendar_events')
 					.update({

@@ -224,6 +224,34 @@
 		if (!localEvent || !hasUnsavedChanges) return;
 		saving = true;
 		try {
+			// --- START HOLD SWAP LOGIC ---
+			// Check if the hold level changed from the original event
+			if (event && localEvent.hold_level !== event.hold_level) {
+				const { data: conflicts } = await supabase
+					.from('calendar_events')
+					.select('id')
+					.eq('date', localEvent.date)
+					.eq('venue->>category', localEvent.venue.category)
+					.eq('venue->>room', localEvent.venue.room)
+					.eq('hold_level', localEvent.hold_level)
+					.neq('id', localEvent.id);
+
+				if (conflicts && conflicts.length > 0) {
+					// Swap the conflicting hold to the original hold level
+					const oldLevel = event.hold_level;
+					for (const conflict of conflicts) {
+						await supabase
+							.from('calendar_events')
+							.update({
+								hold_level: oldLevel,
+								status: oldLevel === 'P' ? 'PENDING' : 'HOLD'
+							})
+							.eq('id', conflict.id);
+					}
+				}
+			}
+			// --- END HOLD SWAP LOGIC ---
+
 			await supabase
 				.from('calendar_events')
 				.update({
