@@ -73,14 +73,42 @@
 	let emailUsersCount = 0;
 	let smsUsersCount = 0;
 
-	// Add a reactive variable to track if saving should be blocked
+	// Toggle this to TRUE if you want Corpo events to force a time selection
+	const CORPO_REQUIRED_TIME = false;
+
+	$: typeRequiresTime =
+		['Bazart Nuits', 'NCG Show', 'NCG 360', 'DSTRKT', 'Tour Prod', 'Moet City'].includes(
+			eventType || ''
+		) ||
+		(eventType === 'Corpo' && CORPO_REQUIRED_TIME);
+
+	$: isTimeValid =
+		dates.length > 0 &&
+		dates.every((d) => {
+			const t = timeSettings[d];
+			if (!t) return false;
+
+			if (typeRequiresTime) {
+				// If time is forced (Clubs, or Corpo if toggle is TRUE)
+				return !t.allDay && t.start && t.end;
+			}
+
+			// If time isn't forced (Corpo default)
+			if (t.allDay) return true; // Valid if All Day
+			if (t.start && t.end) return true; // Valid if both filled
+			if (!t.start && !t.end) return true; // Valid if completely blank (saves as null)
+
+			return false; // Invalid ONLY if one is filled and the other is blank
+		});
+
 	$: isSaveDisabled =
 		saving ||
 		dates.length === 0 ||
 		selectedRooms.length === 0 ||
 		!eventType ||
 		!title ||
-		titleContainsType;
+		titleContainsType ||
+		!isTimeValid;
 
 	const types: EventType[] = [
 		'Corpo',
@@ -292,19 +320,37 @@
 	function handleEventTypeChange(type: EventType) {
 		eventType = type;
 		showTypeDropdown = false;
-		if (['Bazart Nuits', 'NCG Show', 'NCG 360', 'DSTRKT', 'Tour Prod'].includes(type)) {
+
+		const requiresClubTime = [
+			'Bazart Nuits',
+			'NCG Show',
+			'NCG 360',
+			'DSTRKT',
+			'Tour Prod',
+			'Moet City'
+		];
+
+		if (requiresClubTime.includes(type)) {
 			globalAllDay = false;
 			globalStart = '22:00';
 			globalEnd = '03:00';
 		} else if (type === 'Corpo') {
-			globalAllDay = false;
-			globalStart = '10:00';
-			globalEnd = '18:00';
+			if (CORPO_REQUIRED_TIME) {
+				globalAllDay = false;
+				globalStart = '10:00';
+				globalEnd = '18:00';
+			} else {
+				// Corpo Default: Blank times, not all day
+				globalAllDay = false;
+				globalStart = '';
+				globalEnd = '';
+			}
 		} else {
 			globalAllDay = true;
 			globalStart = '10:00';
 			globalEnd = '18:00';
 		}
+
 		applyGlobalTimes();
 	}
 
@@ -430,7 +476,10 @@
 						status: eventStatus,
 						hold_level: finalHoldLevel,
 						venue: { category: vName, room: roomName },
-						time: tSet.allDay ? { start: null, end: null } : { start: tSet.start, end: tSet.end },
+					
+						time: tSet.allDay
+							? { start: '00:00', end: '23:59' }
+							: { start: tSet.start || null, end: tSet.end || null },
 						details: buildDetails(isItPriority),
 						event_deal: buildEventDeal(), // 🚀 NEW: Add to local draft
 						event_details: {

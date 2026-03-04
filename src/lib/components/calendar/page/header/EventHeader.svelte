@@ -4,6 +4,7 @@
 	import { supabase } from '$lib/supabase';
 	import type { CalendarEvent, VenueSettings } from '$lib/types/calendar-types';
 	import DateSelector from './DateSelector.svelte';
+	import TimeSelector from './TimeSelector.svelte';
 	import VenueSelector from './VenueSelector.svelte';
 	import ConfirmationModal from '../modals/ConfirmationModal.svelte';
 	import TypeSelector from '$lib/components/calendar/page/header/TypeSelector.svelte';
@@ -497,7 +498,7 @@
 	>
 		<div class="flex items-center gap-3 -ml-3 transition-opacity {isEditor ? '' : 'pointer-events-none opacity-80'}">
 			<DateSelector {event} {groupEvents} />
-			<VenueSelector {event} {groupEvents} {venues} on:openSettings />
+			<TimeSelector {event} />   <VenueSelector {event} {groupEvents} {venues} on:openSettings />
 			<TypeSelector {event} {parsedDetails} />
 		</div>
 	</div>
