@@ -145,144 +145,173 @@
 		const existingDrafts = drafts.filter((d) => d.date === dateStr);
 
 		if (existingDrafts.length > 0) {
-			// If it's already in our working drafts, remove it (toggle off)
+			// If holds exist for this date, remove all of them (toggle off)
 			existingDrafts.forEach((d) => removeDateRow(d.id));
 		} else {
-			// Add new date (toggle on)
-			const baseEvent = events[0] || {};
-			const newId = generateSafeId(null);
-			
-			// 1. Aggressively parse the Venue (Handles both JS Objects and DB JSON Strings)
-			let baseCategory = '';
-			let baseRoom = '';
-			
-			if (baseEvent.venue) {
-				if (typeof baseEvent.venue === 'string') {
-					try { 
-						const parsed = JSON.parse(baseEvent.venue); 
-						baseCategory = parsed.category || ''; 
-						baseRoom = parsed.room || ''; 
-					} catch(e){}
-				} else {
-					baseCategory = baseEvent.venue.category || '';
-					baseRoom = baseEvent.venue.room || '';
+			// Add new date holds (toggle on) for ALL unique rooms
+
+			// 1. Identify all unique venues from the initial `events` array
+			const baseRoomsToCopy = [];
+			const seenVenues = new Set();
+
+			for (const ev of events) {
+				let cat = '';
+				let room = '';
+
+				if (ev.venue) {
+					if (typeof ev.venue === 'string') {
+						try {
+							const parsed = JSON.parse(ev.venue);
+							cat = parsed.category || '';
+							room = parsed.room || '';
+						} catch (e) {}
+					} else {
+						cat = ev.venue.category || '';
+						room = ev.venue.room || '';
+					}
+				}
+
+				if (!cat || !room) {
+					const parts = ((ev as any).venueString || ':::').split(':::');
+					cat = parts[0];
+					room = parts[1];
+				}
+
+				const vString = `${cat}:::${room}`;
+
+				if (!seenVenues.has(vString) && cat && room) {
+					seenVenues.add(vString);
+					baseRoomsToCopy.push({
+						category: cat,
+						room: room,
+						allDay: !ev.time?.start,
+						start: ev.time?.start || '',
+						end: ev.time?.end || '',
+						group_id: ev.group_id,
+						title: ev.title
+					});
 				}
 			}
-			if (!baseCategory || !baseRoom) {
-				const parts = ((baseEvent as any).venueString || ':::').split(':::');
-				baseCategory = parts[0];
-				baseRoom = parts[1];
-			}
 
-			const baseAllDay = !baseEvent.time?.start;
-			const baseStart = baseEvent.time?.start || '';
-			const baseEnd = baseEvent.time?.end || '';
+			if (baseRoomsToCopy.length === 0) return; // Failsafe if no rooms found
 
-			// 2. Fetch Default Hold Level from Venue Settings
-			let defaultHoldLevel = 'H2'; 
-			const venueSetting = venues.find(v => v.setting_name === baseCategory);
-			if (venueSetting) {
-				let params = venueSetting.setting_params;
-				if (typeof params === 'string') {
-					try { params = JSON.parse(params); } catch(e) {}
-				}
-				if (params?.holdSettings?.defaultHoldLevel) {
-					defaultHoldLevel = params.holdSettings.defaultHoldLevel;
-				}
-			}
-			let startNum = parseInt(defaultHoldLevel.replace('H', ''), 10);
-			if (isNaN(startNum)) startNum = 2;
-
-			// 3. Query the Database for ALL events on this specific date
-			const takenHolds = new Set();
-			
+			// 2. Query the Database ONCE for ALL events on this specific date
+			const dbTakenHolds = [];
 			try {
 				const { data, error } = await supabase
 					.from('calendar_events')
 					.select('hold_level, venue')
 					.eq('date', dateStr);
-					
+
 				if (data && !error) {
-					data.forEach(dbEv => {
-						let dbCat = '';
-						let dbRoom = '';
-						
-						// Parse the DB venue JSON string
-						if (typeof dbEv.venue === 'string') {
-							try { 
-								const v = JSON.parse(dbEv.venue); 
-								dbCat = v.category; 
-								dbRoom = v.room; 
-							} catch(e){}
-						} else if (dbEv.venue) {
-							dbCat = dbEv.venue.category;
-							dbRoom = dbEv.venue.room;
-						}
-						
-						// If it's the exact same venue and room, block this hold number
-						if (dbCat === baseCategory && dbRoom === baseRoom) {
-							const level = dbEv.hold_level || '';
-							if (level.startsWith('H')) {
-								const num = parseInt(level.replace('H', ''), 10);
-								if (!isNaN(num)) takenHolds.add(num);
-							}
-						}
-					});
+					dbTakenHolds.push(...data);
 				}
 			} catch (err) {
-				console.error("Failed to check date availability:", err);
+				console.error('Failed to check date availability:', err);
 			}
 
-			// 4. Also check your local unsaved drafts for conflicts!
-			drafts.forEach(d => {
-				if (d.date === dateStr) {
-					let dCat = d.venue?.category || (d.venueString ? d.venueString.split(':::')[0] : '');
-					let dRoom = d.venue?.room || (d.venueString ? d.venueString.split(':::')[1] : '');
-					
-					if (dCat === baseCategory && dRoom === baseRoom) {
-						const level = d.hold_level || '';
+			const newDrafts = [];
+
+			// 3. Loop through every room and generate a hold level
+			for (const base of baseRoomsToCopy) {
+				const newId = generateSafeId(null);
+
+				// Fetch Default Hold Level from Venue Settings for THIS room
+				let defaultHoldLevel = 'H2';
+				const venueSetting = venues.find((v) => v.setting_name === base.category);
+				if (venueSetting) {
+					let params = venueSetting.setting_params;
+					if (typeof params === 'string') {
+						try {
+							params = JSON.parse(params);
+						} catch (e) {}
+					}
+					if (params?.holdSettings?.defaultHoldLevel) {
+						defaultHoldLevel = params.holdSettings.defaultHoldLevel;
+					}
+				}
+
+				let startNum = parseInt(defaultHoldLevel.replace('H', ''), 10);
+				if (isNaN(startNum)) startNum = 2;
+
+				const takenHolds = new Set();
+
+				// Check DB for conflicts in this specific room
+				dbTakenHolds.forEach((dbEv) => {
+					let dbCat = '';
+					let dbRoom = '';
+					if (typeof dbEv.venue === 'string') {
+						try {
+							const v = JSON.parse(dbEv.venue);
+							dbCat = v.category;
+							dbRoom = v.room;
+						} catch (e) {}
+					} else if (dbEv.venue) {
+						dbCat = dbEv.venue.category;
+						dbRoom = dbEv.venue.room;
+					}
+
+					if (dbCat === base.category && dbRoom === base.room) {
+						const level = dbEv.hold_level || '';
 						if (level.startsWith('H')) {
 							const num = parseInt(level.replace('H', ''), 10);
 							if (!isNaN(num)) takenHolds.add(num);
 						}
 					}
-				}
-			});
+				});
 
-			// 5. Find the gap starting from the venue default
-			let nextNum = startNum;
-			while (takenHolds.has(nextNum) && nextNum <= 20) {
-				nextNum++;
-			}
-			
-			// Failsafe: If H2 through H20 are taken, loop back to check H1
-			if (nextNum > 20) {
-				nextNum = 1;
+				// Check local unsaved drafts for conflicts in this specific room
+				drafts.forEach((d) => {
+					if (d.date === dateStr) {
+						let dCat = d.venue?.category || (d.venueString ? d.venueString.split(':::')[0] : '');
+						let dRoom = d.venue?.room || (d.venueString ? d.venueString.split(':::')[1] : '');
+
+						if (dCat === base.category && dRoom === base.room) {
+							const level = d.hold_level || '';
+							if (level.startsWith('H')) {
+								const num = parseInt(level.replace('H', ''), 10);
+								if (!isNaN(num)) takenHolds.add(num);
+							}
+						}
+					}
+				});
+
+				// Find the gap starting from the venue default
+				let nextNum = startNum;
 				while (takenHolds.has(nextNum) && nextNum <= 20) {
 					nextNum++;
 				}
-			}
-			
-			const nextHoldLevel = `H${Math.min(nextNum, 20)}`;
 
-			// 6. Push the mathematically verified draft
-			drafts = [
-				...drafts,
-				{
+				// Failsafe loop back to H1
+				if (nextNum > 20) {
+					nextNum = 1;
+					while (takenHolds.has(nextNum) && nextNum <= 20) {
+						nextNum++;
+					}
+				}
+
+				const nextHoldLevel = `H${Math.min(nextNum, 20)}`;
+
+				// Create the draft object
+				newDrafts.push({
 					id: newId,
-					group_id: baseEvent.group_id,
-					title: baseEvent.title,
+					group_id: base.group_id,
+					title: base.title,
 					date: dateStr,
 					hold_level: nextHoldLevel,
-					allDay: baseAllDay,
-					start: baseStart,
-					end: baseEnd,
-					venueString: `${baseCategory}:::${baseRoom}`,
-					venue: { category: baseCategory, room: baseRoom },
+					allDay: base.allDay,
+					start: base.start,
+					end: base.end,
+					venueString: `${base.category}:::${base.room}`,
+					venue: { category: base.category, room: base.room },
 					isNew: true
-				}
-			];
-			drafts = drafts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+				});
+			}
+
+			// 4. Push all mathematically verified drafts
+			drafts = [...drafts, ...newDrafts].sort(
+				(a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+			);
 		}
 	}
 
