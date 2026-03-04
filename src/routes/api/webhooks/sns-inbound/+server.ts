@@ -28,23 +28,22 @@ export const POST: RequestHandler = async ({ request }) => {
             const senderPhone = messageData.originationNumber || '';
             const messageBody = (messageData.messageBody || '').trim().toUpperCase();
 
+            // ADDED 'CONFIRM' to the opt-in list
             const optOutKeywords = ['STOP', 'UNSUBSCRIBE', 'CANCEL', 'QUIT', 'END'];
-            const optInKeywords = ['START', 'UNSTOP', 'RESUME'];
+            const optInKeywords = ['START', 'UNSTOP', 'RESUME', 'CONFIRM']; 
 
-            // Clean the incoming AWS phone number to extract the core 10 digits
             const cleanSenderPhone = senderPhone.replace(/\D/g, '');
             const last10Digits = cleanSenderPhone.slice(-10);
 
             if (last10Digits.length === 10) {
-                // Determine if this is an opt-out or opt-in
                 const isOptOut = optOutKeywords.includes(messageBody);
                 const isOptIn = optInKeywords.includes(messageBody);
 
                 if (isOptOut || isOptIn) {
-                    // Fetch all users with a phone number to do a clean JS match
+                    // Fetch users. If a random number texts, they won't be in this list.
                     const { data: users, error: fetchError } = await supabaseAdmin
                         .from('calendar_users')
-                        .select('id, phone')
+                        .select('id, phone, confirmation_phone')
                         .not('phone', 'is', null);
 
                     if (fetchError || !users) {
@@ -52,28 +51,31 @@ export const POST: RequestHandler = async ({ request }) => {
                         return new Response('OK', { status: 200 });
                     }
 
-                    // Find the matching user by stripping formatting from the DB phone numbers
                     const matchedUser = users.find(u => {
                         const cleanDbPhone = u.phone.replace(/\D/g, '');
                         return cleanDbPhone.endsWith(last10Digits);
                     });
 
+                    // Only process if the user actually exists in your database
                     if (matchedUser) {
                         const newStatus = isOptIn ? true : false;
                         
-                        // Update the specific user by ID
-                        const { error: updateError } = await supabaseAdmin
-                            .from('calendar_users')
-                            .update({ confirmation_phone: newStatus })
-                            .eq('id', matchedUser.id);
+                        // Prevent unnecessary database writes if they are already confirmed/unconfirmed
+                        if (matchedUser.confirmation_phone !== newStatus) {
+                            const { error: updateError } = await supabaseAdmin
+                                .from('calendar_users')
+                                .update({ confirmation_phone: newStatus })
+                                .eq('id', matchedUser.id);
 
-                        if (updateError) {
-                            console.error('Failed to update user status in DB:', updateError);
-                        } else {
-                            console.log(`Successfully updated user ${matchedUser.id} to ${newStatus ? 'OPTED-IN' : 'OPTED-OUT'}`);
+                            if (updateError) {
+                                console.error('Failed to update user status in DB:', updateError);
+                            } else {
+                                console.log(`Successfully updated user ${matchedUser.id} to ${newStatus ? 'OPTED-IN' : 'OPTED-OUT'}`);
+                            }
                         }
                     } else {
-                        console.log(`No user found in DB matching phone ending in ${last10Digits}`);
+                        // A random number texted, so we ignore it completely.
+                        console.log(`Ignored message from uninvited number ending in ${last10Digits}`);
                     }
                 }
             }

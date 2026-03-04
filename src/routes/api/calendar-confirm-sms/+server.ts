@@ -45,6 +45,17 @@ export const POST: RequestHandler = async ({ request }) => {
             .eq('setting_name', 'SMS')
             .maybeSingle();
 
+        // Fetch AWS SNS Configuration for the dynamic phone number
+        const { data: configData } = await supabaseAdmin
+            .from('calendar_settings')
+            .select('setting_params')
+            .eq('setting_type', 'CONFIG')
+            .eq('setting_name', 'AWS_SNS')
+            .maybeSingle();
+
+        // Extract the number, falling back to the hardcoded one if the DB entry is missing
+        const originationNumber = configData?.setting_params?.originationNumber || '+17824923543';
+
         const formattedDate = new Date(eventDate + 'T00:00:00').toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
@@ -94,7 +105,7 @@ export const POST: RequestHandler = async ({ request }) => {
                 Message: message,
                 MessageAttributes: {
                     'AWS.SNS.SMS.SMSType': { DataType: 'String', StringValue: 'Transactional' },
-                    'AWS.MM.SMS.OriginationNumber': { DataType: 'String', StringValue: '+17824923543' }
+                    'AWS.MM.SMS.OriginationNumber': { DataType: 'String', StringValue: originationNumber }
                 }
             });
 

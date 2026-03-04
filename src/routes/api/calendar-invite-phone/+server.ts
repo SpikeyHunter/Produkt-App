@@ -1,58 +1,70 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
-import { env } from '$env/dynamic/private';
+import { env as privateEnv } from '$env/dynamic/private';
+import { env as publicEnv } from '$env/dynamic/public';
+import { createClient } from '@supabase/supabase-js';
 
-// Initialize the AWS SNS Client for text messaging
 const snsClient = new SNSClient({
-	region: env.AWS_REGION as string,
-	credentials: {
-		accessKeyId: env.AWS_ACCESS_KEY_ID as string,
-		secretAccessKey: env.AWS_SECRET_ACCESS_KEY as string,
-	}
+    region: privateEnv.AWS_REGION || '',
+    credentials: {
+        accessKeyId: privateEnv.AWS_ACCESS_KEY_ID || '',
+        secretAccessKey: privateEnv.AWS_SECRET_ACCESS_KEY || ''
+    }
 });
 
+const supabaseAdmin = createClient(
+    publicEnv.PUBLIC_SUPABASE_URL || '',
+    privateEnv.SUPABASE_SERVICE_ROLE_KEY || ''
+);
+
 export const POST: RequestHandler = async ({ request }) => {
-	try {
-		const { phone, name } = await request.json();
+    try {
+        // 1. Extract the specific phone and name sent by the frontend button click
+        const body = await request.json();
+        const { phone, name } = body;
 
-		if (!phone) {
-			return json({ success: false, message: 'Phone number is required' }, { status: 400 });
-		}
+        // If no phone number is provided, stop immediately
+        if (!phone) {
+            return json({ success: false, message: 'Phone number is required' }, { status: 400 });
+        }
 
-		// Clean the phone number and format to E.164 (AWS requirement)
-		// Assuming North American numbers (+1) for this setup
-		let cleanPhone = phone.replace(/\D/g, '');
-		if (cleanPhone.length === 10) cleanPhone = '1' + cleanPhone;
-		const formattedPhone = `+${cleanPhone}`;
+        // 2. Fetch AWS SNS Configuration
+        const { data: configData } = await supabaseAdmin
+            .from('calendar_settings')
+            .select('setting_params')
+            .eq('setting_type', 'CONFIG')
+            .eq('setting_name', 'AWS_SNS')
+            .maybeSingle();
 
-		const loginUrl = 'https://app.produkt.ca/calendar';
-		const defaultPassword = 'Produkt2026$';
+        const originationNumber = configData?.setting_params?.originationNumber || '+17824923543';
+        
+        // REPLACE THIS URL with your actual hosted .vcf file URL
+        const vcfUrl = 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/contact_card/Produkt%20Calendar.vcf';
 
-		// Keep the text message concise to save on segment costs
-		const message = `Hi ${name},\n\nYou've been invited to the Produkt Calendar!\n\nTemp Password: ${defaultPassword}\nLogin: ${loginUrl}\n\nPlease update your password after logging in.`;
+        // 3. Format the single requested phone number
+        let cleanPhone = phone.replace(/\D/g, '');
+        if (cleanPhone.length === 10) cleanPhone = '1' + cleanPhone;
+        const formattedPhone = `+${cleanPhone}`;
 
-		const command = new PublishCommand({
-			PhoneNumber: formattedPhone,
-			Message: message,
-			MessageAttributes: {
-				'AWS.SNS.SMS.SMSType': {
-					DataType: 'String',
-					StringValue: 'Transactional' // Crucial for instant delivery
-				},
-				'AWS.MM.SMS.OriginationNumber': {
-					DataType: 'String',
-					StringValue: '+17824923543' // Your new AWS Long Code
-				}
-			}
-		});
+        // 4. Create the invite message
+        const message = `Hi ${name || 'there'}! You've been invited to join Produkt Calendar.\n\nStart by adding this contact card to your phone: ${vcfUrl}\n\nReply CONFIRM to get your access.`;
 
-		await snsClient.send(command);
+        // 5. Send the SNS command ONLY to this specific user
+        const command = new PublishCommand({
+            PhoneNumber: formattedPhone,
+            Message: message,
+            MessageAttributes: {
+                'AWS.SNS.SMS.SMSType': { DataType: 'String', StringValue: 'Transactional' },
+                'AWS.MM.SMS.OriginationNumber': { DataType: 'String', StringValue: originationNumber }
+            }
+        });
 
-		return json({ success: true, message: 'SMS invite sent successfully' });
+        await snsClient.send(command);
 
-	} catch (error) {
-		console.error('Error sending SMS invite:', error);
-		return json({ success: false, message: 'Failed to send SMS invite' }, { status: 500 });
-	}
+        return json({ success: true, message: `Invite sent securely to ${name}` });
+    } catch (error) {
+        console.error('Error sending SMS:', error);
+        return json({ success: false, message: 'Failed to send SMS' }, { status: 500 });
+    }
 };
