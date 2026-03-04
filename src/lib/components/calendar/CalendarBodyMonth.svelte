@@ -42,18 +42,7 @@
 				if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
 				if (a.status !== 'CONFIRMED' && b.status === 'CONFIRMED') return 1;
 
-				// 2. Keep NOTES at the top of the REMAINING unconfirmed events
-				const aIsNotes = a.venue?.room === 'NOTES' && a.venue?.category === 'NOTES';
-				const bIsNotes = b.venue?.room === 'NOTES' && b.venue?.category === 'NOTES';
-				if (aIsNotes && !bIsNotes) return -1;
-				if (!aIsNotes && bIsNotes) return 1;
-
-				// 3. PRIORITY HOLDS (Checked Priority toggles)
-				const aIsPrio = a.details?.is_priority ? 1 : 0;
-				const bIsPrio = b.details?.is_priority ? 1 : 0;
-				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
-
-				// 4. H1/P PRIORITY: H1 (and P) always override venue priority (Unconfirmed only)
+				// 2. H1/P PRIORITY: H1 (and P) bypass NOTES and go immediately under CONFIRMED
 				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
 					const numA =
 						a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
@@ -66,9 +55,21 @@
 					if (aIsTopHold && !bIsTopHold) return -1;
 					if (!aIsTopHold && bIsTopHold) return 1;
 
-					// If both are top holds (e.g. P vs H1), sort by hold level first
+					// If both are top holds (e.g. P vs H1), sort P before H1
+					// If both are H1, they skip this and fall through to the venue sorting below!
 					if (aIsTopHold && bIsTopHold && numA !== numB) return numA - numB;
 				}
+
+				// 3. Keep NOTES at the top of the REMAINING unconfirmed events (that aren't H1/P)
+				const aIsNotes = a.venue?.room === 'NOTES' && a.venue?.category === 'NOTES';
+				const bIsNotes = b.venue?.room === 'NOTES' && b.venue?.category === 'NOTES';
+				if (aIsNotes && !bIsNotes) return -1;
+				if (!aIsNotes && bIsNotes) return 1;
+
+				// 4. PRIORITY HOLDS (Checked Priority toggles)
+				const aIsPrio = a.details?.is_priority ? 1 : 0;
+				const bIsPrio = b.details?.is_priority ? 1 : 0;
+				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
 
 				// 5. VENUE/ROOM PRIORITY (Now applies to ALL events: Confirmed and Holds)
 				const getRoomIndex = (roomName: string | null) => {
