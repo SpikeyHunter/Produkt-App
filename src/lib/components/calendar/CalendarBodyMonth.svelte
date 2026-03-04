@@ -53,7 +53,34 @@
 				const bIsPrio = b.details?.is_priority ? 1 : 0;
 				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
 
-				// 4. HOLD LEVELS (H1 before H2, etc.)
+				// 4. H1/P PRIORITY: H1 (and P) always override venue priority (Unconfirmed only)
+				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
+					const numA =
+						a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
+					const numB =
+						b.hold_level === 'P' ? 0 : parseInt((b.hold_level || '').replace(/\D/g, '')) || 100;
+
+					const aIsTopHold = numA <= 1; // 0 for P, 1 for H1
+					const bIsTopHold = numB <= 1;
+
+					if (aIsTopHold && !bIsTopHold) return -1;
+					if (!aIsTopHold && bIsTopHold) return 1;
+
+					// If both are top holds (e.g. P vs H1), sort by hold level first
+					if (aIsTopHold && bIsTopHold && numA !== numB) return numA - numB;
+				}
+
+				// 5. VENUE/ROOM PRIORITY (Now applies to ALL events: Confirmed and Holds)
+				const getRoomIndex = (roomName: string | null) => {
+					if (!roomName) return 999;
+					const idx = stages.findIndex((s) => s.name === roomName);
+					return idx === -1 ? 999 : idx;
+				};
+				const roomIdxA = getRoomIndex(a.venue?.room);
+				const roomIdxB = getRoomIndex(b.venue?.room);
+				if (roomIdxA !== roomIdxB) return roomIdxA - roomIdxB;
+
+				// 6. REMAINING HOLD LEVELS (H2 before H3 within the SAME room - Unconfirmed only)
 				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
 					const numA =
 						a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
@@ -62,17 +89,7 @@
 					if (numA !== numB) return numA - numB;
 				}
 
-				// 5. VENUE/ROOM PRIORITY (Sorted by the order they appear in your Venue Settings)
-				const getRoomIndex = (roomName: string | null) => {
-					if (!roomName) return 999;
-					const idx = stages.findIndex((s) => s.name === roomName);
-					return idx === -1 ? 999 : idx;
-				};
-				const roomIdxA = getRoomIndex(a.venue.room);
-				const roomIdxB = getRoomIndex(b.venue.room);
-				if (roomIdxA !== roomIdxB) return roomIdxA - roomIdxB;
-
-				// 6. Finally, sort alphabetically if everything else is identical
+				// 7. Finally, sort alphabetically if everything else is identical
 				return (a.title || '').localeCompare(b.title || '');
 			});
 	}
