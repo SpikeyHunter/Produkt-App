@@ -114,7 +114,9 @@
 	"/calendar/[id]/[[tab]]": [
 		"src/routes/calendar/[id]/[[tab]]/+page.ts"
 	],
-	"/contact-card": [],
+	"/contact-card": [
+		"src/routes/contact-card/+server.ts"
+	],
 	"/dashboard": [],
 	"/letter": [],
 	"/login/forgot-password": [],

@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/production/techrider/+page.svelte";
+export { default as component } from "../../../../src/routes/public/invoice/[token]/+page.svelte";
