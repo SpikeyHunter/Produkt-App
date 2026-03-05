@@ -10,7 +10,7 @@ const supabaseAdmin = createClient(
     privateEnv.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
-// 2. Initialize AWS SNS for sending the automated reply
+// 2. Initialize AWS SNS
 const snsClient = new SNSClient({
     region: privateEnv.AWS_REGION || '',
     credentials: {
@@ -24,19 +24,15 @@ export const POST: RequestHandler = async ({ request }) => {
         const rawBody = await request.text();
         const payload = JSON.parse(rawBody);
 
-        // 1. Handle AWS SNS Subscription Confirmation
         if (payload.Type === 'SubscriptionConfirmation') {
             const subscribeUrl = payload.SubscribeURL;
             await fetch(subscribeUrl);
-            console.log('AWS SNS Webhook Subscribed Successfully');
             return new Response('Subscribed', { status: 200 });
         }
 
-        // 2. Handle Inbound SMS
         if (payload.Type === 'Notification') {
             const messageData = JSON.parse(payload.Message);
             
-            // Fetch AWS SNS Configuration from DB (matching your outbound logic)
             const { data: configData } = await supabaseAdmin
                 .from('calendar_settings')
                 .select('setting_params')
@@ -45,9 +41,7 @@ export const POST: RequestHandler = async ({ request }) => {
                 .maybeSingle();
 
             const dbAwsNumber = configData?.setting_params?.originationNumber || '+15067145757';
-
-            const senderPhone = messageData.originationNumber || ''; // The user's phone number
-            // Dynamically use the exact number they texted, fallback to DB config
+            const senderPhone = messageData.originationNumber || ''; 
             const destinationPhone = messageData.destinationNumber || dbAwsNumber; 
             const messageBody = (messageData.messageBody || '').trim().toUpperCase();
 
@@ -62,58 +56,64 @@ export const POST: RequestHandler = async ({ request }) => {
                 const isOptIn = optInKeywords.includes(messageBody);
 
                 if (isOptOut || isOptIn) {
-                    // Fetch users.
+                    // Added invite_confirm_sms to the select query
                     const { data: users, error: fetchError } = await supabaseAdmin
                         .from('calendar_users')
-                        .select('id, name, email, phone, confirmation_phone')
+                        .select('id, name, email, phone, confirmation_phone, invite_confirm_sms')
                         .not('phone', 'is', null);
 
-                    if (fetchError || !users) {
-                        console.error('Failed to fetch users:', fetchError);
-                        return new Response('OK', { status: 200 });
-                    }
+                    if (fetchError || !users) return new Response('OK', { status: 200 });
 
-                    // Find the exact user based on the last 10 digits
                     const matchedUser = users.find(u => {
                         const cleanDbPhone = u.phone.replace(/\D/g, '');
                         return cleanDbPhone.endsWith(last10Digits);
                     });
 
-                    // Only process if the user ACTUALLY exists in your database
                     if (matchedUser) {
                         const newStatus = isOptIn ? true : false;
-                        
-                        // Update their confirmation status in the database
+                        const dbUpdates: any = {};
+
+                        // 1. Check if we need to update their opt-in status
                         if (matchedUser.confirmation_phone !== newStatus) {
+                            dbUpdates.confirmation_phone = newStatus;
+                        }
+
+                        // 2. If they opted IN, and haven't received the SMS yet
+                        if (isOptIn) {
+                            if (matchedUser.invite_confirm_sms === true) {
+                                console.log(`User ${matchedUser.name} already received credentials. Ignoring.`);
+                            } else {
+                                const loginUrl = 'https://app.produkt.ca/calendar';
+                                const defaultPassword = 'Produkt2026$';
+                                const userEmail = matchedUser.email || 'Your Email';
+
+                                // The new, cleaner welcome message
+                                const welcomeMessage = `Here are your credentials:\n\nEmail: ${userEmail}\nTemp Password: ${defaultPassword}\n\n${loginUrl}\n\nPlease update your password after logging in!`;
+
+                                const command = new PublishCommand({
+                                    PhoneNumber: senderPhone,
+                                    Message: welcomeMessage,
+                                    MessageAttributes: {
+                                        'AWS.SNS.SMS.SMSType': { DataType: 'String', StringValue: 'Transactional' },
+                                        'AWS.MM.SMS.OriginationNumber': { DataType: 'String', StringValue: destinationPhone }
+                                    }
+                                });
+
+                                await snsClient.send(command);
+                                console.log(`Sent welcome details to ${matchedUser.name}`);
+                                
+                                // Flag that they have now received the SMS
+                                dbUpdates.invite_confirm_sms = true;
+                            }
+                        }
+
+                        // 3. Run a single database update if anything changed
+                        if (Object.keys(dbUpdates).length > 0) {
                             await supabaseAdmin
                                 .from('calendar_users')
-                                .update({ confirmation_phone: newStatus })
+                                .update(dbUpdates)
                                 .eq('id', matchedUser.id);
                         }
-
-                        // If they replied CONFIRM, send the login details
-                        if (isOptIn) {
-                            const loginUrl = 'https://app.produkt.ca/calendar';
-                            const defaultPassword = 'Produkt2026$';
-                            const userEmail = matchedUser.email || 'Your Email';
-
-                            const welcomeMessage = `Hi ${matchedUser.name},\n\nYou've been invited to the Produkt Calendar!\n\nEmail: ${userEmail}\nTemp Password: ${defaultPassword}\nLogin: ${loginUrl}\n\nPlease update your password after logging in.`;
-
-                            const command = new PublishCommand({
-                                PhoneNumber: senderPhone, // Send back to the user
-                                Message: welcomeMessage,
-                                MessageAttributes: {
-                                    'AWS.SNS.SMS.SMSType': { DataType: 'String', StringValue: 'Transactional' },
-                                    'AWS.MM.SMS.OriginationNumber': { DataType: 'String', StringValue: destinationPhone }
-                                }
-                            });
-
-                            await snsClient.send(command);
-                            console.log(`Sent welcome details to ${matchedUser.name}`);
-                        }
-
-                    } else {
-                        console.log(`Ignored message from uninvited number ending in ${last10Digits}`);
                     }
                 }
             }
