@@ -56,10 +56,10 @@ export const POST: RequestHandler = async ({ request }) => {
                 const isOptIn = optInKeywords.includes(messageBody);
 
                 if (isOptOut || isOptIn) {
-                    // Added invite_confirm_sms to the select query
+                    // Added has_default_password to the select query
                     const { data: users, error: fetchError } = await supabaseAdmin
                         .from('calendar_users')
-                        .select('id, name, email, phone, confirmation_phone, invite_confirm_sms')
+                        .select('id, name, email, phone, confirmation_phone, invite_confirm_sms, has_default_password')
                         .not('phone', 'is', null);
 
                     if (fetchError || !users) return new Response('OK', { status: 200 });
@@ -84,11 +84,16 @@ export const POST: RequestHandler = async ({ request }) => {
                                 console.log(`User ${matchedUser.name} already received credentials. Ignoring.`);
                             } else {
                                 const loginUrl = 'https://app.produkt.ca/calendar';
-                                const defaultPassword = 'Produkt2026$';
                                 const userEmail = matchedUser.email || 'Your Email';
+                                let welcomeMessage = '';
 
-                                // The new, cleaner welcome message
-                                const welcomeMessage = `Here are your credentials:\n\nEmail: ${userEmail}\nTemp Password: ${defaultPassword}\n\n${loginUrl}\n\nPlease update your password after logging in!`;
+                                // 3. The New Feature: Check password status for dynamic messaging
+                                if (matchedUser.has_default_password) {
+                                    const defaultPassword = 'Produkt2026$';
+                                    welcomeMessage = `Here are your credentials:\n\nEmail: ${userEmail}\nTemp Password: ${defaultPassword}\n\n${loginUrl}\n\nPlease update your password after logging in!`;
+                                } else {
+                                    welcomeMessage = `You're already part of the Produkt App!\n\nUse your credentials to login:\n${loginUrl}\n\nYou'll get notified by SMS for confirmed or canceled events`;
+                                }
 
                                 const command = new PublishCommand({
                                     PhoneNumber: senderPhone,
@@ -100,14 +105,14 @@ export const POST: RequestHandler = async ({ request }) => {
                                 });
 
                                 await snsClient.send(command);
-                                console.log(`Sent welcome details to ${matchedUser.name}`);
+                                console.log(`Sent dynamic welcome details to ${matchedUser.name}`);
                                 
                                 // Flag that they have now received the SMS
                                 dbUpdates.invite_confirm_sms = true;
                             }
                         }
 
-                        // 3. Run a single database update if anything changed
+                        // 4. Run a single database update if anything changed
                         if (Object.keys(dbUpdates).length > 0) {
                             await supabaseAdmin
                                 .from('calendar_users')
