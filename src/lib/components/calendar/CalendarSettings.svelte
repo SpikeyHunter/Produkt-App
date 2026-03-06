@@ -15,15 +15,22 @@
 
 	// SMS Template state
 	let smsTemplate = '';
-	let smsSettingId: string | null = null;
 	let isSavingSms = false;
-	let showSavedState = false; // Added for the success animation state
+	let showSavedState = false;
+
+	// Default Confirmation States
+	let defaultEmailEnabled = true;
+	let defaultSmsEnabled = true;
+	let emailSettingId: string | null = null;
+	let smsSettingId: string | null = null;
+	let isTogglingEmail = false;
+	let isTogglingSms = false;
 
 	async function fetchSettings() {
 		loading = true;
 
-		// Fetch both Venues and SMS Template concurrently
-		const [venuesRes, templateRes] = await Promise.all([
+		// Fetch Venues, SMS Template, and Configs concurrently
+		const [venuesRes, templateRes, configRes] = await Promise.all([
 			supabase
 				.from('calendar_settings')
 				.select('*')
@@ -34,7 +41,12 @@
 				.select('*')
 				.eq('setting_type', 'TEMPLATE')
 				.eq('setting_name', 'SMS')
-				.maybeSingle()
+				.maybeSingle(),
+			supabase
+				.from('calendar_settings')
+				.select('*')
+				.eq('setting_type', 'CONFIG')
+				.in('setting_name', ['Default Email Confirmation', 'Default SMS Confirmation'])
 		]);
 
 		if (!venuesRes.error && venuesRes.data) {
@@ -45,10 +57,26 @@
 			smsTemplate = templateRes.data.setting_params?.body || '';
 			smsSettingId = templateRes.data.id;
 		} else {
-			// Default template layout
 			smsTemplate =
 				'{eventTitle} - [{eventType}]\n\n📅 {eventDate}\n📍 {venueName}\n\n{actionLabel} by {authUserName}';
 			smsSettingId = null;
+		}
+
+		// Process CONFIG values
+		if (!configRes.error && configRes.data) {
+			const emailSetting = configRes.data.find(
+				(s) => s.setting_name === 'Default Email Confirmation'
+			);
+			const smsSetting = configRes.data.find((s) => s.setting_name === 'Default SMS Confirmation');
+
+			if (emailSetting) {
+				emailSettingId = emailSetting.id;
+				defaultEmailEnabled = emailSetting.setting_params?.value ?? true;
+			}
+			if (smsSetting) {
+				smsSettingId = smsSetting.id;
+				defaultSmsEnabled = smsSetting.setting_params?.value ?? true;
+			}
 		}
 
 		loading = false;
@@ -107,6 +135,42 @@
 		setTimeout(() => {
 			showSavedState = false;
 		}, 1500);
+	}
+
+	async function toggleConfig(type: 'email' | 'sms') {
+		const isEmail = type === 'email';
+		const settingId = isEmail ? emailSettingId : smsSettingId;
+		const settingName = isEmail ? 'Default Email Confirmation' : 'Default SMS Confirmation';
+		const currentValue = isEmail ? defaultEmailEnabled : defaultSmsEnabled;
+		const newValue = !currentValue;
+
+		// Optimistic UI update & loading state
+		if (isEmail) {
+			isTogglingEmail = true;
+			defaultEmailEnabled = newValue;
+		} else {
+			isTogglingSms = true;
+			defaultSmsEnabled = newValue;
+		}
+
+		const payload = {
+			setting_type: 'CONFIG',
+			setting_name: settingName,
+			setting_params: { value: newValue }
+		};
+
+		if (settingId) {
+			await supabase.from('calendar_settings').update(payload).eq('id', settingId);
+		} else {
+			const { data } = await supabase.from('calendar_settings').insert([payload]).select().single();
+			if (data) {
+				if (isEmail) emailSettingId = data.id;
+				else smsSettingId = data.id;
+			}
+		}
+
+		if (isEmail) isTogglingEmail = false;
+		else isTogglingSms = false;
 	}
 
 	function closeModal() {
@@ -294,6 +358,42 @@
 								{:else}
 									<div in:fade={{ duration: 150 }}>Save Template</div>
 								{/if}
+							</button>
+						</div>
+					</div>
+				</section>
+				<section class="space-y-4">
+					<div class="flex items-center justify-between">
+						<h3 class="text-sm font-black text-lime uppercase tracking-widest">
+							Default Confirmation
+						</h3>
+					</div>
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+						<div class="bg-black/30 rounded-2xl p-5 flex items-center justify-between border border-gray2/5">
+							<div>
+								<p class="text-sm font-bold text-white">Email Confirmation</p>
+								<p class="text-xs text-gray2 mt-1">This option will be pre-selected when confirming a show</p>
+							</div>
+							<button
+								class="relative w-12 h-6 rounded-full transition-colors duration-300 {defaultEmailEnabled ? 'bg-lime' : 'bg-gray2/30'} cursor-pointer {isTogglingEmail ? 'opacity-50 pointer-events-none' : ''}"
+								on:click={() => toggleConfig('email')}
+								aria-label="Toggle default email confirmation"
+							>
+								<div class="absolute top-1 left-1 w-4 h-4 rounded-full transition-transform duration-300 shadow-sm {defaultEmailEnabled ? 'translate-x-6 bg-black' : 'translate-x-0 bg-white'}"></div>
+							</button>
+						</div>
+
+						<div class="bg-black/30 rounded-2xl p-5 flex items-center justify-between border border-gray2/5">
+							<div>
+								<p class="text-sm font-bold text-white">SMS Confirmation</p>
+								<p class="text-xs text-gray2 mt-1">This option will be pre-selected when confirming a show</p>
+							</div>
+							<button
+								class="relative w-12 h-6 rounded-full transition-colors duration-300 {defaultSmsEnabled ? 'bg-lime' : 'bg-gray2/30'} cursor-pointer {isTogglingSms ? 'opacity-50 pointer-events-none' : ''}"
+								on:click={() => toggleConfig('sms')}
+								aria-label="Toggle default SMS confirmation"
+							>
+								<div class="absolute top-1 left-1 w-4 h-4 rounded-full transition-transform duration-300 shadow-sm {defaultSmsEnabled ? 'translate-x-6 bg-black' : 'translate-x-0 bg-white'}"></div>
 							</button>
 						</div>
 					</div>

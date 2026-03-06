@@ -79,7 +79,13 @@
 				...draftEvents,
 				...manageHoldsDrafts
 			]
-		: [...allEvents, ...draftEvents];
+		: [
+				// Filter out any existing events that have been temporarily bumped by draftEvents
+				...allEvents.filter(
+					(e) => !draftEvents.some((draft) => draft.id === e.id && !draft.isNewDraft)
+				),
+				...draftEvents
+			];
 
 	$: if (showManageHoldsModal) {
 		activeSelectedDates = manageHoldsDrafts.map((d) => d.date);

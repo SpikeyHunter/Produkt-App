@@ -3,6 +3,7 @@
 	import { slide, fade } from 'svelte/transition';
 	import { supabase } from '$lib/supabase';
 	import type { CalendarEvent, HoldLevel, VenueSettings } from '$lib/types/calendar-types';
+	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
 
 	export let isOpen: boolean = false;
 	export let events: CalendarEvent[] = [];
@@ -147,19 +148,14 @@
 		const existingDrafts = drafts.filter((d) => d.date === dateStr);
 
 		if (existingDrafts.length > 0) {
-			// If holds exist for this date, remove all of them (toggle off)
 			existingDrafts.forEach((d) => removeDateRow(d.id));
 		} else {
-			// Add new date holds (toggle on) for ALL unique rooms
-
-			// 1. Identify all unique venues from the initial `events` array
 			const baseRoomsToCopy = [];
 			const seenVenues = new Set();
 
 			for (const ev of events) {
 				let cat = '';
 				let room = '';
-
 				if (ev.venue) {
 					if (typeof ev.venue === 'string') {
 						try {
@@ -172,13 +168,11 @@
 						room = ev.venue.room || '';
 					}
 				}
-
 				if (!cat || !room) {
 					const parts = ((ev as any).venueString || ':::').split(':::');
 					cat = parts[0];
 					room = parts[1];
 				}
-
 				const vString = `${cat}:::${room}`;
 
 				if (!seenVenues.has(vString) && cat && room) {
@@ -195,107 +189,52 @@
 				}
 			}
 
-			if (baseRoomsToCopy.length === 0) return; // Failsafe if no rooms found
+			if (baseRoomsToCopy.length === 0) return;
 
-			// 2. Query the Database ONCE for ALL events on this specific date
+			// Query DB for conflicts
 			const dbTakenHolds = [];
 			try {
 				const { data, error } = await supabase
 					.from('calendar_events')
-					.select('hold_level, venue')
+					.select('id, date, status, hold_level, venue')
 					.eq('date', dateStr);
-
-				if (data && !error) {
-					dbTakenHolds.push(...data);
-				}
+				if (data && !error) dbTakenHolds.push(...data);
 			} catch (err) {
 				console.error('Failed to check date availability:', err);
 			}
 
-			const newDrafts = [];
+			// Merge DB holds with unsaved drafts to create a complete picture
+			const allCurrentHolds = [
+				...dbTakenHolds,
+				...drafts
+					.filter((d) => d.date === dateStr)
+					.map((d) => ({
+						id: d.id,
+						date: d.date,
+						status: d.hold_level === 'P' ? 'PENDING' : 'HOLD',
+						hold_level: d.hold_level,
+						venue: d.venue || {
+							category: d.venueString?.split(':::')[0],
+							room: d.venueString?.split(':::')[1]
+						}
+					}))
+			];
 
-			// 3. Loop through every room and generate a hold level
+			const newDrafts = [];
 			for (const base of baseRoomsToCopy) {
 				const newId = generateSafeId(null);
 
-				// Fetch Default Hold Level from Venue Settings for THIS room
-				let defaultHoldLevel = 'H2';
-				const venueSetting = venues.find((v) => v.setting_name === base.category);
-				if (venueSetting) {
-					let params = venueSetting.setting_params;
-					if (typeof params === 'string') {
-						try {
-							params = JSON.parse(params);
-						} catch (e) {}
-					}
-					if (params?.holdSettings?.defaultHoldLevel) {
-						defaultHoldLevel = params.holdSettings.defaultHoldLevel;
-					}
-				}
-
-				let startNum = parseInt(defaultHoldLevel.replace('H', ''), 10);
-				if (isNaN(startNum)) startNum = 2;
-
-				const takenHolds = new Set();
-
-				// Check DB for conflicts in this specific room
-				dbTakenHolds.forEach((dbEv) => {
-					let dbCat = '';
-					let dbRoom = '';
-					if (typeof dbEv.venue === 'string') {
-						try {
-							const v = JSON.parse(dbEv.venue);
-							dbCat = v.category;
-							dbRoom = v.room;
-						} catch (e) {}
-					} else if (dbEv.venue) {
-						dbCat = dbEv.venue.category;
-						dbRoom = dbEv.venue.room;
-					}
-
-					if (dbCat === base.category && dbRoom === base.room) {
-						const level = dbEv.hold_level || '';
-						if (level.startsWith('H')) {
-							const num = parseInt(level.replace('H', ''), 10);
-							if (!isNaN(num)) takenHolds.add(num);
-						}
-					}
+				// Let the centralized manager calculate the next hold!
+				const nextHoldLevel = getNextAvailableHold({
+					date: dateStr,
+					category: base.category,
+					room: base.room,
+					existingEvents: allCurrentHolds as any,
+					isPriority: false, // Or whatever determines priority in this view
+					venues: venues
 				});
 
-				// Check local unsaved drafts for conflicts in this specific room
-				drafts.forEach((d) => {
-					if (d.date === dateStr) {
-						let dCat = d.venue?.category || (d.venueString ? d.venueString.split(':::')[0] : '');
-						let dRoom = d.venue?.room || (d.venueString ? d.venueString.split(':::')[1] : '');
-
-						if (dCat === base.category && dRoom === base.room) {
-							const level = d.hold_level || '';
-							if (level.startsWith('H')) {
-								const num = parseInt(level.replace('H', ''), 10);
-								if (!isNaN(num)) takenHolds.add(num);
-							}
-						}
-					}
-				});
-
-				// Find the gap starting from the venue default
-				let nextNum = startNum;
-				while (takenHolds.has(nextNum) && nextNum <= 20) {
-					nextNum++;
-				}
-
-				// Failsafe loop back to H1
-				if (nextNum > 20) {
-					nextNum = 1;
-					while (takenHolds.has(nextNum) && nextNum <= 20) {
-						nextNum++;
-					}
-				}
-
-				const nextHoldLevel = `H${Math.min(nextNum, 20)}`;
-
-				// Create the draft object
-				newDrafts.push({
+				const newDraft = {
 					id: newId,
 					group_id: base.group_id,
 					title: base.title,
@@ -307,10 +246,16 @@
 					venueString: `${base.category}:::${base.room}`,
 					venue: { category: base.category, room: base.room },
 					isNew: true
-				});
+				};
+
+				newDrafts.push(newDraft);
+				// Add to current holds so the next room in the loop sees it
+				allCurrentHolds.push({
+					...newDraft,
+					status: newDraft.hold_level === 'P' ? 'PENDING' : 'HOLD'
+				} as any);
 			}
 
-			// 4. Push all mathematically verified drafts
 			drafts = [...drafts, ...newDrafts].sort(
 				(a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
 			);
@@ -325,15 +270,16 @@
 			return {
 				id: d.id,
 				group_id: d.group_id,
-				title: d.title || events[0]?.title, 
+				title: d.title || events[0]?.title,
 				date: d.date,
 				status: d.hold_level === 'P' ? 'PENDING' : 'HOLD',
 				hold_level: d.hold_level,
 				venue: d.isNew ? { category: cat, room: room } : d.venue || { category: cat, room: room },
 				time: d.allDay ? { start: null, end: null } : { start: d.start, end: d.end },
 				// --- UPDATE THESE TWO LINES ---
-				details: d.details || events[0]?.details || {}, 
-				event_details: d.event_details || events[0]?.event_details || { is_target: false, is_challenge: false },
+				details: d.details || events[0]?.details || {},
+				event_details: d.event_details ||
+					events[0]?.event_details || { is_target: false, is_challenge: false },
 				// ------------------------------
 				isDraft: true
 			};
@@ -388,79 +334,97 @@
 	async function applyHoldSelection(level: HoldLevel) {
 		const isBulk = activeHoldPicker === 'bulk';
 		const targets = isBulk ? [...selectedRows] : [activeHoldPicker];
-		activeHoldPicker = null; // Close the dropdown menu instantly for a snappy feel
+		activeHoldPicker = null; // Close dropdown instantly
 
 		for (const targetId of targets) {
 			if (!targetId) continue;
-
 			const targetIndex = drafts.findIndex((d) => d.id === targetId);
 			if (targetIndex === -1) continue;
 
 			const targetDraft = drafts[targetIndex];
 			const oldLevel = targetDraft.hold_level;
 
-			// If they clicked the same level it already is, do nothing
 			if (oldLevel === level) continue;
 
-			// 1. Instantly update the target in the UI
-			drafts = drafts.map((d) => (d.id === targetId ? { ...d, hold_level: level } : d));
-
-			// 2. Look for the conflict (the hold we are replacing)
 			const [cat, room] = (targetDraft.venueString || ':::').split(':::');
 
-			// First, check if the conflict is already loaded in our local sidebar drafts
-			const localConflictIndex = drafts.findIndex(
-				(d) =>
-					d.id !== targetId &&
-					d.date === targetDraft.date &&
-					d.venueString === targetDraft.venueString &&
-					d.hold_level === level
-			);
+			// 1. Fetch the complete picture for this Date + Room from DB
+			const { data: allDbHolds } = await supabase
+				.from('calendar_events')
+				.select('*, calendar(title, details)')
+				.eq('date', targetDraft.date)
+				.eq('venue->>category', cat)
+				.eq('venue->>room', room)
+				.eq('status', 'HOLD');
 
-			if (localConflictIndex !== -1) {
-				// We found it locally! Just swap it.
-				drafts = drafts.map((d, i) =>
-					i === localConflictIndex ? { ...d, hold_level: oldLevel } : d
-				);
-			} else {
-				// 3. Not found locally? Let's fetch it on the fly!
-				// ADDED: `calendar(title, details)` to get the parent group's real name and colors
-				const { data: conflicts } = await supabase
-					.from('calendar_events')
-					.select('*, calendar(title, details)')
-					.eq('date', targetDraft.date)
-					.eq('venue->>category', cat)
-					.eq('venue->>room', room)
-					.eq('hold_level', level)
-					.neq('id', targetId);
+			// 2. Merge DB holds with local unsaved drafts to get the true current state
+			const mergedHoldsMap = new Map();
+			(allDbHolds || []).forEach((h) => mergedHoldsMap.set(h.id, h));
+			drafts.forEach((d) => {
+				if (d.date === targetDraft.date && d.venueString === targetDraft.venueString) {
+					mergedHoldsMap.set(d.id, { ...d, hold_level: d.hold_level, status: 'HOLD' });
+				}
+			});
+			const completeExistingEvents = Array.from(mergedHoldsMap.values());
 
-				if (conflicts && conflicts.length > 0) {
-					const externalConflict = conflicts[0];
-					// Safely resolve the title and details from the parent table if needed
-					const resolvedTitle = externalConflict.title || externalConflict.calendar?.title || 'Unknown Event';
-					const resolvedDetails = externalConflict.calendar?.details || {};
-					
-					// Inject the external event into our drafts with its REAL data
-					drafts = [
-						...drafts,
-						{
+			// 3. Calculate shifts using the smart engine
+			const shiftUpdates = calculateHoldShifts({
+				targetEventId: targetId,
+				newLevel: level,
+				oldLevel: oldLevel,
+				date: targetDraft.date,
+				category: cat,
+				room: room,
+				existingEvents: completeExistingEvents as any
+			});
+
+			// 4. Apply shifts to the UI
+			// First, update the target event we clicked on
+			drafts = drafts.map((d) => (d.id === targetId ? { ...d, hold_level: level } : d));
+
+			// Next, apply the shifts to any other events that are ALREADY in our sidebar
+			drafts = drafts.map((d) => {
+				const shift = shiftUpdates.find((s) => s.id === d.id);
+				if (shift) return { ...d, hold_level: shift.newHoldLevel };
+				return d;
+			});
+
+			// 5. Inject external events that got bumped but weren't in the sidebar yet!
+			const newDraftsToInject = [];
+			for (const shift of shiftUpdates) {
+				const isAlreadyInDrafts = drafts.some((d) => d.id === shift.id);
+				if (!isAlreadyInDrafts) {
+					const externalConflict = allDbHolds?.find((h) => h.id === shift.id);
+					if (externalConflict) {
+						const resolvedTitle =
+							externalConflict.title || externalConflict.calendar?.title || 'Unknown Event';
+						newDraftsToInject.push({
 							id: externalConflict.id,
 							group_id: externalConflict.group_id,
 							date: externalConflict.date,
-							hold_level: oldLevel, 
-							original_hold_level: externalConflict.hold_level, 
+							hold_level: shift.newHoldLevel, // Assign its new cascaded level
+							original_hold_level: externalConflict.hold_level,
 							allDay: !externalConflict.time?.start,
 							start: externalConflict.time?.start || '',
 							end: externalConflict.time?.end || '',
 							venue: externalConflict.venue,
 							venueString: `${cat}:::${room}`,
-							title: resolvedTitle, // <--- Now uses its own title
-							details: resolvedDetails, // <--- Now uses its own colors/metadata
-							event_details: externalConflict.event_details || { is_target: false, is_challenge: false },
+							title: resolvedTitle,
+							details: externalConflict.calendar?.details || {},
+							event_details: externalConflict.event_details || {
+								is_target: false,
+								is_challenge: false
+							},
 							isNew: false
-						}
-					].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+						});
+					}
 				}
+			}
+
+			if (newDraftsToInject.length > 0) {
+				drafts = [...drafts, ...newDraftsToInject].sort(
+					(a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+				);
 			}
 		}
 	}
@@ -472,6 +436,7 @@
 				await supabase.from('calendar_events').delete().in('id', deletedIds);
 			}
 
+			// 1. Insert brand new holds
 			const toInsert = drafts
 				.filter((d) => d.isNew)
 				.map((d) => {
@@ -490,54 +455,26 @@
 				await supabase.from('calendar_events').insert(toInsert);
 			}
 
+			// 2. Update existing holds (The UI already calculated the perfect cascade!)
 			const toUpdate = drafts.filter((d) => !d.isNew);
-			const toUpdateIds = toUpdate.map((d) => d.id); // <-- ADD THIS ARRAY
-
 			for (const draft of toUpdate) {
-				// --- START HOLD SWAP LOGIC ---
-				if (draft.hold_level !== draft.original_hold_level) {
-					const [cat, room] = (draft.venueString || ':::').split(':::');
-
-					// Find conflicts in the DB
-					const { data: rawConflicts } = await supabase
+				if (draft.hold_level !== draft.original_hold_level || draft.isModified) {
+					await supabase
 						.from('calendar_events')
-						.select('id')
-						.eq('date', draft.date)
-						.eq('venue->>category', cat)
-						.eq('venue->>room', room)
-						.eq('hold_level', draft.hold_level)
-						.neq('id', draft.id);
-
-					// Exclude conflicts that are already being updated in this save batch
-					const conflicts = (rawConflicts || []).filter((c) => !toUpdateIds.includes(c.id));
-
-					if (conflicts.length > 0) {
-						for (const conflict of conflicts) {
-							await supabase
-								.from('calendar_events')
-								.update({
-									hold_level: draft.original_hold_level,
-									status: draft.original_hold_level === 'P' ? 'PENDING' : 'HOLD'
-								})
-								.eq('id', conflict.id);
-						}
-					}
+						.update({
+							hold_level: draft.hold_level,
+							status: draft.hold_level === 'P' ? 'PENDING' : 'HOLD',
+							time: draft.allDay
+								? { start: null, end: null }
+								: { start: draft.start, end: draft.end }
+						})
+						.eq('id', draft.id);
 				}
-				// --- END HOLD SWAP LOGIC ---
-
-				await supabase
-					.from('calendar_events')
-					.update({
-						hold_level: draft.hold_level,
-						status: draft.hold_level === 'P' ? 'PENDING' : 'HOLD',
-						time: draft.allDay ? { start: null, end: null } : { start: draft.start, end: draft.end }
-					})
-					.eq('id', draft.id);
 			}
 
 			dispatch('update');
 			closeSidebar();
-		} catch (err: any) {
+		} catch (err) {
 			console.error('Save Error:', err);
 		} finally {
 			saving = false;

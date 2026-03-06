@@ -15,6 +15,8 @@
 
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte'; // Adjust path if necessary
 	import ArtistSearch from '$lib/components/calendar/page/tabs/deals/ArtistSearch.svelte';
+	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
+	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
 
 	export let isOpen: boolean = false;
 	export let dates: string[] = [];
@@ -68,10 +70,6 @@
 	// Confirmation Modal State
 	let showConfirmModal = false;
 	let pendingSaveView = false;
-	let optSendEmail = false;
-	let optSendSms = false;
-	let emailUsersCount = 0;
-	let smsUsersCount = 0;
 
 	// Toggle this to TRUE if you want Corpo events to force a time selection
 	const CORPO_REQUIRED_TIME = false;
@@ -197,15 +195,9 @@
 				timeSettings[d] = { allDay: globalAllDay, start: globalStart, end: globalEnd };
 				changed = true;
 			}
-			if (!manualHolds[d] && lastSelectedHoldLevel) {
-				manualHolds[d] = lastSelectedHoldLevel;
-				changed = true;
-			}
 		});
-
 		if (changed) {
 			timeSettings = { ...timeSettings };
-			manualHolds = { ...manualHolds };
 		}
 	}
 
@@ -429,68 +421,101 @@
 		};
 	}
 
-	$: draftEvents = isOpen
-		? dates.flatMap((dateStr) => {
+	$: {
+		if (isOpen) {
+			let drafts: any[] = [];
+			let localDisplaced: any[] = [];
+
+			dates.forEach((dateStr) => {
 				const roomsToMap = selectedRooms.length > 0 ? selectedRooms : [null];
 
-				return roomsToMap.map((roomKey, index) => {
+				roomsToMap.forEach((roomKey, index) => {
 					const vId = roomKey ? roomKey.split(':::')[0] : null;
 					const vName = roomKey ? roomKey.split(':::')[1] : null;
 					const roomName = roomKey ? roomKey.split(':::')[2] : null;
 
 					let finalHoldLevel: HoldLevel | null = null;
+					let isForced = false;
 
 					if (eventStatus === 'HOLD') {
-						if (priorityHold) {
-							const existingLevels = allEvents
-								.filter(
-									(e) =>
-										e.date === dateStr &&
-										e.status === 'HOLD' &&
-										e.hold_level &&
-										e.venue.room === roomName
-								)
-								.map((e) => e.hold_level);
-							let n = 1;
-							while (existingLevels.includes(`H${n}` as HoldLevel)) n++;
-							finalHoldLevel = `H${n}` as HoldLevel;
+						if (manualHolds[dateStr]) {
+							finalHoldLevel = manualHolds[dateStr];
+							isForced = true;
 						} else {
-							finalHoldLevel = getHoldForNewDate(
-								dateStr,
-								vId,
-								roomName,
-								manualHolds,
-								lastSelectedHoldLevel,
-								priorityHold
-							);
+							finalHoldLevel = getNextAvailableHold({
+								date: dateStr,
+								category: vName || '',
+								room: roomName || '',
+								existingEvents: [...allEvents, ...drafts], // Account for newly added drafts
+								isPriority: priorityHold,
+								venues: venues
+							});
 						}
 					}
 
 					const isItPriority = priorityHold || finalHoldLevel === 'H1';
 					const tSet = timeSettings[dateStr] || { allDay: true, start: '', end: '' };
 
-					return {
+					const newEvent = {
 						id: `draft-${dateStr}-${roomName ? roomName.replace(/\s+/g, '-') : index}`,
 						title: title || '(No Title)',
 						date: dateStr,
 						status: eventStatus,
 						hold_level: finalHoldLevel,
 						venue: { category: vName, room: roomName },
-					
 						time: tSet.allDay
 							? { start: '00:00', end: '23:59' }
 							: { start: tSet.start || null, end: tSet.end || null },
 						details: buildDetails(isItPriority),
-						event_deal: buildEventDeal(), // 🚀 NEW: Add to local draft
-						event_details: {
-							is_target: false,
-							is_challenge: false
-						},
-						isDraft: true
+						event_deal: buildEventDeal(),
+						event_details: { is_target: false, is_challenge: false },
+						isDraft: true,
+						isNewDraft: true // Explicit flag to let Svelte know this is an insert
 					};
+
+					drafts.push(newEvent);
+
+					// 🚨 THE FIX: Cascading Shift for manually forced holds
+					if (isForced && eventStatus === 'HOLD') {
+						// Use the manager to calculate the domino effect
+						const shifts = calculateHoldShifts({
+							targetEventId: 'draft-dummy',
+							newLevel: finalHoldLevel,
+							oldLevel: null, // <-- Make sure this line is explicitly null
+							date: dateStr,
+							category: vName || '',
+							room: roomName || '',
+							existingEvents: [...allEvents, ...localDisplaced]
+						});
+
+						// Apply the shifts locally so the UI updates
+						for (const shift of shifts) {
+							const originalEvent = allEvents.find((e) => e.id === shift.id);
+							if (originalEvent) {
+								// If we already bumped this event in this loop, update it again
+								const existingDisplacedIdx = localDisplaced.findIndex((d) => d.id === shift.id);
+								if (existingDisplacedIdx >= 0) {
+									localDisplaced[existingDisplacedIdx].hold_level = shift.newHoldLevel;
+								} else {
+									localDisplaced.push({
+										...originalEvent,
+										hold_level: shift.newHoldLevel,
+										status: shift.newStatus,
+										isDraft: true,
+										isNewDraft: false
+									});
+								}
+							}
+						}
+					}
 				});
-			})
-		: [];
+			});
+
+			draftEvents = [...drafts, ...localDisplaced];
+		} else {
+			draftEvents = [];
+		}
+	}
 
 	function toggleVenueStages(venue: VenueSettings, stages: StageConfig[], isAllSelected: boolean) {
 		if (activeVenueId && activeVenueId !== venue.id) return;
@@ -532,73 +557,54 @@
 	function handlePriorityChange() {
 		if (!priorityHold) {
 			dates.forEach((d) => {
-				if (manualHolds[d] === 'H1') {
-					delete manualHolds[d];
-				}
+				if (manualHolds[d] === 'H1') delete manualHolds[d];
 			});
-			if (lastSelectedHoldLevel === 'H1') lastSelectedHoldLevel = null;
-			manualHolds = { ...manualHolds };
 		} else {
 			dates.forEach((d) => {
 				manualHolds[d] = 'H1';
 			});
-			lastSelectedHoldLevel = 'H1';
-			manualHolds = { ...manualHolds };
 		}
+		manualHolds = { ...manualHolds };
 	}
 
 	function applyHoldSelection(level: HoldLevel) {
-		lastSelectedHoldLevel = level;
-
-		if (level === 'H1') {
-			priorityHold = true;
-		} else {
-			priorityHold = false;
-		}
-
 		if (activeHoldPicker === 'bulk') {
 			selectedDateRows.forEach((d) => {
 				manualHolds[d] = level;
 			});
+			priorityHold = level === 'H1';
 		} else if (activeHoldPicker) {
 			manualHolds[activeHoldPicker] = level;
+			// Do not change global priorityHold for single changes
 		}
 		activeHoldPicker = null;
 		manualHolds = { ...manualHolds };
 	}
 
+	let defaultEmailForVenue = false;
+
 	async function saveAction(openModalAfter: boolean) {
-		// 1. Intercept invalid saves and show popup
 		if (isSaveDisabled) {
-			if (titleContainsType) {
-				popupMessage = 'Event Name contains Event Type, please remove.';
-			} else {
-				popupMessage = 'Missing fields, please complete before saving.';
-			}
+			popupMessage = titleContainsType
+				? 'Event Name contains Event Type, please remove.'
+				: 'Missing fields, please complete before saving.';
 			showPopup = true;
-			return; // Stop execution
+			return;
 		}
 
-		// 2. Intercept CONFIRMED events to show the notification modal
 		if (eventStatus === 'CONFIRMED') {
-			saving = true; // Briefly show loading while fetching user counts
-			await refreshUserCounts();
-
-			// Auto-select email confirmation if venue is New City Gas
 			const venueName = venues.find((v) => v.id === activeVenueId)?.setting_name || '';
-			optSendEmail = venueName.toLowerCase().includes('new city gas');
-			optSendSms = false;
-
+			defaultEmailForVenue = venueName.toLowerCase().includes('new city gas');
 			pendingSaveView = openModalAfter;
 			showConfirmModal = true;
-			saving = false;
 		} else {
-			// 3. If it's a HOLD, save directly without notification modal
-			await executeFinalSave(openModalAfter);
+			await executeFinalSave(openModalAfter, { sendEmail: false, sendSms: false });
 		}
 	}
-
-	async function executeFinalSave(openModalAfter: boolean) {
+	async function executeFinalSave(
+		openModalAfter: boolean,
+		confirmDetails = { sendEmail: false, sendSms: false }
+	) {
 		saving = true;
 		let creatorName = 'Unknown User';
 
@@ -630,21 +636,75 @@
 			// 3. SCENARIO A: Single Events
 			if (datesAsSingleEvents) {
 				for (const dateStr of dates) {
+					const dateDrafts = draftEvents.filter((draft) => draft.date === dateStr);
+					const newDrafts = dateDrafts.filter((d) => d.isNewDraft);
+					const displacedDrafts = dateDrafts.filter((d) => !d.isNewDraft);
+
+					// Insert New Events
+					if (newDrafts.length > 0) {
+						const { data: calData, error: calErr } = await supabase
+							.from('calendar')
+							.insert({
+								title: title,
+								creatorName: creatorName,
+								details: buildDetails(priorityHold),
+								event_deal: buildEventDeal()
+							})
+							.select('id')
+							.single();
+						if (calErr) throw calErr;
+
+						const eventsToCreate = newDrafts.map((draft) => ({
+							group_id: calData.id,
+							date: draft.date,
+							status: draft.status,
+							hold_level: draft.hold_level,
+							venue: draft.venue,
+							time: draft.time,
+							event_details: draft.event_details
+						}));
+
+						const { data, error } = await supabase
+							.from('calendar_events')
+							.insert(eventsToCreate)
+							.select('*, calendar(*)');
+						if (error) throw error;
+						allSavedEvents.push(...(data || []));
+					}
+
+					// Update Bumped Events
+					for (const displaced of displacedDrafts) {
+						await supabase
+							.from('calendar_events')
+							.update({
+								hold_level: displaced.hold_level,
+								status: displaced.status
+							})
+							.eq('id', displaced.id);
+					}
+				}
+			}
+			// 4. SCENARIO B: Grouped Events
+			else {
+				const newDrafts = draftEvents.filter((d) => d.isNewDraft);
+				const displacedDrafts = draftEvents.filter((d) => !d.isNewDraft);
+
+				if (newDrafts.length > 0) {
 					const { data: calData, error: calErr } = await supabase
 						.from('calendar')
 						.insert({
 							title: title,
 							creator_name: creatorName,
 							details: buildDetails(priorityHold),
-							event_deal: buildEventDeal() // 🚀 NEW: Save in new column
+							event_deal: buildEventDeal()
 						})
 						.select('id')
 						.single();
 					if (calErr) throw calErr;
+					const sharedGroupId = calData.id;
 
-					const dateDrafts = draftEvents.filter((draft) => draft.date === dateStr);
-					const eventsToCreate = dateDrafts.map((draft) => ({
-						group_id: calData.id,
+					const eventsToCreate = newDrafts.map((draft) => ({
+						group_id: sharedGroupId,
 						date: draft.date,
 						status: draft.status,
 						hold_level: draft.hold_level,
@@ -657,84 +717,60 @@
 						.insert(eventsToCreate)
 						.select('*, calendar(*)');
 					if (error) throw error;
-					allSavedEvents.push(...(data || []));
+					allSavedEvents = data || [];
 				}
-			}
-			// 4. SCENARIO B: Grouped Events
-			else {
-				const { data: calData, error: calErr } = await supabase
-					.from('calendar')
-					.insert({
-						title: title,
-						creator_name: creatorName,
-						details: buildDetails(priorityHold),
-						event_deal: buildEventDeal() // 🚀 NEW: Save in new column
-					})
-					.select('id')
-					.single();
-				if (calErr) throw calErr;
-				const sharedGroupId = calData.id;
 
-				const eventsToCreate = draftEvents.map((draft) => ({
-					group_id: sharedGroupId,
-					date: draft.date,
-					status: draft.status,
-					hold_level: draft.hold_level,
-					venue: draft.venue,
-					time: draft.time,
-					event_details: draft.event_details
-				}));
-				const { data, error } = await supabase
-					.from('calendar_events')
-					.insert(eventsToCreate)
-					.select('*, calendar(*)');
-				if (error) throw error;
-				allSavedEvents = data || [];
+				// Update Bumped Events
+				for (const displaced of displacedDrafts) {
+					await supabase
+						.from('calendar_events')
+						.update({
+							hold_level: displaced.hold_level,
+							status: displaced.status
+						})
+						.eq('id', displaced.id);
+				}
 			}
 
 			// 5. SEND NOTIFICATIONS IF CONFIRMED
 			if (
 				eventStatus === 'CONFIRMED' &&
-				(optSendEmail || optSendSms) &&
+				(confirmDetails.sendEmail || confirmDetails.sendSms) &&
 				allSavedEvents.length > 0
 			) {
 				const firstEvent = allSavedEvents[0];
 				const payload = {
-					eventId: firstEvent.calendar?.short_id || firstEvent.short_id || firstEvent.group_id,
-					eventTitle: title,
-					eventType: eventType || 'Event',
+					eventId: firstEvent.short_id || firstEvent.id,
+					eventTitle: firstEvent.calendar?.title || firstEvent.title || 'Unnamed Event',
+					eventType: firstEvent.details?.type || 'Event',
 					eventDate: firstEvent.date,
 					venueName:
 						`${firstEvent.venue?.category || ''} ${firstEvent.venue?.room ? '/ ' + firstEvent.venue.room : ''}`.trim(),
-					authUserName: creatorName
+					authUserName: creatorName,
+					action: 'confirm'
 				};
-
-				const promises = [];
-				if (optSendEmail) {
+				const promises: Promise<any>[] = [];
+				if (confirmDetails.sendEmail) {
 					promises.push(
 						fetch('/api/calendar-confirm-email', {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify(payload)
-						}).catch((err) => console.error('Email API failed:', err))
+						})
 					);
 				}
-				if (optSendSms) {
+				if (confirmDetails.sendSms) {
 					promises.push(
 						fetch('/api/calendar-confirm-sms', {
 							method: 'POST',
 							headers: { 'Content-Type': 'application/json' },
 							body: JSON.stringify(payload)
-						}).catch((err) => console.error('SMS API failed:', err))
+						})
 					);
 				}
-
-				if (promises.length > 0) {
-					await Promise.allSettled(promises);
-				}
+				if (promises.length > 0) await Promise.allSettled(promises);
 			}
 
-			// Hide modal
 			showConfirmModal = false;
 
 			// 6. Navigation / Callback
@@ -754,24 +790,6 @@
 			console.error('Save Error:', err);
 		} finally {
 			saving = false;
-		}
-	}
-	async function refreshUserCounts() {
-		try {
-			const [{ count: eCount }, { count: sCount }] = await Promise.all([
-				supabase
-					.from('calendar_users')
-					.select('*', { count: 'exact', head: true })
-					.eq('confirmation_email', true),
-				supabase
-					.from('calendar_users')
-					.select('*', { count: 'exact', head: true })
-					.eq('confirmation_phone', true)
-			]);
-			emailUsersCount = eCount || 0;
-			smsUsersCount = sCount || 0;
-		} catch (err) {
-			console.error('Failed to fetch user counts:', err);
 		}
 	}
 </script>
@@ -1669,114 +1687,14 @@
 <PopupNotification bind:show={showPopup} message={popupMessage} variant="navbar" iconType="error" />
 
 <div use:portal>
-	{#if showConfirmModal}
-		<div
-			class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-[9999]"
-			transition:fade={{ duration: 200 }}
-		>
-			<div
-				class="bg-gray1 rounded-2xl max-w-md w-full relative shadow-2xl border border-gray2/20 flex flex-col p-8 text-center"
-			>
-				<div
-					class="w-12 h-12 rounded-full bg-lime/20 flex items-center justify-center mx-auto mb-4"
-				>
-					<span class="text-lime font-black text-2xl">✓</span>
-				</div>
-
-				<h3 class="text-xl font-black text-white mb-2">Confirm Event</h3>
-				<p class="text-xs font-bold text-gray2 mb-6">
-					You are creating confirmed event(s). Do you want to notify users?
-				</p>
-
-				<div class="space-y-3 mb-8 text-left">
-					<div
-						class="flex items-start gap-3 p-3 bg-gray1/50 border rounded-xl cursor-pointer transition-colors {optSendEmail
-							? 'border-lime bg-lime/5'
-							: 'border-gray2/20 hover:bg-gray2/10'}"
-						on:click={() => (optSendEmail = !optSendEmail)}
-						role="button"
-						tabindex="0"
-						on:keydown={(e) =>
-							(e.key === 'Enter' || e.key === ' ') && (optSendEmail = !optSendEmail)}
-					>
-						<div class="mt-0.5 transition-colors {optSendEmail ? 'text-lime' : 'text-gray2'}">
-							<svg
-								class="w-5 h-5"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							>
-								<path
-									d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
-								></path>
-								<polyline points="22,6 12,13 2,6"></polyline>
-							</svg>
-						</div>
-						<div class="flex-1">
-							<p class="text-sm font-bold text-white leading-tight">
-								Send Email confirmation to <span class="text-lime">{emailUsersCount}</span>
-								user{emailUsersCount !== 1 ? 's' : ''}
-							</p>
-						</div>
-					</div>
-
-					<div
-						class="flex items-start gap-3 p-3 bg-gray1/50 border rounded-xl cursor-pointer transition-colors {optSendSms
-							? 'border-lime bg-lime/5'
-							: 'border-gray2/20 hover:bg-gray2/10'}"
-						on:click={() => (optSendSms = !optSendSms)}
-						role="button"
-						tabindex="0"
-						on:keydown={(e) => (e.key === 'Enter' || e.key === ' ') && (optSendSms = !optSendSms)}
-					>
-						<div class="mt-0.5 transition-colors {optSendSms ? 'text-lime' : 'text-gray2'}">
-							<svg
-								class="w-5 h-5"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							>
-								<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-							</svg>
-						</div>
-						<div class="flex-1">
-							<p class="text-sm font-bold text-white leading-tight">
-								Send SMS confirmation to <span class="text-lime">{smsUsersCount}</span>
-								user{smsUsersCount !== 1 ? 's' : ''}
-							</p>
-						</div>
-					</div>
-				</div>
-
-				<div class="flex gap-3 w-full">
-					<button
-						class="flex-1 py-3 bg-transparent border border-gray2/20 text-gray2 font-bold rounded-2xl hover:bg-gray2/10 hover:text-white transition-colors cursor-pointer"
-						on:click={() => (showConfirmModal = false)}
-					>
-						Cancel
-					</button>
-					<button
-						class="flex-[1.5] py-3 bg-lime text-black font-bold rounded-2xl hover:bg-lime/90 transition-colors flex justify-center items-center cursor-pointer"
-						on:click={() => executeFinalSave(pendingSaveView)}
-						disabled={saving}
-					>
-						{#if saving}
-							<div
-								class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"
-							></div>
-						{/if}
-						Confirm & Save
-					</button>
-				</div>
-			</div>
-		</div>
-	{/if}
+	<CalendarConfirm
+		bind:show={showConfirmModal}
+		title="Confirm Event"
+		message="You are creating confirmed event(s). Do you want to notify users?"
+		{saving}
+		defaultEmail={defaultEmailForVenue}
+		on:confirm={(e) => executeFinalSave(pendingSaveView, e.detail)}
+	/>
 </div>
 
 <style>

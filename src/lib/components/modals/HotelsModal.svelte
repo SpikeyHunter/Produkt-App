@@ -37,7 +37,7 @@
 	const dispatch = createEventDispatcher();
 	const PREDEFINED_HOTELS = [
 		{ name: 'Monville', roomTypes: ['Standard', 'Suite Monville'] },
-		{ name: 'W Hotel', roomTypes: ['Wonderful King', 'Fantastic Suite', 'Wow Suite, Two Queen Beds', 'Deluxe Room', 'Junior Suite'] },
+		{ name: 'W Hotel', roomTypes: ['Wonderful King', 'Fantastic Suite', 'Wow Suite', 'Two Queen Beds', 'Deluxe Room', 'Junior Suite'] },
 		{ name: 'Alt Hotel', roomTypes: ['Queen Bed', 'Two Queen Beds'] },
 		{ name: 'Other', roomTypes: [] }
 	];

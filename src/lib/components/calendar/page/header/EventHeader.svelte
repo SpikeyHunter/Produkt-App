@@ -2,12 +2,14 @@
 	import { createEventDispatcher } from 'svelte';
 	import { invalidateAll, goto } from '$app/navigation';
 	import { supabase } from '$lib/supabase';
-	import type { CalendarEvent, VenueSettings } from '$lib/types/calendar-types';
+	import { authStore } from '$lib/stores/authStore';
+	import type { CalendarEvent, VenueSettings, HoldLevel } from '$lib/types/calendar-types';
 	import DateSelector from './DateSelector.svelte';
 	import TimeSelector from './TimeSelector.svelte';
 	import VenueSelector from './VenueSelector.svelte';
-	import ConfirmationModal from '../modals/ConfirmationModal.svelte';
 	import TypeSelector from '$lib/components/calendar/page/header/TypeSelector.svelte';
+	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
+	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
 
 	type ExtendedEvent = CalendarEvent & {
 		calendar?: {
@@ -26,9 +28,10 @@
 	export let userRole: string = 'Email Only';
 
 	const dispatch = createEventDispatcher();
-	
+
 	// --- PERMISSION LOGIC ---
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
+	$: isAdmin = $authStore?.profile?.role === 'Admin';
 
 	let isEditingTitle = false;
 	let editTitle = event.calendar?.title || 'Unnamed Event';
@@ -37,10 +40,16 @@
 	let showStatusDrop = false;
 	let showMoreMenu = false;
 
-	let showConfirmationModal = false;
-	let pendingStatus: 'CONFIRMED' | 'HOLD' = 'HOLD';
+	// Confirm Modal State
+	let showConfirmModal = false;
+	let pendingStatus: 'CONFIRMED' | 'HOLD' | 'CANCELED' = 'HOLD';
+	let isSavingConfirm = false;
+	let sameEventOtherRoomsCount = 0;
+	let otherEventsOnDayCount = 0;
+	let otherEventsSameRoomCount = 0; // NEW
+	let defaultEmailForVenue = false;
 
-	// 1. Safely extract and parse details, checking both possible locations
+	// Safely extract and parse details
 	$: rawDetails = event.calendar?.details || event.details || {};
 	$: parsedDetails = typeof rawDetails === 'string' ? JSON.parse(rawDetails) : rawDetails;
 
@@ -48,13 +57,11 @@
 	let showDeleteModal = false;
 	let deleteStep = 1;
 
-	// Duplicate Modal State
 	let showDuplicateModal = false;
 	let duplicateEventName = '';
 	let dupDatesMonth = new Date();
 	let dupStagedDates: string[] = [];
 
-	// Manage Dates Modal State
 	let showManageDatesModal = false;
 	let manageDatesMonth = new Date();
 	let manageStagedDates: string[] = [];
@@ -72,7 +79,6 @@
 	async function saveTitle() {
 		isEditingTitle = false;
 		if (editTitle.trim() === '' || editTitle === event.calendar?.title) return;
-
 		await supabase.from('calendar').update({ title: editTitle.trim() }).eq('id', event.group_id);
 		invalidateAll();
 	}
@@ -81,15 +87,397 @@
 		showStatusDrop = false;
 		if (newStatus === event.status) return;
 
+		// Trigger modal for Confirm, Hold, OR Canceled
 		if (
 			(newStatus === 'CONFIRMED' && event.status === 'HOLD') ||
-			(newStatus === 'HOLD' && event.status === 'CONFIRMED')
+			(newStatus === 'HOLD' && event.status === 'CONFIRMED') ||
+			newStatus === 'CANCELED'
 		) {
-			pendingStatus = newStatus as 'CONFIRMED' | 'HOLD';
-			showConfirmationModal = true;
+			pendingStatus = newStatus as 'CONFIRMED' | 'HOLD' | 'CANCELED';
+			await setupConfirmData();
+			showConfirmModal = true;
 		} else {
+			// All other simple status changes (In Settlement, Settled, etc.) happen instantly
 			await supabase.from('calendar_events').update({ status: newStatus }).eq('id', event.id);
 			invalidateAll();
+		}
+	}
+
+	// === CONFIRM / CANCEL EVENT LOGIC ===
+	async function setupConfirmData() {
+		try {
+			const { data } = await supabase
+				.from('calendar_events')
+				.select('id, group_id, venue')
+				.eq('date', event.date)
+				.in('status', ['HOLD', 'PENDING']);
+
+			if (data) {
+				sameEventOtherRoomsCount = data.filter(
+					(d) => d.group_id === event.group_id && d.id !== event.id
+				).length;
+
+				const otherEvents = data.filter((d) => d.group_id !== event.group_id);
+				otherEventsOnDayCount = otherEvents.length;
+
+				const venueParsed =
+					typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
+				const currentCategory = venueParsed.category || '';
+				const currentRoom = venueParsed.room || '';
+
+				// NEW: Filter down to holds that are explicitly in the exact same room
+				otherEventsSameRoomCount = otherEvents.filter((d) => {
+					try {
+						const dVenue = typeof d.venue === 'string' ? JSON.parse(d.venue) : d.venue || {};
+						return dVenue.category === currentCategory && dVenue.room === currentRoom;
+					} catch (e) {
+						return false;
+					}
+				}).length;
+
+				defaultEmailForVenue = currentCategory === 'New City Gas';
+			}
+		} catch (err) {
+			console.error('Failed to setup confirm data:', err);
+		}
+	}
+
+	async function executeConfirmChange(e: CustomEvent) {
+		const { sendEmail, sendSms, confirmAllRooms, clearOtherHolds, clearSameRoomHolds } = e.detail;
+		isSavingConfirm = true;
+
+		try {
+			const oldStatus = event.status;
+			const newStatus = pendingStatus;
+
+			// === 1. DATABASE UPDATES ===
+			// === 1. DATABASE UPDATES ===
+			if (newStatus === 'CONFIRMED' && oldStatus === 'HOLD') {
+				// --- NEW: FILL THE GAP BEFORE CONFIRMING ---
+				let vCat = '',
+					vRoom = '';
+				try {
+					const vParsed =
+						typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
+					vCat = vParsed.category || '';
+					vRoom = vParsed.room || '';
+				} catch (e) {}
+
+				const { data: allDayEvents } = await supabase
+					.from('calendar_events')
+					.select('id, date, status, hold_level, venue')
+					.eq('date', event.date);
+				if (allDayEvents) {
+					const shiftUpdates = calculateHoldShifts({
+						targetEventId: event.id,
+						newLevel: null, // Cleared
+						oldLevel: event.hold_level as HoldLevel,
+						date: event.date,
+						category: vCat,
+						room: vRoom,
+						existingEvents: allDayEvents
+					});
+					for (const update of shiftUpdates) {
+						await supabase
+							.from('calendar_events')
+							.update({ hold_level: update.newHoldLevel })
+							.eq('id', update.id);
+					}
+				}
+				// ----------------------------------------
+
+				await supabase
+					.from('calendar_events')
+					.update({ status: 'CONFIRMED', hold_level: null })
+					.eq('id', event.id);
+
+				if (sameEventOtherRoomsCount > 0) {
+					if (confirmAllRooms) {
+						await supabase
+							.from('calendar_events')
+							.update({ status: 'CONFIRMED', hold_level: null })
+							.eq('group_id', event.group_id)
+							.eq('date', event.date)
+							.in('status', ['HOLD', 'PENDING']);
+					} else {
+						await supabase
+							.from('calendar_events')
+							.update({ status: 'HIDDEN' })
+							.eq('group_id', event.group_id)
+							.eq('date', event.date)
+							.in('status', ['HOLD', 'PENDING'])
+							.neq('id', event.id);
+					}
+				} else {
+					await supabase
+						.from('calendar_events')
+						.update({ status: 'HIDDEN' })
+						.eq('group_id', event.group_id)
+						.in('status', ['HOLD', 'PENDING'])
+						.neq('id', event.id);
+				}
+
+				// NEW: Distinct handling for Clearing all holds vs. Clearing same room holds
+				if (clearOtherHolds && otherEventsOnDayCount > 0) {
+					await supabase
+						.from('calendar_events')
+						.update({ status: 'HIDDEN', hold_level: null })
+						.eq('date', event.date)
+						.neq('group_id', event.group_id)
+						.in('status', ['HOLD', 'PENDING']);
+				} else if (clearSameRoomHolds && otherEventsSameRoomCount > 0) {
+					const venueParsed =
+						typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
+					await supabase
+						.from('calendar_events')
+						.update({ status: 'HIDDEN', hold_level: null })
+						.eq('date', event.date)
+						.neq('group_id', event.group_id)
+						.eq('venue->>category', venueParsed.category)
+						.eq('venue->>room', venueParsed.room)
+						.in('status', ['HOLD', 'PENDING']);
+				}
+			} else if (newStatus === 'HOLD' && oldStatus === 'CONFIRMED') {
+				const { data: allGroupRows } = await supabase
+					.from('calendar_events')
+					.select('*')
+					.eq('group_id', event.group_id);
+
+				let currentCategory = '';
+				let currentRoom = '';
+				try {
+					const vParsed =
+						typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
+					currentCategory = vParsed.category || '';
+					currentRoom = vParsed.room || '';
+				} catch (e) {}
+
+				const { data: otherHiddenRows } = await supabase
+					.from('calendar_events')
+					.select('*')
+					.eq('date', event.date)
+					.eq('status', 'HIDDEN')
+					.neq('group_id', event.group_id);
+
+				// NEW: We no longer filter by room! Throw EVERY hidden hold on this date back into the recalculation loop
+				const rowsToProcess = [...(allGroupRows || []), ...(otherHiddenRows || [])];
+				rowsToProcess.sort((a, b) => {
+					if (a.id === event.id) return -1;
+					if (b.id === event.id) return 1;
+					if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
+					if (b.status === 'CONFIRMED' && a.status !== 'CONFIRMED') return 1;
+					return 0;
+				});
+
+				// We track newly assigned holds in memory so the loop knows about them before they save to the DB
+				const virtualHolds: Pick<CalendarEvent, 'date' | 'status' | 'hold_level' | 'venue'>[] = [];
+				const processingIds = rowsToProcess.map((r) => r.id);
+
+				for (const row of rowsToProcess) {
+					let vCat = '',
+						vRoom = '';
+					try {
+						const vParsed = typeof row.venue === 'string' ? JSON.parse(row.venue) : row.venue || {};
+						vCat = vParsed.category || '';
+						vRoom = vParsed.room || '';
+					} catch (e) {}
+
+					// Fetch DB holds for this specific date
+					const { data: dbHolds } = await supabase
+						.from('calendar_events')
+						.select('id, date, status, hold_level, venue')
+						.eq('date', row.date)
+						.eq('status', 'HOLD');
+
+					// Filter out the ones we are currently processing
+					const validDbHolds = (dbHolds || []).filter((h) => !processingIds.includes(h.id));
+
+					// Combine DB holds and our virtual in-memory holds
+					const combinedHolds = [...validDbHolds, ...virtualHolds];
+
+					// Let the centralized manager calculate the next hold!
+					const nextAvailable = getNextAvailableHold({
+						date: row.date,
+						category: vCat,
+						room: vRoom,
+						existingEvents: combinedHolds as any,
+						isPriority: false, // Default to false when demoting from confirmed
+						venues: venues
+					});
+
+					// Save virtually so the next loop iteration sees it
+					virtualHolds.push({
+						date: row.date,
+						status: 'HOLD',
+						hold_level: nextAvailable,
+						venue: { category: vCat, room: vRoom }
+					});
+
+					await supabase
+						.from('calendar_events')
+						.update({
+							status: 'HOLD',
+							hold_level: nextAvailable
+						})
+						.eq('id', row.id);
+				}
+
+				await supabase
+					.from('calendar_events')
+					.update({ status: 'HOLD' })
+					.eq('group_id', event.group_id)
+					.eq('status', 'HIDDEN');
+				} else if (newStatus === 'CANCELED') {
+				// 1. Instantly update the current event to CANCELED
+				await supabase.from('calendar_events').update({ status: 'CANCELED' }).eq('id', event.id);
+
+				// 2. If dropping from CONFIRMED to CANCELED, intelligently restore all hidden holds
+				if (oldStatus === 'CONFIRMED') {
+					const { data: hiddenHolds } = await supabase
+						.from('calendar_events')
+						.select('*')
+						.eq('date', event.date)
+						.eq('status', 'HIDDEN');
+
+					if (hiddenHolds && hiddenHolds.length > 0) {
+						const virtualHolds: Pick<CalendarEvent, 'date' | 'status' | 'hold_level' | 'venue'>[] = [];
+						
+						for (const row of hiddenHolds) {
+							let vCat = '', vRoom = '';
+							try {
+								const vParsed = typeof row.venue === 'string' ? JSON.parse(row.venue) : row.venue || {};
+								vCat = vParsed.category || '';
+								vRoom = vParsed.room || '';
+							} catch (e) {}
+
+							const { data: dbHolds } = await supabase
+								.from('calendar_events')
+								.select('id, date, status, hold_level, venue')
+								.eq('date', row.date)
+								.eq('status', 'HOLD');
+
+							const combinedHolds = [...(dbHolds || []), ...virtualHolds];
+
+							const nextAvailable = getNextAvailableHold({
+								date: row.date,
+								category: vCat,
+								room: vRoom,
+								existingEvents: combinedHolds as any,
+								isPriority: false,
+								venues: venues
+							});
+
+							virtualHolds.push({
+								date: row.date,
+								status: 'HOLD',
+								hold_level: nextAvailable,
+								venue: { category: vCat, room: vRoom }
+							});
+
+							await supabase
+								.from('calendar_events')
+								.update({
+									status: 'HOLD',
+									hold_level: nextAvailable
+								})
+								.eq('id', row.id);
+						}
+					}
+				}
+			}
+
+			// Post-update Deduplication Sweep
+			const { data: currentEvents } = await supabase
+				.from('calendar_events')
+				.select('id, date, status, hold_level, venue')
+				.eq('group_id', event.group_id);
+
+			if (currentEvents && currentEvents.length > 0) {
+				currentEvents.sort((a, b) => {
+					if (a.id === event.id) return -1;
+					if (b.id === event.id) return 1;
+					if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
+					if (b.status === 'CONFIRMED' && a.status !== 'CONFIRMED') return 1;
+					const aLevel = a.hold_level ? parseInt(a.hold_level.replace('H', '')) || 999 : 999;
+					const bLevel = b.hold_level ? parseInt(b.hold_level.replace('H', '')) || 999 : 999;
+					return aLevel - bLevel;
+				});
+
+				const seenKeys = new Set();
+				const idsToDelete = [];
+
+				for (const row of currentEvents) {
+					let vCat = '',
+						vRoom = '';
+					try {
+						const vParsed = typeof row.venue === 'string' ? JSON.parse(row.venue) : row.venue || {};
+						vCat = vParsed.category || '';
+						vRoom = vParsed.room || '';
+					} catch (e) {}
+
+					const uniqueKey = `${row.date}:::${vCat}:::${vRoom}`;
+
+					if (seenKeys.has(uniqueKey)) {
+						idsToDelete.push(row.id);
+					} else {
+						seenKeys.add(uniqueKey);
+					}
+				}
+
+				if (idsToDelete.length > 0) {
+					await supabase.from('calendar_events').delete().in('id', idsToDelete);
+				}
+			}
+
+			// === 2. DISPATCH EMAILS / SMS ===
+			const authUser = $authStore?.profile;
+			const authName = authUser
+				? `${authUser.first_name || ''} ${authUser.last_name || ''}`.trim()
+				: 'An Admin';
+			const venueParsed =
+				typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
+
+			const payload = {
+				eventId: event.short_id || event.id,
+				eventTitle: event.calendar?.title || event.title || 'Unnamed Event',
+				eventType: parsedDetails?.type || 'Event',
+				eventDate: event.date,
+				venueName:
+					`${venueParsed.category || ''} ${venueParsed.room ? '/ ' + venueParsed.room : ''}`.trim(),
+				authUserName: authName,
+				action: pendingStatus === 'CONFIRMED' ? 'confirm' : 'cancel'
+			};
+
+			const promises: Promise<any>[] = [];
+			if (sendEmail) {
+				promises.push(
+					fetch('/api/calendar-confirm-email', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(payload)
+					}).catch((err) => console.error('Email API failed:', err))
+				);
+			}
+
+			if (sendSms) {
+				promises.push(
+					fetch('/api/calendar-confirm-sms', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify(payload)
+					}).catch((err) => console.error('SMS API failed:', err))
+				);
+			}
+
+			if (promises.length > 0) await Promise.allSettled(promises);
+
+			// === 3. FINISH ===
+			showConfirmModal = false;
+			invalidateAll();
+		} catch (e) {
+			console.error('Execute Change Error:', e);
+		} finally {
+			isSavingConfirm = false;
 		}
 	}
 
@@ -98,7 +486,6 @@
 		deleteStep = 1;
 		showDeleteModal = true;
 	}
-
 	async function confirmDelete() {
 		await supabase.from('calendar').delete().eq('id', event.group_id);
 		showDeleteModal = false;
@@ -123,20 +510,18 @@
 
 	async function handleDuplicate() {
 		if (!duplicateEventName.trim() || dupStagedDates.length === 0) return;
-
 		const { data: calData, error: calErr } = await supabase
 			.from('calendar')
-			.insert({
-				title: duplicateEventName.trim(),
-				details: parsedDetails
-			})
+			.insert({ title: duplicateEventName.trim(), details: parsedDetails })
 			.select()
 			.single();
 
 		if (calData && !calErr) {
-			let vCat = '', vRoom = '';
+			let vCat = '',
+				vRoom = '';
 			try {
-				const vParsed = typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
+				const vParsed =
+					typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
 				vCat = vParsed.category || '';
 				vRoom = vParsed.room || '';
 			} catch (e) {}
@@ -146,7 +531,8 @@
 				const venueObj = venues.find((v) => v.setting_name === vCat);
 				if (venueObj) {
 					try {
-						const params = typeof venueObj.setting_params === 'string'
+						const params =
+							typeof venueObj.setting_params === 'string'
 								? JSON.parse(venueObj.setting_params)
 								: venueObj.setting_params || {};
 						const defaultLevelStr = params?.holdSettings?.defaultHoldLevel;
@@ -169,7 +555,6 @@
 						.select('id, hold_level, venue')
 						.eq('date', dupDate)
 						.eq('status', 'HOLD');
-
 					const roomHolds = (existingHolds || []).filter((h) => {
 						let hRoom = '';
 						try {
@@ -249,7 +634,6 @@
 	function focusInput(node: HTMLInputElement) {
 		node.focus();
 	}
-
 	function handleToggleClick() {
 		dispatch('toggleSidebar');
 	}
@@ -257,37 +641,69 @@
 
 <svelte:window
 	on:click={(e) => {
-		if (showStatusDrop && e.target instanceof Element && !e.target.closest('.status-dropdown-container')) {
+		if (
+			showStatusDrop &&
+			e.target instanceof Element &&
+			!e.target.closest('.status-dropdown-container')
+		) {
 			showStatusDrop = false;
 		}
-		if (showMoreMenu && e.target instanceof Element && !e.target.closest('.more-options-dropdown-container')) {
+		if (
+			showMoreMenu &&
+			e.target instanceof Element &&
+			!e.target.closest('.more-options-dropdown-container')
+		) {
 			showMoreMenu = false;
 		}
 	}}
 />
 
 {#if showDeleteModal && isEditor}
-	<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-		<div class="bg-gray1 border border-gray2/20 rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col items-center text-center">
-			<div class="w-12 h-12 rounded-full bg-problem/20 text-problem flex items-center justify-center mb-4">
+	<div
+		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+	>
+		<div
+			class="bg-gray1 border border-gray2/20 rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col items-center text-center"
+		>
+			<div
+				class="w-12 h-12 rounded-full bg-problem/20 text-problem flex items-center justify-center mb-4"
+			>
 				<svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-					<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+					/>
 				</svg>
 			</div>
 
 			{#if deleteStep === 1}
 				<h3 class="text-xl font-black text-white mb-2">Delete Event</h3>
-				<p class="text-gray2 text-sm font-medium mb-6">Are you sure you want to delete this event?</p>
+				<p class="text-gray2 text-sm font-medium mb-6">
+					Are you sure you want to delete this event?
+				</p>
 				<div class="flex items-center gap-3 w-full">
-					<button class="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer" on:click={() => (showDeleteModal = false)}>No</button>
-					<button class="flex-1 py-3 px-4 rounded-xl font-bold text-problem bg-problem/10 hover:bg-problem/20 transition-colors cursor-pointer" on:click={() => (deleteStep = 2)}>Yes</button>
+					<button
+						class="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+						on:click={() => (showDeleteModal = false)}>No</button
+					>
+					<button
+						class="flex-1 py-3 px-4 rounded-xl font-bold text-problem bg-problem/10 hover:bg-problem/20 transition-colors cursor-pointer"
+						on:click={() => (deleteStep = 2)}>Yes</button
+					>
 				</div>
 			{:else}
 				<h3 class="text-xl font-black text-white mb-2">Final Confirmation</h3>
 				<p class="text-problem text-sm font-bold mb-6">This action is not reversible.</p>
 				<div class="flex items-center gap-3 w-full">
-					<button class="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer" on:click={() => (showDeleteModal = false)}>Cancel</button>
-					<button class="flex-1 py-3 px-4 rounded-xl font-bold text-problem bg-problem/10 hover:bg-problem/20 transition-colors cursor-pointer" on:click={confirmDelete}>Confirm</button>
+					<button
+						class="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+						on:click={() => (showDeleteModal = false)}>Cancel</button
+					>
+					<button
+						class="flex-1 py-3 px-4 rounded-xl font-bold text-problem bg-problem/10 hover:bg-problem/20 transition-colors cursor-pointer"
+						on:click={confirmDelete}>Confirm</button
+					>
 				</div>
 			{/if}
 		</div>
@@ -295,36 +711,83 @@
 {/if}
 
 {#if showDuplicateModal && isEditor}
-	<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+	<div
+		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+	>
 		<div class="bg-gray1 border border-gray2/20 rounded-2xl max-w-sm w-full p-6 shadow-2xl">
 			<h3 class="text-xl font-black text-white mb-6">Duplicate Event</h3>
 			<div class="flex flex-col gap-4 mb-6">
 				<div class="flex flex-col gap-2">
-					<label for="dup-name" class="text-xs font-bold text-gray2 uppercase tracking-wider">Event Name</label>
-					<input id="dup-name" type="text" bind:value={duplicateEventName} class="bg-navbar border border-gray2/20 rounded-xl px-4 py-3 text-white font-bold focus:border-lime transition-colors w-full"/>
+					<label for="dup-name" class="text-xs font-bold text-gray2 uppercase tracking-wider"
+						>Event Name</label
+					>
+					<input
+						id="dup-name"
+						type="text"
+						bind:value={duplicateEventName}
+						class="bg-navbar border border-gray2/20 rounded-xl px-4 py-3 text-white font-bold focus:border-lime transition-colors w-full"
+					/>
 				</div>
 
 				<div class="flex flex-col gap-2 mt-2">
 					<p class="text-xs font-bold text-gray2 uppercase tracking-wider">Select Dates</p>
 					<div class="bg-navbar border border-gray2/20 rounded-2xl p-4">
 						<div class="flex justify-between items-center mb-4">
-							<button aria-label="Previous month" class="p-1 hover:bg-white/5 rounded cursor-pointer" on:click={() => (dupDatesMonth = new Date(dupDatesMonth.setMonth(dupDatesMonth.getMonth() - 1)))}><svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
-							<span class="text-sm font-bold text-white tracking-wide">{dupDatesMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</span>
-							<button aria-label="Next month" class="p-1 hover:bg-white/5 rounded cursor-pointer" on:click={() => (dupDatesMonth = new Date(dupDatesMonth.setMonth(dupDatesMonth.getMonth() + 1)))}><svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+							<button
+								aria-label="Previous month"
+								class="p-1 hover:bg-white/5 rounded cursor-pointer"
+								on:click={() =>
+									(dupDatesMonth = new Date(dupDatesMonth.setMonth(dupDatesMonth.getMonth() - 1)))}
+								><svg
+									class="w-4 h-4 text-white"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg
+								></button
+							>
+							<span class="text-sm font-bold text-white tracking-wide"
+								>{dupDatesMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</span
+							>
+							<button
+								aria-label="Next month"
+								class="p-1 hover:bg-white/5 rounded cursor-pointer"
+								on:click={() =>
+									(dupDatesMonth = new Date(dupDatesMonth.setMonth(dupDatesMonth.getMonth() + 1)))}
+								><svg
+									class="w-4 h-4 text-white"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg
+								></button
+							>
 						</div>
 
 						<div class="grid grid-cols-7 gap-1 text-center mb-2">
-							{#each ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as d}<div class="text-[10px] font-bold text-gray2">{d}</div>{/each}
+							{#each ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as d}<div
+									class="text-[10px] font-bold text-gray2"
+								>
+									{d}
+								</div>{/each}
 						</div>
 						<div class="grid grid-cols-7 gap-1.5 text-center">
-							{#each Array(new Date(dupDatesMonth.getFullYear(), dupDatesMonth.getMonth(), 1).getDay()) as _}<div></div>{/each}
+							{#each Array(new Date(dupDatesMonth.getFullYear(), dupDatesMonth.getMonth(), 1).getDay()) as _}<div
+								></div>{/each}
 							{#each Array(new Date(dupDatesMonth.getFullYear(), dupDatesMonth.getMonth() + 1, 0).getDate()) as _, i}
 								{@const dayNum = i + 1}
 								{@const targetDate = `${dupDatesMonth.getFullYear()}-${String(dupDatesMonth.getMonth() + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`}
 								{@const isSelected = dupStagedDates.includes(targetDate)}
-								<button class="w-7 h-7 mx-auto rounded-full flex flex-col items-center justify-center text-xs font-bold transition-all relative cursor-pointer {isSelected ? 'border-2 border-lime text-white' : 'text-gray2 hover:bg-white/5'}" on:click={() => toggleDupDate(targetDate)}>
+								<button
+									class="w-7 h-7 mx-auto rounded-full flex flex-col items-center justify-center text-xs font-bold transition-all relative cursor-pointer {isSelected
+										? 'border-2 border-lime text-white'
+										: 'text-gray2 hover:bg-white/5'}"
+									on:click={() => toggleDupDate(targetDate)}
+								>
 									{dayNum}
-									{#if isSelected}<div class="w-1 h-1 rounded-full bg-lime absolute bottom-0.5"></div>{/if}
+									{#if isSelected}<div
+											class="w-1 h-1 rounded-full bg-lime absolute bottom-0.5"
+										></div>{/if}
 								</button>
 							{/each}
 						</div>
@@ -333,39 +796,92 @@
 			</div>
 
 			<div class="flex items-center justify-end gap-3">
-				<button class="py-2.5 px-5 rounded-xl font-bold text-white hover:bg-white/5 transition-colors cursor-pointer" on:click={() => (showDuplicateModal = false)}>Cancel</button>
-				<button class="py-2.5 px-6 rounded-xl font-black text-bg-primary bg-lime hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-50" on:click={handleDuplicate} disabled={!duplicateEventName.trim() || dupStagedDates.length === 0}>Create</button>
+				<button
+					class="py-2.5 px-5 rounded-xl font-bold text-white hover:bg-white/5 transition-colors cursor-pointer"
+					on:click={() => (showDuplicateModal = false)}>Cancel</button
+				>
+				<button
+					class="py-2.5 px-6 rounded-xl font-black text-bg-primary bg-lime hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-50"
+					on:click={handleDuplicate}
+					disabled={!duplicateEventName.trim() || dupStagedDates.length === 0}>Create</button
+				>
 			</div>
 		</div>
 	</div>
 {/if}
 
 {#if showManageDatesModal && isEditor}
-	<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+	<div
+		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+	>
 		<div class="bg-gray1 border border-gray2/20 rounded-2xl max-w-md w-full p-6 shadow-2xl">
 			<h3 class="text-2xl font-black text-white mb-6">Manage Dates</h3>
 			<div class="flex flex-col gap-3 mb-6">
 				<p class="text-xs font-bold text-gray2 uppercase tracking-wider">Event Dates</p>
 				<div class="bg-navbar border border-gray2/20 rounded-2xl p-5">
 					<div class="flex justify-between items-center mb-6">
-						<button aria-label="Previous month" class="p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors" on:click={() => (manageDatesMonth = new Date(manageDatesMonth.setMonth(manageDatesMonth.getMonth() - 1)))}><svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg></button>
-						<span class="text-base font-bold text-white tracking-wide">{manageDatesMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</span>
-						<button aria-label="Next month" class="p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors" on:click={() => (manageDatesMonth = new Date(manageDatesMonth.setMonth(manageDatesMonth.getMonth() + 1)))}><svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+						<button
+							aria-label="Previous month"
+							class="p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
+							on:click={() =>
+								(manageDatesMonth = new Date(
+									manageDatesMonth.setMonth(manageDatesMonth.getMonth() - 1)
+								))}
+							><svg
+								class="w-5 h-5 text-white"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg
+							></button
+						>
+						<span class="text-base font-bold text-white tracking-wide"
+							>{manageDatesMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</span
+						>
+						<button
+							aria-label="Next month"
+							class="p-2 hover:bg-white/5 rounded-lg cursor-pointer transition-colors"
+							on:click={() =>
+								(manageDatesMonth = new Date(
+									manageDatesMonth.setMonth(manageDatesMonth.getMonth() + 1)
+								))}
+							><svg
+								class="w-5 h-5 text-white"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg
+							></button
+						>
 					</div>
 
 					<div class="grid grid-cols-7 gap-2 text-center mb-3">
-						{#each ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as d}<div class="text-xs font-bold text-gray2">{d}</div>{/each}
+						{#each ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as d}<div
+								class="text-xs font-bold text-gray2"
+							>
+								{d}
+							</div>{/each}
 					</div>
 					<div class="grid grid-cols-7 gap-2 text-center">
-						{#each Array(new Date(manageDatesMonth.getFullYear(), manageDatesMonth.getMonth(), 1).getDay()) as _}<div></div>{/each}
+						{#each Array(new Date(manageDatesMonth.getFullYear(), manageDatesMonth.getMonth(), 1).getDay()) as _}<div
+							></div>{/each}
 						{#each Array(new Date(manageDatesMonth.getFullYear(), manageDatesMonth.getMonth() + 1, 0).getDate()) as _, i}
 							{@const dayNum = i + 1}
 							{@const targetDate = `${manageDatesMonth.getFullYear()}-${String(manageDatesMonth.getMonth() + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`}
 							{@const isSelected = manageStagedDates.includes(targetDate)}
 
-							<button class="w-10 h-10 mx-auto rounded-full flex flex-col items-center justify-center text-sm font-bold transition-all relative cursor-pointer {isSelected ? 'border-2 border-lime text-white' : 'text-gray2 hover:bg-white/5'}" on:click={() => toggleManageDate(targetDate)}>
+							<button
+								class="w-10 h-10 mx-auto rounded-full flex flex-col items-center justify-center text-sm font-bold transition-all relative cursor-pointer {isSelected
+									? 'border-2 border-lime text-white'
+									: 'text-gray2 hover:bg-white/5'}"
+								on:click={() => toggleManageDate(targetDate)}
+							>
 								{dayNum}
-								{#if isSelected}<div class="w-1.5 h-1.5 rounded-full {event.status === 'CONFIRMED' ? 'bg-confirmed' : 'bg-lime'} absolute bottom-1"></div>{/if}
+								{#if isSelected}<div
+										class="w-1.5 h-1.5 rounded-full {event.status === 'CONFIRMED'
+											? 'bg-confirmed'
+											: 'bg-lime'} absolute bottom-1"
+									></div>{/if}
 							</button>
 						{/each}
 					</div>
@@ -373,8 +889,15 @@
 			</div>
 
 			<div class="flex items-center justify-end gap-3 mt-8">
-				<button class="py-3 px-6 rounded-xl font-bold text-white hover:bg-white/5 transition-colors cursor-pointer" on:click={() => (showManageDatesModal = false)}>Cancel</button>
-				<button class="py-3 px-8 rounded-xl font-black text-bg-primary bg-lime hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-50" on:click={saveManagedDate} disabled={manageStagedDates.length === 0}>Save</button>
+				<button
+					class="py-3 px-6 rounded-xl font-bold text-white hover:bg-white/5 transition-colors cursor-pointer"
+					on:click={() => (showManageDatesModal = false)}>Cancel</button
+				>
+				<button
+					class="py-3 px-8 rounded-xl font-black text-bg-primary bg-lime hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-50"
+					on:click={saveManagedDate}
+					disabled={manageStagedDates.length === 0}>Save</button
+				>
 			</div>
 		</div>
 	</div>
@@ -388,7 +911,15 @@
 				class="block -ml-2 p-2 text-gray2 hover:text-lime bg-white/5 rounded-2xl border-transparent border-2 hover:border-lime transition-all cursor-pointer"
 				aria-label="Go back to calendar"
 			>
-				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg>
+				<svg
+					class="w-5 h-5"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"><path d="M15 18l-6-6 6-6" /></svg
+				>
 			</a>
 
 			<div class="group relative flex items-center">
@@ -403,18 +934,25 @@
 					/>
 				{:else}
 					<button
-						class="text-2xl font-black text-white px-1 text-left transition-colors {isEditor ? 'cursor-pointer hover:text-lime' : 'opacity-80'}"
+						class="text-2xl font-black text-white px-1 text-left transition-colors {isEditor
+							? 'cursor-pointer hover:text-lime'
+							: 'opacity-80'}"
 						style="cursor: {!isEditor ? 'not-allowed' : 'pointer'};"
-						on:click={() => { if (isEditor) isEditingTitle = true; }}
+						on:click={() => {
+							if (isEditor) isEditingTitle = true;
+						}}
 						disabled={!isEditor}
 						aria-disabled={!isEditor}
-						aria-label={isEditor ? "Edit event title" : "Event title"}
-						title={!isEditor ? "You do not have permission to edit the title" : "Edit event title"}
+						aria-label={isEditor ? 'Edit event title' : 'Event title'}
+						title={!isEditor ? 'You do not have permission to edit the title' : 'Edit event title'}
 					>
 						{event.calendar?.title || 'Unnamed Event'}
 					</button>
 					{#if isEditor}
-						<span class="opacity-0 group-hover:opacity-100 absolute -right-20 text-[10px] font-bold uppercase tracking-wider bg-navbar text-white px-2 py-1 rounded transition-opacity pointer-events-none shadow-sm">Rename</span>
+						<span
+							class="opacity-0 group-hover:opacity-100 absolute -right-20 text-[10px] font-bold uppercase tracking-wider bg-navbar text-white px-2 py-1 rounded transition-opacity pointer-events-none shadow-sm"
+							>Rename</span
+						>
 					{/if}
 				{/if}
 			</div>
@@ -423,28 +961,44 @@
 		<div class="flex items-center gap-4">
 			<div class="relative status-dropdown-container">
 				<button
-					class="flex items-center gap-3 px-5 py-2.5 rounded-3xl bg-navbar shadow-lg border border-gray2/10 transition-colors {isEditor ? 'hover:bg-white/5 cursor-pointer' : 'opacity-80'}"
+					class="flex items-center gap-3 px-5 py-2.5 rounded-3xl bg-navbar shadow-lg border border-gray2/10 transition-colors {isEditor
+						? 'hover:bg-white/5 cursor-pointer'
+						: 'opacity-80'}"
 					style="cursor: {!isEditor ? 'not-allowed' : 'pointer'};"
-					on:click={() => { if (isEditor) showStatusDrop = !showStatusDrop; }}
+					on:click={() => {
+						if (isEditor) showStatusDrop = !showStatusDrop;
+					}}
 					disabled={!isEditor}
 					aria-disabled={!isEditor}
 					aria-label="Change event status"
-					title={!isEditor ? "You do not have permission to change the status" : "Change event status"}
+					title={!isEditor
+						? 'You do not have permission to change the status'
+						: 'Change event status'}
 				>
 					<div class="w-2.5 h-2.5 rounded-3xl {currentStatusObj.color}"></div>
 					<span class="text-sm font-bold text-white">{currentStatusObj.label}</span>
 					{#if isEditor}
-						<svg class="w-4 h-4 text-gray2 ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
+						<svg
+							class="w-4 h-4 text-gray2 ml-1"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
+						>
 					{/if}
 				</button>
 
 				{#if showStatusDrop && isEditor}
-					<div class="absolute right-0 top-[calc(100%+8px)] w-56 bg-navbar rounded-2xl shadow-xl overflow-hidden py-2 z-50 border border-gray2/10">
+					<div
+						class="absolute right-0 top-[calc(100%+8px)] w-56 bg-navbar rounded-2xl shadow-xl overflow-hidden py-2 z-50 border border-gray2/10"
+					>
 						{#each statuses as status}
 							{@const isLocked = status.value === 'IN SETTLEMENT' || status.value === 'SETTLED'}
 							{@const isDisabled = status.value === event.status || isLocked}
 							<button
-								class="w-full px-5 py-3 flex items-center gap-3 text-left transition-colors {isDisabled ? 'opacity-50 cursor-not-allowed bg-white/5' : 'hover:bg-white/5 cursor-pointer'}"
+								class="w-full px-5 py-3 flex items-center gap-3 text-left transition-colors {isDisabled
+									? 'opacity-50 cursor-not-allowed bg-white/5'
+									: 'hover:bg-white/5 cursor-pointer'}"
 								on:click={() => !isDisabled && setStatus(status.value)}
 								disabled={isDisabled}
 							>
@@ -457,53 +1011,101 @@
 			</div>
 
 			<button
-				class="text-gray2 transition-colors {isEditor ? 'hover:text-white cursor-pointer' : 'opacity-50'}"
+				class="text-gray2 transition-colors {isEditor
+					? 'hover:text-white cursor-pointer'
+					: 'opacity-50'}"
 				style="cursor: {!isEditor ? 'not-allowed' : 'pointer'};"
 				disabled={!isEditor}
 				aria-disabled={!isEditor}
 				aria-label="Settings"
-				title={!isEditor ? "You do not have permission to change settings" : "Settings"}
+				title={!isEditor ? 'You do not have permission to change settings' : 'Settings'}
 			>
-				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+					><circle cx="12" cy="12" r="3"></circle><path
+						d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+					></path></svg
+				>
 			</button>
 
 			<div class="relative more-options-dropdown-container">
 				<button
-					class="text-gray2 transition-colors p-1 {isEditor ? 'hover:text-white cursor-pointer' : 'opacity-50'}"
+					class="text-gray2 transition-colors p-1 {isEditor
+						? 'hover:text-white cursor-pointer'
+						: 'opacity-50'}"
 					style="cursor: {!isEditor ? 'not-allowed' : 'pointer'};"
 					aria-label="More options"
 					disabled={!isEditor}
 					aria-disabled={!isEditor}
-					title={!isEditor ? "You do not have permission for advanced options" : "More options"}
-					on:click={() => { if(isEditor) showMoreMenu = !showMoreMenu; }}
+					title={!isEditor ? 'You do not have permission for advanced options' : 'More options'}
+					on:click={() => {
+						if (isEditor) showMoreMenu = !showMoreMenu;
+					}}
 				>
-					<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+					<svg
+						class="w-5 h-5"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle
+							cx="12"
+							cy="19"
+							r="1"
+						></circle></svg
+					>
 				</button>
 
 				{#if showMoreMenu && isEditor}
-					<div class="absolute right-0 top-[calc(100%+8px)] w-48 bg-navbar rounded-2xl shadow-xl overflow-hidden py-2 z-[9999] border border-gray2/10">
-						<button class="w-full px-4 py-2.5 text-sm font-bold text-white hover:bg-white/5 text-left transition-colors cursor-pointer" on:click={() => { showMoreMenu = false; openManageDates(); }}>Manage Dates</button>
-						<button class="w-full px-4 py-2.5 text-sm font-bold text-white hover:bg-white/5 text-left transition-colors cursor-pointer" on:click={() => { showMoreMenu = false; openDuplicateModal(); }}>Duplicate Event</button>
-						<button class="w-full px-4 py-2.5 text-sm font-bold text-problem hover:bg-white/5 text-left transition-colors cursor-pointer" on:click={() => { showMoreMenu = false; openDeleteModal(); }}>Delete Event</button>
+					<div
+						class="absolute right-0 top-[calc(100%+8px)] w-48 bg-navbar rounded-2xl shadow-xl overflow-hidden py-2 z-[9999] border border-gray2/10"
+					>
+						<button
+							class="w-full px-4 py-2.5 text-sm font-bold text-white hover:bg-white/5 text-left transition-colors cursor-pointer"
+							on:click={() => {
+								showMoreMenu = false;
+								openManageDates();
+							}}>Manage Dates</button
+						>
+						<button
+							class="w-full px-4 py-2.5 text-sm font-bold text-white hover:bg-white/5 text-left transition-colors cursor-pointer"
+							on:click={() => {
+								showMoreMenu = false;
+								openDuplicateModal();
+							}}>Duplicate Event</button
+						>
+						<button
+							class="w-full px-4 py-2.5 text-sm font-bold text-problem hover:bg-white/5 text-left transition-colors cursor-pointer"
+							on:click={() => {
+								showMoreMenu = false;
+								openDeleteModal();
+							}}>Delete Event</button
+						>
 					</div>
 				{/if}
 			</div>
 		</div>
 	</div>
 
-	<div 
+	<div
 		class="px-6 py-3 flex items-center gap-30"
-		title={!isEditor ? "You do not have permission to edit event details" : ""}
+		title={!isEditor ? 'You do not have permission to edit event details' : ''}
 		style="cursor: {!isEditor ? 'not-allowed' : 'default'}"
 	>
-		<div class="flex items-center gap-3 -ml-3 transition-opacity {isEditor ? '' : 'pointer-events-none opacity-80'}">
+		<div
+			class="flex items-center gap-3 -ml-3 transition-opacity {isEditor
+				? ''
+				: 'pointer-events-none opacity-80'}"
+		>
 			<DateSelector {event} {groupEvents} />
-			<TimeSelector {event} />   <VenueSelector {event} {groupEvents} {venues} on:openSettings />
+			<TimeSelector {event} />
+			<VenueSelector {event} {groupEvents} {venues} on:openSettings />
 			<TypeSelector {event} {parsedDetails} />
 		</div>
 	</div>
 
-	<div class="mx-3 px-6 pt-2 bg-navbar flex items-end gap-8 overflow-x-auto rounded-2xl custom-scrollbar">
+	<div
+		class="mx-3 px-6 pt-2 bg-navbar flex items-end gap-8 overflow-x-auto rounded-2xl custom-scrollbar"
+	>
 		{#each tabs as tab}
 			{@const isDisabled = !isEditor && tab !== 'Deals'}
 
@@ -533,10 +1135,29 @@
 		aria-label={isSidebarOpen ? 'Hide sidebar' : 'Reveal sidebar'}
 		title={isSidebarOpen ? 'Hide sidebar' : 'Reveal sidebar'}
 	>
-		<svg class="w-5 h-5 text-gray3 transition-colors duration-300 group-hover:text-lime" viewBox="0 0 24 24" fill="currentColor"><path d="M4 20h16v2H4v-2zM4 2h16v2H4V2zm9 7h3l-4-4-4 4h3v6H8l4 4 4-4h-3V9z" transform="rotate(-90 12 12)"/></svg>
+		<svg
+			class="w-5 h-5 text-gray3 transition-colors duration-300 group-hover:text-lime"
+			viewBox="0 0 24 24"
+			fill="currentColor"
+			><path
+				d="M4 20h16v2H4v-2zM4 2h16v2H4V2zm9 7h3l-4-4-4 4h3v6H8l4 4 4-4h-3V9z"
+				transform="rotate(-90 12 12)"
+			/></svg
+		>
 	</button>
 </div>
 
 {#if isEditor}
-	<ConfirmationModal bind:show={showConfirmationModal} {event} newStatus={pendingStatus} {venues} on:update={() => invalidateAll()} />
+	<CalendarConfirm
+		bind:show={showConfirmModal}
+		action={pendingStatus === 'CONFIRMED' ? 'confirm' : 'cancel'}
+		saving={isSavingConfirm}
+		{isAdmin}
+		defaultEmail={defaultEmailForVenue}
+		showConflicts={pendingStatus === 'CONFIRMED'}
+		{sameEventOtherRoomsCount}
+		{otherEventsOnDayCount}
+		{otherEventsSameRoomCount}
+		on:confirm={executeConfirmChange}
+	/>
 {/if}

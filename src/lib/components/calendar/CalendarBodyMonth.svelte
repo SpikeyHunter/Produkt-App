@@ -3,6 +3,7 @@
 	import { createEventDispatcher } from 'svelte';
 	import { tweened } from 'svelte/motion';
 	import { cubicOut } from 'svelte/easing';
+	import { parseHoldNumber } from '$lib/utils/holdManager';
 
 	export let loading: boolean;
 	export let monthViewDays: CalendarDay[] = [];
@@ -41,6 +42,10 @@
 				// 1. CONFIRMED always goes at the absolute top, no matter what
 				if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
 				if (a.status !== 'CONFIRMED' && b.status === 'CONFIRMED') return 1;
+
+				// NEW: CANCELED goes immediately under CONFIRMED
+				if (a.status === 'CANCELED' && b.status !== 'CANCELED') return -1;
+				if (a.status !== 'CANCELED' && b.status === 'CANCELED') return 1;
 
 				// 2. 'P' PRIORITY: Only 'P' holds bypass venues and go immediately under CONFIRMED
 				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
@@ -81,9 +86,8 @@
 
 				// 4. HOLD LEVELS (H1, H2, H3... sort WITHIN the same venue)
 				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
-					// We can strip out 'P' logic here since it was already handled in Step 2
-					const numA = parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
-					const numB = parseInt((b.hold_level || '').replace(/\D/g, '')) || 100;
+					const numA = parseHoldNumber(a.hold_level) || 100;
+					const numB = parseHoldNumber(b.hold_level) || 100;
 
 					if (numA !== numB) return numA - numB;
 				}
@@ -231,7 +235,7 @@
 									!canViewHolds}
 								{#if event.status === 'CANCELED'}
 									<div
-										class="flex items-center gap-1.5 px-1.5 py-1 rounded-[4px] min-h-[20px] transition-transform active:scale-95 shadow-sm overflow-hidden text-problem border border-problem/50 bg-transparent {isDimmed
+										class="flex items-center gap-1.5 px-1.5 py-1 rounded-[4px] min-h-[20px] transition-transform active:scale-95 shadow-sm overflow-hidden !text-problem border border-problem/50 bg-transparent {isDimmed
 											? 'opacity-40'
 											: ''} {isDisabled
 											? 'pointer-events-none'
@@ -258,7 +262,7 @@
 											<line x1="6" y1="6" x2="18" y2="18"></line>
 										</svg>
 										<span
-											class="truncate font-bold text-[11px] text-white leading-none pb-[1px] max-w-[14vw]"
+											class="truncate font-bold text-[11px] text-problem line-through leading-none pb-[1px] max-w-[14vw]"
 										>
 											{formatEventTitle(event)}
 										</span>

@@ -104,6 +104,7 @@ export interface CalendarEvent {
 		is_target?: boolean;
 	};
 	isDraft?: boolean;
+	isNewDraft?: boolean;
 	created_at?: string;
 	updated_at?: string;
 }

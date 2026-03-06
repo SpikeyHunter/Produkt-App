@@ -9,6 +9,8 @@
 	import { authStore } from '$lib/stores/authStore';
 	import Modal from '$lib/components/modals/Modal.svelte';
 	import CalendarContactList from '$lib/components/calendar/CalendarContactList.svelte';
+	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
+	import { calculateHoldShifts } from '$lib/utils/holdManager';
 
 	export let show: boolean;
 	export let event: CalendarEvent | null;
@@ -31,13 +33,6 @@
 	let conflictingEventId: string | null = null;
 	let pendingFlag: 'is_target' | 'is_challenge' | null = null;
 	let showConflictOverlay = false;
-
-	// Add these state variables
-	let optSendEmail = false;
-	let optSendSms = false;
-	let emailUsersCount = 0;
-	let smsUsersCount = 0;
-	let showContactListModal = false;
 
 	// Check if current user is an admin
 	$: isAdmin = $authStore?.profile?.role === 'Admin';
@@ -207,6 +202,33 @@
 		}
 	}
 
+	async function addAnotherFlag() {
+		if (!localEvent || !pendingFlag) return;
+		saving = true;
+
+		try {
+			// Set new flag on current local event
+			if (!localEvent.event_details) {
+				localEvent.event_details = { is_target: false, is_challenge: false };
+			}
+			localEvent.event_details[pendingFlag] = true;
+
+			hasUnsavedChanges = true;
+
+			// Force save to database so parent view refreshes immediately
+			await flushChanges();
+
+			showConflictOverlay = false;
+			conflictingEventId = null;
+			conflictingEventDate = null;
+			pendingFlag = null;
+		} catch (e) {
+			console.error('Failed to add another flag:', e);
+		} finally {
+			saving = false;
+		}
+	}
+
 	function saveNotes() {
 		if (!localEvent) return;
 		localEvent.details.notes = tempNotes;
@@ -224,32 +246,35 @@
 		if (!localEvent || !hasUnsavedChanges) return;
 		saving = true;
 		try {
-			// --- START HOLD SWAP LOGIC ---
-			// Check if the hold level changed from the original event
+			// --- START HOLD SHIFT LOGIC ---
 			if (event && localEvent.hold_level !== event.hold_level) {
-				const { data: conflicts } = await supabase
+				const { data: allDayEvents } = await supabase
 					.from('calendar_events')
-					.select('id')
-					.eq('date', localEvent.date)
-					.eq('venue->>category', localEvent.venue.category)
-					.eq('venue->>room', localEvent.venue.room)
-					.eq('hold_level', localEvent.hold_level)
-					.neq('id', localEvent.id);
+					.select('id, date, status, hold_level, venue')
+					.eq('date', localEvent.date);
 
-				if (conflicts && conflicts.length > 0) {
-					// Swap the conflicting hold to the original hold level
-					const oldLevel = event.hold_level;
-					for (const conflict of conflicts) {
+				if (allDayEvents) {
+					const shiftUpdates = calculateHoldShifts({
+						targetEventId: localEvent.id,
+						newLevel: localEvent.hold_level as HoldLevel,
+						date: localEvent.date,
+						category: localEvent.venue.category || '',
+						room: localEvent.venue.room || '',
+						existingEvents: allDayEvents
+					});
+
+					for (const update of shiftUpdates) {
 						await supabase
 							.from('calendar_events')
 							.update({
-								hold_level: oldLevel,
-								status: oldLevel === 'P' ? 'PENDING' : 'HOLD'
+								hold_level: update.newHoldLevel,
+								status: update.newStatus
 							})
-							.eq('id', conflict.id);
+							.eq('id', update.id);
 					}
 				}
 			}
+			// --- END HOLD SHIFT LOGIC ---
 			// --- END HOLD SWAP LOGIC ---
 
 			await supabase
@@ -278,11 +303,34 @@
 			hasUnsavedChanges = false;
 		}
 	}
-
 	async function executeClearSingle() {
 		if (!localEvent) return;
 		saving = true;
 		try {
+			// --- NEW: FILL THE GAP BEFORE DELETING ---
+			const { data: allDayEvents } = await supabase
+				.from('calendar_events')
+				.select('id, date, status, hold_level, venue')
+				.eq('date', localEvent.date);
+			if (allDayEvents) {
+				const shiftUpdates = calculateHoldShifts({
+					targetEventId: localEvent.id,
+					newLevel: null, // Null means it's being cleared
+					oldLevel: localEvent.hold_level as HoldLevel,
+					date: localEvent.date,
+					category: localEvent.venue.category || '',
+					room: localEvent.venue.room || '',
+					existingEvents: allDayEvents
+				});
+				for (const update of shiftUpdates) {
+					await supabase
+						.from('calendar_events')
+						.update({ hold_level: update.newHoldLevel })
+						.eq('id', update.id);
+				}
+			}
+			// ----------------------------------------
+
 			const { count } = await supabase
 				.from('calendar_events')
 				.select('*', { count: 'exact', head: true })
@@ -331,59 +379,54 @@
 		}
 	}
 
-	async function refreshUserCounts() {
-		try {
-			const [{ count: eCount }, { count: sCount }] = await Promise.all([
-				supabase
-					.from('calendar_users')
-					.select('*', { count: 'exact', head: true })
-					.eq('confirmation_email', true),
-				supabase
-					.from('calendar_users')
-					.select('*', { count: 'exact', head: true })
-					.eq('confirmation_phone', true)
-			]);
+	let defaultEmailForVenue = false;
+	let showConfirmModal = false;
+	let showContactListModal = false;
+	let otherEventsSameRoomCount = 0; // NEW
 
-			emailUsersCount = eCount || 0;
-			smsUsersCount = sCount || 0;
-		} catch (err) {
-			console.error('Failed to fetch user counts:', err);
-		}
-	}
 	async function setupConfirm() {
 		if (!localEvent) return;
 		saving = true;
 		try {
 			const { data } = await supabase
 				.from('calendar_events')
-				.select('id, group_id')
+				.select('id, group_id, venue')
 				.eq('date', localEvent.date)
 				.in('status', ['HOLD', 'PENDING']);
 
 			if (data) {
 				sameEventOtherRoomsCount = data.filter(
-					(d) => d.group_id === localEvent?.group_id && d.id !== localEvent?.id
+					(d: any) => d.group_id === localEvent?.group_id && d.id !== localEvent?.id
 				).length;
-				otherEventsOnDayCount = data.filter((d) => d.group_id !== localEvent?.group_id).length;
+
+				const otherEvents = data.filter((d: any) => d.group_id !== localEvent?.group_id);
+				otherEventsOnDayCount = otherEvents.length;
+
+				const venueParsed =
+					typeof localEvent.venue === 'string'
+						? JSON.parse(localEvent.venue)
+						: localEvent.venue || {};
+				const currentCategory = venueParsed.category || '';
+				const currentRoom = venueParsed.room || '';
+
+				otherEventsSameRoomCount = otherEvents.filter((d: any) => {
+					try {
+						const dVenue = typeof d.venue === 'string' ? JSON.parse(d.venue) : d.venue || {};
+						return dVenue.category === currentCategory && dVenue.room === currentRoom;
+					} catch (e) {
+						return false;
+					}
+				}).length;
 			}
 
-			// Fetch the user counts
-			await refreshUserCounts();
-
-			optConfirmAllRooms = false;
-			optClearOtherHolds = false;
-
-			// NEW: Auto-select email confirmation if venue is New City Gas
-			optSendEmail = localEvent.venue?.category === 'New City Gas';
-
-			optSendSms = false;
-			confirmMode = 'confirm';
+			defaultEmailForVenue = localEvent.venue?.category === 'New City Gas';
+			showConfirmModal = true;
 		} finally {
 			saving = false;
 		}
 	}
-
-	async function executeConfirm() {
+	async function executeConfirm(e: CustomEvent) {
+		const { sendEmail, sendSms, confirmAllRooms, clearOtherHolds, clearSameRoomHolds } = e.detail;
 		if (!localEvent) return;
 		saving = true;
 		try {
@@ -420,14 +463,24 @@
 				}
 			}
 
-			if (optClearOtherHolds && otherEventsOnDayCount > 0) {
+			// Clear EVERY hold on the date no matter the venue or room
+			if (clearOtherHolds) {
 				await supabase
 					.from('calendar_events')
 					.update({ status: 'HIDDEN', hold_level: null })
 					.eq('date', localEvent.date)
 					.neq('group_id', localEvent.group_id)
-					.eq('venue->>category', localEvent.venue.category)
-					.eq('venue->>room', localEvent.venue.room)
+					.in('status', ['HOLD', 'PENDING']);
+			} 
+			// Clear ONLY holds that share the exact same venue AND room
+			else if (clearSameRoomHolds) {
+				await supabase
+					.from('calendar_events')
+					.update({ status: 'HIDDEN', hold_level: null })
+					.eq('date', localEvent.date)
+					.neq('group_id', localEvent.group_id)
+					.eq('venue->>category', localEvent.venue?.category || '')
+					.eq('venue->>room', localEvent.venue?.room || '')
 					.in('status', ['HOLD', 'PENDING']);
 			}
 
@@ -449,7 +502,7 @@
 
 			const promises = [];
 
-			if (optSendEmail) {
+			if (sendEmail) {
 				promises.push(
 					fetch('/api/calendar-confirm-email', {
 						method: 'POST',
@@ -461,7 +514,7 @@
 				);
 			}
 
-			if (optSendSms) {
+			if (sendSms) {
 				promises.push(
 					fetch('/api/calendar-confirm-sms', {
 						method: 'POST',
@@ -479,6 +532,7 @@
 			}
 
 			// 3. Update UI
+			showConfirmModal = false;
 			dispatch('update');
 			show = false;
 		} catch (e) {
@@ -785,209 +839,6 @@
 						>
 					</div>
 				</div>
-			{:else if confirmMode === 'confirm'}
-				<div class="p-6 flex-1 flex flex-col overflow-y-auto custom-scrollbar">
-					<div class="flex items-center gap-3 mb-6">
-						<div
-							class="w-10 h-10 rounded-full bg-lime/20 flex items-center justify-center shrink-0"
-						>
-							<span class="text-lime font-black text-xl">✓</span>
-						</div>
-						<div class="text-left">
-							<h3 class="text-lg font-black text-white">Confirm Event</h3>
-							<p class="text-[11px] font-bold text-gray2">
-								Finalizing this date will auto-hide alternate holds for this event.
-							</p>
-						</div>
-					</div>
-
-					<div class="space-y-3 mb-8">
-						{#if sameEventOtherRoomsCount > 0}
-							<label
-								class="flex items-start gap-3 p-4 bg-gray1/50 border border-gray2/20 rounded-xl cursor-pointer hover:bg-gray2/10 transition-colors {optConfirmAllRooms
-									? 'border-lime/50 bg-lime/5'
-									: ''}"
-							>
-								<div
-									class="relative flex items-center justify-center w-5 h-5 mt-0.5 rounded transition-all {optConfirmAllRooms
-										? 'bg-lime border-lime'
-										: 'border-2 border-gray2 bg-transparent'}"
-									aria-hidden="true"
-								>
-									{#if optConfirmAllRooms}
-										<svg
-											class="w-3.5 h-3.5 text-black"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="4"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-										>
-											<polyline points="20 6 9 17 4 12"></polyline>
-										</svg>
-									{/if}
-								</div>
-								<p class="text-sm font-bold text-white leading-tight">
-									Confirm all holds for the same venue for this event
-								</p>
-								<input
-									type="checkbox"
-									class="hidden"
-									bind:checked={optConfirmAllRooms}
-									aria-label="Confirm all holds for the same venue for this event"
-								/>
-							</label>
-						{/if}
-
-						{#if otherEventsOnDayCount > 0}
-							<label
-								class="flex items-start gap-3 p-4 bg-gray1/50 border border-gray2/20 rounded-xl cursor-pointer hover:bg-gray2/10 transition-colors {optClearOtherHolds
-									? 'border-lime/50 bg-lime/5'
-									: ''}"
-							>
-								<div
-									class="relative flex items-center justify-center w-5 h-5 mt-0.5 rounded transition-all {optClearOtherHolds
-										? 'bg-lime border-lime'
-										: 'border-2 border-gray2 bg-transparent'}"
-									aria-hidden="true"
-								>
-									{#if optClearOtherHolds}
-										<svg
-											class="w-3.5 h-3.5 text-black"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="4"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-										>
-											<polyline points="20 6 9 17 4 12"></polyline>
-										</svg>
-									{/if}
-								</div>
-								<p class="text-sm font-bold text-white leading-tight">
-									Clear all holds (including pending) on this day
-								</p>
-								<input
-									type="checkbox"
-									class="hidden"
-									bind:checked={optClearOtherHolds}
-									aria-label="Clear all relevant holds including pending on this day"
-								/>
-							</label>
-						{/if}
-
-						{#if sameEventOtherRoomsCount === 0 && otherEventsOnDayCount === 0}
-							<div class="py-8 text-center">
-								<p class="text-sm font-bold text-gray2">
-									No scheduling conflicts detected for this date!
-								</p>
-							</div>
-						{/if}
-						<div class="mt-4 pt-4 border-t border-gray2/20 space-y-3">
-							<p class="text-sm font-bold text-gray2 mb-2">Share confirmation</p>
-
-							<div
-								class="flex items-start gap-3 p-3 bg-gray1/50 border rounded-xl cursor-pointer transition-colors {optSendEmail
-									? 'border-lime bg-lime/5'
-									: 'border-gray2/20 hover:bg-gray2/10'}"
-								on:click={() => (optSendEmail = !optSendEmail)}
-								role="button"
-								tabindex="0"
-								on:keydown={(e) =>
-									(e.key === 'Enter' || e.key === ' ') && (optSendEmail = !optSendEmail)}
-							>
-								<div class="mt-0.5 transition-colors {optSendEmail ? 'text-lime' : 'text-gray2'}">
-									<svg
-										class="w-5 h-5"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-									>
-										<path
-											d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"
-										></path>
-										<polyline points="22,6 12,13 2,6"></polyline>
-									</svg>
-								</div>
-								<div class="flex-1">
-									<p class="text-sm font-bold text-white leading-tight">
-										Send Email confirmation to <span class="text-lime">{emailUsersCount}</span>
-										user{emailUsersCount !== 1 ? 's' : ''}
-									</p>
-								</div>
-								{#if isAdmin}
-									<button
-										type="button"
-										class="text-xs text-lime font-bold hover:underline cursor-pointer"
-										on:click|stopPropagation={() => (showContactListModal = true)}
-										>(view list)</button
-									>
-								{/if}
-							</div>
-
-							<div
-								class="flex items-start gap-3 p-3 bg-gray1/50 border rounded-xl cursor-pointer transition-colors {optSendSms
-									? 'border-lime bg-lime/5'
-									: 'border-gray2/20 hover:bg-gray2/10'}"
-								on:click={() => (optSendSms = !optSendSms)}
-								role="button"
-								tabindex="0"
-								on:keydown={(e) =>
-									(e.key === 'Enter' || e.key === ' ') && (optSendSms = !optSendSms)}
-							>
-								<div class="mt-0.5 transition-colors {optSendSms ? 'text-lime' : 'text-gray2'}">
-									<svg
-										class="w-5 h-5"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"
-										stroke-linecap="round"
-										stroke-linejoin="round"
-									>
-										<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-									</svg>
-								</div>
-								<div class="flex-1">
-									<p class="text-sm font-bold text-white leading-tight">
-										Send SMS confirmation to <span class="text-lime">{smsUsersCount}</span>
-										user{smsUsersCount !== 1 ? 's' : ''}
-									</p>
-								</div>
-								{#if isAdmin}
-									<button
-										type="button"
-										class="text-xs text-lime font-bold hover:underline cursor-pointer"
-										on:click|stopPropagation={() => (showContactListModal = true)}
-										>(view list)</button
-									>
-								{/if}
-							</div>
-						</div>
-					</div>
-
-					<div class="mt-auto flex gap-3 w-full shrink-0">
-						<button
-							class="flex-1 py-3 bg-transparent border border-gray2/20 text-gray2 font-bold rounded-2xl hover:bg-gray2/10 hover:text-white transition-colors cursor-pointer"
-							on:click={() => (confirmMode = 'none')}>Cancel</button
-						>
-						<button
-							class="flex-[1.5] py-3 bg-lime text-black font-bold rounded-2xl hover:bg-lime/90 transition-colors cursor-pointer flex justify-center items-center"
-							on:click={executeConfirm}
-							disabled={saving}
-						>
-							{#if saving}<div
-									class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"
-								></div>{/if}
-							Confirm Event
-						</button>
-					</div>
-				</div>
 			{/if}
 		</div>
 	</div>
@@ -996,139 +847,59 @@
 <div use:portal>
 	{#if showConflictOverlay && pendingFlag && localEvent}
 		<div
-			class="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+			class="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
 			transition:fade={{ duration: 200 }}
 		>
 			<div
-				class="absolute inset-0"
-				on:click={() => {
-					showConflictOverlay = false;
-					pendingFlag = null;
-				}}
-				on:keydown={(e) => {
-					if (e.key === 'Enter' || e.key === ' ') {
-						showConflictOverlay = false;
-						pendingFlag = null;
-					}
-				}}
-				role="button"
-				tabindex="0"
-				aria-label="Close modal"
-			></div>
-			<div
-				class="bg-gray1 border border-gray2/20 rounded-2xl shadow-2xl p-8 w-full max-w-md relative z-10 text-center"
-				transition:fly={{ y: 20, duration: 200 }}
+				class="bg-gray1 border border-gray2/20 rounded-2xl max-w-sm w-full p-6 shadow-2xl flex flex-col items-center text-center"
 			>
 				<div
-					class="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-6 {pendingFlag ===
-					'is_target'
-						? 'bg-confirmed/10 text-confirmed'
-						: 'bg-tentatif/10 text-tentatif'}"
+					class="w-12 h-12 rounded-full bg-tentatif/20 text-tentatif flex items-center justify-center mb-4"
 				>
-					{#if pendingFlag === 'is_target'}
-						<svg
-							class="w-8 h-8"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
-							></circle><circle cx="12" cy="12" r="2"></circle></svg
-						>
-					{:else}
-						<svg
-							class="w-8 h-8"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg
-						>
-					{/if}
-				</div>
-
-				<h3 class="text-xl font-black text-white mb-6">
-					Change {pendingFlag === 'is_target' ? 'Target' : 'Challenge'} Status?
-				</h3>
-
-				<div class="flex items-center justify-between mb-8">
-					<div class="flex flex-col items-center gap-2">
-						<span class="text-xs font-bold text-gray2">From</span>
-						<div
-							class="border border-gray2/30 rounded-xl px-6 py-4 flex flex-col items-center justify-center min-w-[90px] bg-black/20"
-						>
-							<span class="text-[10px] font-black text-gray2"
-								>{formatDate(conflictingEventDate).month}</span
-							>
-							<span class="text-2xl font-black text-white my-0.5"
-								>{formatDate(conflictingEventDate).day}</span
-							>
-							<span class="text-[10px] font-bold text-gray2"
-								>{formatDate(conflictingEventDate).year}</span
-							>
-						</div>
-					</div>
-
-					<div class="flex flex-col items-center justify-center pt-6">
-						<svg
-							class="w-6 h-6 text-white mb-1"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"
-							></polyline></svg
-						>
-						<span class="text-xs font-bold text-gray2">{diffText}</span>
-					</div>
-
-					<div class="flex flex-col items-center gap-2">
-						<span class="text-xs font-bold text-gray2">To</span>
-						<div
-							class="border {pendingFlag === 'is_target'
-								? 'border-confirmed/50'
-								: 'border-tentatif/50'} rounded-xl px-6 py-4 flex flex-col items-center justify-center min-w-[90px] bg-black/20"
-						>
-							<span class="text-[10px] font-black text-gray2"
-								>{formatDate(localEvent.date).month}</span
-							>
-							<span
-								class="text-2xl font-black {pendingFlag === 'is_target'
-									? 'text-confirmed'
-									: 'text-tentatif'} my-0.5">{formatDate(localEvent.date).day}</span
-							>
-							<span class="text-[10px] font-bold text-gray2"
-								>{formatDate(localEvent.date).year}</span
-							>
-						</div>
-					</div>
-				</div>
-
-				<p class="text-sm font-bold text-white mb-8 leading-relaxed">
-					Do you want to change the {pendingFlag === 'is_target' ? 'target' : 'challenge'} to this new
-					date?
-				</p>
-
-				<div class="flex gap-3 w-full">
-					<button
-						class="flex-1 py-3 border border-problem text-problem bg-transparent font-bold rounded-2xl hover:bg-problem/20 transition-colors cursor-pointer"
-						on:click={() => {
-							showConflictOverlay = false;
-							pendingFlag = null;
-						}}
-						disabled={saving}>No</button
+					<svg
+						class="w-6 h-6"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						><path
+							d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+						/></svg
 					>
+				</div>
+				<h3 class="text-xl font-black text-white mb-2">Conflict Detected</h3>
+				<p class="text-gray2 text-sm font-medium mb-6">
+					The {pendingFlag === 'is_target' ? 'Target' : 'Challenge'} flag is currently on
+					<strong class="text-white"
+						>{formatDate(conflictingEventDate).month}
+						{formatDate(conflictingEventDate).day}, {formatDate(conflictingEventDate).year}</strong
+					>. Do you want to move it here, or add another? ({diffText})
+				</p>
+				<div class="flex flex-col gap-2 w-full">
+					<div class="flex items-center gap-2 w-full mb-4">
+						<button
+							class="flex-1 py-3 px-4 rounded-3xl font-bold text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+							on:click={() => {
+								showConflictOverlay = false;
+								pendingFlag = null;
+							}}>Cancel</button
+						>
+						<button
+							class="flex-1 py-3 px-4 rounded-3xl font-bold text-black bg-tentatif hover:bg-tentatif/90 transition-colors cursor-pointer"
+							on:click={resolveConflict}
+							disabled={saving}>Move Flag</button
+						>
+					</div>
 					<button
-						class="flex-1 py-3 border border-confirmed text-confirmed bg-transparent font-bold rounded-2xl hover:bg-confirmed/20 transition-colors cursor-pointer"
-						on:click={resolveConflict}
-						disabled={saving}>Yes</button
+						class="w-full py-3 px-4 rounded-3xl font-bold text-black bg-lime hover:bg-lime/90 transition-colors cursor-pointer"
+						on:click={addAnotherFlag}
+						disabled={saving}>Add Another</button
 					>
 				</div>
 			</div>
 		</div>
 	{/if}
+
 	<Modal
 		bind:isOpen={showContactListModal}
 		title="Contact List"
@@ -1136,14 +907,25 @@
 		showCloseButton={true}
 		on:close={() => {
 			showContactListModal = false;
-			// Re-fetch the counts just in case changes were made in the contact list
-			if (confirmMode === 'confirm') {
-				refreshUserCounts();
-			}
 		}}
 	>
 		<CalendarContactList />
 	</Modal>
+
+	<CalendarConfirm
+		bind:show={showConfirmModal}
+		title="Confirm Event"
+		message="Finalizing this date will auto-hide alternate holds for this event."
+		{saving}
+		{isAdmin}
+		defaultEmail={defaultEmailForVenue}
+		showConflicts={true}
+		{sameEventOtherRoomsCount}
+		{otherEventsOnDayCount}
+		{otherEventsSameRoomCount} 
+		on:viewContacts={() => (showContactListModal = true)}
+		on:confirm={executeConfirm}
+	/>
 </div>
 
 <style>
