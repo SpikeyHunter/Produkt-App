@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte';
 	import { supabase } from '$lib/supabase';
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
@@ -8,6 +9,8 @@
 	export let payment: any = {};
 	export let eventDate: string;
 	export let currentUserProfile: any;
+
+	const dispatch = createEventDispatcher();
 
 	let amount = 150;
 	let notes = '';
@@ -416,9 +419,17 @@
 </script>
 
 <div class="flex flex-col h-full bg-navbar relative pb-6">
-	<div class="flex-shrink-0 p-5 border-b border-gray1 bg-gray1/30">
-		<h2 class="text-xl font-bold text-white truncate">{advance?.artist_name || 'Artist'}</h2>
-		<p class="text-lime text-xs font-bold uppercase tracking-wider mt-1">Invoice Panel</p>
+	<div class="flex-shrink-0 p-5 border-b border-gray1 bg-gray1/30 flex justify-between items-start">
+		<div>
+			<h2 class="text-xl font-bold text-white truncate">{advance?.artist_name || 'Artist'}</h2>
+			<p class="text-lime text-xs font-bold uppercase tracking-wider mt-1">Invoice Panel</p>
+		</div>
+		<button
+			on:click={() => dispatch('edit')}
+			class="px-4 py-1.5 text-xs font-bold border border-gray2 text-gray2 rounded-full hover:bg-lime hover:border-lime hover:text-black transition-colors cursor-pointer"
+		>
+			Edit
+		</button>
 	</div>
 
 	<div class="flex-1 overflow-y-auto p-5 space-y-6">

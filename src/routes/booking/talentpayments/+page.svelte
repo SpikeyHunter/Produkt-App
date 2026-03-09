@@ -10,6 +10,7 @@
 	import EventAddModal from '$lib/components/modals/EventAddModal.svelte';
 	import { supabase } from '$lib/supabase';
 	import { authStore } from '$lib/stores/authStore';
+	import EventEditModal from '$lib/components/modals/EventEditModal.svelte';
 
 	let events: any[] = [];
 	let loadingEvents = true;
@@ -29,6 +30,51 @@
 	const timeFilterOptions: ('LIVE' | 'PAST' | 'ALL')[] = ['LIVE', 'PAST', 'ALL'];
 	const availableStatuses = ['Draft', 'Confirmed', 'Invoiced', 'Approved', 'Submitted', 'Paid'];
 	let selectedStatuses: string[] = [];
+
+	let isEditModalOpen = false;
+	let eventToEdit: any = null;
+
+	function openEditModal() {
+		eventToEdit = {
+			...selectedArtist,
+			// Format ID specifically for how EventEditModal expects it
+			id: `${selectedArtist.event_id}-${selectedArtist.artist_name}`,
+			event_venue: selectedEvent?.event_venue || ''
+		};
+		isEditModalOpen = true;
+	}
+
+	async function handleEditSave(e: CustomEvent) {
+		isEditModalOpen = false;
+
+		// Refetch data instantly so the UI updates without a reload
+		await fetchEvents();
+		await fetchBulkData();
+
+		// Re-select the updated artist to keep the panel open
+		const { event: updatedEventData } = e.detail;
+		if (updatedEventData) {
+			const updatedArtist = masterArtistList.find(
+				(a) =>
+					a.event_id === updatedEventData.event_id && a.artist_name === updatedEventData.artist_name
+			);
+
+			if (updatedArtist) {
+				await handleArtistSelect(updatedArtist);
+			} else {
+				selectedArtist = null;
+			}
+		}
+	}
+
+	async function handleEditDelete() {
+		isEditModalOpen = false;
+		selectedArtist = null; // Clear the panel since the artist is gone
+
+		// Refetch data instantly
+		await fetchEvents();
+		await fetchBulkData();
+	}
 
 	function toggleStatus(status: string) {
 		if (selectedStatuses.includes(status)) {
@@ -693,6 +739,7 @@
 								eventDate={selectedArtist.eventDateDisplay ||
 									(selectedEvent ? selectedEvent.event_date : '')}
 								currentUserProfile={$authStore.profile}
+								on:edit={openEditModal}
 							/>
 						{:else}
 							<div
@@ -712,6 +759,14 @@
 	bind:isOpen={isAddModalOpen}
 	on:close={() => (isAddModalOpen = false)}
 	on:success={() => window.location.reload()}
+/>
+
+<EventEditModal
+	bind:isOpen={isEditModalOpen}
+	event={eventToEdit}
+	on:close={() => (isEditModalOpen = false)}
+	on:save={handleEditSave}
+	on:delete={handleEditDelete}
 />
 
 <style>
