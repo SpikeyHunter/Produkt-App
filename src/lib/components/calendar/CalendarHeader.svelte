@@ -341,7 +341,7 @@
 <div class="flex items-center gap-3">
 		{#if isEditor}
             <button
-				class="px-5 py-2.5 bg-transparent border border-[var(--color-border)]/30 text-[var(--color-white)] rounded-3xl font-bold text-sm flex items-center gap-2 hover:bg-[var(--color-gray1)] transition-all cursor-pointer"
+				class="px-5 py-2.5 bg-transparent border border-gray2 text-gray2 rounded-3xl font-bold text-sm flex items-center gap-2 hover:border-lime hover:text-lime transition-all cursor-pointer"
 				on:click={() => dispatch('shareAvails')}
 			>
 				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -259,10 +259,10 @@
 				</div>
 
 				<div class="mt-4">
-					<button type="button" on:click={handleGeneratePdf} disabled={isExporting} class="w-full bg-lime text-black font-bold text-sm py-3 rounded-lg hover:bg-confirmed/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+					<button type="button" on:click={handleGeneratePdf} disabled={isExporting} class="w-full bg-gray3 text-black font-bold text-sm py-3 rounded-3xl hover:bg-lime transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
 						{#if isExporting}
 							<span class="flex items-center justify-center gap-2">
-								<div class="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-full"></div>
+								<div class="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-3xl"></div>
 								Exporting...
 							</span>
 						{:else}
