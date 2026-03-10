@@ -48,7 +48,7 @@ export const POST: RequestHandler = async ({ request }) => {
         const formattedPhone = `+${cleanPhone}`;
 
         // 4. Create the invite message
-        const message = `Hi ${name || 'there'}! You've been invited to join Produkt Calendar.\n\nStart by adding this contact card to your phone: ${vcfUrl}\n\nClick on "Create New Contact"\n\nReply CONFIRM to get your access.`;
+        const message = `Hi ${name || 'there'}! You've been invited to join Produkt Calendar, since we will NOT be using PRISM from now on.\n\nStart by adding this contact card to your phone: ${vcfUrl}\n\nClick on "Create New Contact"\n\nReply CONFIRM to get your access.`;
 
         // 5. Send the SNS command ONLY to this specific user
         const command = new PublishCommand({

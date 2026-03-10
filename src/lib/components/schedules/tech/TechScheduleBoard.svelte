@@ -591,7 +591,7 @@
 				op_hours: '',
 				crew_call: ''
 			};
-			const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
+			const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null, group_id: null };
 			rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
 			const { error } = await supabase
 				.from('schedule_techs')
@@ -779,7 +779,7 @@
 				op_hours: '',
 				crew_call: ''
 			};
-			const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null };
+			const dbEmptyData = { ...uiEmptyData, type: null, calendar_event_id: null, group_id: null };
 			rows = rows.map((r) => (r.id === targetRow.id ? { ...r, ...uiEmptyData } : r));
 			await supabase.from('schedule_techs').update(dbEmptyData).eq('id', targetRow.id);
 

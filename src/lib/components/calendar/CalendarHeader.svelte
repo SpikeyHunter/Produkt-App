@@ -8,6 +8,7 @@
 	export let listLayoutMode: 'list' | 'grid' = 'list';
 	export let listFilterMode: 'past' | 'all' | 'upcoming' = 'all';
 	export let isEditor: boolean;
+	export let showHiddenHolds: boolean = false; // Add this line
 
 	const dispatch = createEventDispatcher();
 
@@ -338,13 +339,64 @@
 		{/if}
 	</div>
 
-<div class="flex items-center gap-3">
+	<div class="flex items-center gap-3">
 		{#if isEditor}
-            <button
+			<div class="relative group flex items-center">
+				<button
+					class="p-2.5 bg-transparent border border-2 border-[var(--color-border)]/30 text-[var(--color-gray2)] rounded-full flex items-center justify-center hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-all cursor-pointer"
+					on:click={() => (showHiddenHolds = !showHiddenHolds)}
+					aria-label={showHiddenHolds ? 'Hide Hidden Holds' : 'Reveal Hidden Holds'}
+				>
+					{#if showHiddenHolds}
+						<svg
+							class="w-4 h-4"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+							<circle cx="12" cy="12" r="3"></circle>
+						</svg>
+					{:else}
+						<svg
+							class="w-4 h-4"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						>
+							<path
+								d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+							></path>
+							<line x1="1" y1="1" x2="23" y2="23"></line>
+						</svg>
+					{/if}
+				</button>
+
+				<div
+					class="absolute right-full mr-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-[var(--color-gray1)] text-[var(--color-white)] text-xs font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50"
+				>
+					{showHiddenHolds ? 'Hide Hidden Holds' : 'Reveal Hidden Holds'}
+				</div>
+			</div>
+			<button
 				class="px-5 py-2.5 bg-transparent border border-gray2 text-gray2 rounded-3xl font-bold text-sm flex items-center gap-2 hover:border-lime hover:text-lime transition-all cursor-pointer"
 				on:click={() => dispatch('shareAvails')}
 			>
-				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+				<svg
+					class="w-4 h-4"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
 					<circle cx="18" cy="5" r="3"></circle>
 					<circle cx="6" cy="12" r="3"></circle>
 					<circle cx="18" cy="19" r="3"></circle>
@@ -354,7 +406,7 @@
 				Avails
 			</button>
 
-            <button
+			<button
 				class="px-6 py-2.5 bg-[var(--color-lime)] text-[var(--color-black)] rounded-3xl font-bold text-sm flex items-center gap-2 hover:opacity-90 transition-all shadow-sm cursor-pointer"
 				on:click={() => dispatch('addEvent')}
 			>

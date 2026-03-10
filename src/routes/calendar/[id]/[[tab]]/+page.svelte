@@ -158,9 +158,9 @@
 	}
 
 	function handleOpenSettings(e: CustomEvent<{ venueId: string | null }>) {
-		// Allowing settings to be opened since it's part of the header, 
+		// Allowing settings to be opened since it's part of the header,
 		// but you can uncomment the line below to lock this too.
-		// if (shouldDisableUI) return; 
+		// if (shouldDisableUI) return;
 
 		selectedSettingsVenueId = e.detail.venueId;
 		showSettingsModal = true;
@@ -205,15 +205,19 @@
 					on:openSettings={handleOpenSettings}
 					on:toggleSidebar={toggleSidebar}
 				/>
-				
-				<div class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative" class:locked-ui={shouldDisableUI}>
+
+				<div
+					class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative"
+					class:locked-ui={shouldDisableUI}
+				>
 					<div
 						class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden"
 					>
 						<svelte:component
 							this={tabComponents[activeTab]}
 							{userRole}
-							eventDealData={event?.calendar?.event_deal || event?.event_deal}
+							eventDealData={event?.event_deal}
+							eventDate={event?.start_date || event?.date || ''}
 						/>
 					</div>
 					<EventSidebar {activeTab} {isSidebarOpen} {userRole} />
@@ -236,8 +240,11 @@
 				on:openSettings={handleOpenSettings}
 				on:toggleSidebar={toggleSidebar}
 			/>
-			
-			<div class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative" class:locked-ui={shouldDisableUI}>
+
+			<div
+				class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative"
+				class:locked-ui={shouldDisableUI}
+			>
 				<div
 					class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden"
 				>
@@ -260,7 +267,7 @@
 		filter: grayscale(80%);
 		cursor: not-allowed !important;
 	}
-	
+
 	/* The children lose pointer events so they can't be clicked, hovered, or highlighted, 
 	   but the parent's cursor:not-allowed will still show up */
 	:global(.locked-ui *) {

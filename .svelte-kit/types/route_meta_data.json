@@ -41,6 +41,12 @@
 	"/api/calendar-invite-phone": [
 		"src/routes/api/calendar-invite-phone/+server.ts"
 	],
+	"/api/calendar-modify-email": [
+		"src/routes/api/calendar-modify-email/+server.ts"
+	],
+	"/api/calendar-modify-sms": [
+		"src/routes/api/calendar-modify-sms/+server.ts"
+	],
 	"/api/calendar": [
 		"src/routes/api/calendar/+server.ts"
 	],

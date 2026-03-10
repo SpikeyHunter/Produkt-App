@@ -13,6 +13,7 @@
 
 	export let userRole = 'Email Only';
 	export let eventDealData: any;
+	export let eventDate: string = '';
 
 	// 🔥 STEP 1: What did the child component receive?
 	$: {
@@ -165,7 +166,7 @@
 
 		<div class="p-8 overflow-y-auto">
 			{#if isCreatingDeal && canEditAndManage}
-				<DealCreator on:save={handleSaveDeal} on:cancel={handleCancelDeal} />
+			<DealCreator on:save={handleSaveDeal} on:cancel={handleCancelDeal} event_date={eventDate} />
 			{:else}
 				<div class="flex flex-col gap-8">
 					<div class="rounded-2xl overflow-hidden bg-gray1">

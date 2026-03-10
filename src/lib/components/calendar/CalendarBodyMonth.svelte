@@ -19,6 +19,7 @@
 	export let managingGroupId: string | null = null;
 	export let canEdit: boolean;
 	export let canViewHolds: boolean;
+	export let showHiddenHolds: boolean = false; // Add this line here
 
 	const dispatch = createEventDispatcher();
 
@@ -28,78 +29,84 @@
 		const stage = stages.find((s) => s.name === roomName);
 		return stage ? stage.color : '#828282';
 	}
-
 	function formatLabel(event: CalendarEvent): string {
+		if (event.status === 'HIDDEN') return 'H'; // Add this line
 		if (event.status === 'HOLD' && event.hold_level) return event.hold_level;
 		if (event.hold_level === 'P') return 'P';
 		return '';
 	}
 
-	function sortEventsForDisplay(events: CalendarEvent[]) {
-		return [...events]
-			.filter((e) => e.status !== 'HIDDEN' && !deletedIds.includes(e.id))
-			.sort((a, b) => {
-				// 1. CONFIRMED always goes at the absolute top, no matter what
-				if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
-				if (a.status !== 'CONFIRMED' && b.status === 'CONFIRMED') return 1;
+	function sortEventsForDisplay(events: CalendarEvent[], showHidden: boolean) {
+    return (
+        [...events]
+            // UPDATE: Check showHidden before filtering out
+            .filter((e) => (showHidden || e.status !== 'HIDDEN') && !deletedIds.includes(e.id))
+				.sort((a, b) => {
+					// NEW: HIDDEN always goes at the absolute bottom
+					if (a.status === 'HIDDEN' && b.status !== 'HIDDEN') return 1;
+					if (a.status !== 'HIDDEN' && b.status === 'HIDDEN') return -1;
 
-				// NEW: CANCELED goes immediately under CONFIRMED
-				if (a.status === 'CANCELED' && b.status !== 'CANCELED') return -1;
-				if (a.status !== 'CANCELED' && b.status === 'CANCELED') return 1;
+					// 1. CONFIRMED always goes at the absolute top, no matter what
+					if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
+					if (a.status !== 'CONFIRMED' && b.status === 'CONFIRMED') return 1;
 
-				// 2. 'P' PRIORITY: Only 'P' holds bypass venues and go immediately under CONFIRMED
-				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
-					const aIsP = a.hold_level === 'P';
-					const bIsP = b.hold_level === 'P';
-					if (aIsP && !bIsP) return -1;
-					if (!aIsP && bIsP) return 1;
-				}
+					// NEW: CANCELED goes immediately under CONFIRMED
+					if (a.status === 'CANCELED' && b.status !== 'CANCELED') return -1;
+					if (a.status !== 'CANCELED' && b.status === 'CANCELED') return 1;
 
-				// 3. EXPLICIT VENUE/ROOM PRIORITY (Applies to all remaining Holds)
-				const roomOrder = [
-					'Notes',
-					'NOTES', // Catching uppercase variant just in case
-					'Co-Pro Shows',
-					'Restaurant Bazart',
-					'Main Room',
-					'Lounge',
-					'NFT Gallery',
-					'Back Terrace',
-					'Side Terrace'
-				];
+					// 3. EXPLICIT VENUE/ROOM PRIORITY (Applies to all remaining Holds)
+					const roomOrder = [
+						'Notes',
+						'NOTES', // Catching uppercase variant just in case
+						'Co-Pro Shows',
+						'Restaurant Bazart',
+						'Main Room',
+						'Lounge',
+						'NFT Gallery',
+						'Back Terrace',
+						'Side Terrace'
+					];
 
-				const getRoomIndex = (roomName: string | null | undefined) => {
-					if (!roomName) return 999;
+					const getRoomIndex = (roomName: string | null | undefined) => {
+						if (!roomName) return 999;
 
-					// First check if the room is in our explicit priority list
-					const idx = roomOrder.findIndex((r) => r.toLowerCase() === roomName.toLowerCase());
-					if (idx !== -1) return idx;
+						// First check if the room is in our explicit priority list
+						const idx = roomOrder.findIndex((r) => r.toLowerCase() === roomName.toLowerCase());
+						if (idx !== -1) return idx;
 
-					// Fallback: If a new room is added later, put it after the main priority list
-					const stageIdx = stages.findIndex((s) => s.name === roomName);
-					return stageIdx === -1 ? 999 : 100 + stageIdx;
-				};
+						// Fallback: If a new room is added later, put it after the main priority list
+						const stageIdx = stages.findIndex((s) => s.name === roomName);
+						return stageIdx === -1 ? 999 : 100 + stageIdx;
+					};
 
-				const roomIdxA = getRoomIndex(a.venue?.room);
-				const roomIdxB = getRoomIndex(b.venue?.room);
-				if (roomIdxA !== roomIdxB) return roomIdxA - roomIdxB;
+					const roomIdxA = getRoomIndex(a.venue?.room);
+					const roomIdxB = getRoomIndex(b.venue?.room);
+					if (roomIdxA !== roomIdxB) return roomIdxA - roomIdxB;
 
-				// 4. HOLD LEVELS (H1, H2, H3... sort WITHIN the same venue)
-				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
-					const numA = parseHoldNumber(a.hold_level) || 100;
-					const numB = parseHoldNumber(b.hold_level) || 100;
+					// 4. HOLD LEVELS (P first, then H1, H2... sorted WITHIN the same venue)
+					if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
+						// Check for 'P' first within the same room
+						const aIsP = a.hold_level === 'P';
+						const bIsP = b.hold_level === 'P';
+						if (aIsP && !bIsP) return -1;
+						if (!aIsP && bIsP) return 1;
 
-					if (numA !== numB) return numA - numB;
-				}
+						// Then sort the remaining numbered holds
+						const numA = parseHoldNumber(a.hold_level) || 100;
+						const numB = parseHoldNumber(b.hold_level) || 100;
 
-				// 5. PRIORITY TOGGLES (If two events are H1 in the Main Room, the starred one goes first)
-				const aIsPrio = a.details?.is_priority ? 1 : 0;
-				const bIsPrio = b.details?.is_priority ? 1 : 0;
-				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
+						if (numA !== numB) return numA - numB;
+					}
 
-				// 6. Finally, sort alphabetically if everything else is identical
-				return (a.title || '').localeCompare(b.title || '');
-			});
+					// 5. PRIORITY TOGGLES (If two events are H1 in the Main Room, the starred one goes first)
+					const aIsPrio = a.details?.is_priority ? 1 : 0;
+					const bIsPrio = b.details?.is_priority ? 1 : 0;
+					if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
+
+					// 6. Finally, sort alphabetically if everything else is identical
+					return (a.title || '').localeCompare(b.title || '');
+				})
+		);
 	}
 
 	function handleDragStart(e: DragEvent, event: CalendarEvent) {
@@ -224,11 +231,12 @@
 						</div>
 
 						<div class="flex-1 flex flex-col gap-[3px] pr-1 z-10 mt-[20px]">
-							{#each sortEventsForDisplay(day.events) as event}
+							{#each sortEventsForDisplay(day.events, showHiddenHolds) as event}
 								{@const color = getBaseColor(event)}
 								{@const isDimmed =
 									(isAddingEvent && !event.isDraft) ||
-									(managingGroupId !== null && event.group_id !== managingGroupId)}
+									(managingGroupId !== null && event.group_id !== managingGroupId) ||
+									(showHiddenHolds && event.status !== 'HIDDEN')}
 								{@const isDisabled =
 									isAddingEvent ||
 									(managingGroupId !== null && event.group_id !== managingGroupId) ||
@@ -351,6 +359,60 @@
 													>
 														<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
 													</svg>
+												{/if}
+											</div>
+										{/if}
+									</div>
+								{:else if event.status === 'HIDDEN'}
+									<div
+										class="flex items-center gap-1.5 rounded-[4px] min-h-[20px] transition-transform active:scale-95 overflow-hidden {isDisabled
+											? 'pointer-events-none'
+											: canEdit
+												? 'cursor-grab active:cursor-grabbing'
+												: 'cursor-pointer'}"
+										draggable={!isAddingEvent && canEdit}
+										on:dragstart={(e) => handleDragStart(e, event)}
+										on:click|stopPropagation={(e) => handleEventClick(event, e)}
+										on:keydown={(e) => handleKeydown(e, () => handleEventClick(event, e))}
+										role="button"
+										tabindex="0"
+									>
+										<div
+											class="w-[22px] h-[20px] rounded-[4px] flex items-center justify-center text-[var(--color-gray3)] font-black text-[10px] shrink-0 border border-[var(--color-gray3)]/30 bg-transparent"
+										>
+											{formatLabel(event)}
+										</div>
+										<span
+											class="truncate font-bold text-[11px] text-[var(--color-gray3)] leading-none pb-[1px] max-w-[14vw]"
+										>
+											{formatEventTitle(event)}
+										</span>
+
+										{#if event.event_details?.is_target || event.event_details?.is_challenge}
+											<div
+												class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-[var(--color-gray3)]"
+											>
+												{#if event.event_details?.is_target}
+													<svg
+														class="w-3 h-3"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
+														></circle><circle cx="12" cy="12" r="2"></circle></svg
+													>
+												{/if}
+												{#if event.event_details?.is_challenge}
+													<svg
+														class="w-3 h-3"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"
+														></polygon></svg
+													>
 												{/if}
 											</div>
 										{/if}

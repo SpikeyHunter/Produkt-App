@@ -11,6 +11,7 @@
 	import CalendarContactList from '$lib/components/calendar/CalendarContactList.svelte';
 	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
 	import { calculateHoldShifts } from '$lib/utils/holdManager';
+	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
 
 	export let show: boolean;
 	export let event: CalendarEvent | null;
@@ -426,40 +427,79 @@
 		}
 	}
 	async function executeConfirm(e: CustomEvent) {
-		const { sendEmail, sendSms, confirmAllRooms, clearOtherHolds, clearSameRoomHolds } = e.detail;
+		const {
+			sendEmail,
+			sendSms,
+			confirmAllRooms,
+			clearOtherHolds,
+			clearSameRoomHolds,
+			confirmAllDates
+		} = e.detail;
 		if (!localEvent) return;
 		saving = true;
+
 		try {
 			// 1. Database Updates
-			await supabase
-				.from('calendar_events')
-				.update({ status: 'CONFIRMED', hold_level: null })
-				.eq('id', localEvent.id);
+			let impactedDates = [localEvent.date]; // Default to the single date
 
-			await supabase
-				.from('calendar_events')
-				.update({ status: 'HIDDEN', hold_level: null })
-				.eq('group_id', localEvent.group_id)
-				.in('status', ['HOLD', 'PENDING'])
-				.neq('id', localEvent.id)
-				.neq('date', localEvent.date);
+			if (confirmAllDates) {
+				// 🟢 NEW: Fetch the dates we are about to confirm so we can email them
+				let fetchQuery = supabase
+					.from('calendar_events')
+					.select('date')
+					.eq('group_id', localEvent.group_id)
+					.in('status', ['HOLD', 'PENDING']);
 
-			if (sameEventOtherRoomsCount > 0) {
-				if (optConfirmAllRooms) {
-					await supabase
-						.from('calendar_events')
-						.update({ status: 'CONFIRMED', hold_level: null })
-						.eq('group_id', localEvent.group_id)
-						.eq('date', localEvent.date)
-						.in('status', ['HOLD', 'PENDING']);
-				} else {
-					await supabase
-						.from('calendar_events')
-						.update({ status: 'HIDDEN' })
-						.eq('group_id', localEvent.group_id)
-						.eq('date', localEvent.date)
-						.in('status', ['HOLD', 'PENDING'])
-						.neq('id', localEvent.id);
+				if (!confirmAllRooms) {
+					fetchQuery = fetchQuery
+						.eq('venue->>category', localEvent.venue?.category || '')
+						.eq('venue->>room', localEvent.venue?.room || '');
+				}
+				const { data: dateData } = await fetchQuery;
+				if (dateData) {
+					impactedDates = [...new Set(dateData.map((d) => d.date))]; // Get unique dates
+				}
+
+				// 🟢 NEW LOGIC: Confirm ALL dates for this event
+				let query = supabase
+					.from('calendar_events')
+					.update({ status: 'CONFIRMED', hold_level: null })
+					.eq('group_id', localEvent.group_id)
+					.in('status', ['HOLD', 'PENDING']);
+
+				// If they DID NOT check "Confirm all rooms", we only confirm dates for the current room
+				if (!confirmAllRooms) {
+					query = query
+						.eq('venue->>category', localEvent.venue?.category || '')
+						.eq('venue->>room', localEvent.venue?.room || '');
+				}
+
+				await query;
+			} else {
+				// 🟠 ORIGINAL LOGIC: Confirm single date
+				await supabase
+					.from('calendar_events')
+					.update({ status: 'CONFIRMED', hold_level: null })
+					.eq('id', localEvent.id);
+
+				// Hides all holds for THIS event on OTHER dates
+				await supabase
+					.from('calendar_events')
+					.update({ status: 'HIDDEN', hold_level: null })
+					.eq('group_id', localEvent.group_id)
+					.in('status', ['HOLD', 'PENDING'])
+					.neq('id', localEvent.id)
+					.neq('date', localEvent.date);
+
+				if (sameEventOtherRoomsCount > 0) {
+					if (confirmAllRooms) {
+						await supabase
+							.from('calendar_events')
+							.update({ status: 'CONFIRMED', hold_level: null })
+							.eq('group_id', localEvent.group_id)
+							.eq('date', localEvent.date)
+							.in('status', ['HOLD', 'PENDING']);
+					}
 				}
 			}
 
@@ -471,7 +511,7 @@
 					.eq('date', localEvent.date)
 					.neq('group_id', localEvent.group_id)
 					.in('status', ['HOLD', 'PENDING']);
-			} 
+			}
 			// Clear ONLY holds that share the exact same venue AND room
 			else if (clearSameRoomHolds) {
 				await supabase
@@ -482,6 +522,16 @@
 					.eq('venue->>category', localEvent.venue?.category || '')
 					.eq('venue->>room', localEvent.venue?.room || '')
 					.in('status', ['HOLD', 'PENDING']);
+			}
+
+			try {
+				const updatedEventToSync = {
+					...localEvent,
+					status: 'CONFIRMED'
+				} as CalendarEvent;
+				await syncEventToTechSchedule(updatedEventToSync, 'CONFIRMED');
+			} catch (syncErr) {
+				console.error('Tech Schedule Sync Failed:', syncErr);
 			}
 
 			// 2. Dispatch Emails and SMS
@@ -495,11 +545,11 @@
 				eventTitle: localEvent.title,
 				eventType: localEvent.details?.type || 'Event',
 				eventDate: localEvent.date,
+				eventDates: impactedDates, // 👈 ADD THIS LINE
 				venueName:
 					`${localEvent.venue?.category || ''} ${localEvent.venue?.room ? '/ ' + localEvent.venue.room : ''}`.trim(),
 				authUserName: authName
 			};
-
 			const promises = [];
 
 			if (sendEmail) {
@@ -922,7 +972,7 @@
 		showConflicts={true}
 		{sameEventOtherRoomsCount}
 		{otherEventsOnDayCount}
-		{otherEventsSameRoomCount} 
+		{otherEventsSameRoomCount}
 		on:viewContacts={() => (showContactListModal = true)}
 		on:confirm={executeConfirm}
 	/>

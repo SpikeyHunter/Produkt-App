@@ -39,7 +39,7 @@ export const POST: RequestHandler = async ({ request }) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
     <meta name="supported-color-schemes" content="light dark">
-    <title>You've been invited to join Produkt Calendar</title>
+    <title>You've been invited to join Produkt Calendar, since we will NOT be using PRISM from now on.</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Helvetica+Neue:wght@700&display=swap');
         
@@ -94,7 +94,8 @@ export const POST: RequestHandler = async ({ request }) => {
         }
         
         .logo {
-            max-width: 200px;
+            width: 100%; 
+            max-width: 300px;
             height: auto;
         }
         
@@ -281,12 +282,12 @@ export const POST: RequestHandler = async ({ request }) => {
 <body>
     <div class="email-container">
         <div class="header">
-            <img src="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO2.png" alt="ProduktXX" class="logo">
+        <img src="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/NCG_ProduktXX_NOIR.png" alt="ProduktXX" class="logo">
         </div>
         
         <div class="content">
             <h1 class="welcome-title">Hi ${name},</h1>
-            <p class="welcome-subtitle">You've been invited to join the Produkt Calendar</p>
+            <p class="welcome-subtitle">You've been invited to join the Produkt Calendar, since we will NOT be using PRISM from now on.</p>
             
             <div class="verification-box">
                 <p class="verification-text">
@@ -331,7 +332,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			from: `"Produkt App" <support@produkt.ca>`,
 			to: email,
 			subject: `Produkt Calendar - Accept your invitation`,
-			text: `Hi ${name},\n\nYou've been invited to join the Produkt Calendar.\n\nSign in with this temporary password: ${defaultPassword}\n\nYou'll be asked to configure yours after.\n\nLogin here: ${loginUrl}`,
+			text: `Hi ${name},\n\nYou've been invited to join the Produkt Calendar, since we will NOT be using PRISM from now on.\n\nSign in with this temporary password: ${defaultPassword}\n\nYou'll be asked to configure yours after.\n\nLogin here: ${loginUrl}`,
 			html: htmlTemplate
 		};
 

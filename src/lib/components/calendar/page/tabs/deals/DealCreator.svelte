@@ -5,7 +5,9 @@
 	import DealType from './DealType.svelte';
 	import DealDescription from './DealDescription.svelte';
 	import DealDetails from './DealDetails.svelte';
-	import DatePickerCompact from '$lib/components/buttons/DatePickerCompact.svelte';
+
+	export let event_date: string = '';
+
 	import type {
 		DealRole,
 		DealTypeOption,
@@ -19,7 +21,7 @@
 	let selectedArtist: {
 		name: string;
 		id?: string | number;
-		picture?: string; 
+		picture?: string;
 		isCustom?: boolean;
 	} | null = null;
 
@@ -36,10 +38,18 @@
 		id: '',
 		artistName: '',
 		role: 'Headliner' as DealRole,
-		dealType: 'Versus' as DealTypeOption,
+		dealType: 'Flat' as DealTypeOption,
 		guaranteeAmount: 0,
 		description: {
-			hotels: { enabled: true, nights: 0, rooms: 0, suites: 0, custom_room: false, custom_name: '', custom_amount: 0 },
+			hotels: {
+				enabled: true,
+				nights: 0,
+				rooms: 0,
+				suites: 0,
+				custom_room: false,
+				custom_name: '',
+				custom_amount: 0
+			},
 			groundTransport: { enabled: true, notes: '' },
 			immigration: { enabled: true, notes: '' },
 			other: { enabled: false, notes: '' }
@@ -66,7 +76,7 @@
 			newDeal.artistName = '';
 		}
 	}
-	
+
 	// --- Dynamic Summary Generator ---
 	$: dealSummary = (() => {
 		if (newDeal.dealType === 'Flat') return '';
@@ -80,7 +90,7 @@
 		if (cleanType === '% of Net') cleanType = 'of Net Revenue';
 		else if (cleanType === '% of Net Gross') cleanType = 'of Net Gross';
 		else if (cleanType.startsWith('% ')) cleanType = cleanType.substring(2);
-		else if (cleanType.startsWith('%')) cleanType = cleanType.substring(1).trim();
+		else if (cleanType.startsWith('% ')) cleanType = cleanType.substring(1).trim();
 
 		let afterStr = 'Costs';
 		if (newDeal.details.afterType === 'Manual Split Point') {
@@ -124,6 +134,81 @@
 	function removeDeposit(id: string) {
 		newDeal.deposits = newDeal.deposits.filter((d) => d.id !== id);
 	}
+
+	// Ensure you have your event date variable declared somewhere, like:
+	// export let event_date: string = '';
+
+	// --- Custom Inline Date Picker State ---
+	let activeDateId: string | null = null;
+	let calMonth = new Date().getMonth();
+	let calYear = new Date().getFullYear();
+
+	$: calDays = (() => {
+		const firstDay = new Date(calYear, calMonth, 1).getDay();
+		const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+		return Array.from({ length: firstDay + daysInMonth }, (_, i) =>
+			i < firstDay ? null : i - firstDay + 1
+		);
+	})();
+
+	const monthNames = [
+		'January',
+		'February',
+		'March',
+		'April',
+		'May',
+		'June',
+		'July',
+		'August',
+		'September',
+		'October',
+		'November',
+		'December'
+	];
+
+	export function formatMoney(amount: number | string | null | undefined): string {
+		if (amount === null || amount === undefined || isNaN(Number(amount)) || amount === '')
+			return '';
+		const num = Number(amount);
+		const hasDecimals = num % 1 !== 0;
+		const formatted = new Intl.NumberFormat('en-US', {
+			minimumFractionDigits: hasDecimals ? 2 : 0,
+			maximumFractionDigits: hasDecimals ? 2 : 0
+		}).format(num);
+		return `${formatted}$`;
+	}
+
+	// Initialize the display value based on the default guaranteeAmount
+	let displayAmount = formatMoney(newDeal.guaranteeAmount);
+
+	function handleInput(event: Event) {
+		const target = event.target as HTMLInputElement;
+		// Strip everything except numbers, decimals, and negative signs
+		const rawString = target.value.replace(/[^0-9.-]+/g, '');
+		const parsed = parseFloat(rawString);
+
+		// Update the actual data silently
+		newDeal.guaranteeAmount = isNaN(parsed) ? 0 : parsed;
+		displayAmount = target.value;
+	}
+
+	function handleFocus() {
+		// Remove formatting so it's easy to edit, but hide '0' to avoid annoying placeholder text
+		if (newDeal.guaranteeAmount !== undefined && newDeal.guaranteeAmount !== 0) {
+			displayAmount = newDeal.guaranteeAmount.toString();
+		} else if (newDeal.guaranteeAmount === 0) {
+			displayAmount = '';
+		}
+	}
+
+	function handleBlur() {
+		// Apply formatting when they click away
+		if (newDeal.guaranteeAmount !== null && newDeal.guaranteeAmount !== undefined) {
+			displayAmount = formatMoney(newDeal.guaranteeAmount);
+		} else {
+			displayAmount = '';
+		}
+	}
 </script>
 
 <div class="bg-gray1 p-8 rounded-2xl flex flex-col max-w-4xl text-white">
@@ -161,25 +246,30 @@
 		</div>
 	</div>
 
-	<div class='mb-6'>
+	<div class="mb-2">
 		<DealType bind:dealType={newDeal.dealType} />
 
 		{#if newDeal.dealType !== 'Door Deal'}
-			<div transition:slide={{ duration: 300 }} class="mt-6 px-2 w-1/2 overflow-hidden">
+			<div transition:slide={{ duration: 300 }} class="mt-6 px-2 w-1/2">
 				<label
 					for="guaranteeAmount"
 					class="block text-xs text-gray2 mb-2 font-bold uppercase tracking-wide"
 					>Guarantee Amount (USD)</label
 				>
 				<div class="relative">
-					<span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">$</span>
 					<input
 						id="guaranteeAmount"
-						type="number"
-						bind:value={newDeal.guaranteeAmount}
-						class="w-250px bg-navbar rounded-3xl pl-8 pr-4 py-3 text-white focus:outline-none focus:ring-1 focus:ring-lime"
+						type="text"
+						bind:value={displayAmount}
+						on:input={handleInput}
+						on:focus={handleFocus}
+						on:blur={handleBlur}
+						class="w-150px bg-navbar rounded-3xl pl-5 pr-2 py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime"
 					/>
 				</div>
+				{#if newDeal.guaranteeAmount < 0}
+					<div class="text-problem text-xs mt-2 ml-2 font-medium">Amount cannot be negative</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
@@ -187,7 +277,6 @@
 	<div class="px-2 mb-12">
 		<DealDescription bind:description={newDeal.description} />
 	</div>
-
 
 	{#if newDeal.dealType !== 'Flat'}
 		<div transition:slide={{ duration: 300 }} class="px-2 mb-12 overflow-hidden flex flex-col">
@@ -218,79 +307,235 @@
 		{#each newDeal.deposits as deposit (deposit.id)}
 			<div
 				transition:slide={{ duration: 300 }}
-				class="flex items-end gap-4 mb-5 p-4 bg-navbar rounded-2xl overflow-hidden"
+				class="flex items-start gap-4 mb-5 p-4 bg-navbar rounded-2xl overflow-visible"
 			>
-				<div class="flex-1">
-					<div class="block text-xs text-gray2 mb-2 font-bold">Deposit Type</div>
-					<div class="flex bg-black rounded-xl p-1">
+				<div class="flex-1 relative group/tooltip">
+					<div class="block text-xs text-gray3 mb-2 ml-2 font-bold">Deposit Type</div>
+					<div class="flex bg-black/20 rounded-3xl p-1">
 						{#each depositTypes as depType}
 							<button
-								on:click={() => (deposit.type = depType)}
-								class="flex-1 py-2 text-sm rounded-lg {deposit.type === depType
-									? 'bg-gray1 text-white font-bold'
-									: 'text-gray2 cursor-pointer'}">{depType}</button
+								on:click={() => {
+									if (newDeal.dealType === 'Door Deal' && depType !== 'Flat') return;
+									deposit.type = depType;
+								}}
+								disabled={newDeal.dealType === 'Door Deal' && depType !== 'Flat'}
+								class="flex-1 py-2 text-sm rounded-3xl transition-colors {deposit.type === depType
+									? 'bg-lime/10 text-lime font-bold'
+									: newDeal.dealType === 'Door Deal' && depType !== 'Flat'
+										? 'text-gray-500 cursor-not-allowed opacity-50'
+										: 'text-gray3 cursor-pointer hover:text-white'}"
 							>
+								{depType}
+							</button>
 						{/each}
 					</div>
+
+					{#if newDeal.dealType === 'Door Deal'}
+						<div
+							class="absolute top-full mt-1 left-0 hidden group-hover/tooltip:block bg-[#1A1A1A] hover:cursor-pointer text-problem text-xs px-2 py-0.5 rounded-3xl whitespace-nowrap z-[40] shadow-xl"
+						>
+							Door Deal deposits can only be flat.
+						</div>
+					{/if}
 				</div>
 
-				<div class="flex-1">
-					<label for="amount-{deposit.id}" class="block text-xs text-gray2 mb-2 font-bold"
-						>Amount</label
+				<div class="flex-1 relative">
+					<label
+						for="amount-{deposit.id}"
+						class="block text-xs text-gray2 mb-2 ml-2 font-bold whitespace-nowrap"
 					>
-					<input
-						id="amount-{deposit.id}"
-						type="number"
-						bind:value={deposit.amount}
-						class="w-full bg-black rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-1 focus:ring-lime"
-					/>
+						Amount
+						{#if newDeal.dealType !== 'Door Deal'}
+							<span class="text-lime ml-1">
+								({deposit.type === 'Percent'
+									? formatMoney((newDeal.guaranteeAmount * (deposit.amount || 0)) / 100)
+									: formatMoney(deposit.amount || 0)})
+							</span>
+						{/if}
+					</label>
+
+					<div class="relative">
+						<span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">
+							{deposit.type === 'Percent' ? '% ' : '$ ' }
+						</span>
+
+						<input
+							id="amount-{deposit.id}"
+							type="number"
+							bind:value={deposit.amount}
+							class="w-full bg-black/20 rounded-3xl pl-8 pr-4 py-2 text-white focus:outline-none focus:ring-1 focus:ring-lime [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+						/>
+					</div>
+
+					{#if deposit.type === 'Percent' && deposit.amount > 100}
+						<div class="text-problem text-xs mt-2 ml-2 font-medium leading-tight">
+							Cannot exceed 100%
+						</div>
+					{:else if deposit.type === 'Flat' && newDeal.dealType !== 'Door Deal' && deposit.amount > newDeal.guaranteeAmount}
+						<div class="text-problem text-xs mt-2 ml-2 font-medium leading-tight">
+							Cannot exceed guarantee
+						</div>
+					{/if}
 				</div>
 
 				<div class="flex-[1.5]">
-					<div class="block text-xs text-gray2 mb-2 font-bold">Due Date Type</div>
-					<div class="flex bg-black rounded-xl p-1">
+					<div class="block text-xs text-gray2 mb-2 ml-2 font-bold">Due Date Type</div>
+					<div class="flex bg-black/20 rounded-3xl p-1">
 						{#each dueDateTypes as dtType}
 							<button
 								on:click={() => (deposit.dueDateType = dtType)}
-								class="flex-1 py-2 text-sm rounded-lg {deposit.dueDateType === dtType
-									? 'bg-gray1 text-white font-bold'
-									: 'text-gray2 cursor-pointer'}">{dtType}</button
+								class="flex-1 py-2 text-sm rounded-3xl {deposit.dueDateType === dtType
+									? 'bg-lime/10 text-lime font-bold'
+									: 'text-gray3 cursor-pointer hover:text-white transition-colors'}"
 							>
+								{dtType}
+							</button>
 						{/each}
 					</div>
 				</div>
 
 				{#if deposit.dueDateType === 'Relative'}
 					<div class="flex-[1]">
-						<label for="days-{deposit.id}" class="block text-xs text-gray2 mb-2 font-bold"
-							>Days Before</label
-						>
+						<label for="days-{deposit.id}" class="block text-xs text-gray2 mb-2 ml-2 font-bold">
+							Days Before
+						</label>
 						<input
 							id="days-{deposit.id}"
 							type="number"
 							bind:value={deposit.daysBeforeEvent}
-							class="w-full bg-black rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-1 focus:ring-lime"
+							class="w-full bg-black/20 rounded-3xl px-4 py-2 text-white focus:outline-none focus:ring-1 focus:ring-lime [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
 						/>
 					</div>
 				{:else}
-					<div class="flex-[1]">
+					<div class="flex-[1] relative z-50">
 						<div class="block text-xs text-gray2 mb-2 font-bold">Specific Date</div>
-						<div class="bg-black rounded-xl px-2 py-2 flex items-center h-[48px]">
-							<DatePickerCompact
-								bind:value={deposit.specificDate}
-								width="w-full"
-								variant="outline"
+
+						<div class="relative w-full">
+							<input
+								id="date-{deposit.id}"
+								type="text"
+								readonly
+								value={deposit.specificDate
+									? new Date(deposit.specificDate + 'T00:00:00').toLocaleDateString('en-US', {
+											day: 'numeric',
+											month: 'short',
+											year: 'numeric'
+										})
+									: ''}
 								placeholder="Select date"
+								on:click={() => {
+									if (activeDateId === deposit.id) {
+										activeDateId = null;
+									} else {
+										activeDateId = deposit.id;
+										// 1. Check for specific date
+										if (deposit.specificDate) {
+											const d = new Date(deposit.specificDate + 'T00:00:00');
+											calMonth = d.getMonth();
+											calYear = d.getFullYear();
+										}
+										// 2. Fall back to event date (make sure event_date is available in this file)
+										else if (typeof event_date !== 'undefined' && event_date) {
+											const d = new Date(event_date + 'T00:00:00');
+											if (!isNaN(d.getTime())) {
+												calMonth = d.getMonth();
+												calYear = d.getFullYear();
+											}
+										}
+										// 3. Absolute fallback to today
+										else {
+											const now = new Date();
+											calMonth = now.getMonth();
+											calYear = now.getFullYear();
+										}
+									}
+								}}
+								class="w-full bg-black/20 rounded-3xl px-4 py-2 text-md text-white cursor-pointer focus:outline-none focus:ring-1 focus:ring-lime hover:bg-black/40 transition-colors"
 							/>
+
+							{#if activeDateId === deposit.id}
+								<button
+									type="button"
+									class="fixed inset-0 w-full h-full z-40 cursor-default bg-transparent border-none"
+									aria-label="Close calendar"
+									on:click={() => (activeDateId = null)}
+								></button>
+
+								<div
+									class="absolute bottom-full mb-2 left-0 w-64 bg-navbar border border-lime rounded-xl shadow-2xl z-50 p-4"
+								>
+									<div class="flex justify-between items-center mb-4">
+										<button
+											type="button"
+											class="text-gray2 hover:text-lime p-1 transition-colors cursor-pointer"
+											on:click={() => {
+												if (calMonth === 0) {
+													calMonth = 11;
+													calYear--;
+												} else {
+													calMonth--;
+												}
+											}}
+										>
+											◀
+										</button>
+										<div class="text-white font-bold text-sm">{monthNames[calMonth]} {calYear}</div>
+										<button
+											type="button"
+											class="text-gray2 hover:text-lime p-1 transition-colors cursor-pointer"
+											on:click={() => {
+												if (calMonth === 11) {
+													calMonth = 0;
+													calYear++;
+												} else {
+													calMonth++;
+												}
+											}}
+										>
+											▶
+										</button>
+									</div>
+
+									<div class="grid grid-cols-7 gap-1 mb-2 text-center text-xs text-gray2 font-bold">
+										{#each ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as dayName}
+											<div>{dayName}</div>
+										{/each}
+									</div>
+
+									<div class="grid grid-cols-7 gap-1">
+										{#each calDays as day}
+											{#if day === null}
+												<div></div>
+											{:else}
+												<button
+													type="button"
+													class="h-8 w-full rounded-md flex items-center justify-center text-sm transition-colors cursor-pointer
+                                                        {deposit.specificDate ===
+													`${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+														? 'bg-lime text-black font-bold'
+														: 'text-white hover:bg-gray1 border border-transparent hover:border-lime/50'}"
+													on:click={() => {
+														deposit.specificDate = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+														activeDateId = null; // Close popup after selection
+													}}
+												>
+													{day}
+												</button>
+											{/if}
+										{/each}
+									</div>
+								</div>
+							{/if}
 						</div>
 					</div>
 				{/if}
 
 				<button
 					on:click={() => removeDeposit(deposit.id)}
-					class="text-gray2 hover:text-red-500 p-3 cursor-pointer rounded-xl bg-black transition-colors"
-					>✕</button
+					class="text-gray2 self-center translate-y-2 hover:text-problem hover:bg-problem/40 rounded-3xl px-3 py-2 cursor-pointer transition-colors"
 				>
+					✕
+				</button>
 			</div>
 		{/each}
 

@@ -17,6 +17,7 @@
 	import ArtistSearch from '$lib/components/calendar/page/tabs/deals/ArtistSearch.svelte';
 	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
 	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
+	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
 
 	export let isOpen: boolean = false;
 	export let dates: string[] = [];
@@ -646,7 +647,7 @@
 							.from('calendar')
 							.insert({
 								title: title,
-								creatorName: creatorName,
+								creator_name: creatorName, // ✅ CORRECTED TO SNAKE_CASE
 								details: buildDetails(priorityHold),
 								event_deal: buildEventDeal()
 							})
@@ -721,6 +722,7 @@
 				}
 
 				// Update Bumped Events
+				// Update Bumped Events
 				for (const displaced of displacedDrafts) {
 					await supabase
 						.from('calendar_events')
@@ -729,6 +731,22 @@
 							status: displaced.status
 						})
 						.eq('id', displaced.id);
+				}
+			}
+
+			if (eventStatus === 'CONFIRMED' && allSavedEvents.length > 0) {
+				for (const savedEvent of allSavedEvents) {
+					try {
+						// Build a complete payload that matches the CalendarEvent type
+						const syncPayload = {
+							...savedEvent,
+							details: savedEvent.calendar?.details || buildDetails(priorityHold),
+							title: savedEvent.calendar?.title || title
+						};
+						await syncEventToTechSchedule(syncPayload, 'CONFIRMED');
+					} catch (syncErr) {
+						console.error('Tech Schedule Sync Failed:', syncErr);
+					}
 				}
 			}
 
@@ -744,6 +762,7 @@
 					eventTitle: firstEvent.calendar?.title || firstEvent.title || 'Unnamed Event',
 					eventType: firstEvent.details?.type || 'Event',
 					eventDate: firstEvent.date,
+					eventDates: allSavedEvents.map((e) => e.date), // 👈 ADD THIS LINE
 					venueName:
 						`${firstEvent.venue?.category || ''} ${firstEvent.venue?.room ? '/ ' + firstEvent.venue.room : ''}`.trim(),
 					authUserName: creatorName,

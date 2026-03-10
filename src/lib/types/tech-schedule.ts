@@ -15,8 +15,8 @@ export interface TechRow {
   dt: string;
   artist_liaison: string;
   notes: string;
-  // --- ADD THIS LINE ---
   calendar_event_id?: string | null; 
+  group_id?: string | null; 
 }
 
 export type TechRowColumn = keyof TechRow;

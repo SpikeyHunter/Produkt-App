@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { goto, invalidateAll } from '$app/navigation';
+	import { authStore } from '$lib/stores/authStore'; // <-- Corrected Auth Import
 	import { supabase } from '$lib/supabase';
 	import type { CalendarEvent } from '$lib/types/calendar-types';
+	import CalendarModify from '../../CalendarModify.svelte';
 
 	export let event: CalendarEvent;
 	export let groupEvents: CalendarEvent[];
@@ -11,11 +13,9 @@
 
 	$: activeHolds = groupEvents.filter(e => e.status !== 'HIDDEN').sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 	
-	// Local staged dates state for the Confirm/Cancel flow
 	let stagedDates: string[] = [];
 
 	$: holdCount = stagedDates.length;
-	
 	$: dateRangeText = (() => {
 		if (holdCount === 0) return 'No dates';
 		
@@ -27,12 +27,30 @@
 		if (first.getMonth() === last.getMonth()) return `${first.toLocaleString('en-US', {month: 'short'})} ${first.getDate()} - ${last.getDate()}, ${first.getFullYear()}`;
 		return `${first.toLocaleString('en-US', {month: 'short', day:'numeric'})} - ${last.toLocaleString('en-US', {month: 'short', day:'numeric', year:'numeric'})}`;
 	})();
-
+	
 	const today = new Date();
 	let viewMonth = new Date(event.date + 'T00:00:00');
 	$: daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate();
 	$: firstDayIndex = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1).getDay();
-	
+
+	let showModifyModal = false;
+	let isSavingModification = false;
+	let oldDatesToPass: string[] = [];
+	let newDatesToPass: string[] = [];
+
+	// MATCHES EVENTHEADER LOGIC EXACTLY
+	function getVenueName(e: any) {
+		const v = e.venue || e.details?.venue || e.calendar?.details?.venue;
+		if (!v) return 'TBD';
+		
+		const vParsed = typeof v === 'string' ? JSON.parse(v) : v;
+		if (vParsed.category) {
+			return `${vParsed.category} ${vParsed.room ? '/ ' + vParsed.room : ''}`.trim();
+		}
+		
+		return vParsed.label || vParsed.name || vParsed.title || vParsed.value || 'TBD';
+	}
+
 	function openPopover() {
 		stagedDates = activeHolds.map(h => h.date);
 		viewMonth = new Date(event.date + 'T00:00:00');
@@ -48,42 +66,99 @@
 		}
 	}
 
-	async function confirmDates() {
+	function promptModifyDates() {
+		oldDatesToPass = activeHolds.map(h => h.date);
+		newDatesToPass = [...stagedDates].sort();
+
+		if (JSON.stringify(oldDatesToPass.sort()) === JSON.stringify(newDatesToPass)) {
+			showPopover = false;
+			return;
+		}
+
 		showPopover = false;
-		const originalDates = activeHolds.map(h => h.date);
-		
-		const datesToAdd = stagedDates.filter(d => !originalDates.includes(d));
-		const datesToRemove = originalDates.filter(d => !stagedDates.includes(d));
+		showModifyModal = true;
+	}
 
-		// Remove Logic
-		if (datesToRemove.length > 0) {
-			const idsToDelete = activeHolds.filter(h => datesToRemove.includes(h.date)).map(h => h.id);
-			await supabase.from('calendar_events').delete().in('id', idsToDelete);
+	async function handleModifyConfirm(e: CustomEvent) {
+		isSavingModification = true;
+		const { sendEmail, sendSms, oldDates, newDates } = e.detail;
 
-			// Safety check: if current event row was deleted, redirect
-			if (idsToDelete.includes(event.id)) {
-				const survivor = groupEvents.find(e => !idsToDelete.includes(e.id) && !e.status.includes('HIDDEN'));
-				if (survivor) goto(`/calendar/${survivor.short_id}`);
-				else goto('/calendar');
-				return;
+		const oldHolds = [...activeHolds].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+		const sortedNewDates = [...newDates].sort();
+
+		const updates: {id: string, date: string}[] = [];
+		const inserts: any[] = [];
+		const deletes: string[] = [];
+		let currentEventDeleted = false;
+
+		const maxLen = Math.max(oldHolds.length, sortedNewDates.length);
+		for (let i = 0; i < maxLen; i++) {
+			if (i < oldHolds.length && i < sortedNewDates.length) {
+				if (oldHolds[i].date !== sortedNewDates[i]) {
+					updates.push({ id: oldHolds[i].id, date: sortedNewDates[i] });
+				}
+			} else if (i < sortedNewDates.length) {
+				inserts.push({
+					group_id: event.group_id,
+					creator_name: event.creator_name,
+					date: sortedNewDates[i],
+					status: event.status, 
+					hold_level: event.hold_level, 
+					venue: event.venue,
+					time: event.time
+				});
+			} else if (i < oldHolds.length) {
+				deletes.push(oldHolds[i].id);
+				if (oldHolds[i].id === event.id) currentEventDeleted = true;
 			}
 		}
 
-		// Add Logic
-		if (datesToAdd.length > 0) {
-			const newRows = datesToAdd.map(date => ({
-				group_id: event.group_id,
-				creator_name: event.creator_name,
-				date: date,
-				status: event.status === 'CONFIRMED' ? 'CONFIRMED' : 'HOLD',
-				hold_level: event.status === 'CONFIRMED' ? null : 'P',
-				venue: event.venue,
-				time: event.time
-			}));
-			await supabase.from('calendar_events').insert(newRows);
+		if (updates.length > 0) {
+			for (const u of updates) {
+				await supabase.from('calendar_events').update({ date: u.date }).eq('id', u.id);
+			}
+		}
+		if (inserts.length > 0) {
+			await supabase.from('calendar_events').insert(inserts);
+		}
+		if (deletes.length > 0) {
+			await supabase.from('calendar_events').delete().in('id', deletes);
 		}
 
-		invalidateAll();
+		if (sendEmail || sendSms) {
+			// MATCHES EVENTHEADER LOGIC EXACTLY
+			const authUser = $authStore?.profile;
+			const authName = authUser
+				? `${authUser.first_name || ''} ${authUser.last_name || ''}`.trim()
+				: 'A team member';
+
+			const payload = {
+				eventId: (event as any).short_id || event.id,
+				eventTitle: (event as any).calendar?.title || 'Event',
+				oldDates,
+				newDates,
+				oldType: (event as any).details?.type || '',
+				newType: (event as any).details?.type || '',
+				venueName: getVenueName(event),
+				authUserName: authName
+			};
+
+			try {
+				if (sendEmail) await fetch('/api/calendar-modify-email', { method: 'POST', body: JSON.stringify(payload) });
+				if (sendSms) await fetch('/api/calendar-modify-sms', { method: 'POST', body: JSON.stringify(payload) });
+			} catch (err) {
+				console.error("Failed to trigger modify notifications", err);
+			}
+		}
+
+		isSavingModification = false;
+		showModifyModal = false;
+
+		if (currentEventDeleted) {
+			goto('/calendar');
+		} else {
+			invalidateAll();
+		}
 	}
 
 	function cancelDates() {
@@ -100,7 +175,7 @@
 <svelte:window on:click={handleWindowClick} />
 
 <div class="relative" bind:this={popupRef}>
-	<button class="flex items-center gap-2 px-3.5 py-2.5 bg-navbar  rounded-3xl hover:bg-white/5 transition-colors cursor-pointer" on:click={openPopover}>
+	<button class="flex items-center gap-2 px-3.5 py-2.5 bg-navbar rounded-3xl hover:bg-white/5 transition-colors cursor-pointer" on:click={openPopover}>
 		<svg class="w-4 h-4 text-lime" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
 		<span class="text-xs font-black text-white">{activeHolds.length} {event.status === 'CONFIRMED' ? 'Confirmed' : 'Holds'}</span>
 		<span class="text-xs font-medium text-gray2">{(() => {
@@ -139,8 +214,17 @@
 
 			<div class="flex gap-3 mt-2 border-t border-gray2/10 pt-4">
 				<button class="flex-1 py-2 rounded-xl bg-transparent border border-gray2/20 text-gray2 hover:text-white hover:bg-white/5 text-sm font-bold transition-colors cursor-pointer" on:click={cancelDates}>Cancel</button>
-				<button class="flex-1 py-2 rounded-xl bg-lime text-black hover:bg-lime/90 text-sm font-bold transition-colors cursor-pointer" on:click={confirmDates}>Confirm</button>
+				<button class="flex-1 py-2 rounded-xl bg-lime text-black hover:bg-lime/90 text-sm font-bold transition-colors cursor-pointer" on:click={promptModifyDates}>Confirm</button>
 			</div>
 		</div>
 	{/if}
 </div>
+
+<CalendarModify
+	show={showModifyModal}
+	oldDates={oldDatesToPass}
+	newDates={newDatesToPass}
+	saving={isSavingModification}
+	on:confirm={handleModifyConfirm}
+	on:cancel={() => (showModifyModal = false)}
+/>

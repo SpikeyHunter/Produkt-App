@@ -24,6 +24,7 @@
 	export let selectedDate: Date = new Date();
 	export let viewType: 'month' | 'week' | 'list' = 'month';
 	export let currentViewDate: Date = new Date();
+	let showHiddenHolds = false;
 
 	// Replaced isEditor with explicit granular roles
 	export let canEdit: boolean = false;
@@ -256,7 +257,6 @@
 				.select('*, calendar(*)')
 				.gte('date', startRangeStr)
 				.lte('date', endRangeStr)
-				.neq('status', 'HIDDEN')
 				.order('date', { ascending: true });
 
 			if (error) throw error;
@@ -481,6 +481,7 @@
 			isEditor={canEdit}
 			bind:listFilterMode={currentListFilter}
 			bind:listLayoutMode
+			bind:showHiddenHolds
 			on:today={goToToday}
 			on:previous={previousPeriod}
 			on:next={nextPeriod}
@@ -499,6 +500,7 @@
 				{stages}
 				{canEdit}
 				{canViewHolds}
+				{showHiddenHolds}
 				activeDates={activeSelectedDates}
 				isAddingEvent={showAddSidebar}
 				deletedIds={manageHoldsDeletedIds}

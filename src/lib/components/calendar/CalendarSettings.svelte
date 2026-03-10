@@ -26,6 +26,35 @@
 	let isTogglingEmail = false;
 	let isTogglingSms = false;
 
+	// Schedule Tech Sync State
+	const availableTypes = [
+		'Corpo',
+		'Bazart Nuits',
+		'Moet City',
+		'NCG Show',
+		'NCG 360',
+		'DSTRKT',
+		'Tour Prod',
+		'Other'
+	];
+
+	const typeColors: Record<string, string> = {
+		Corpo: '#d7b8e8',
+		'Bazart Nuits': '#ffe089',
+		'Moet City': '#f1e5cb',
+		'NCG Show': '#c4ef9b',
+		'NCG 360': '#fa7a90',
+		DSTRKT: '#afd3e9',
+		'Tour Prod': '#aec5d5',
+		Other: '#828282'
+	};
+
+	let techSyncSettingId: string | null = null;
+	let techSyncEnabled = false;
+	let techSyncVenues: string[] = [];
+	let techSyncTypes: string[] = [];
+	let isTogglingTechSync = false;
+
 	async function fetchSettings() {
 		loading = true;
 
@@ -46,7 +75,11 @@
 				.from('calendar_settings')
 				.select('*')
 				.eq('setting_type', 'CONFIG')
-				.in('setting_name', ['Default Email Confirmation', 'Default SMS Confirmation'])
+				.in('setting_name', [
+					'Default Email Confirmation',
+					'Default SMS Confirmation',
+					'Schedule Tech Sync'
+				])
 		]);
 
 		if (!venuesRes.error && venuesRes.data) {
@@ -68,6 +101,7 @@
 				(s) => s.setting_name === 'Default Email Confirmation'
 			);
 			const smsSetting = configRes.data.find((s) => s.setting_name === 'Default SMS Confirmation');
+			const techSyncSetting = configRes.data.find((s) => s.setting_name === 'Schedule Tech Sync'); // NEW
 
 			if (emailSetting) {
 				emailSettingId = emailSetting.id;
@@ -76,6 +110,14 @@
 			if (smsSetting) {
 				smsSettingId = smsSetting.id;
 				defaultSmsEnabled = smsSetting.setting_params?.value ?? true;
+			}
+			// NEW TECH SYNC PARSING
+			if (techSyncSetting) {
+				techSyncSettingId = techSyncSetting.id;
+				const params = techSyncSetting.setting_params || {};
+				techSyncEnabled = params.enabled ?? false;
+				techSyncVenues = params.venues ?? [];
+				techSyncTypes = params.types ?? [];
 			}
 		}
 
@@ -171,6 +213,53 @@
 
 		if (isEmail) isTogglingEmail = false;
 		else isTogglingSms = false;
+	}
+
+	async function saveTechSyncState(newParams: any) {
+		isTogglingTechSync = true;
+
+		const payload = {
+			setting_type: 'CONFIG',
+			setting_name: 'Schedule Tech Sync',
+			setting_params: {
+				enabled: techSyncEnabled,
+				venues: techSyncVenues,
+				types: techSyncTypes,
+				...newParams
+			}
+		};
+
+		if (techSyncSettingId) {
+			await supabase.from('calendar_settings').update(payload).eq('id', techSyncSettingId);
+		} else {
+			const { data } = await supabase.from('calendar_settings').insert([payload]).select().single();
+			if (data) techSyncSettingId = data.id;
+		}
+
+		isTogglingTechSync = false;
+	}
+
+	function toggleTechSync() {
+		techSyncEnabled = !techSyncEnabled;
+		saveTechSyncState({ enabled: techSyncEnabled });
+	}
+
+	function toggleTechSyncVenue(venueId: string) {
+		if (techSyncVenues.includes(venueId)) {
+			techSyncVenues = techSyncVenues.filter((id) => id !== venueId);
+		} else {
+			techSyncVenues = [...techSyncVenues, venueId];
+		}
+		saveTechSyncState({ venues: techSyncVenues });
+	}
+
+	function toggleTechSyncType(type: string) {
+		if (techSyncTypes.includes(type)) {
+			techSyncTypes = techSyncTypes.filter((t) => t !== type);
+		} else {
+			techSyncTypes = [...techSyncTypes, type];
+		}
+		saveTechSyncState({ types: techSyncTypes });
 	}
 
 	function closeModal() {
@@ -369,32 +458,149 @@
 						</h3>
 					</div>
 					<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-						<div class="bg-black/30 rounded-2xl p-5 flex items-center justify-between border border-gray2/5">
+						<div
+							class="bg-black/30 rounded-2xl p-5 flex items-center justify-between border border-gray2/5"
+						>
 							<div>
 								<p class="text-sm font-bold text-white">Email Confirmation</p>
-								<p class="text-xs text-gray2 mt-1">This option will be pre-selected when confirming a show</p>
+								<p class="text-xs text-gray2 mt-1">
+									This option will be pre-selected when confirming a show
+								</p>
 							</div>
 							<button
-								class="relative w-12 h-6 rounded-full transition-colors duration-300 {defaultEmailEnabled ? 'bg-lime' : 'bg-gray2/30'} cursor-pointer {isTogglingEmail ? 'opacity-50 pointer-events-none' : ''}"
+								class="relative w-12 h-6 rounded-full transition-colors duration-300 {defaultEmailEnabled
+									? 'bg-lime'
+									: 'bg-gray2/30'} cursor-pointer {isTogglingEmail
+									? 'opacity-50 pointer-events-none'
+									: ''}"
 								on:click={() => toggleConfig('email')}
 								aria-label="Toggle default email confirmation"
 							>
-								<div class="absolute top-1 left-1 w-4 h-4 rounded-full transition-transform duration-300 shadow-sm {defaultEmailEnabled ? 'translate-x-6 bg-black' : 'translate-x-0 bg-white'}"></div>
+								<div
+									class="absolute top-1 left-1 w-4 h-4 rounded-full transition-transform duration-300 shadow-sm {defaultEmailEnabled
+										? 'translate-x-6 bg-black'
+										: 'translate-x-0 bg-white'}"
+								></div>
 							</button>
 						</div>
 
-						<div class="bg-black/30 rounded-2xl p-5 flex items-center justify-between border border-gray2/5">
+						<div
+							class="bg-black/30 rounded-2xl p-5 flex items-center justify-between border border-gray2/5"
+						>
 							<div>
 								<p class="text-sm font-bold text-white">SMS Confirmation</p>
-								<p class="text-xs text-gray2 mt-1">This option will be pre-selected when confirming a show</p>
+								<p class="text-xs text-gray2 mt-1">
+									This option will be pre-selected when confirming a show
+								</p>
 							</div>
 							<button
-								class="relative w-12 h-6 rounded-full transition-colors duration-300 {defaultSmsEnabled ? 'bg-lime' : 'bg-gray2/30'} cursor-pointer {isTogglingSms ? 'opacity-50 pointer-events-none' : ''}"
+								class="relative w-12 h-6 rounded-full transition-colors duration-300 {defaultSmsEnabled
+									? 'bg-lime'
+									: 'bg-gray2/30'} cursor-pointer {isTogglingSms
+									? 'opacity-50 pointer-events-none'
+									: ''}"
 								on:click={() => toggleConfig('sms')}
 								aria-label="Toggle default SMS confirmation"
 							>
-								<div class="absolute top-1 left-1 w-4 h-4 rounded-full transition-transform duration-300 shadow-sm {defaultSmsEnabled ? 'translate-x-6 bg-black' : 'translate-x-0 bg-white'}"></div>
+								<div
+									class="absolute top-1 left-1 w-4 h-4 rounded-full transition-transform duration-300 shadow-sm {defaultSmsEnabled
+										? 'translate-x-6 bg-black'
+										: 'translate-x-0 bg-white'}"
+								></div>
 							</button>
+						</div>
+					</div>
+				</section>
+
+				<section class="space-y-4">
+					<div class="flex items-center justify-between">
+						<h3 class="text-sm font-black text-lime uppercase tracking-widest">
+							Schedule Tech Sync
+						</h3>
+					</div>
+					<div class="bg-black/30 rounded-2xl p-5 border border-gray2/5 flex flex-col gap-5">
+						<div class="flex items-center justify-between">
+							<div>
+								<p class="text-sm font-bold text-white">Sync to Schedule Tech</p>
+								<p class="text-xs text-gray2 mt-1">
+									Sync by default any confirmed event to schedule tech based on matching criteria
+									below.
+								</p>
+							</div>
+							<button
+								class="relative w-12 h-6 rounded-full transition-colors duration-300 shrink-0 {techSyncEnabled
+									? 'bg-lime'
+									: 'bg-gray2/30'} cursor-pointer {isTogglingTechSync
+									? 'opacity-50 pointer-events-none'
+									: ''}"
+								on:click={toggleTechSync}
+								aria-label="Toggle schedule tech sync"
+							>
+								<div
+									class="absolute top-1 left-1 w-4 h-4 rounded-full transition-transform duration-300 shadow-sm {techSyncEnabled
+										? 'translate-x-6 bg-black'
+										: 'translate-x-0 bg-white'}"
+								></div>
+							</button>
+						</div>
+
+						<div
+							class="flex flex-col gap-4 border-t border-gray2/10 pt-4 {techSyncEnabled
+								? ''
+								: 'opacity-40 pointer-events-none transition-opacity duration-300'}"
+						>
+							<div>
+								<p class="text-xs font-bold text-gray2 uppercase tracking-widest mb-2">
+									Match Venues
+								</p>
+								<div class="flex flex-wrap gap-2">
+									{#each venues as venue}
+										{@const isSelected = techSyncVenues.includes(venue.id)}
+										{@const vColor = getVenueColor(venue)}
+										<button
+											class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border transition-all hover:cursor-pointer {isSelected
+												? 'bg-white/10 text-white'
+												: 'bg-black/40 text-gray2 hover:bg-white/5 hover:text-white'}"
+											style="border-color: {isSelected ? vColor : 'transparent'};"
+											on:click={() => toggleTechSyncVenue(venue.id)}
+										>
+											<div
+												class="w-2.5 h-2.5 rounded-full shadow-sm"
+												style="background-color: {vColor}"
+											></div>
+											{venue.setting_name}
+										</button>
+									{/each}
+									{#if venues.length === 0}
+										<span class="text-xs text-gray2 italic">No venues available.</span>
+									{/if}
+								</div>
+							</div>
+
+							<div>
+								<p class="text-xs font-bold text-gray2 uppercase tracking-widest mb-2">
+									Match Event Types
+								</p>
+								<div class="flex flex-wrap gap-2">
+									{#each availableTypes as type}
+										{@const isSelected = techSyncTypes.includes(type)}
+										{@const tColor = typeColors[type] || typeColors['Other']}
+										<button
+											class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold border transition-all cursor-pointer {isSelected
+												? 'bg-white/10 text-white'
+												: 'bg-black/40 text-gray2 hover:bg-white/5 hover:text-white'}"
+											style="border-color: {isSelected ? tColor : 'transparent'};"
+											on:click={() => toggleTechSyncType(type)}
+										>
+											<div
+												class="w-2.5 h-2.5 rounded-full shadow-sm"
+												style="background-color: {tColor}"
+											></div>
+											{type}
+										</button>
+									{/each}
+								</div>
+							</div>
 						</div>
 					</div>
 				</section>

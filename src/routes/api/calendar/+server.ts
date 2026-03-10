@@ -128,6 +128,47 @@ export const POST: RequestHandler = async ({ request }) => {
 
     const calendar = google.calendar({ version: 'v3', auth });
 
+    // 1. Handle Explicit DB DELETE Operation
+    if (type === 'DELETE') {
+      if (old_record?.calendar_event_id) {
+        try {
+          const deleteKey = TYPE_MAP[old_record.type];
+          if (deleteKey && CALENDARS[deleteKey]) {
+            await calendar.events.delete({ 
+                calendarId: CALENDARS[deleteKey], 
+                eventId: old_record.calendar_event_id 
+            });
+          }
+        } catch (e) {
+          console.warn("Delete failed", e);
+        }
+      }
+      return json({ success: true, action: "deleted" });
+    }
+
+    // 2. ENFORCE STATUS: ONLY PROCEED FOR 'CONFIRMED'
+    // If the event drops back to HOLD or CANCELED, delete it from Google Calendar.
+    if (record?.status && record.status !== 'CONFIRMED') {
+      const targetId = old_record?.calendar_event_id || record.calendar_event_id;
+      
+      // If it previously had an ID on Google, clean it up!
+      if (targetId) {
+        try {
+          const deleteKey = TYPE_MAP[old_record?.type || record.type];
+          if (deleteKey && CALENDARS[deleteKey]) {
+            await calendar.events.delete({ 
+                calendarId: CALENDARS[deleteKey], 
+                eventId: targetId 
+            });
+          }
+        } catch (e) {
+          console.warn("Cleanup delete failed", e);
+        }
+      }
+      return json({ success: true, message: `Ignored, status is ${record.status}` });
+    }
+
+    // --- FROM HERE DOWN, WE ARE ONLY DEALING WITH CONFIRMED EVENTS ---
     const eventType = record?.type || old_record?.type;
     const targetKey = TYPE_MAP[eventType];
 
@@ -147,27 +188,10 @@ export const POST: RequestHandler = async ({ request }) => {
     const calendarId = CALENDARS[targetKey];
     let resultId = record.calendar_event_id;
 
-    // 2. Handle DELETE
-    if (type === 'DELETE') {
-      if (old_record?.calendar_event_id) {
-        try {
-          const deleteKey = TYPE_MAP[old_record.type] || targetKey;
-          await calendar.events.delete({ 
-              calendarId: CALENDARS[deleteKey], 
-              eventId: old_record.calendar_event_id 
-          });
-        } catch (e) {
-          console.warn("Delete failed", e);
-        }
-      }
-      return json({ success: true, action: "deleted" });
-    }
-
     // 3. Handle TYPE CHANGE safely using MOVE or standard PATCH
     if (type === 'UPDATE' && old_record && old_record.type !== record.type) {
         const oldKey = TYPE_MAP[old_record.type];
         
-        // If the event actually changes target calendars (e.g. NCG -> BAZART)
         if (oldKey && targetKey && oldKey !== targetKey && old_record.calendar_event_id) {
             try {
                 await calendar.events.move({
@@ -175,7 +199,6 @@ export const POST: RequestHandler = async ({ request }) => {
                     eventId: old_record.calendar_event_id,
                     destination: CALENDARS[targetKey]
                 });
-                // The event ID remains identical after a move, preventing sync storms!
             } catch (e) {
                 console.warn("Move failed, falling back to recreate", e);
                 try {
@@ -184,8 +207,6 @@ export const POST: RequestHandler = async ({ request }) => {
                 resultId = null; // Force recreate if move fails
             }
         }
-        // Note: If oldKey === targetKey (e.g. NCG Show -> NCG 360), we do nothing here. 
-        // The PATCH command below will natively update the event title without deleting it.
     }
 
     // 4. Prepare Event Data
@@ -228,6 +249,9 @@ export const POST: RequestHandler = async ({ request }) => {
                 requestBody: eventResource
             });
         } catch (e: any) {
+            // IF it was moved to HOLD previously, we deleted it.
+            // When moved BACK to confirmed, this patch will 404, setting resultId = null. 
+            // It will cleanly recreate the event below!
             if (e.code === 404 || e.code === 410) {
                 console.warn(`Event ${resultId} not found, checking for duplicate...`);
                 resultId = null; 

@@ -310,6 +310,61 @@
 		}
 	}
 
+	async function sendBothInvites(member: any, event: Event) {
+		const button = event.target as HTMLButtonElement;
+		const originalText = button.innerText;
+		button.innerText = 'Sending...';
+		button.disabled = true;
+
+		try {
+			if (!member.phone) throw new Error("This user doesn't have a phone number.");
+
+			// 1. Send Email
+			const emailRes = await fetch('/api/calendar-invite-mail', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email: member.email, name: member.name })
+			});
+			const emailData = await emailRes.json();
+			if (!emailRes.ok) throw new Error('Email failed: ' + emailData.message);
+
+			// 2. Send SMS
+			const smsRes = await fetch('/api/calendar-invite-phone', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ phone: member.phone, name: member.name })
+			});
+			const smsData = await smsRes.json();
+			if (!smsRes.ok) throw new Error('SMS failed: ' + smsData.message);
+
+			// 3. Update the database to reflect the "Pending" status
+			await supabase
+				.from('calendar_users')
+				.update({
+					invite_status: 'Pending',
+					invite_confirm_sms: false
+				})
+				.eq('id', member.id);
+
+			// 4. Update UI Locally immediately
+			members = members.map((m) => (m.id === member.id ? { ...m, invite_status: 'Pending' } : m));
+
+			// 5. Close the modal
+			memberToInvite = null;
+		} catch (error: any) {
+			console.error('Failed to send invites:', error);
+			button.innerText = 'Failed';
+			button.classList.add('border-problem', 'text-problem', 'bg-problem/20');
+			alert(error.message);
+
+			setTimeout(() => {
+				button.innerText = originalText;
+				button.classList.remove('border-problem', 'text-problem', 'bg-problem/20');
+				button.disabled = false;
+			}, 3000);
+		}
+	}
+
 	async function updateInlinePhoneConfirmation(member: any, event: Event) {
 		const target = event.target as HTMLInputElement;
 		const newStatus = target.checked;
@@ -479,13 +534,19 @@
 						on:click={(e) => {
 							sendInvite(memberToInvite, e);
 							memberToInvite = null;
-						}}>Send by Email</button
+						}}>Send by Mail</button
 					>
 					<button
 						class="px-4 py-2.5 bg-gray2/20 text-white font-bold rounded-full hover:bg-gray2/40 transition-opacity cursor-pointer w-full"
 						on:click={(e) => {
 							sendPhoneInvite(memberToInvite, e);
-						}}>Send by Phone</button
+						}}>Send by SMS</button
+					>
+					<button
+						class="px-4 py-2.5 bg-question/20 text-question font-bold rounded-full hover:bg-question/40 transition-opacity cursor-pointer w-full"
+						on:click={(e) => {
+							sendBothInvites(memberToInvite, e);
+						}}>Send by Mail & SMS</button
 					>
 					<button
 						class="px-4 py-2.5 mt-2 border-2 border-gray3 text-gray3 font-bold rounded-full hover:bg-gray3 hover:text-black transition-opacity cursor-pointer w-full"

@@ -15,10 +15,7 @@ const sesClient = new SESClient({
 	}
 });
 
-const transporter = nodemailer.createTransport({
-	streamTransport: true,
-	buffer: true
-});
+const transporter = nodemailer.createTransport({ streamTransport: true, buffer: true });
 
 // Setup Supabase Admin Client to bypass RLS
 const supabaseAdmin = createClient(
@@ -26,11 +23,43 @@ const supabaseAdmin = createClient(
 	privateEnv.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
+// Format dates utility
+function formatDates(dates: string[]): { formattedText: string; subjectText: string } {
+	if (!dates || dates.length === 0) return { formattedText: 'TBD', subjectText: 'TBD' };
+	
+	const sorted = [...dates].sort();
+	if (sorted.length === 1) {
+		const d = new Date(sorted[0] + 'T00:00:00');
+		return {
+			formattedText: `${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
+			subjectText: `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`
+		};
+	} else {
+		const first = new Date(sorted[0] + 'T00:00:00');
+		const last = new Date(sorted[sorted.length - 1] + 'T00:00:00');
+		
+		const fDay = first.getDate().toString().padStart(2, '0');
+		const fMonth = (first.getMonth() + 1).toString().padStart(2, '0');
+		const fYear = first.getFullYear();
+
+		const lDay = last.getDate().toString().padStart(2, '0');
+		const lMonth = (last.getMonth() + 1).toString().padStart(2, '0');
+		const lYear = last.getFullYear();
+
+		let subjectText = (fMonth === lMonth && fYear === lYear) 
+			? `${fDay}-${lDay}/${fMonth}/${fYear}` 
+			: `${fDay}/${fMonth}/${fYear} - ${lDay}/${lMonth}/${lYear}`;
+
+		return {
+			formattedText: `from ${first.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} to ${last.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
+			subjectText
+		};
+	}
+}
+
 export const POST: RequestHandler = async ({ request }) => {
 	try {
-		// 1. Extract eventDates (array) in addition to eventDate (fallback)
-		const { eventId, eventTitle, eventType, eventDate, eventDates, venueName, authUserName, action } =
-			await request.json();
+		const { eventId, eventTitle, oldDates, newDates, oldType, newType, venueName, authUserName } = await request.json();
 
 		// Fetch all users who opted into emails
 		const { data: users, error } = await supabaseAdmin
@@ -44,57 +73,49 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: true, message: 'No users to email' });
 		}
 
-		// 2. Determine the dates array and sort them chronologically
-		const dates = (eventDates && eventDates.length > 0) ? eventDates : (eventDate ? [eventDate] : []);
-		dates.sort();
+		// Determine if changes occurred
+		const hasDateChange = JSON.stringify([...(oldDates||[])].sort()) !== JSON.stringify([...(newDates||[])].sort());
+		const hasTypeChange = oldType !== newType && oldType !== '' && newType !== '';
 
-		// 3. Format the dates for the Email Body and Subject Line
-		let formattedDateText = '';
-		let subjectDateText = '';
+		const oldDateStrings = formatDates(oldDates || []);
+		const newDateStrings = formatDates(newDates || []);
 
-		if (dates.length === 0) {
-			formattedDateText = 'for the selected date(s)';
-			subjectDateText = 'TBD';
-		} else if (dates.length === 1) {
-			// Single Date Logic
-			const d = new Date(dates[0] + 'T00:00:00');
-			formattedDateText = `for ${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`;
-			subjectDateText = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
-		} else {
-			// Multiple Dates Logic (Range)
-			const first = new Date(dates[0] + 'T00:00:00');
-			const last = new Date(dates[dates.length - 1] + 'T00:00:00');
+		let changesHtml = '';
+		let plainTextChanges = '';
+		
+		// Centered text format instead of boxes
+		if (hasDateChange) {
+			changesHtml += `
+				<div class="mod-section">
+					<p class="mod-title">Date Changed</p>
+					<p class="mod-text">
+						<span class="mod-old">${oldDateStrings.formattedText}</span> 
+						<strong class="mod-arrow">&rarr;</strong> 
+						<span class="mod-new">${newDateStrings.formattedText}</span>
+					</p>
+				</div>
+			`;
+			plainTextChanges += `Date changed from: ${oldDateStrings.formattedText} --> ${newDateStrings.formattedText}\n`;
+		}
 
-			const firstFormatted = first.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-			const lastFormatted = last.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-			
-			formattedDateText = `from ${firstFormatted} to ${lastFormatted}`;
-
-			const fDay = first.getDate().toString().padStart(2, '0');
-			const fMonth = (first.getMonth() + 1).toString().padStart(2, '0');
-			const fYear = first.getFullYear();
-
-			const lDay = last.getDate().toString().padStart(2, '0');
-			const lMonth = (last.getMonth() + 1).toString().padStart(2, '0');
-			const lYear = last.getFullYear();
-
-			// If same month and year: 18-20/06/2026. If different: 18/06/2026 - 20/07/2026
-			if (fMonth === lMonth && fYear === lYear) {
-				subjectDateText = `${fDay}-${lDay}/${fMonth}/${fYear}`;
-			} else {
-				subjectDateText = `${fDay}/${fMonth}/${fYear} - ${lDay}/${lMonth}/${lYear}`;
-			}
+		if (hasTypeChange) {
+			changesHtml += `
+				<div class="mod-section">
+					<p class="mod-title">Event Type Changed</p>
+					<p class="mod-text">
+						<span class="mod-old">${oldType}</span> 
+						<strong class="mod-arrow">&rarr;</strong> 
+						<span class="mod-new">${newType}</span>
+					</p>
+				</div>
+			`;
+			plainTextChanges += `Event changed from: ${oldType} --> ${newType}\n`;
 		}
 
 		const currentYear = new Date().getFullYear();
-		const isCancel = action === 'cancel';
-		const subjectText = isCancel ? 'CANCELED' : 'CONFIRMED';
-		const titleText = isCancel ? 'Canceled' : 'Confirmed!';
-		const subtitleText = isCancel ? 'canceled' : 'confirmed';
-
-		const buttonHtml = isCancel
-			? `<p style="color: #FF4D4D; font-weight: 700; font-size: 16px;">Event Canceled</p>`
-			: `<a href="https://app.produkt.ca/calendar/${eventId}" class="verify-button"><span>View in Calendar</span></a>`;
+		const finalType = newType || oldType; 
+		const finalSubjectDate = newDateStrings.subjectText; 
+		const typeDisplay = finalType && finalType !== 'Select Type' ? ` - [${finalType}]` : '';
 
 		for (const user of users) {
 			if (!user.email) continue;
@@ -108,7 +129,7 @@ export const POST: RequestHandler = async ({ request }) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${subjectText}: ${subjectDateText} - ${eventTitle} - [${eventType}]</title>
+    <title>MODIFIED: ${finalSubjectDate} - ${eventTitle}${typeDisplay}</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Helvetica+Neue:wght@400;700&display=swap');
         :root { color-scheme: light dark; supported-color-schemes: light dark; }
@@ -119,13 +140,25 @@ export const POST: RequestHandler = async ({ request }) => {
         .content { padding: 40px 30px; text-align: center; background-color: #FFFFFF; }
         .welcome-title { color: #2F2F2F; font-size: 20px; font-weight: 700; margin: 0 0 16px 0; line-height: 1.3; }
         .welcome-subtitle { color: #7A7A7A; font-size: 14px; font-weight: 400; margin: 0 0 40px 0; line-height: 1.5; }
-        .verify-button { display: inline-block; background-color: #E1FF00; color: #000000 !important; text-decoration: none; padding: 16px 32px; border-radius: 50px; font-weight: 700; font-size: 14px; transition: all 0.2s ease; margin-bottom: 30px; }
+        
+        /* Updated Accent Color */
+        .verify-button { display: inline-block; background-color: #3b82f6; color: #ffffff !important; text-decoration: none; padding: 16px 32px; border-radius: 50px; font-weight: 700; font-size: 14px; transition: all 0.2s ease; margin-bottom: 30px; }
+        
         .alternative-link { color: #7A7A7A; font-size: 12px; margin-top: 30px; line-height: 1.5; }
         .alternative-link a { color: #2F2F2F; text-decoration: underline; word-break: break-all; }
         .signature { margin-top: 30px; font-size: 14px; color: #7A7A7A; line-height: 1.5; }
         .footer { background-color: #F8F8F8; padding: 30px; text-align: center; border-top: 1px solid #E4E4E4; }
         .footer-text { color: #BDBDBB; font-size: 12px; margin: 0 0 10px 0; }
         .footer-link { color: #2F2F2F; text-decoration: underline; }
+		
+		/* Centered Modification Text */
+		.mod-section { margin-bottom: 25px; text-align: center; }
+		.mod-title { margin: 0; font-size: 12px; color: #7A7A7A; text-transform: uppercase; font-weight: bold; }
+		.mod-text { margin: 8px 0 0 0; font-size: 16px; color: #2F2F2F; }
+		.mod-arrow { color: #2F2F2F; font-weight: bold; margin: 0 8px; }
+		.mod-old { color: #f55151; text-decoration: line-through; }
+		.mod-new { color: #4ae784; font-weight: bold; }
+
         @media (prefers-color-scheme: dark) {
             body, .email-container, .header, .content, .footer { background-color: #1e1e1e !important; }
             .header { border-bottom: 1px solid #333333 !important; }
@@ -133,35 +166,39 @@ export const POST: RequestHandler = async ({ request }) => {
             .logo { filter: brightness(0) invert(1) !important; }
             .welcome-title { color: #FFFFFF !important; }
             .welcome-subtitle { color: #BDBDBB !important; }
-            .verify-button { color: #000000 !important; background-color: #E1FF00 !important; }
+            .verify-button { color: #ffffff !important; background-color: #3b82f6 !important; }
             .signature, .alternative-link { color: #BDBDBB !important; }
             .footer-text { color: #BDBDBB !important; }
-            .footer-link, .alternative-link a { color: #E1FF00 !important; }
+            .footer-link, .alternative-link a { color: #3b82f6 !important; }
+			
+			/* Dark Mode Mods */
+			.mod-title { color: #BDBDBB !important; }
+			.mod-text { color: #FFFFFF !important; }
+			.mod-arrow { color: #FFFFFF !important; }
         }
     </style>
 </head>
 <body>
     <div class="email-container">
-       <div class="header">
-    <img src="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/NCG_ProduktXX_NOIR.png" alt="ProduktXX" class="logo">
-</div>
+        <div class="header">
+            <img src="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/NCG_ProduktXX_NOIR.png" alt="ProduktXX" class="logo">
+        </div>
         <div class="content">
-            <h1 class="welcome-title">Event: ${eventTitle} - [${eventType}] ${titleText}</h1>
+            <h1 class="welcome-title">Event Modified: ${eventTitle}</h1>
             <p class="welcome-subtitle">
-                ${authUserName} has ${subtitleText} the event ${formattedDateText}.
+                ${authUserName} has updated the details for this event.
             </p>
+
+            <div style="max-width: 500px; margin: 0 auto 40px auto;">
+                ${changesHtml}
+            </div>
             
-            ${buttonHtml}
+            <a href="${eventUrl}" class="verify-button"><span>View in Calendar</span></a>
             
-            ${
-							!isCancel
-								? `
             <p class="alternative-link">
                 If you're having trouble clicking the "View in Calendar" button, copy and paste the URL below into your web browser:<br><br>
                 <a href="${eventUrl}">${eventUrl}</a>
-            </p>`
-								: ''
-						}
+            </p>
             
             <div class="signature">
                 Regards,<br/>
@@ -181,9 +218,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			const mailOptions: any = {
 				from: `"Produkt App" <support@produkt.ca>`,
 				to: user.email,
-				// Updated Subject line to include the formatted date
-				subject: `${subjectText}: ${subjectDateText} - ${eventTitle} - [${eventType}]`,
-				text: `Event: ${eventTitle} - [${eventType}] ${titleText}\n\n${authUserName} has ${subtitleText} the event ${formattedDateText}.\n\n${isCancel ? 'Event Canceled' : `View in Calendar: ${eventUrl}`}\n\nUnsubscribe: ${unsubscribeUrl}`,
+				subject: `MODIFIED: ${finalSubjectDate} - ${eventTitle}${typeDisplay}`,
+				text: `Event Modified: ${eventTitle}\n\n${authUserName} has updated the event details.\n\n${plainTextChanges}\nView in Calendar: ${eventUrl}\n\nUnsubscribe: ${unsubscribeUrl}`,
 				html: htmlTemplate
 			};
 

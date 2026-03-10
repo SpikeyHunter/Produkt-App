@@ -30,6 +30,7 @@
 	let optConfirmAllRooms = false;
 	let optClearOtherHolds = false;
 	let optClearSameRoomHolds = false; // NEW: Checkbox state for same room
+	let optConfirmAllDates = false;
 
 	let emailUsersCount = 0;
 	let smsUsersCount = 0;
@@ -52,13 +53,14 @@
 		await Promise.all([fetchDefaults(), refreshUserCounts()]);
 
 		// 2. Apply the fresh settings to the checkboxes
-		optSendEmail = defaultEmail || globalDefaultEmail;
-		optSendSms = globalDefaultSms;
+		optSendEmail = globalDefaultEmail; // Strictly uses the DB value
+		optSendSms = globalDefaultSms; // Strictly uses the DB value
 
 		// 3. Reset standard toggles
 		optConfirmAllRooms = false;
 		optClearOtherHolds = false;
 		optClearSameRoomHolds = false;
+		optConfirmAllDates = false; // NEW: Reset on open
 	}
 
 	async function refreshUserCounts() {
@@ -86,7 +88,8 @@
 			sendSms: optSendSms,
 			confirmAllRooms: optConfirmAllRooms,
 			clearOtherHolds: optClearOtherHolds,
-			clearSameRoomHolds: optClearSameRoomHolds // Dispatch the new option
+			clearSameRoomHolds: optClearSameRoomHolds,
+			confirmAllDates: optConfirmAllDates // NEW: Send to parent
 		});
 	}
 
@@ -102,11 +105,23 @@
 				const emailSetting = data.find((s) => s.setting_name === 'Default Email Confirmation');
 				const smsSetting = data.find((s) => s.setting_name === 'Default SMS Confirmation');
 
+				// Added the explicit "any" type here to fix the TS error
+				const parseValue = (params: any) => {
+					if (typeof params === 'string') {
+						try {
+							return JSON.parse(params).value;
+						} catch {
+							return true;
+						}
+					}
+					return params?.value ?? true;
+				};
+
 				if (emailSetting?.setting_params) {
-					globalDefaultEmail = emailSetting.setting_params.value ?? true;
+					globalDefaultEmail = parseValue(emailSetting.setting_params);
 				}
 				if (smsSetting?.setting_params) {
-					globalDefaultSms = smsSetting.setting_params.value ?? true;
+					globalDefaultSms = parseValue(smsSetting.setting_params);
 				}
 			}
 		} catch (err) {
@@ -182,6 +197,30 @@
 							<input type="checkbox" class="hidden" bind:checked={optConfirmAllRooms} />
 						</label>
 					{/if}
+
+					<label
+						class="flex items-start gap-3 p-4 bg-gray1/50 border border-gray2/20 rounded-xl cursor-pointer hover:bg-gray2/10 transition-colors {optConfirmAllDates
+							? 'border-confirmed bg-confirmed/5'
+							: ''}"
+					>
+						<div
+							class="relative flex items-center justify-center w-5 h-5 mt-0.5 rounded transition-all {optConfirmAllDates
+								? 'bg-confirmed border-confirmed'
+								: 'border-2 border-confirmed bg-transparent'}"
+						>
+							{#if optConfirmAllDates}<svg
+									class="w-3.5 h-3.5 text-black"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="4"><polyline points="20 6 9 17 4 12"></polyline></svg
+								>{/if}
+						</div>
+						<p class="text-sm font-bold text-confirmed leading-tight">
+							Confirm all holds for all dates for this event
+						</p>
+						<input type="checkbox" class="hidden" bind:checked={optConfirmAllDates} />
+					</label>
 
 					{#if otherEventsSameRoomCount > 0}
 						<label
