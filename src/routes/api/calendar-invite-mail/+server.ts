@@ -9,7 +9,7 @@ const sesClient = new SESClient({
 	region: env.AWS_REGION as string,
 	credentials: {
 		accessKeyId: env.AWS_ACCESS_KEY_ID as string,
-		secretAccessKey: env.AWS_SECRET_ACCESS_KEY as string,
+		secretAccessKey: env.AWS_SECRET_ACCESS_KEY as string
 	}
 });
 
@@ -144,12 +144,14 @@ export const POST: RequestHandler = async ({ request }) => {
             display: inline-block;
             background-color: #2F2F2F;
             color: #E1FF00;
-            padding: 10px 20px;
+            padding: 15px 25px;
             border-radius: 8px;
             font-family: monospace;
-            font-size: 18px;
-            letter-spacing: 0.1em;
+            font-size: 16px;
+            letter-spacing: 0.05em;
             margin-bottom: 30px;
+            text-align: left;
+            line-height: 1.2;
         }
         
         .verify-button {
@@ -295,8 +297,9 @@ export const POST: RequestHandler = async ({ request }) => {
                 </p>
                 
                 <div class="password-box">
-                    ${defaultPassword}
-                </div>
+    <span style="color: #FFFFFF;">Email:</span> <a href="mailto:${email}" style="color: #E1FF00; text-decoration: none !important;">${email}</a><br><br>
+    <span style="color: #FFFFFF;">Password:</span> <span style="color: #E1FF00;">${defaultPassword}</span>
+</div>
                 <br>
                 
                 <a href="${loginUrl}" class="verify-button">
@@ -332,7 +335,7 @@ export const POST: RequestHandler = async ({ request }) => {
 			from: `"Produkt App" <support@produkt.ca>`,
 			to: email,
 			subject: `Produkt Calendar - Accept your invitation`,
-			text: `Hi ${name},\n\nYou've been invited to join the Produkt Calendar, since we will NOT be using PRISM from now on.\n\nSign in with this temporary password: ${defaultPassword}\n\nYou'll be asked to configure yours after.\n\nLogin here: ${loginUrl}`,
+			text: `Hi ${name},\n\nYou've been invited to join the Produkt Calendar, since we will NOT be using PRISM from now on.\n\nSign in with these credentials:\nEmail: ${email}\nPassword: ${defaultPassword}\n\nYou'll be asked to configure yours after.\n\nLogin here: ${loginUrl}`,
 			html: htmlTemplate
 		};
 
@@ -341,14 +344,13 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		const command = new SendRawEmailCommand({
 			RawMessage: {
-				Data: rawEmailBuffer 
+				Data: rawEmailBuffer
 			}
 		});
 
 		await sesClient.send(command);
 
 		return json({ success: true, message: 'Invite sent successfully' });
-
 	} catch (error) {
 		console.error('Error sending invite:', error);
 		return json({ success: false, message: 'Failed to send invite' }, { status: 500 });

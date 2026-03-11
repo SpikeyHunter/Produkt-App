@@ -84,6 +84,7 @@ export const POST: RequestHandler = async ({ request }) => {
                                 console.log(`User ${matchedUser.name} already received credentials. Ignoring.`);
                             } else {
                                 const loginUrl = 'https://app.produkt.ca/calendar';
+                                const registeredUrl = 'https://app.produkt.ca/';
                                 const userEmail = matchedUser.email || 'Your Email';
                                 let welcomeMessage = '';
 
@@ -92,7 +93,7 @@ export const POST: RequestHandler = async ({ request }) => {
                                     const defaultPassword = 'Produkt2026$';
                                     welcomeMessage = `Here are your credentials:\n\nEmail: ${userEmail}\nTemp Password: ${defaultPassword}\n\n${loginUrl}\n\nPlease update your password after logging in!`;
                                 } else {
-                                    welcomeMessage = `You're already part of the Produkt App!\n\nUse your credentials to login:\n${loginUrl}\n\nYou'll get notified by SMS for confirmed or canceled events`;
+                                    welcomeMessage = `You're already part of the Produkt App!\n\nUse your credentials to login:\n${registeredUrl}\n\nYou'll get notified by SMS for confirmed or canceled events`;
                                 }
 
                                 const command = new PublishCommand({
