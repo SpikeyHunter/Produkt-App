@@ -8,6 +8,9 @@
 	"/advancing/hoteltracker": [],
 	"/advancing/localartists": [],
 	"/advancing/merchsettlement": [],
+	"/api/apple": [
+		"src/routes/api/apple/+server.ts"
+	],
 	"/api/booking/evenko": [
 		"src/routes/api/booking/evenko/+server.ts"
 	],
