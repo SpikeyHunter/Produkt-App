@@ -2,14 +2,22 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { SESClient, SendRawEmailCommand } from '@aws-sdk/client-ses';
 import nodemailer from 'nodemailer';
-import { env } from '$env/dynamic/private';
+import { env as privateEnv } from '$env/dynamic/private';
+import { env as publicEnv } from '$env/dynamic/public';
+import { createClient } from '@supabase/supabase-js';
 
-// Initialize the native AWS SES Client directly
+// 1. Initialize Supabase Admin to check user status
+const supabaseAdmin = createClient(
+	publicEnv.PUBLIC_SUPABASE_URL || '',
+	privateEnv.SUPABASE_SERVICE_ROLE_KEY || ''
+);
+
+// 2. Initialize the native AWS SES Client directly
 const sesClient = new SESClient({
-	region: env.AWS_REGION as string,
+	region: privateEnv.AWS_REGION as string,
 	credentials: {
-		accessKeyId: env.AWS_ACCESS_KEY_ID as string,
-		secretAccessKey: env.AWS_SECRET_ACCESS_KEY as string
+		accessKeyId: privateEnv.AWS_ACCESS_KEY_ID as string,
+		secretAccessKey: privateEnv.AWS_SECRET_ACCESS_KEY as string
 	}
 });
 
@@ -27,9 +35,51 @@ export const POST: RequestHandler = async ({ request }) => {
 			return json({ success: false, message: 'Email is required' }, { status: 400 });
 		}
 
+		// Check the user's password status in Supabase
+		const { data: userData, error: userError } = await supabaseAdmin
+			.from('calendar_users')
+			.select('has_default_password')
+			.eq('email', email)
+			.maybeSingle();
+
+		if (userError) {
+			console.error('Error fetching user status:', userError);
+		}
+
+		// Default to true (new user) if record not found, otherwise use DB value
+		const hasDefaultPassword = userData ? userData.has_default_password : true;
+
 		const currentYear = new Date().getFullYear();
-		const loginUrl = 'https://app.produkt.ca/calendar';
 		const defaultPassword = 'Produkt2026$';
+
+		// Dynamic content based on user status
+		const loginUrl = hasDefaultPassword 
+			? 'https://app.produkt.ca/calendar' 
+			: 'https://app.produkt.ca';
+
+		const verificationText = hasDefaultPassword
+			? `Please sign in using your temporary password below. You'll be asked to configure your own password after logging in.`
+			: `Please sign in using your Produkt App Account credentials.`;
+
+		const passwordHtmlBlock = hasDefaultPassword
+			? `
+                <div class="password-box">
+                    <span style="color: #FFFFFF;">Email:</span> <a href="mailto:${email}" style="color: #E1FF00; text-decoration: none !important;">${email}</a><br><br>
+                    <span style="color: #FFFFFF;">Password:</span> <span style="color: #E1FF00;">${defaultPassword}</span>
+                </div>
+                <br>
+              `
+			: '';
+
+		const securityNoticeBlock = hasDefaultPassword
+			? `
+            <div class="security-notice">
+                <p class="security-text">
+                    For your security, please do not share this temporary password with anyone. 
+                </p>
+            </div>
+            `
+			: '';
 
 		const htmlTemplate = `
 <!DOCTYPE html>
@@ -246,16 +296,16 @@ export const POST: RequestHandler = async ({ request }) => {
         /* --- TARGETED DARK MODE FIXES --- */
         @media (prefers-color-scheme: dark) {
             body, .email-container, .header, .content, .footer {
-                background-color: #212121 !important; /* Forces gray1/navbar background */
+                background-color: #212121 !important;
             }
             .header {
                 border-bottom: 1px solid #333333 !important;
             }
             .logo {
-                filter: brightness(0) invert(1) !important; /* Forces logo to pure white */
+                filter: brightness(0) invert(1) !important;
             }
             .welcome-title, .verification-text, .security-text {
-                color: #FFFFFF !important; /* Forces main text to white */
+                color: #FFFFFF !important;
             }
             .verification-box {
                 background-color: #212121 !important;
@@ -266,17 +316,17 @@ export const POST: RequestHandler = async ({ request }) => {
                 border-left: 4px solid #E1FF00 !important;
             }
             .password-box {
-                background-color: #1a1a1a !important; /* Darker gray for code box */
+                background-color: #1a1a1a !important; 
             }
             .verify-button, .verify-button span {
-                color: #000000 !important; /* Forces button text to black */
+                color: #000000 !important;
                 background-color: #E1FF00 !important;
             }
             .footer-text, .footer-text span {
-                color: #E4E4E4 !important; /* gray3 */
+                color: #E4E4E4 !important;
             }
             .footer-link, .footer-link span, .alternative-link a {
-                color: #E1FF00 !important; /* Forces links to lime */
+                color: #E1FF00 !important;
             }
         }
     </style>
@@ -293,25 +343,17 @@ export const POST: RequestHandler = async ({ request }) => {
             
             <div class="verification-box">
                 <p class="verification-text">
-                    Please sign in using your temporary password below. You'll be asked to configure your own password after logging in.
+                    ${verificationText}
                 </p>
                 
-                <div class="password-box">
-    <span style="color: #FFFFFF;">Email:</span> <a href="mailto:${email}" style="color: #E1FF00; text-decoration: none !important;">${email}</a><br><br>
-    <span style="color: #FFFFFF;">Password:</span> <span style="color: #E1FF00;">${defaultPassword}</span>
-</div>
-                <br>
+                ${passwordHtmlBlock}
                 
                 <a href="${loginUrl}" class="verify-button">
                     <span>Access Calendar</span>
                 </a>
             </div>
             
-            <div class="security-notice">
-                <p class="security-text">
-                    For your security, please do not share this temporary password with anyone. 
-                </p>
-            </div>
+            ${securityNoticeBlock}
             
             <p class="alternative-link">
                 Can't click the button? Copy and paste this link into your browser:<br>
@@ -331,11 +373,16 @@ export const POST: RequestHandler = async ({ request }) => {
 </body>
 </html>`;
 
+		// Dynamic plain text fallback
+		const textContent = hasDefaultPassword
+			? `Hi ${name},\n\nYou've been invited to join the Produkt Calendar, since we will NOT be using PRISM from now on.\n\nSign in with these credentials:\nEmail: ${email}\nPassword: ${defaultPassword}\n\nYou'll be asked to configure yours after.\n\nLogin here: ${loginUrl}`
+			: `Hi ${name},\n\nYou've been invited to join the Produkt Calendar, since we will NOT be using PRISM from now on.\n\nPlease sign in using your Produkt App Account credentials.\n\nLogin here: ${loginUrl}`;
+
 		const mailOptions: any = {
 			from: `"Produkt App" <support@produkt.ca>`,
 			to: email,
 			subject: `Produkt Calendar - Accept your invitation`,
-			text: `Hi ${name},\n\nYou've been invited to join the Produkt Calendar, since we will NOT be using PRISM from now on.\n\nSign in with these credentials:\nEmail: ${email}\nPassword: ${defaultPassword}\n\nYou'll be asked to configure yours after.\n\nLogin here: ${loginUrl}`,
+			text: textContent,
 			html: htmlTemplate
 		};
 
