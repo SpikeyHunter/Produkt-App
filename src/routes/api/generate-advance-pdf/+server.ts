@@ -216,7 +216,16 @@ export const POST: RequestHandler = async ({ request }) => {
 			scale: 1
 		});
 		
-		const filename = `Advance_${artistName.replace(/ /g, '_')}_${eventDate}.pdf`;
+		// 1. Normalize and clean the artist name
+		const safeArtistName = artistName
+			.normalize("NFD") // Decompose accents (e.g., 'Ó' to 'O' + '´')
+			.replace(/[\u0300-\u036f]/g, "") // Remove the accent marks
+			.replace(/[^a-zA-Z0-9_.-]/g, "_"); // Replace spaces and special characters with underscores
+
+		// 2. Construct the safe filename
+		const filename = `Advance_${safeArtistName}_${eventDate}.pdf`;
+		
+		// 3. Upload to Supabase
 		const { data, error: uploadError } = await supabase.storage
 			.from('documents')
 			.upload(`final_advance/${filename}`, pdfBuffer, {
