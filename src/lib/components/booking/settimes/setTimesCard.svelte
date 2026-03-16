@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { EventWithTimetable, TimetableEntry } from '$lib/services/eventsService';
-	import { permissions } from '$lib/stores/authStore';
+	import { authStore } from '$lib/stores/authStore';
+	import { hasPermission } from '$lib/utils/permissions';
 	import { fetchSetTimesPdfData } from '$lib/services/eventsService';
 	import SetTimesPdfTemplate from './SetTimesPdfTemplate.svelte';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
@@ -20,9 +21,11 @@
 	// --- Reactive Logic ---
 
 	// Check if user has permission to edit set times
-	$: canEditSetTimes = $permissions.isAdmin || 
-		$permissions.hasPermission('Advance') ||
-		$permissions.hasPermission('Booking');
+	// ADD THIS:
+	$: canEditSetTimes =
+		$authStore.profile?.role === 'Admin' ||
+		hasPermission('Advance', $authStore.profile) ||
+		hasPermission('Booking', $authStore.profile);
 
 	// Find the shared status of all artist entries.
 	$: sharedArtistStatus = (() => {
@@ -73,11 +76,16 @@
 
 		const getStatusColors = (status: string) => {
 			switch (status) {
-				case 'Confirmed': return { bg: '#d9ead3', text: '#274e13' };
-				case 'Proposed': return { bg: '#fce5cd', text: '#783f04' };
-				case 'Tentative': return { bg: '#fff2cc', text: '#7f6000' };
-				case 'Problem': return { bg: '#f4cccc', text: '#660000' };
-				default: return { bg: '#ffffff', text: '#000000' };
+				case 'Confirmed':
+					return { bg: '#d9ead3', text: '#274e13' };
+				case 'Proposed':
+					return { bg: '#fce5cd', text: '#783f04' };
+				case 'Tentative':
+					return { bg: '#fff2cc', text: '#7f6000' };
+				case 'Problem':
+					return { bg: '#f4cccc', text: '#660000' };
+				default:
+					return { bg: '#ffffff', text: '#000000' };
 			}
 		};
 
@@ -87,10 +95,12 @@
 		html += `<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 40px;">Length</th>`;
 		html += `<th style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: left; font-weight: bold; width: 225px;">Artist</th>`;
 		html += `</tr></thead><tbody>`;
-		
+
 		event.timetable.forEach((entry) => {
 			const isSpecialEntry = entry.artist === 'DOORS' || entry.artist === 'CURFEW';
-			const colors = isSpecialEntry ? { bg: '#ffffff', text: '#000000' } : getStatusColors(entry.status);
+			const colors = isSpecialEntry
+				? { bg: '#ffffff', text: '#000000' }
+				: getStatusColors(entry.status);
 			html += `<tr style="background-color: ${colors.bg};">`;
 			html += `<td style="background-color: #ffffff; border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: center;">${formatTimeWithSeconds(entry.time || '')}</td>`;
 			html += `<td style="border: 0.5px solid #d1d5db; padding: 2px 6px; text-align: center; ">${formatLengthWithMinutes(entry.length || '')}</td>`;
@@ -118,12 +128,12 @@
 
 		try {
 			isGeneratingPdf = true;
-			
+
 			// 1. Fetch auxiliary data
 			pdfData = await fetchSetTimesPdfData(event.event_id, event.event_date);
 
 			// 2. Give Svelte a tick to render the hidden template
-			await new Promise(resolve => setTimeout(resolve, 50));
+			await new Promise((resolve) => setTimeout(resolve, 50));
 
 			const sheetElement = templateContainer?.querySelector('#set-times-print-container');
 			if (!sheetElement) throw new Error('Template element not found.');
@@ -156,14 +166,15 @@
 
 			popupMessage = 'PDF Downloaded successfully!';
 			showPopup = true;
-
 		} catch (error) {
 			console.error('Error generating PDF:', error);
 			popupMessage = 'Failed to generate PDF';
 			showPopup = true;
 		} finally {
 			isGeneratingPdf = false;
-			setTimeout(() => { showPopup = false; }, 3000);
+			setTimeout(() => {
+				showPopup = false;
+			}, 3000);
 		}
 	}
 
@@ -174,7 +185,7 @@
 			showPopup = true;
 			return;
 		}
-		
+
 		if (justCopied || !navigator.clipboard?.write) return;
 
 		try {
@@ -189,7 +200,6 @@
 			setTimeout(() => {
 				justCopied = false;
 			}, 2000);
-
 		} catch (err) {
 			console.error('Failed to copy text: ', err);
 		}
@@ -274,11 +284,16 @@
 		}
 
 		switch (statusToRender) {
-			case 'Confirmed': return 'bg-[var(--color-confirmed)]';
-			case 'Proposed': return 'bg-[var(--color-proposed)]';
-			case 'Tentative': return 'bg-[var(--color-tentatif)]';
-			case 'Problem': return 'bg-[var(--color-problem)]';
-			default: return 'bg-[var(--color-gray2)]';
+			case 'Confirmed':
+				return 'bg-[var(--color-confirmed)]';
+			case 'Proposed':
+				return 'bg-[var(--color-proposed)]';
+			case 'Tentative':
+				return 'bg-[var(--color-tentatif)]';
+			case 'Problem':
+				return 'bg-[var(--color-problem)]';
+			default:
+				return 'bg-[var(--color-gray2)]';
 		}
 	}
 
@@ -295,23 +310,30 @@
 		}
 
 		switch (statusToRender) {
-			case 'Confirmed': return 'text-[var(--color-confirmed)]';
-			case 'Proposed': return 'text-[var(--color-proposed)]';
-			case 'Tentative': return 'text-[var(--color-tentatif)]';
-			case 'Problem': return 'text-[var(--color-problem)]';
-			default: return 'text-[var(--color-gray2)]';
+			case 'Confirmed':
+				return 'text-[var(--color-confirmed)]';
+			case 'Proposed':
+				return 'text-[var(--color-proposed)]';
+			case 'Tentative':
+				return 'text-[var(--color-tentatif)]';
+			case 'Problem':
+				return 'text-[var(--color-problem)]';
+			default:
+				return 'text-[var(--color-gray2)]';
 		}
 	}
 
 	const limeGradients = [
-		'from-lime/80 to-lime/40', 'from-lime/70 to-lime/30',
-		'from-lime/90 to-lime/50', 'from-lime/60 to-lime/20'
+		'from-lime/80 to-lime/40',
+		'from-lime/70 to-lime/30',
+		'from-lime/90 to-lime/50',
+		'from-lime/60 to-lime/20'
 	];
 	const randomGradient = limeGradients[Math.floor(Math.random() * limeGradients.length)];
 </script>
 
 <div class="hidden" aria-hidden="true" bind:this={templateContainer}>
-	<SetTimesPdfTemplate 
+	<SetTimesPdfTemplate
 		eventDate={event.event_date}
 		headlinerName={pdfData.headlinerName}
 		eventType={pdfData.eventType}
@@ -319,9 +341,16 @@
 	/>
 </div>
 
-<PopupNotification bind:show={showPopup} message={popupMessage} variant="navbar" iconType="success" />
+<PopupNotification
+	bind:show={showPopup}
+	message={popupMessage}
+	variant="navbar"
+	iconType="success"
+/>
 
-<div class="bg-navbar rounded-2xl p-4 transition-all duration-200 group h-60 w-full hover:shadow-lg hover:-translate-y-0.5">
+<div
+	class="bg-navbar rounded-2xl p-4 transition-all duration-200 group h-60 w-full hover:shadow-lg hover:-translate-y-0.5"
+>
 	<div class="flex gap-4 h-full">
 		<div class="w-2/5 flex flex-col flex-shrink-0">
 			<div
@@ -330,18 +359,28 @@
 					: `bg-gradient-to-br ${randomGradient}`} flex items-center justify-center relative overflow-hidden flex-shrink-0"
 			>
 				{#if event.event_flyer}
-					<img src={event.event_flyer} alt={event.event_name} class="w-full h-full object-cover rounded-xl" />
+					<img
+						src={event.event_flyer}
+						alt={event.event_name}
+						class="w-full h-full object-cover rounded-xl"
+					/>
 				{:else}
 					<div class="text-white text-center">
 						<div class="w-6 h-6 mx-auto mb-1 opacity-40">
-							<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+							<svg viewBox="0 0 24 24" fill="currentColor"
+								><path
+									d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+								/></svg
+							>
 						</div>
 						<div class="text-xs opacity-60 font-bold">Poster</div>
 					</div>
 				{/if}
 			</div>
 
-			<div class="bg-gray3 text-black px-2 py-1 rounded-lg text-center font-bold text-xs mt-3 flex-shrink-0">
+			<div
+				class="bg-gray3 text-black px-2 py-1 rounded-lg text-center font-bold text-xs mt-3 flex-shrink-0"
+			>
 				{formatDisplayDate(event.event_date)}
 			</div>
 		</div>
@@ -356,7 +395,6 @@
 
 				{#if event.timetable && event.timetable.length > 0}
 					<div class="flex items-center gap-1">
-						
 						<button
 							on:click={handleDownloadPdf}
 							class="p-2 rounded-lg transition-all duration-200 flex-shrink-0"
@@ -368,16 +406,46 @@
 							class:cursor-pointer={allConfirmed && canEditSetTimes}
 							disabled={!allConfirmed || !canEditSetTimes || isGeneratingPdf}
 							aria-label="Download PDF"
-							title={!canEditSetTimes ? 'No permission' : !allConfirmed ? 'All artists must be Confirmed' : 'Download PDF'}
+							title={!canEditSetTimes
+								? 'No permission'
+								: !allConfirmed
+									? 'All artists must be Confirmed'
+									: 'Download PDF'}
 						>
 							{#if isGeneratingPdf}
-								<svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-									<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-									<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+								<svg
+									class="animate-spin w-4 h-4"
+									xmlns="http://www.w3.org/2000/svg"
+									fill="none"
+									viewBox="0 0 24 24"
+								>
+									<circle
+										class="opacity-25"
+										cx="12"
+										cy="12"
+										r="10"
+										stroke="currentColor"
+										stroke-width="4"
+									></circle>
+									<path
+										class="opacity-75"
+										fill="currentColor"
+										d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+									></path>
 								</svg>
 							{:else}
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-									<path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+								<svg
+									class="w-4 h-4"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+									stroke-width="2"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+									/>
 								</svg>
 							{/if}
 						</button>
@@ -398,12 +466,28 @@
 							title={!canEditSetTimes ? 'No permission' : justCopied ? 'Copied!' : 'Copy timetable'}
 						>
 							{#if justCopied}
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+								<svg
+									class="w-4 h-4"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+									stroke-width="2.5"
+								>
 									<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 								</svg>
 							{:else}
-								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-									<path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+								<svg
+									class="w-4 h-4"
+									fill="none"
+									stroke="currentColor"
+									viewBox="0 0 24 24"
+									stroke-width="2"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+									/>
 								</svg>
 							{/if}
 						</button>
@@ -420,7 +504,13 @@
 							aria-label="Edit set times"
 							title={!canEditSetTimes ? 'No permission' : 'Edit set times'}
 						>
-							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<svg
+								class="w-4 h-4"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
 								<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
 								<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
 							</svg>
@@ -428,7 +518,9 @@
 					</div>
 				{:else}
 					<button
-						on:click|stopPropagation={event.timetable_active === false ? handleShowClick : handleHideClick}
+						on:click|stopPropagation={event.timetable_active === false
+							? handleShowClick
+							: handleHideClick}
 						class="p-2 rounded-lg transition-all duration-200 flex-shrink-0"
 						class:text-gray2={canEditSetTimes}
 						class:hover:text-black={canEditSetTimes}
@@ -437,17 +529,37 @@
 						class:cursor-not-allowed={!canEditSetTimes}
 						class:cursor-pointer={canEditSetTimes}
 						disabled={!canEditSetTimes}
-						aria-label={event.timetable_active === false ? 'Show event in timetable' : 'Hide event from timetable'}
-						title={!canEditSetTimes ? 'No permission' : event.timetable_active === false ? 'Show in timetable' : 'Hide from timetable'}
+						aria-label={event.timetable_active === false
+							? 'Show event in timetable'
+							: 'Hide event from timetable'}
+						title={!canEditSetTimes
+							? 'No permission'
+							: event.timetable_active === false
+								? 'Show in timetable'
+								: 'Hide from timetable'}
 					>
 						{#if event.timetable_active === false}
-							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<svg
+								class="w-4 h-4"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
 								<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
 								<circle cx="12" cy="12" r="3" />
 							</svg>
 						{:else}
-							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+							<svg
+								class="w-4 h-4"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path
+									d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+								/>
 								<line x1="1" y1="1" x2="23" y2="23" />
 							</svg>
 						{/if}
@@ -458,11 +570,18 @@
 			<div class="flex-1 flex flex-col justify-center min-h-0">
 				{#if event.timetable && event.timetable.length > 0}
 					{@const isDense = event.timetable.length > 7}
-					<ul class={isDense ? "space-y-0.5" : "space-y-1.5"}>
+					<ul class={isDense ? 'space-y-0.5' : 'space-y-1.5'}>
 						{#each event.timetable as entry (entry.id)}
 							<li class="flex items-center gap-2 {isDense ? 'text-[13px]' : 'text-sm'}">
-								<span class="block w-1.5 rounded-full {isDense ? 'h-3' : 'h-4'} {getStatusColorClass(entry)}" title="Status: {entry.status}"></span>
-								<span class="w-16 font-bold flex-shrink-0 {getStatusTextColorClass(entry)}">{entry.time}</span>
+								<span
+									class="block w-1.5 rounded-full {isDense ? 'h-3' : 'h-4'} {getStatusColorClass(
+										entry
+									)}"
+									title="Status: {entry.status}"
+								></span>
+								<span class="w-16 font-bold flex-shrink-0 {getStatusTextColorClass(entry)}"
+									>{entry.time}</span
+								>
 								<span class="{getStatusTextColorClass(entry)} truncate">{entry.artist}</span>
 							</li>
 						{/each}
@@ -484,7 +603,13 @@
 						aria-label="Add set times for {event.event_name}"
 						title={!canEditSetTimes ? 'No permission to add set times' : 'Add set times'}
 					>
-						<svg class="w-8 h-8 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+						<svg
+							class="w-8 h-8 mb-2"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+							stroke-width="1.5"
+						>
 							<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
 						</svg>
 						<span class="font-bold text-sm">Add Set Times</span>
@@ -496,10 +621,6 @@
 </div>
 
 <style lang="postcss">
-	@tailwind base;
-	@tailwind components;
-	@tailwind utilities;
-
 	.truncate-2-lines {
 		overflow: hidden;
 		display: -webkit-box;
