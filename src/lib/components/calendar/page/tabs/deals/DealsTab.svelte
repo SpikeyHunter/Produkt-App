@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { supabase } from '$lib/supabase';
 	import DealCreator from './DealCreator.svelte';
 	import type { DealRole, DealTypeOption, Deposit } from '../../../../../types/tabs/deals';
 
@@ -6,75 +7,102 @@
 	interface Deal {
 		id: string;
 		artistName: string;
+		artistId?: string;
+		artistPic?: string;
+		summaryText?: string;
+		w_tax?: boolean;
+		w_tax_amount?: number;
+		description?: any;
 		role: DealRole;
 		dealType: DealTypeOption;
 		deposits: Deposit[];
+		[key: string]: any;
 	}
 
 	export let userRole = 'Email Only';
 	export let eventDealData: any;
 	export let eventDate: string = '';
-
-	// 🔥 STEP 1: What did the child component receive?
-	$: {
-		console.log('🛠️ [CHILD DealsTab.svelte] Received eventDealData prop:', eventDealData);
-		console.log('🛠️ [CHILD DealsTab.svelte] Type of eventDealData:', typeof eventDealData);
-	}
+	export let event: any = null;
+	export let venueCurrency: string = 'CAD';
 
 	// --- Aggressive Data Parsing ---
 	$: currentDealData = (() => {
 		let raw = eventDealData;
-		if (!raw) {
-			console.log('🛠️ [CHILD DealsTab.svelte] Raw data is falsy. Returning {}');
-			return {};
-		}
-
-		if (typeof raw === 'object') {
-			console.log(
-				'🛠️ [CHILD DealsTab.svelte] Raw data is already an object. Returning it directly.'
-			);
-			return raw;
-		}
-
+		if (!raw) return {};
+		if (typeof raw === 'object') return raw;
 		if (typeof raw === 'string') {
-			console.log('🛠️ [CHILD DealsTab.svelte] Raw data is a string. Attempting to parse...');
 			try {
 				let parsed = JSON.parse(raw);
-				console.log(
-					'🛠️ [CHILD DealsTab.svelte] First parse successful. Result type:',
-					typeof parsed,
-					parsed
-				);
-
-				if (typeof parsed === 'string') {
-					console.log(
-						'🛠️ [CHILD DealsTab.svelte] Data was double-stringified! Attempting second parse...'
-					);
-					parsed = JSON.parse(parsed);
-					console.log('🛠️ [CHILD DealsTab.svelte] Second parse successful. Final result:', parsed);
-				}
+				if (typeof parsed === 'string') parsed = JSON.parse(parsed);
 				return parsed;
 			} catch (e) {
-				console.error('❌ [CHILD DealsTab.svelte] Deal Parse Error:', e, raw);
 				return {};
 			}
 		}
 		return {};
 	})();
 
-	// --- Derived Data ---
-	$: deals = currentDealData?.deals || [];
+	$: parsedEventCost = (() => {
+		const rawCost = event?.event_cost || event?.event_costs;
+		if (!rawCost) return null;
+		if (typeof rawCost === 'object') return rawCost;
+		if (typeof rawCost === 'string') {
+			try {
+				let parsed = JSON.parse(rawCost);
+				if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+				return parsed;
+			} catch (e) {
+				return null;
+			}
+		}
+		return null;
+	})();
 
-	// 🚀 NEW: Robustly extract all pending headliners regardless of the underlying JSON structure
+	$: deals = (() => {
+		let parsedDeals: Deal[] = [];
+		const raw = currentDealData || {};
+
+		if (!Array.isArray(raw)) {
+			const parseRoleDeals = (roleStr: DealRole, keyPrefix: string) => {
+				let i = 1;
+				while (true) {
+					let sfx = i === 1 ? '' : `_${i}`;
+					let nameKey = `${keyPrefix}_name${sfx}`;
+
+					if (!(nameKey in raw)) break;
+
+					let name = raw[nameKey];
+					if (name && name !== 'NULL' && name !== 'null') {
+						let dealData = raw[`${keyPrefix}_deal${sfx}`] || {};
+						parsedDeals.push({
+							id: dealData.id || crypto.randomUUID(),
+							role: roleStr,
+							artistId: raw[`${keyPrefix}_id${sfx}`],
+							artistName: name,
+							artistPic: raw[`${keyPrefix}_pic${sfx}`],
+							...dealData
+						});
+					}
+					i++;
+				}
+			};
+
+			parseRoleDeals('Headliner', 'headliner');
+			parseRoleDeals('Support', 'support');
+		} else {
+			parsedDeals = raw;
+		}
+
+		return parsedDeals;
+	})();
+
 	$: pendingHeadliners = (() => {
 		let list: any[] = [];
-
 		if (Array.isArray(currentDealData)) {
 			list = currentDealData;
 		} else if (currentDealData?.headliners && Array.isArray(currentDealData.headliners)) {
 			list = currentDealData.headliners;
 		} else if (currentDealData?.headliner_name) {
-			// Handles the standard single object case coming from your database
 			list = [
 				{
 					headliner_name: currentDealData.headliner_name,
@@ -83,8 +111,6 @@
 				}
 			];
 		}
-
-		// Filter out null or stringified "NULL" values
 		return list.filter(
 			(h) => h && h.headliner_name && h.headliner_name !== 'NULL' && h.headliner_name !== 'null'
 		);
@@ -92,13 +118,6 @@
 
 	$: headlinerDeals = deals.filter((d: Deal) => d.role === 'Headliner');
 	$: supportDeals = deals.filter((d: Deal) => d.role === 'Support');
-
-	// 🔥 STEP 2: Let's see what the variables resolve to
-	$: {
-		console.log('📊 [CHILD DealsTab.svelte] Final Derived State:');
-		console.log('   -> currentDealData:', currentDealData);
-		console.log('   -> pendingHeadliners:', pendingHeadliners);
-	}
 
 	// --- Permissions ---
 	$: canEditAndManage = ['Editor', 'Admin', 'Global Admin'].includes(userRole);
@@ -108,32 +127,149 @@
 
 	// --- State ---
 	let isCreatingDeal = false;
+	let dealToEdit: Deal | null = null;
+	let activeMenuId: string | null = null;
 
 	function openCreateDeal() {
+		dealToEdit = null;
 		isCreatingDeal = true;
+		activeMenuId = null;
 	}
 
 	function hasExistingDeal(dealsList: Deal[], targetName: string): boolean {
 		return dealsList.some((d) => d.artistName === targetName);
 	}
 
-	function handleSaveDeal(event: CustomEvent<Deal>) {
-		const newDeal = event.detail;
-		// Ensure we don't break the object structure if currentDealData happened to be an array
-		const updatedData = Array.isArray(currentDealData)
-			? { headliners: currentDealData, deals: [] }
-			: { ...currentDealData };
+	function editDeal(deal: Deal) {
+		dealToEdit = deal;
+		isCreatingDeal = true;
+		activeMenuId = null;
+	}
 
-		if (!updatedData.deals) updatedData.deals = [];
-		updatedData.deals = [...updatedData.deals, newDeal];
+	async function deleteDeal(dealId: string) {
+		if (confirm('Are you sure you want to remove this deal?')) {
+			const updatedDeals = deals.filter((d) => d.id !== dealId);
+			await saveToDatabase(updatedDeals);
+		}
+		activeMenuId = null;
+	}
 
-		eventDealData = updatedData;
-		console.log('Saved Deal locally:', updatedData);
+	function getLogisticsText(deal: Deal): string {
+		let parts = [];
+		if (deal.w_tax) {
+			parts.push(`(subject to ${deal.w_tax_amount || 0}% w holding tax)`);
+		}
+
+		let logi = [];
+		if (deal.description?.hotels?.enabled) {
+			logi.push(
+				`${deal.description.hotels.rooms || 0} rooms for ${deal.description.hotels.nights || 0}x night`
+			);
+		}
+		if (deal.description?.groundTransport?.enabled) logi.push('ground');
+		if (deal.description?.immigration?.enabled) logi.push('exemption');
+
+		if (logi.length > 0) {
+			let logiStr = logi.join(' + ');
+			if (parts.length > 0) parts.push(`plus ${logiStr}`);
+			else parts.push(`Plus ${logiStr}`);
+		}
+
+		return parts.join(' ');
+	}
+
+	// 🚀 FIX: Ensuring we target the PARENT calendar table ID, not the child event ID!
+	async function saveToDatabase(updatedDeals: Deal[]) {
+		let dbPayload: any = {};
+
+		const hList = updatedDeals.filter((d) => d.role === 'Headliner');
+		const sList = updatedDeals.filter((d) => d.role === 'Support');
+
+		// Build Headliners (Only if they exist)
+		hList.forEach((h, index) => {
+			let sfx = index === 0 ? '' : `_${index + 1}`;
+			dbPayload[`headliner_id${sfx}`] = h.artistId || 'NULL';
+			dbPayload[`headliner_name${sfx}`] = h.artistName || 'NULL';
+			dbPayload[`headliner_pic${sfx}`] = h.artistPic || 'NULL';
+			const { role, artistId, artistName, artistPic, ...cleanDealObj } = h;
+			dbPayload[`headliner_deal${sfx}`] = cleanDealObj;
+		});
+
+		// Build Supports (Only if they exist)
+		sList.forEach((s, index) => {
+			let sfx = index === 0 ? '' : `_${index + 1}`;
+			dbPayload[`support_id${sfx}`] = s.artistId || 'NULL';
+			dbPayload[`support_name${sfx}`] = s.artistName || 'NULL';
+			dbPayload[`support_pic${sfx}`] = s.artistPic || 'NULL';
+			const { role, artistId, artistName, artistPic, ...cleanDealObj } = s;
+			dbPayload[`support_deal${sfx}`] = cleanDealObj;
+		});
+
+		// If all deals are deleted, revert to the default empty state
+		if (Object.keys(dbPayload).length === 0) {
+			dbPayload = {
+				headliner_id: 'NULL',
+				headliner_name: 'NULL',
+				headliner_pic: 'NULL'
+			};
+		}
+
+		// Grab parent ID (group_id or calendar.id). Fallback to event.id just in case.
+		const targetId = event?.calendar?.id || event?.group_id || event?.id;
+
+		if (targetId) {
+			try {
+				console.log(`🛠️ [DealsTab] Attempting to save deals to calendar table ID: ${targetId}`);
+
+				const { error } = await supabase
+					.from('calendar')
+					.update({ event_deal: dbPayload })
+					.eq('id', targetId);
+
+				if (error) throw error;
+
+				console.log('✅ [DealsTab] Successfully saved to DB!', dbPayload);
+				eventDealData = dbPayload;
+			} catch (err) {
+				console.error('❌ [DealsTab] Failed to save deals to the database:', err);
+			}
+		} else {
+			console.error('❌ [DealsTab] Could not save: Missing event ID target');
+		}
+	}
+
+	async function handleSaveDeal(eventObj: CustomEvent<Deal>) {
+		const savedDeal = eventObj.detail;
+		let updatedDeals;
+
+		if (dealToEdit) {
+			updatedDeals = deals.map((d) => (d.id === savedDeal.id ? savedDeal : d));
+		} else {
+			updatedDeals = [...deals, savedDeal];
+		}
+
+		await saveToDatabase(updatedDeals);
 		isCreatingDeal = false;
+		dealToEdit = null;
 	}
 
 	function handleCancelDeal() {
 		isCreatingDeal = false;
+		dealToEdit = null;
+	}
+
+	function clickOutsideMenu(node: HTMLElement) {
+		const handleClick = (e: MouseEvent) => {
+			if (node && !node.contains(e.target as Node)) {
+				activeMenuId = null;
+			}
+		};
+		document.addEventListener('click', handleClick, true);
+		return {
+			destroy() {
+				document.removeEventListener('click', handleClick, true);
+			}
+		};
 	}
 </script>
 
@@ -144,8 +280,8 @@
 {:else}
 	<div class="flex flex-col h-full bg-navbar text-white relative">
 		{#if !isCreatingDeal}
-			<div class="px-8 py-6 border-b-2 border-gray1 flex justify-between items-center shrink-0">
-				<h2 class="text-2xl font-black uppercase tracking-wide text-white">Deals</h2>
+			<div class="px-8 pt-6 pb-3 flex justify-between items-center shrink-0">
+				<h2 class="text-xl font-black uppercase tracking-wide text-lime">Deals</h2>
 				<div class="flex items-center gap-4">
 					{#if canEditAndManage}
 						<button
@@ -164,14 +300,21 @@
 			</div>
 		{/if}
 
-		<div class="p-8 overflow-y-auto">
+		<div class="px-8 pt-4 overflow-y-auto">
 			{#if isCreatingDeal && canEditAndManage}
-			<DealCreator on:save={handleSaveDeal} on:cancel={handleCancelDeal} event_date={eventDate} />
+				<DealCreator
+					on:save={handleSaveDeal}
+					on:cancel={handleCancelDeal}
+					existingDeal={dealToEdit}
+					event_date={eventDate}
+					eventCost={event?.calendar?.event_cost || event?.event_cost || null}
+					{venueCurrency}
+				/>
 			{:else}
 				<div class="flex flex-col gap-8">
-					<div class="rounded-2xl overflow-hidden bg-gray1">
+					<div class="rounded-2xl bg-gray1">
 						<div
-							class="bg-black/30 px-8 py-5 font-black uppercase tracking-wide text-gray3 border-b-2 border-navbar"
+							class="bg-black/40 px-6 py-5 font-black uppercase tracking-wide text-gray3 border-b-2 border-navbar rounded-t-2xl"
 						>
 							Headliners
 						</div>
@@ -213,21 +356,74 @@
 									<div
 										class="flex justify-between items-center mb-6 last:mb-0 border-b-2 border-navbar pb-6 last:border-0 last:pb-0"
 									>
-										<div>
-											<p class="font-black text-xl text-white">{deal.artistName}</p>
-											{#if canViewDetails}
-												<p class="text-sm text-gray2 font-bold mt-1">{deal.dealType} Deal</p>
-											{/if}
+										<div class="flex items-center gap-4">
+											<img
+												src={deal.artistPic && deal.artistPic !== 'NULL'
+													? deal.artistPic
+													: 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktIcon-iOS-Default-1024x1024@1x%20(1).png'}
+												alt={deal.artistName}
+												class="w-12 h-12 rounded-full object-cover bg-black"
+											/>
+											<div>
+												<p class="font-black text-xl text-white">{deal.artistName}</p>
+												{#if canViewDetails}
+													<p class="text-sm text-lime font-bold mt-1">
+														{deal.summaryText || `${deal.dealType} Deal`}
+													</p>
+													{#if getLogisticsText(deal)}
+														<p class="text-xs text-gray2 font-medium mt-1">
+															{getLogisticsText(deal)}
+														</p>
+													{/if}
+												{/if}
+											</div>
 										</div>
+
+										{#if canEditAndManage}
+											<div class="relative" use:clickOutsideMenu>
+												<button
+													on:click={() =>
+														(activeMenuId = activeMenuId === deal.id ? null : deal.id)}
+													class="w-10 h-10 flex items-center justify-center text-gray2 hover:text-white transition-colors cursor-pointer rounded-full hover:bg-white/10"
+													aria-label="Deal Options"
+												>
+													<svg
+														class="w-6 h-6"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"
+														></circle><circle cx="12" cy="19" r="1"></circle></svg
+													>
+												</button>
+												{#if activeMenuId === deal.id}
+													<div
+														class="absolute right-0 top-full mt-2 w-32 bg-navbar border border-gray2/20 rounded-xl shadow-2xl z-[9999] overflow-hidden"
+													>
+														<button
+															on:click={() => editDeal(deal)}
+															class="w-full text-left px-4 py-3 text-sm font-bold text-white hover:bg-lime/10 hover:text-lime transition-colors"
+															>Edit</button
+														>
+														<button
+															on:click={() => deleteDeal(deal.id)}
+															class="w-full text-left px-4 py-3 text-sm font-bold text-problem hover:bg-problem/10 transition-colors"
+															>Remove</button
+														>
+													</div>
+												{/if}
+											</div>
+										{/if}
 									</div>
 								{/each}
 							{/if}
 						</div>
 					</div>
 
-					<div class="rounded-2xl overflow-hidden bg-gray1">
+					<div class="rounded-2xl bg-gray1">
 						<div
-							class="bg-black/30 px-8 py-5 font-black uppercase tracking-wide text-gray3 border-b-2 border-navbar"
+							class="bg-black/40 px-6 py-5 font-black uppercase tracking-wide text-gray3 border-b-2 border-navbar rounded-t-2xl"
 						>
 							Support
 						</div>
@@ -239,12 +435,65 @@
 									<div
 										class="flex justify-between items-center mb-6 last:mb-0 border-b-2 border-navbar pb-6 last:border-0 last:pb-0"
 									>
-										<div>
-											<p class="font-black text-xl text-white">{deal.artistName}</p>
-											{#if canViewDetails}
-												<p class="text-sm text-gray2 font-bold mt-1">{deal.dealType} Deal</p>
-											{/if}
+										<div class="flex items-center gap-4">
+											<img
+												src={deal.artistPic && deal.artistPic !== 'NULL'
+													? deal.artistPic
+													: 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktIcon-iOS-Default-1024x1024@1x%20(1).png'}
+												alt={deal.artistName}
+												class="w-12 h-12 rounded-full object-cover bg-black"
+											/>
+											<div>
+												<p class="font-black text-xl text-white">{deal.artistName}</p>
+												{#if canViewDetails}
+													<p class="text-sm text-lime font-bold mt-1">
+														{deal.summaryText || `${deal.dealType} Deal`}
+													</p>
+													{#if getLogisticsText(deal)}
+														<p class="text-xs text-gray2 font-medium mt-1">
+															{getLogisticsText(deal)}
+														</p>
+													{/if}
+												{/if}
+											</div>
 										</div>
+
+										{#if canEditAndManage}
+											<div class="relative" use:clickOutsideMenu>
+												<button
+													on:click={() =>
+														(activeMenuId = activeMenuId === deal.id ? null : deal.id)}
+													class="w-10 h-10 flex items-center justify-center text-gray2 hover:text-white transition-colors cursor-pointer rounded-full hover:bg-white/10"
+													aria-label="Deal Options"
+												>
+													<svg
+														class="w-6 h-6"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"
+														></circle><circle cx="12" cy="19" r="1"></circle></svg
+													>
+												</button>
+												{#if activeMenuId === deal.id}
+													<div
+														class="absolute right-0 top-full mt-2 w-32 bg-navbar border border-gray2/20 rounded-xl shadow-2xl z-[9999] overflow-hidden"
+													>
+														<button
+															on:click={() => editDeal(deal)}
+															class="w-full text-left px-4 py-3 text-sm font-bold text-white hover:bg-lime/10 hover:text-lime transition-colors"
+															>Edit</button
+														>
+														<button
+															on:click={() => deleteDeal(deal.id)}
+															class="w-full text-left px-4 py-3 text-sm font-bold text-problem hover:bg-problem/10 transition-colors"
+															>Remove</button
+														>
+													</div>
+												{/if}
+											</div>
+										{/if}
 									</div>
 								{/each}
 							{/if}

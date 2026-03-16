@@ -99,6 +99,8 @@ export interface CalendarEvent {
         headliner_id: string | null;
         headliner_pic: string | null;
     };
+	event_revenue?: any;
+	event_cost?: any;
 	event_details?: {
 		is_challenge?: boolean;
 		is_target?: boolean;

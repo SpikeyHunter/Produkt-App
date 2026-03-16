@@ -167,10 +167,10 @@
 		</div>
 	{:else}
 		{#if $budgetStore}
-			<div class="p-4 border-b border-gray1 flex-shrink-0">
+			<div class="p-4 border-b border-gray1 shrink-0">
 				<div class="flex justify-between items-center mb-4">
 					<h2 class="text-white text-xl font-bold truncate">Budget Info</h2>
-					<span class="text-xs transition-all flex-shrink-0 ml-2 {savingState === 'saved' ? 'text-confirmed' : savingState === 'saving' ? 'text-gray2' : 'text-transparent'}">
+					<span class="text-xs transition-all shrink-0 ml-2 {savingState === 'saved' ? 'text-confirmed' : savingState === 'saving' ? 'text-gray2' : 'text-transparent'}">
 						{savingState === 'saving' ? 'Saving...' : 'Saved!'}
 					</span>
 				</div>

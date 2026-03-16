@@ -268,7 +268,7 @@
 
 <svelte:window on:click={handleWindowClick} />
 
-<div class="absolute z-[999]">
+<div class="absolute z-999">
 	<UploadModal
 		bind:isOpen={showUploadModal}
 		title="Upload Venue Logo"
@@ -285,7 +285,7 @@
 
 {#if isOpen}
 	<div
-		class="fixed inset-0 bg-[#000000]/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+		class="fixed inset-0 bg-black/80 backdrop-blur-sm z-100 flex items-center justify-center p-4"
 		transition:fade
 	>
 		<div
@@ -350,7 +350,7 @@
 							</button>
 							{#if showTzDropdown}
 								<div
-									class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-[60] max-h-48 overflow-y-auto custom-scrollbar overflow-hidden"
+									class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-60 max-h-48 overflow-y-auto custom-scrollbar overflow-hidden"
 								>
 									{#each timezones as tz}
 										<button
@@ -482,7 +482,7 @@
 
 							{#if showLogoDropdown}
 								<div
-									class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-[60] overflow-hidden max-h-56 overflow-y-auto custom-scrollbar"
+									class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-60 overflow-hidden max-h-56 overflow-y-auto custom-scrollbar"
 								>
 									<button
 										type="button"
@@ -581,7 +581,7 @@
 										type="text"
 										bind:value={stage.name}
 										placeholder="Stage Name"
-										class="flex-[2] bg-transparent text-[#F7F7F7] placeholder-[#BDBDBB]/40 focus:outline-none text-sm font-bold w-full"
+										class="flex-2 bg-transparent text-[#F7F7F7] placeholder-[#BDBDBB]/40 focus:outline-none text-sm font-bold w-full"
 									/>
 
 									<input
@@ -603,7 +603,7 @@
 
 										{#if activeColorPicker === i}
 											<div
-												class="absolute right-0 top-[calc(100%+12px)] w-auto bg-[#212121] p-3 rounded-2xl border border-[#BDBDBB]/20 flex flex-col gap-2.5 z-[60] shadow-2xl"
+												class="absolute right-0 top-[calc(100%+12px)] w-auto bg-[#212121] p-3 rounded-2xl border border-[#BDBDBB]/20 flex flex-col gap-2.5 z-60 shadow-2xl"
 												transition:fade={{ duration: 150 }}
 											>
 												{#each pastelColorsMatrix as row}
@@ -627,7 +627,7 @@
 									</div>
 									<button
 										type="button"
-										class="text-[#BDBDBB] hover:text-[#FCA5A5] p-1.5 cursor-pointer transition-colors"
+										class="text-[#BDBDBB] hover:text-problem p-1.5 cursor-pointer transition-colors"
 										on:click={() => (stages = stages.filter((_, idx) => idx !== i))}
 										aria-label="Remove Stage"
 									>
@@ -673,7 +673,7 @@
 								</button>
 								{#if showHoldDropdown}
 									<div
-										class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-[60] max-h-48 overflow-y-auto custom-scrollbar"
+										class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-60 max-h-48 overflow-y-auto custom-scrollbar"
 									>
 										{#each Array.from({ length: 5 }, (_, i) => `H${i + 1}`) as lvl}
 											<button
@@ -714,7 +714,7 @@
 								</button>
 								{#if showPromoteDropdown}
 									<div
-										class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-[60] overflow-hidden"
+										class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-60 overflow-hidden"
 									>
 										<button
 											type="button"
@@ -787,7 +787,7 @@
 										type="button"
 										class="flex-1 text-xs font-bold rounded-xl transition-colors cursor-pointer {financials.taxType ===
 										'Divisor'
-											? 'bg-[#E1FF00] text-[#000000]'
+											? 'bg-[#E1FF00] text-black'
 											: 'text-[#F7F7F7] hover:bg-[#BDBDBB]/10'}"
 										on:click={() => (financials.taxType = 'Divisor')}>Divisor</button
 									>
@@ -795,7 +795,7 @@
 										type="button"
 										class="flex-1 text-xs font-bold rounded-xl transition-colors cursor-pointer {financials.taxType ===
 										'Multiplier'
-											? 'bg-[#E1FF00] text-[#000000]'
+											? 'bg-[#E1FF00] text-black'
 											: 'text-[#F7F7F7] hover:bg-[#BDBDBB]/10'}"
 										on:click={() => (financials.taxType = 'Multiplier')}>Multiplier</button
 									>
@@ -825,7 +825,7 @@
 								</button>
 								{#if showCurrencyDropdown}
 									<div
-										class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-[70] overflow-hidden"
+										class="absolute top-[calc(100%+8px)] left-0 w-full bg-[#2F2F2F] border border-[#BDBDBB]/20 rounded-2xl shadow-xl z-70 overflow-hidden"
 									>
 										{#each ['CAD', 'USD', 'EUR', 'GBP'] as curr}
 											<button
@@ -891,7 +891,7 @@
 				<button
 					type="button"
 					class="py-3 px-6 font-black text-sm rounded-3xl transition-colors shadow-lg {isFormValid
-						? 'bg-[#E1FF00] text-[#000000] hover:bg-[#E1FF00]/90 cursor-pointer'
+						? 'bg-[#E1FF00] text-black hover:bg-[#E1FF00]/90 cursor-pointer'
 						: 'bg-[#2F2F2F] text-[#BDBDBB] opacity-50 cursor-not-allowed'}"
 					on:click={saveVenue}
 					disabled={saving || !isFormValid}
