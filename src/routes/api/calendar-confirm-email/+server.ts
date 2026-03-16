@@ -32,6 +32,9 @@ export const POST: RequestHandler = async ({ request }) => {
 		const { eventId, eventTitle, eventType, eventDate, eventDates, venueName, authUserName, action } =
 			await request.json();
 
+		// Add display modifier for Bazart Nuits
+		const displayEventType = eventType === 'Bazart Nuits' ? 'Nuits Bazart' : eventType;
+
 		// Fetch all users who opted into emails
 		const { data: users, error } = await supabaseAdmin
 			.from('calendar_users')
@@ -108,7 +111,7 @@ export const POST: RequestHandler = async ({ request }) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${subjectText}: ${subjectDateText} - ${eventTitle} - [${eventType}]</title>
+    <title>${subjectText}: ${subjectDateText} - ${eventTitle} - [${displayEventType}]</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Helvetica+Neue:wght@400;700&display=swap');
         :root { color-scheme: light dark; supported-color-schemes: light dark; }
@@ -146,7 +149,7 @@ export const POST: RequestHandler = async ({ request }) => {
     <img src="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/NCG_ProduktXX_NOIR.png" alt="ProduktXX" class="logo">
 </div>
         <div class="content">
-            <h1 class="welcome-title">Event: ${eventTitle} - [${eventType}] ${titleText}</h1>
+            <h1 class="welcome-title">Event: ${eventTitle} - [${displayEventType}] ${titleText}</h1>
             <p class="welcome-subtitle">
                 ${authUserName} has ${subtitleText} the event ${formattedDateText}.
             </p>
@@ -181,9 +184,8 @@ export const POST: RequestHandler = async ({ request }) => {
 			const mailOptions: any = {
 				from: `"Produkt App" <support@produkt.ca>`,
 				to: user.email,
-				// Updated Subject line to include the formatted date
-				subject: `${subjectText}: ${subjectDateText} - ${eventTitle} - [${eventType}]`,
-				text: `Event: ${eventTitle} - [${eventType}] ${titleText}\n\n${authUserName} has ${subtitleText} the event ${formattedDateText}.\n\n${isCancel ? 'Event Canceled' : `View in Calendar: ${eventUrl}`}\n\nUnsubscribe: ${unsubscribeUrl}`,
+				subject: `${subjectText}: ${subjectDateText} - ${eventTitle} - [${displayEventType}]`,
+				text: `Event: ${eventTitle} - [${displayEventType}] ${titleText}\n\n${authUserName} has ${subtitleText} the event ${formattedDateText}.\n\n${isCancel ? 'Event Canceled' : `View in Calendar: ${eventUrl}`}\n\nUnsubscribe: ${unsubscribeUrl}`,
 				html: htmlTemplate
 			};
 

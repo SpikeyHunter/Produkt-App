@@ -25,6 +25,9 @@ export const POST: RequestHandler = async ({ request }) => {
         const { eventId, eventTitle, eventType, eventDate, venueName, authUserName, action } =
             await request.json();
 
+        // Add display modifier for Bazart Nuits
+        const displayEventType = eventType === 'Bazart Nuits' ? 'Nuits Bazart' : eventType;
+
         // Fetch all users who opted into SMS
         const { data: users, error } = await supabaseAdmin
             .from('calendar_users')
@@ -73,10 +76,10 @@ export const POST: RequestHandler = async ({ request }) => {
         // Apply fallback template if none found in DB
         const templateBodyString = templateData?.setting_params?.body || `{eventTitle} - [{eventType}]\n\n📅 {eventDate}\n📍 {venueName}\n\n{actionLabel} by {authUserName}`;
 
-        // Replace tags with actual variables
+        // Replace tags with actual variables (Using displayEventType)
         const parsedBody = templateBodyString
             .replace(/{eventTitle}/g, eventTitle || '')
-            .replace(/{eventType}/g, eventType || '')
+            .replace(/{eventType}/g, displayEventType || '')
             .replace(/{eventDate}/g, formattedDate || '')
             .replace(/{venueName}/g, venueName || '')
             .replace(/{actionLabel}/g, actionLabel)

@@ -176,7 +176,7 @@
 			return `${displayType} - ${title}`;
 		}
 
-		if (eventType === 'Bazart Nuits') return `${title} - ${eventType}`;
+		if (eventType === 'Bazart Nuits') return `${title} - Nuits Bazart`;
 
 		return title;
 	}

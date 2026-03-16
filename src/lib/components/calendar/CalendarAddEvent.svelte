@@ -1089,7 +1089,7 @@
 									<span
 										class="w-2.5 h-2.5 rounded-full"
 										style="background-color: {typeColors[eventType]}"
-									></span>{eventType}
+									></span>{eventType === 'Bazart Nuits' ? 'Nuits Bazart' : eventType}
 								</div>
 							{:else}
 								<span class="text-gray2/50">Select Event Type</span>
@@ -1123,7 +1123,7 @@
 										<span
 											class="w-2.5 h-2.5 rounded-full"
 											style="background-color: {typeColors[type]}"
-										></span>{type}
+										></span>{type === 'Bazart Nuits' ? 'Nuits Bazart' : type}
 									</button>
 								{/each}
 							</div>

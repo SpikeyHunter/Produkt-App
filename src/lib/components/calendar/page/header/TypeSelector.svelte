@@ -148,7 +148,7 @@
 	>
 		<div class="w-3 h-3 rounded-full" style="background-color: {currentTypeColor}"></div>
 		<span class="text-sm font-bold text-white whitespace-nowrap">
-			{currentType}
+			{currentType === 'Bazart Nuits' ? 'Nuits Bazart' : currentType}
 		</span>
 		<svg class="w-4 h-4 text-gray2 ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
 	</button>
@@ -161,7 +161,7 @@
 					on:click={() => promptModifyType(typeName)}
 				>
 					<div class="w-3 h-3 rounded-full" style="background-color: {colorHex}"></div>
-					<span class="text-sm font-bold text-white">{typeName}</span>
+					<span class="text-sm font-bold text-white">{typeName === 'Bazart Nuits' ? 'Nuits Bazart' : typeName}</span>
 				</button>
 			{/each}
 		</div>

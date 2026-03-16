@@ -343,7 +343,7 @@
 				: ''}"
 			style={getTypeStyle(row.type)}
 		>
-			{row.type || 'Select'}
+			{row.type === 'Bazart Nuits' ? 'Nuits Bazart' : (row.type || 'Select')}
 		</button>
 	</div>
 
@@ -495,8 +495,8 @@
 					class="text-gray-300 font-medium group-hover:text-white transition-colors {type ===
 					'Canceled'
 						? 'text-red-400 line-through'
-						: ''}">{type}</span
-				>
+						: ''}">{type === 'Bazart Nuits' ? 'Nuits Bazart' : type}</span>
+				
 			</button>
 		{/each}
 		<div class="h-px bg-gray-700 my-1 mx-2"></div>

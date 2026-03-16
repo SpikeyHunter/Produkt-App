@@ -228,7 +228,7 @@
 			return `${displayType} - ${title}`;
 		}
 
-		if (eventType === 'Bazart Nuits') return `${title} - ${eventType}`;
+		if (eventType === 'Bazart Nuits') return `${title} - Nuits Bazart`;
 
 		return title;
 	}
@@ -422,7 +422,7 @@
 												style="background-color: {typeColors[event.details.type] ||
 													'#828282'}; color: #000;"
 											>
-												{event.details.type}
+												{event.details.type === 'Bazart Nuits' ? 'Nuits Bazart' : event.details.type}
 											</span>
 										{/if}
 									</div>
@@ -506,7 +506,7 @@
 													class="text-[9px] font-bold px-3 py-1 mt-1 rounded-full text-black"
 													style="background-color: {typeColors[event.details.type] || '#828282'};"
 												>
-													{event.details.type}
+													{event.details.type === 'Bazart Nuits' ? 'Nuits Bazart' : event.details.type}
 												</span>
 											{/if}
 										</div>
@@ -736,7 +736,7 @@
 												<span
 													class="w-2.5 h-2.5 rounded-full"
 													style="background-color: {typeColors[type]}"
-												></span>{type}
+												></span>{type === 'Bazart Nuits' ? 'Nuits Bazart' : type}
 											</span>
 										{/each}
 									{/if}
@@ -807,7 +807,7 @@
 												<span
 													class="w-2.5 h-2.5 rounded-full"
 													style="background-color: {typeColors[type]}"
-												></span>{type}
+												></span>{type === 'Bazart Nuits' ? 'Nuits Bazart' : type}
 											</div>
 										</label>
 									{/each}
