@@ -133,10 +133,7 @@
 				class="px-4 py-2.5 text-sm text-[var(--color-gray2)] border border-[var(--color-border)]/30 rounded-3xl font-bold transition-all hover:bg-[var(--color-lime)] hover:text-black hover:border-lime cursor-pointer flex items-center gap-2 group"
 				on:click={() => dispatch('quickSearch')}
 			>
-				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<circle cx="11" cy="11" r="8"></circle>
-					<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-				</svg>
+				
 				Quick Search
 				<span
 					class="px-1.5 py-0.5 ml-1 bg-[var(--color-gray1)] border border-[var(--color-border)]/30 text-[10px] rounded text-[var(--color-gray2)] font-mono group-hover:bg-black/10 group-hover:text-black group-hover:border-black/20 transition-colors"
