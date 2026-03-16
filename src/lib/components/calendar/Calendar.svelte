@@ -11,6 +11,7 @@
 	import CalendarManageHolds from './CalendarManageHolds.svelte';
 	import VenueSettingsModal from './VenueSettingsModal.svelte';
 	import CalendarShareAvails from './CalendarShareAvails.svelte';
+	import CalendarQuickSearch from './CalendarQuickSearch.svelte';
 	import { portal } from '$lib/utils/portalUtils';
 	import type {
 		CalendarEvent,
@@ -55,6 +56,9 @@
 	let manageHoldsDrafts: CalendarEvent[] = [];
 	let manageHoldsDeletedIds: string[] = [];
 	let toggleDateTrigger: { date: string; ts: number } | null = null;
+
+	let showQuickSearch = false;
+
 	const weekDayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 	const monthNames = [
 		'January',
@@ -448,6 +452,7 @@
 
 <div use:portal>
 	<CalendarShareAvails bind:show={showAvailsModal} />
+	<CalendarQuickSearch bind:show={showQuickSearch} {canEdit} />
 	<CalendarViewEvent
 		bind:show={showEventModal}
 		event={selectedEvent}
@@ -493,6 +498,7 @@
 			on:next={nextPeriod}
 			on:addEvent={handleAddEventClick}
 			on:shareAvails={() => (showAvailsModal = true)}
+			on:quickSearch={() => (showQuickSearch = true)}
 			on:jumpToDate={(e) => {
 				currentViewDate = e.detail;
 			}}

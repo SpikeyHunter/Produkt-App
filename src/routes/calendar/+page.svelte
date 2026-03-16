@@ -11,7 +11,9 @@
 	import Modal from '$lib/components/modals/Modal.svelte';
 	import CalendarContactList from '$lib/components/calendar/CalendarContactList.svelte';
 	import CalendarSettings from '$lib/components/calendar/CalendarSettings.svelte';
+	import CalendarQuickSearch from '$lib/components/calendar/CalendarQuickSearch.svelte';
 
+	let showQuickSearch = false;
 	let mounted = false;
 	let viewType: 'month' | 'week' | 'list' = 'month';
 	let currentViewDate = new Date();
@@ -546,7 +548,6 @@
 								</button>
 							</div>
 							<div class="relative flex items-center group">
-							
 								<button
 									class="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all border-gray2 text-gray2 hover:border-lime hover:text-lime cursor-pointer"
 									on:click={() => (showSettingsModal = true)}
@@ -568,7 +569,13 @@
 				</div>
 
 				<div class="flex-1 min-h-0 fade-in {mounted ? 'mounted' : ''}">
-					<Calendar bind:viewType bind:currentViewDate {canEdit} {canViewHolds} />
+					<Calendar
+						bind:viewType
+						bind:currentViewDate
+						{canEdit}
+						{canViewHolds}
+						on:quickSearch={() => (showQuickSearch = true)}
+					/>
 				</div>
 			</div>
 		</MainLayout>
@@ -651,7 +658,13 @@
 				</div>
 
 				<div class="flex-1 min-h-0 fade-in {mounted ? 'mounted' : ''}">
-					<Calendar bind:viewType bind:currentViewDate {canEdit} {canViewHolds} />
+					<Calendar
+						bind:viewType
+						bind:currentViewDate
+						{canEdit}
+						{canViewHolds}
+						on:quickSearch={() => (showQuickSearch = true)}
+					/>
 				</div>
 			</div>
 		</div>

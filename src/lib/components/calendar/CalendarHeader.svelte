@@ -128,6 +128,22 @@
 			on:click={handleTodayClick}>Today</button
 		>
 
+		{#if isEditor}
+			<button
+				class="px-4 py-2.5 text-sm text-[var(--color-gray2)] border border-[var(--color-border)]/30 rounded-3xl font-bold transition-all hover:bg-[var(--color-lime)] hover:text-black hover:border-lime cursor-pointer flex items-center gap-2 group"
+				on:click={() => dispatch('quickSearch')}
+			>
+				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="11" cy="11" r="8"></circle>
+					<line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+				</svg>
+				Quick Search
+				<span
+					class="px-1.5 py-0.5 ml-1 bg-[var(--color-gray1)] border border-[var(--color-border)]/30 text-[10px] rounded text-[var(--color-gray2)] font-mono group-hover:bg-black/10 group-hover:text-black group-hover:border-black/20 transition-colors"
+					>⌘K</span
+				>
+			</button>
+		{/if}
 		{#if viewType === 'list'}
 			<div
 				class="flex items-center gap-1 bg-[var(--color-gray1)] rounded-3xl border border-[var(--color-border)]/10"
@@ -150,7 +166,7 @@
 		{/if}
 	</div>
 
-	<div class="flex items-center ml-16 gap-4">
+	<div class="flex items-center gap-4">
 		{#if viewType !== 'list'}
 			<button
 				class="p-2 text-[var(--color-gray2)] hover:text-[var(--color-white)] transition-all cursor-pointer rounded-full hover:bg-[var(--color-gray1)]"
@@ -343,7 +359,7 @@
 		{#if isEditor}
 			<div class="relative group flex items-center">
 				<button
-					class="p-2.5 bg-transparent border border-2 border-[var(--color-border)]/30 text-[var(--color-gray2)] rounded-full flex items-center justify-center hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-all cursor-pointer"
+					class="p-2.5 bg-transparent border-2 border-[var(--color-border)]/30 text-[var(--color-gray2)] rounded-full flex items-center justify-center hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-all cursor-pointer"
 					on:click={() => (showHiddenHolds = !showHiddenHolds)}
 					aria-label={showHiddenHolds ? 'Hide Hidden Holds' : 'Reveal Hidden Holds'}
 				>

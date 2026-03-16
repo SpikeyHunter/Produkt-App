@@ -33,7 +33,7 @@
 		// If the DB has our all-day values, show "All Day"
 		if (s === '00:00' && e === '23:59') return 'All Day';
 		
-		if (s && e) return `From: ${format12Hour(s)} - To: ${format12Hour(e)}`;
+		if (s && e) return `${format12Hour(s)} - ${format12Hour(e)}`;
 		if (s) return `From: ${format12Hour(s)}`;
 		if (e) return `To: ${format12Hour(e)}`;
 		return 'Set Time';
