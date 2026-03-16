@@ -544,7 +544,7 @@
 			delete manualHolds[d];
 		});
 		selectedDateRows = [];
-		if (dates.length === 0) view = 'form';
+		if (dates.length === 0) closeSidebar();
 	}
 
 	function removeDateRow(dateStr: string) {
@@ -552,7 +552,7 @@
 		delete timeSettings[dateStr];
 		delete manualHolds[dateStr];
 		selectedDateRows = selectedDateRows.filter((d) => d !== dateStr);
-		if (dates.length === 0) view = 'form';
+		if (dates.length === 0) closeSidebar();
 	}
 
 	function handlePriorityChange() {

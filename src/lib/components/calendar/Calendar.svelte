@@ -323,6 +323,12 @@
 			} else {
 				activeSelectedDates = [...activeSelectedDates, dateStr];
 			}
+			
+			// ADDED THIS: Close sidebar if no dates are left selected
+			if (activeSelectedDates.length === 0) {
+				showAddSidebar = false;
+			}
+			
 			return;
 		}
 
