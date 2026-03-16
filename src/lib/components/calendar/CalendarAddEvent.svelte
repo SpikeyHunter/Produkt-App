@@ -120,7 +120,31 @@
 		'Other'
 	];
 
-	$: titleContainsType = checkFuzzyMatch(title, types);
+	const forbiddenWords = [
+		'corpo',
+		'bazart nuits',
+		'nuits bazart',
+		'bazart nuit',
+		'nuit bazart',
+		'ncg show',
+		'ncg 360',
+		'ncg360',
+		'360',
+		'dstrkt',
+		'tour prod'
+	];
+
+	function containsForbiddenWord(inputTitle: string) {
+		if (!inputTitle) return false;
+		const titleLower = inputTitle.toLowerCase().trim();
+		return forbiddenWords.some((word) =>
+			// Use whole-word match for '360' so we don't accidentally block names like "Artist3600"
+			word === '360' ? /\b360\b/.test(titleLower) : titleLower.includes(word)
+		);
+	}
+
+	// Will trigger the existing UI warning and disable the Save button
+	$: titleContainsType = containsForbiddenWord(title) || checkFuzzyMatch(title, types);
 
 	function checkFuzzyMatch(inputTitle: string, eventTypes: EventType[]) {
 		if (!inputTitle) return false;
@@ -879,12 +903,13 @@
 							type="text"
 							bind:value={title}
 							placeholder="Enter event name"
-							class="w-full px-3 py-2.5 bg-navbar focus:outline-none focus:ring-2 focus:ring-lime{titleContainsType
-								? 'focus:ring-2'
-								: ''} rounded-2xl text-white placeholder:text-gray2/50 text-sm focus:border-lime focus:outline-none transition-colors"
+							class="w-full px-3 py-2.5 bg-navbar rounded-2xl placeholder:text-gray2/50 text-sm focus:outline-none transition-colors border-2
+        {titleContainsType
+								? 'text-problem border-problem focus:border-problem'
+								: 'text-white border-transparent focus:border-lime'}"
 						/>
 						{#if titleContainsType}
-							<p class="text-lime text-[10px] mt-1 ml-1 font-bold transition-all">
+							<p class="text-problem text-[10px] mt-1 ml-1 font-bold transition-all">
 								Do not include event type in the name, select type from dropdown below
 							</p>
 						{/if}

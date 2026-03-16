@@ -38,6 +38,10 @@
 	let isEditingTitle = false;
 	let editTitle = event.calendar?.title || 'Unnamed Event';
 
+	// New error state variables
+	let titleError = false;
+	let titleErrorTimeout: ReturnType<typeof setTimeout>;
+
 	// Dropdown states
 	let showStatusDrop = false;
 
@@ -65,8 +69,51 @@
 	$: currentStatusObj = statuses.find((s) => s.value === event.status) || statuses[0];
 
 	async function saveTitle() {
+		// Exit early if empty or unchanged
+		if (editTitle.trim() === '' || editTitle === event.calendar?.title) {
+			isEditingTitle = false;
+			return;
+		}
+
+		const forbiddenWords = [
+			'corpo',
+			'bazart nuits',
+			'nuits bazart',
+			'bazart nuit',
+			'nuit bazart',
+			'ncg show',
+			'ncg 360',
+			'ncg360',
+			'360',
+			'dstrkt',
+			'tour prod'
+		];
+
+		const titleLower = editTitle.toLowerCase().trim();
+		const hasForbiddenWord = forbiddenWords.some((word) =>
+			word === '360' ? /\b360\b/.test(titleLower) : titleLower.includes(word)
+		);
+
+		if (hasForbiddenWord) {
+			// Revert the title back to what it was
+			editTitle = event.calendar?.title || 'Unnamed Event';
+			isEditingTitle = false; // Close the input
+
+			// Trigger the error state UI
+			titleError = true;
+
+			// Clear any existing timeout to prevent overlapping timers
+			if (titleErrorTimeout) clearTimeout(titleErrorTimeout);
+
+			// Remove the error state after 4 seconds
+			titleErrorTimeout = setTimeout(() => {
+				titleError = false;
+			}, 4000);
+
+			return;
+		}
+
 		isEditingTitle = false;
-		if (editTitle.trim() === '' || editTitle === event.calendar?.title) return;
 		await supabase.from('calendar').update({ title: editTitle.trim() }).eq('id', event.group_id);
 		invalidateAll();
 	}
@@ -571,9 +618,12 @@
 					/>
 				{:else}
 					<button
-						class="text-2xl font-black text-white px-1 text-left transition-colors {isEditor
-							? 'cursor-pointer hover:text-lime'
-							: 'opacity-80'}"
+						class="text-2xl font-black px-1 text-left transition-all {isEditor
+							? 'cursor-pointer'
+							: 'opacity-80'} 
+					{titleError
+							? 'text-problem underline decoration-problem decoration-2 underline-offset-4'
+							: 'text-white hover:text-lime'}"
 						style="cursor: {!isEditor ? 'not-allowed' : 'pointer'};"
 						on:click={() => {
 							if (isEditor) isEditingTitle = true;
@@ -585,12 +635,20 @@
 					>
 						{event.calendar?.title || 'Unnamed Event'}
 					</button>
-					{#if isEditor}
+					{#if isEditor && !titleError}
 						<span
 							class="opacity-0 group-hover:opacity-100 absolute -right-20 text-[10px] font-bold uppercase tracking-wider bg-navbar text-white px-2 py-1 rounded transition-opacity pointer-events-none shadow-sm"
 							>Rename</span
 						>
 					{/if}
+				{/if}
+
+				{#if titleError}
+					<div
+						class="absolute top-full left-1 mt-1 text-problem text-[10px] font-bold whitespace-nowrap pointer-events-none"
+					>
+						Do not include event type in the name, select type from dropdown below.
+					</div>
 				{/if}
 			</div>
 		</div>
