@@ -1,5 +1,5 @@
 // src/lib/stores/authStore.ts
-import { writable, derived, get } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { supabase } from '$lib/supabase';
 import type { User } from '@supabase/supabase-js';
 
@@ -73,7 +73,7 @@ function createAuthStore() {
 			console.log('Fetching profile for user:', userId);
 			const { data, error } = await supabase
 				.from('user_profiles')
-				.select('id, email, first_name, last_name, role, main_permission, secondary_permission, page_permissions, created_at, updated_at, user_reminders, user_settings')  // ✅ ADDED page_permissions HERE
+				.select('id, email, first_name, last_name, role, main_permission, secondary_permission, page_permissions, created_at, updated_at, user_reminders, user_settings')
 				.eq('id', userId)
 				.single();
 
@@ -87,7 +87,7 @@ function createAuthStore() {
 				const profileWithDefaults: UserProfile = {
 					...data,
 					user_settings: data.user_settings || { theme: 'dark' },
-					page_permissions: data.page_permissions || []  // ✅ ADD DEFAULT FOR page_permissions
+					page_permissions: data.page_permissions || [] 
 				};
 				profileCache.set(userId, { profile: profileWithDefaults, timestamp: Date.now() });
 				return profileWithDefaults;
@@ -269,67 +269,3 @@ function createAuthStore() {
 }
 
 export const authStore = createAuthStore();
-
-export const permissions = derived(authStore, $authStore => {
-	const profile = $authStore.profile;
-	
-	if (!profile) {
-		return {
-			isAdmin: false,
-			hasPermission: (permission: string) => false,
-			allPermissions: [] as string[]
-		};
-	}
-
-	const isAdmin = profile.role === 'Admin';
-	
-	const allPermissions: string[] = [];
-	if (profile.main_permission) allPermissions.push(profile.main_permission);
-	if (profile.secondary_permission) {
-		const secondary = Array.isArray(profile.secondary_permission)
-			? profile.secondary_permission
-			: profile.secondary_permission.split(',').map(p => p.trim());
-		allPermissions.push(...secondary);
-	}
-	// ✅ ADD page_permissions to allPermissions
-	if (profile.page_permissions) {
-		allPermissions.push(...profile.page_permissions);
-	}
-
-	return {
-		isAdmin,
-		hasPermission: (permission: string) => {
-			if (isAdmin) return true;
-			return allPermissions.includes(permission);
-		},
-		allPermissions
-	};
-});
-
-export const canAccessRoute = derived([authStore, permissions], ([$authStore, $permissions]) => {
-	return (route: string): boolean => {
-		if (!$authStore.user || !$authStore.profile) return false;
-		if ($permissions.isAdmin) return true;
-		
-		// Dashboard, Set Times, and Calendar accessible to all users
-		if (route.startsWith('/dashboard') || route.startsWith('/settimes') || route.startsWith('/calendar')) {
-			return true;
-		}
-		if (route.startsWith('/settings')) {
-			return true;
-		}
-		if (route.startsWith('/marketing')) {
-			return $permissions.hasPermission('Marketing');
-		}
-		if (route.startsWith('/booking')) {
-			return $permissions.hasPermission('Booking');
-		}
-		if (route.startsWith('/advancing')) {
-			return $permissions.hasPermission('Advance');
-		}
-		if (route.startsWith('/production')) {
-			return $permissions.hasPermission('Production');
-		}
-		return false;
-	};
-});

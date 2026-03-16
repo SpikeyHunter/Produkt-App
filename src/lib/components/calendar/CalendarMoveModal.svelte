@@ -6,6 +6,7 @@
 	import { portal } from '$lib/utils/portalUtils';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
 	import { getNextAvailableHold, calculateAutoPromotions } from '$lib/utils/holdManager';
+	import CalendarModify from './CalendarModify.svelte'; // <-- ADD THIS
 
 	export let show = false;
 	export let event: CalendarEvent | null = null;
@@ -15,6 +16,8 @@
 
 	const dispatch = createEventDispatcher();
 	let saving = false;
+
+	let showModifyModal = false;
 
 	// Notification State
 	let showPopup = false;
@@ -57,7 +60,6 @@
 				e.title === event?.title &&
 				e.id !== event?.id
 		);
-
 		if (isDuplicate) {
 			close();
 			setTimeout(() => {
@@ -65,6 +67,24 @@
 			}, 100);
 			return;
 		}
+
+		// <-- NEW LOGIC: Intercept Confirmed Events
+		if (event.status === 'CONFIRMED') {
+			showModifyModal = true;
+			return;
+		}
+
+		// If not confirmed, proceed normally without notifying
+		executeMove(false, false);
+	}
+
+	function handleModifyConfirm(e: CustomEvent) {
+		executeMove(e.detail.sendEmail, e.detail.sendSms);
+	}
+
+	async function executeMove(sendEmail: boolean, sendSms: boolean) {
+		// ADD THIS LINE: Tells TypeScript these are definitely not null here
+		if (!event || !newDateStr) return;
 
 		saving = true;
 		try {
@@ -91,7 +111,6 @@
 						e.id !== event?.id &&
 						e.status === 'HOLD'
 				);
-
 				if (sameEventHoldsOnNewDate.length > 0) {
 					// Match the level of other rooms occupied by the same event
 					newHoldLevel = sameEventHoldsOnNewDate[0].hold_level;
@@ -106,7 +125,6 @@
 							e.status === 'HOLD' &&
 							e.id !== event?.id
 					);
-
 					if (isTakenInRoom) {
 						newHoldLevel = getNextAvailableHold({
 							date: newDateStr,
@@ -128,7 +146,6 @@
 						room: event.venue.room || '',
 						existingEvents: existingEvents
 					});
-
 					for (const promo of promotions) {
 						updates.push(
 							supabase
@@ -157,11 +174,14 @@
 				if (res.error) throw res.error;
 			}
 
-			dispatch('success');
+			// <-- NEW LOGIC: Pass notification preferences to parent if needed
+			dispatch('success', { sendEmail, sendSms });
 			close();
+			showModifyModal = false;
 		} catch (err) {
 			console.error('Error moving event:', err);
 			close();
+			showModifyModal = false;
 			setTimeout(() => {
 				showError('Failed to move the event. Please try again.');
 			}, 100);
@@ -190,7 +210,7 @@
 
 	{#if show && event && oldDateObj && newDateObj}
 		<div
-			class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+			class="fixed inset-0 z-999 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
 			transition:fade={{ duration: 200 }}
 		>
 			<div
@@ -280,4 +300,14 @@
 			</div>
 		</div>
 	{/if}
+	<CalendarModify
+		bind:show={showModifyModal}
+		title="Move Confirmed Event"
+		message="Please confirm the date change for this confirmed event. Notifications will be sent to opted-in users."
+		oldDates={event ? [event.date] : []}
+		newDates={newDateStr ? [newDateStr] : []}
+		on:confirm={handleModifyConfirm}
+		on:cancel={() => (showModifyModal = false)}
+		{saving}
+	/>
 </div>

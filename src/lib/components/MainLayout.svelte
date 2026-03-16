@@ -7,6 +7,7 @@
 	import { logout } from '$lib/stores/auth';
 	import { authStore } from '$lib/stores/authStore';
 	import BugReportModal from '$lib/components/modals/BugReportModal.svelte';
+	import { hasPermission } from '$lib/utils/permissions';
 
 	// Props
 	// svelte-ignore unused-export-let
@@ -225,26 +226,6 @@
 
 	// --- FUNCTIONS ---
 
-	function hasPermission(requiredPermission: string | string[] | undefined, profile: any): boolean {
-		if (!requiredPermission) return true;
-		if (!profile) return false;
-		if (profile.role === 'Admin') return true;
-
-		const mainPerm = profile.main_permission ? [profile.main_permission] : [];
-		const secondaryPerms = Array.isArray(profile.secondary_permission)
-			? profile.secondary_permission
-			: [];
-		const pagePerms = Array.isArray(profile.page_permissions) ? profile.page_permissions : [];
-
-		const userPermissions = [...mainPerm, ...secondaryPerms, ...pagePerms].filter(Boolean);
-
-		if (Array.isArray(requiredPermission)) {
-			return requiredPermission.some((perm) => userPermissions.includes(perm));
-		} else {
-			return userPermissions.includes(requiredPermission);
-		}
-	}
-
 	function hasMenuItemAccess(item: MenuItem, profile: any): boolean {
 		if (!profile) return item.id === 'dashboard';
 		if (profile.role === 'Admin') return true;
@@ -254,14 +235,10 @@
 			return hasPermission(item.requiredPermission, profile);
 		}
 
-		// Check if any sub-item is accessible.
-		// If ANY sub-item is accessible, we show the parent.
 		const hasAccessibleSubItem = item.subItems.some((sub) =>
 			hasPermission(sub.requiredPermission, profile)
 		);
 
-		// Also check the Main section permission (like "Marketing").
-		// Usually if they have a sub-permission, they should see the section.
 		const hasSectionPermission = hasPermission(item.requiredPermission, profile);
 
 		return hasSectionPermission || hasAccessibleSubItem;

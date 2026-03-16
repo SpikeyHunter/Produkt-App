@@ -10,10 +10,11 @@
 	import EventHeader from '$lib/components/calendar/page/header/EventHeader.svelte';
 	import VenueSettingsModal from '$lib/components/calendar/VenueSettingsModal.svelte';
 	import EventSidebar from '$lib/components/calendar/page/sidebar/EventSidebar.svelte';
+	import CalendarQuickSearch from '$lib/components/calendar/CalendarQuickSearch.svelte';
 
 	// --- IMPORT TAB COMPONENTS ---
 	import DealsTab from '$lib/components/calendar/page/tabs/deals/DealsTab.svelte';
-	import RevenueTab from '$lib/components/calendar/page/tabs/RevenueTab.svelte';
+	import RevenueTab from '$lib/components/calendar/page/tabs/revenue/RevenueTab.svelte';
 	import ProFormaTab from '$lib/components/calendar/page/tabs/ProFormaTab.svelte';
 	import CostsTab from '$lib/components/calendar/page/tabs/CostsTab.svelte';
 	import InternalSettlementTab from '$lib/components/calendar/page/tabs/InternalSettlementTab.svelte';
@@ -21,6 +22,8 @@
 	import ContactsTab from '$lib/components/calendar/page/tabs/ContactsTab.svelte';
 	import NotesTab from '$lib/components/calendar/page/tabs/NotesTab.svelte';
 	import FilesTab from '$lib/components/calendar/page/tabs/FilesTab.svelte';
+
+	let showQuickSearch = false;
 
 	export let data: PageData;
 	$: ({ event, groupEvents, venues, tabSlug } = data);
@@ -36,7 +39,6 @@
 		'Notes',
 		'Files'
 	];
-
 	const tabComponents: Record<string, any> = {
 		Deals: DealsTab,
 		Revenue: RevenueTab,
@@ -48,7 +50,6 @@
 		Notes: NotesTab,
 		Files: FilesTab
 	};
-
 	let activeTab = tabs[0];
 	let isSidebarOpen = true;
 
@@ -69,7 +70,6 @@
 	let authState: 'loading' | 'authenticated' = 'loading';
 	let showMainLayout = false;
 	let userRole = 'Email Only';
-
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 
 	// 🔥 ONE-LINE TOGGLE: Set to true to block UI on deployed app
@@ -122,7 +122,6 @@
 			.select('*')
 			.eq('email', email)
 			.single();
-
 		if (data && ['Manager', 'Editor', 'Admin'].includes(data.role)) {
 			userRole = data.role;
 			authState = 'authenticated';
@@ -167,7 +166,8 @@
 	}
 
 	function toggleSidebar() {
-		if (shouldDisableUI) return; // 🛑 Prevents sidebar toggle if locked
+		if (shouldDisableUI) return;
+		// 🛑 Prevents sidebar toggle if locked
 
 		isSidebarOpen = !isSidebarOpen;
 	}
@@ -177,12 +177,13 @@
 	<title>{event?.calendar?.title || 'Event'}</title>
 </svelte:head>
 
-<div class="absolute z-[9999]">
+<div class="absolute z-9999">
 	<VenueSettingsModal
 		bind:isOpen={showSettingsModal}
 		venueId={selectedSettingsVenueId}
 		on:success={() => invalidateAll()}
 	/>
+	<CalendarQuickSearch bind:show={showQuickSearch} canEdit={isEditor} />
 </div>
 
 {#if authState === 'loading'}
@@ -216,11 +217,13 @@
 						<svelte:component
 							this={tabComponents[activeTab]}
 							{userRole}
-							eventDealData={event?.event_deal}
+							{event}
+							eventDealData={event?.calendar?.event_deal || event?.event_deal}
 							eventDate={event?.start_date || event?.date || ''}
+							venueCurrency={event?.calendar?.currency || 'CAD'}
 						/>
 					</div>
-					<EventSidebar {activeTab} {isSidebarOpen} {userRole} />
+					<EventSidebar {isSidebarOpen} {userRole} {event} />
 				</div>
 			</div>
 		</slot>
@@ -251,10 +254,13 @@
 					<svelte:component
 						this={tabComponents[activeTab]}
 						{userRole}
-						eventDealData={event?.event_deal}
+						{event}
+						eventDealData={event?.calendar?.event_deal || event?.event_deal}
+						eventDate={event?.start_date || event?.date || ''}
+						venueCurrency={event?.calendar?.currency || 'CAD'}
 					/>
 				</div>
-				<EventSidebar {activeTab} {isSidebarOpen} {userRole} />
+				<EventSidebar {isSidebarOpen} {userRole} {event} />
 			</div>
 		</div>
 	</div>

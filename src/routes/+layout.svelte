@@ -3,92 +3,49 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/supabase';
-	import { user } from '$lib/stores/userStore';
 	import { authStore } from '$lib/stores/authStore';
 	import { themeStore } from '$lib/stores/themeStore';
+	import { hasPermission } from '$lib/utils/permissions';
 	import '../app.css';
 
 	// Routes that require a logged-in user to access.
-	// /schedules and /settimes are removed to allow public viewing for unauthenticated users.
+	// Base paths cover all sub-routes automatically.
 	const PROTECTED_ROUTES = [
 		'/dashboard',
 		'/advancing',
 		'/booking',
-		'/production/showbudget', // <--- ADD THIS
-		'/production/emailtech',
+		'/production',
 		'/marketing',
 		'/settings',
 		'/ncgapp',
 		'/sultanshepard'
-		// '/schedules' and '/settimes' removed for public access
 	];
 
 	const PUBLIC_ONLY_ROUTES = ['/', '/login', '/login/register', '/login/forgot-password'];
-	// Add this under PUBLIC_ONLY_ROUTES
 	const UNPROTECTED_ROUTES = ['/calendar/unsubscribe'];
 
 	// --- PERMISSION CONFIGURATION ---
-	// This map defines all routes that require specific permission *if the user is logged in*.
 	const PERMISSION_MAP: Record<string, string | string[]> = {
-		// --- Base Sections ---
-		'/dashboard': [], // Accessible to all logged in users
-
+		'/dashboard': [],
 		'/settings': 'Admin',
-		'/settimes': ['Advance', 'Booking', 'Production', 'Marketing'], // Any of these
-
-		// --- Sections with Inheritance ---
-		'/advancing': 'Advance', // Covers /advancing/gathered, /advancing/artistliaison, etc.
-		'/booking': 'Booking', // Covers /booking/artistavailability, etc.
-
-		'/production/backline': [], // <--- ADD THIS LINE (Must be above or below '/production')
-		'/production': 'Production',
+		'/settimes': ['Advance', 'Booking', 'Production', 'Marketing'],
+		'/advancing': 'Advance',
+		'/booking': 'Booking',
+		'/production/backline': [],
 		'/production/showbudget': 'ShowBudget',
-
-		'/marketing': 'Marketing', // Base permission for marketing
-		'/marketing/comptickets': 'CompTickets', // EXCEPTION: Specific permission required
-
-		'/schedules': 'Schedule', // Base permission for schedules (e.g., /schedules/tech)
-		'/schedules/stagemanager': 'StageManager', // EXCEPTION: Specific permission required
-
+		'/production': 'Production',
+		'/marketing/comptickets': 'CompTickets',
+		'/marketing': 'Marketing',
+		'/schedules/stagemanager': 'StageManager',
+		'/schedules': 'Schedule',
 		'/ncgapp': 'NCGApp',
 		'/sultanshepard': 'sultanshepard'
 	};
 
-	// Cache map keys for efficient lookup
 	const PERMISSION_MAP_KEYS = Object.keys(PERMISSION_MAP);
 
 	let isAuthInitialized = false;
 	let authSubscription: any;
-
-	/**
-	 * core permission check logic
-	 */
-	function hasPermission(requiredPermission: string | string[] | undefined, profile: any): boolean {
-		// If no specific permission defined (and user is logged in), allow access
-		if (
-			!requiredPermission ||
-			(Array.isArray(requiredPermission) && requiredPermission.length === 0)
-		) {
-			return true;
-		}
-		if (!profile) return false;
-		if (profile.role === 'Admin') return true;
-
-		// Consolidate permissions
-		const mainPerm = profile.main_permission ? [profile.main_permission] : [];
-		const secondaryPerms = Array.isArray(profile.secondary_permission)
-			? profile.secondary_permission
-			: [];
-		const pagePerms = Array.isArray(profile.page_permissions) ? profile.page_permissions : [];
-
-		const userPermissions = [...mainPerm, ...secondaryPerms, ...pagePerms].filter(Boolean);
-
-		if (Array.isArray(requiredPermission)) {
-			return requiredPermission.some((perm) => userPermissions.includes(perm));
-		} else {
-			return userPermissions.includes(requiredPermission);
-		}
-	}
 
 	/**
 	 * Checks route access using "Longest Match First" strategy.
@@ -98,23 +55,14 @@
 		if (profile.role === 'Admin') return true;
 		if (path === '/dashboard') return true;
 
-		// 1. Get all defined routes in the map
-		const definedRoutes = PERMISSION_MAP_KEYS;
+		const sortedRoutes = [...PERMISSION_MAP_KEYS].sort((a, b) => b.length - a.length);
 
-		// 2. Sort by length descending (Longest path checks first)
-		const sortedRoutes = definedRoutes.sort((a, b) => b.length - a.length);
-
-		// 3. Find the first matching route key
 		for (const routeKey of sortedRoutes) {
 			if (path.startsWith(routeKey)) {
 				const requiredPermission = PERMISSION_MAP[routeKey];
-				// We found the most specific match, check permission and return result immediately
 				return hasPermission(requiredPermission, profile);
 			}
 		}
-
-		// If no route matched in the map, assume access is allowed for logged-in users
-		// (since we only call this for routes in the map or dashboard)
 		return true;
 	}
 
@@ -126,26 +74,26 @@
 	}
 
 	// 2. Permission Guard (Runs only if logged in)
-	$: if ($authStore.isInitialized && $authStore.profile) {
+	// Using a generic block to prevent rapid-fire Svelte infinite loops
+	$: {
 		const currentPath = $page.url.pathname;
+		const profile = $authStore.profile;
 
-		// Check if the current path is one of the routes that requires a permission check when logged in.
-		const requiresPermissionCheck = PERMISSION_MAP_KEYS.some((route) =>
-			currentPath.startsWith(route)
-		);
+		if ($authStore.isInitialized && profile) {
+			const requiresPermissionCheck = PERMISSION_MAP_KEYS.some((route) =>
+				currentPath.startsWith(route)
+			);
 
-		if (requiresPermissionCheck) {
-			const allowed = hasAccessToRoute(currentPath, $authStore.profile);
-			if (!allowed) {
-				console.warn(`[Permission Guard] Access denied to "${currentPath}". Redirecting.`);
-
-				// --- SPECIFIC REDIRECT LOGIC ---
-				if (currentPath.startsWith('/schedules/stagemanager')) {
-					// If trying to access stagemanager without permission, go to schedules base
-					goto('/schedules/tech');
-				} else {
-					// Default fallback for any other denied route (e.g., /advancing, /production/showbudget)
-					goto('/dashboard');
+			if (requiresPermissionCheck) {
+				const allowed = hasAccessToRoute(currentPath, profile);
+				if (!allowed) {
+					console.warn(`[Permission Guard] Access denied to "${currentPath}". Redirecting.`);
+					if (currentPath.startsWith('/schedules/stagemanager')) {
+						// Added replaceState to prevent browser history loops
+						goto('/schedules/tech', { replaceState: true });
+					} else {
+						goto('/dashboard', { replaceState: true });
+					}
 				}
 			}
 		}
@@ -161,22 +109,19 @@
 		} = supabase.auth.onAuthStateChange(async (event, session) => {
 			const currentPath = $page.url.pathname;
 
-			// NEW: Bail out early for completely unprotected routes
 			if (UNPROTECTED_ROUTES.some((route) => currentPath.startsWith(route))) {
 				return;
 			}
 
 			const userIsLoggedIn = !!session?.user;
 
-			// --- 1. PRIMARY AUTHENTICATION GUARD ---
 			if (!userIsLoggedIn && PROTECTED_ROUTES.some((route) => currentPath.startsWith(route))) {
-				await goto('/');
+				await goto('/', { replaceState: true });
 				return;
 			}
 
-			// --- 2. LOGGED IN REDIRECT GUARD ---
 			if (userIsLoggedIn && PUBLIC_ONLY_ROUTES.includes(currentPath)) {
-				await goto('/dashboard');
+				await goto('/dashboard', { replaceState: true });
 				return;
 			}
 		});

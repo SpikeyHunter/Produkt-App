@@ -298,10 +298,12 @@
 					on:click={handleConfirm}
 					disabled={saving}
 				>
-					{#if saving}<div
+					{#if saving}
+						<div
 							class="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin mr-2"
-						></div>{/if}
-					Save & Notify
+						></div>
+					{/if}
+					{optSendEmail || optSendSms ? 'Save & Notify' : 'Save'}
 				</button>
 			</div>
 		</div>
