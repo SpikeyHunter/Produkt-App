@@ -335,33 +335,7 @@
 											{formatEventTitle(event)}
 										</span>
 
-										{#if event.event_details?.is_target || event.event_details?.is_challenge}
-											<div class="ml-auto flex items-center gap-0.5 shrink-0 pr-1 text-gray3">
-												{#if event.event_details?.is_target}
-													<svg
-														class="w-3 h-3"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-													>
-														<circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"
-														></circle><circle cx="12" cy="12" r="2"></circle>
-													</svg>
-												{/if}
-												{#if event.event_details?.is_challenge}
-													<svg
-														class="w-3 h-3"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-													>
-														<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-													</svg>
-												{/if}
-											</div>
-										{/if}
+									
 									</div>
 								{:else if event.status === 'HIDDEN'}
 									<div

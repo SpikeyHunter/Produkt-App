@@ -64,23 +64,19 @@
 	}
 
 	async function refreshUserCounts() {
-		try {
-			const [{ count: eCount }, { count: sCount }] = await Promise.all([
-				supabase
-					.from('calendar_users')
-					.select('*', { count: 'exact', head: true })
-					.eq('confirmation_email', true),
-				supabase
-					.from('calendar_users')
-					.select('*', { count: 'exact', head: true })
-					.eq('confirmation_phone', true)
-			]);
-			emailUsersCount = eCount || 0;
-			smsUsersCount = sCount || 0;
-		} catch (err) {
-			console.error('Failed to fetch user counts:', err);
+	try {
+		const { data, error } = await supabase.rpc('get_notification_counts');
+		
+		if (error) throw error;
+
+		if (data) {
+			emailUsersCount = data.email || 0;
+			smsUsersCount = data.sms || 0;
 		}
+	} catch (err) {
+		console.error('Failed to fetch user counts:', err);
 	}
+}
 
 	function handleConfirm() {
 		dispatch('confirm', {
