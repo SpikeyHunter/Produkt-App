@@ -40,9 +40,9 @@
 	}
 
 	async function setupModal() {
-		await Promise.all([fetchDefaults(), refreshUserCounts()]);
-		optSendEmail = globalDefaultEmail;
-		optSendSms = globalDefaultSms;
+		await refreshUserCounts();
+		optSendEmail = false;
+		optSendSms = false;
 	}
 
 	async function refreshUserCounts() {
