@@ -1,8 +1,8 @@
+<!-- app.html -->
 <!doctype html>
 <html lang="en">
 	<head>
 		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 		<link
 			rel="icon"
 			type="image/png"
@@ -12,6 +12,7 @@
 		<link rel="apple-touch-icon" href="%sveltekit.assets%/favicon-512.png?v=5" />
 		<link rel="manifest" href="%sveltekit.assets%/manifest.json?v=5" />
 
+		<!-- Inline critical fallback CSS -->
 		<style>
 			body {
 				font-family:
@@ -19,6 +20,7 @@
 			}
 		</style>
 
+		<!-- Load Google Fonts asynchronously so it doesn't block -->
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 		<link
