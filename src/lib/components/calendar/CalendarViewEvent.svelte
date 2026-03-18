@@ -10,6 +10,7 @@
 	import Modal from '$lib/components/modals/Modal.svelte';
 	import CalendarContactList from '$lib/components/calendar/CalendarContactList.svelte';
 	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
+	import CalendarCopyHold from '$lib/components/calendar/CalendarCopyHold.svelte';
 	import { calculateHoldShifts } from '$lib/utils/holdManager';
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
 
@@ -612,7 +613,7 @@
 			class="bg-gray1 rounded-2xl max-w-md w-full relative shadow-2xl border border-gray2/20 flex flex-col max-h-[90vh] overflow-hidden"
 			transition:fly={{ y: 20, duration: 250, easing: cubicOut }}
 		>
-			<div class="flex items-start justify-between p-6 pb-4 shrink-0">
+			<div class="flex items-start justify-between p-6 pb-2 shrink-0">
 				<div>
 					<h3 class="text-xl font-black text-white leading-tight uppercase tracking-wide">
 						{localEvent.title}
@@ -691,7 +692,7 @@
 			{#if confirmMode === 'none'}
 				<div class="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
 					<div>
-						<p class="text-sm font-bold text-gray2 mb-3">Hold Level</p>
+						<p class="text-sm font-bold text-gray2 mb-2">Hold Level</p>
 						<div class="grid grid-cols-7 gap-2">
 							<button
 								class="py-2 rounded-2xl text-sm font-bold border transition-all cursor-pointer {localEvent.hold_level ===
@@ -712,17 +713,14 @@
 						</div>
 					</div>
 
-					<div class="flex flex-col gap-4">
+					<div class="flex flex-col gap-3">
 						<button
 							class="w-full py-3 rounded-2xl border border-gray2/30 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2 hover:bg-white/5 cursor-pointer"
 							on:click={async () => {
-								// 1. Save any pending changes made in this modal first
 								if (hasUnsavedChanges) {
 									await flushChanges();
 								}
-								// 2. Hide the current modal
 								show = false;
-								// 3. Tell the parent (Calendar.svelte) to open the sidebar
 								dispatch('manageHolds');
 							}}
 						>
@@ -740,6 +738,35 @@
 							</svg>
 							Manage Holds
 						</button>
+
+						{#if localEvent.group_id}
+							<CalendarCopyHold
+								groupId={localEvent.group_id}
+								eventTitle={localEvent.title}
+								let:copyHolds
+								let:loading
+							>
+								<button
+									class="w-full py-3 rounded-2xl border border-gray2/30 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2 hover:bg-white/5 cursor-pointer"
+									on:click={copyHolds}
+									disabled={loading}
+								>
+									<svg
+										class="w-4 h-4 text-gray2"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+										<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+									</svg>
+									{loading ? 'Copying...' : 'Copy Hold'}
+								</button>
+							</CalendarCopyHold>
+						{/if}
 
 						<div class="grid grid-cols-2 gap-3">
 							<button
@@ -789,9 +816,9 @@
 							<textarea
 								bind:value={tempNotes}
 								on:input={() => (isEditingNotes = true)}
-								rows="4"
+								rows="2"
 								placeholder="Add notes..."
-								class="w-full px-4 py-3 bg-black/50 border border-gray2/30 rounded-2xl text-white placeholder-gray2/50 focus:border-lime focus:outline-none resize-none transition-colors"
+								class="w-full px-4 py-3 bg-black/50 border border-gray2/30 text-sm rounded-2xl text-white placeholder-gray2/50 focus:border-lime focus:outline-none resize-none transition-colors"
 							></textarea>
 
 							{#if isEditingNotes}

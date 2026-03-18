@@ -671,12 +671,13 @@
 							.from('calendar')
 							.insert({
 								title: title,
-								creator_name: creatorName, // ✅ CORRECTED TO SNAKE_CASE
+								creator_name: creatorName,
 								details: buildDetails(priorityHold),
 								event_deal: buildEventDeal()
 							})
 							.select('id')
 							.single();
+
 						if (calErr) throw calErr;
 
 						const eventsToCreate = newDrafts.map((draft) => ({
@@ -688,7 +689,6 @@
 							time: draft.time,
 							event_details: draft.event_details
 						}));
-
 						const { data, error } = await supabase
 							.from('calendar_events')
 							.insert(eventsToCreate)
@@ -725,6 +725,7 @@
 						})
 						.select('id')
 						.single();
+
 					if (calErr) throw calErr;
 					const sharedGroupId = calData.id;
 
@@ -746,7 +747,6 @@
 				}
 
 				// Update Bumped Events
-				// Update Bumped Events
 				for (const displaced of displacedDrafts) {
 					await supabase
 						.from('calendar_events')
@@ -761,7 +761,6 @@
 			if (eventStatus === 'CONFIRMED' && allSavedEvents.length > 0) {
 				for (const savedEvent of allSavedEvents) {
 					try {
-						// Build a complete payload that matches the CalendarEvent type
 						const syncPayload = {
 							...savedEvent,
 							details: savedEvent.calendar?.details || buildDetails(priorityHold),
@@ -782,11 +781,11 @@
 			) {
 				const firstEvent = allSavedEvents[0];
 				const payload = {
-					eventId: firstEvent.short_id || firstEvent.id,
+					eventId: firstEvent.short_id || firstEvent.id, // Corrected back to child event ID
 					eventTitle: firstEvent.calendar?.title || firstEvent.title || 'Unnamed Event',
 					eventType: firstEvent.details?.type || 'Event',
 					eventDate: firstEvent.date,
-					eventDates: allSavedEvents.map((e) => e.date), // 👈 ADD THIS LINE
+					eventDates: allSavedEvents.map((e) => e.date),
 					venueName:
 						`${firstEvent.venue?.category || ''} ${firstEvent.venue?.room ? '/ ' + firstEvent.venue.room : ''}`.trim(),
 					authUserName: creatorName,
@@ -818,10 +817,13 @@
 
 			// 6. Navigation / Callback
 			if (openModalAfter && allSavedEvents && allSavedEvents.length > 0) {
-				const shortId = allSavedEvents[0].calendar?.short_id || allSavedEvents[0].short_id;
 				closeSidebar();
-				if (shortId) {
-					goto(`/calendar/${shortId}`);
+
+				// Grab the exact short_id (the 1300+ number) from the child event we just inserted
+				const finalRouteId = allSavedEvents[0].short_id || allSavedEvents[0].id;
+
+				if (finalRouteId) {
+					goto(`/calendar/${finalRouteId}`);
 				} else {
 					dispatch('successAndView', { events: allSavedEvents });
 				}
