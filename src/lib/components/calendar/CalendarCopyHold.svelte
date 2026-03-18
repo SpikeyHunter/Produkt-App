@@ -7,7 +7,7 @@
 
 	let loading = true;
 	let showNotification = false;
-	
+
 	let textToCopy = '';
 	let htmlToCopy = '';
 
@@ -32,23 +32,29 @@
 				return;
 			}
 
-			const groupedHolds = new Map<string, Array<{ day: number; hold: string }>>();
+			// 1. UPDATE: Add 'weekday' to the Map's expected structure
+			const groupedHolds = new Map<string, Array<{ day: number; weekday: string; hold: string }>>();
 
 			data.forEach((event) => {
 				const d = new Date(event.date + 'T00:00:00');
 				const month = d.toLocaleDateString('en-US', { month: 'long' });
+
+				// 2. NEW: Extract the short weekday (Mon, Tue, Wed...)
+				const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+
 				const day = d.getDate();
 				const hold = event.hold_level || 'P';
 
 				if (!groupedHolds.has(month)) {
 					groupedHolds.set(month, []);
 				}
-				groupedHolds.get(month)?.push({ day, hold });
+				// 3. UPDATE: Push the weekday into the array
+				groupedHolds.get(month)?.push({ day, weekday, hold });
 			});
 
 			let plainText = `${eventTitle}\n`;
-			
-			// NEW: We open a div wrapper with inline styles for the font and size
+
+			// Note: If Apple Mail is still ignoring your 9pt size, remember to change this <div> to a <span>!
 			let htmlText = `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 9pt; margin: 0; padding: 0;">`;
 			htmlText += `<b>${eventTitle}</b><br>`;
 
@@ -59,27 +65,27 @@
 					plainText += `\n`;
 					htmlText += `<br>`;
 				}
-				
+
 				plainText += `${month}\n`;
 				htmlText += `${month}<br>`;
-				
+
 				events.forEach((e) => {
 					const formattedDay = e.day.toString().padStart(2, '0');
-					plainText += `${formattedDay} - ${e.hold}\n`;
-					htmlText += `${formattedDay} - ${e.hold}<br>`;
+
+					// 4. UPDATE: Insert the weekday into the final output string
+					plainText += `${formattedDay} ${e.weekday} - ${e.hold}\n`;
+					htmlText += `${formattedDay} ${e.weekday} - ${e.hold}<br>`;
 				});
-				
+
 				isFirstMonth = false;
 			}
 
 			textToCopy = plainText.trim();
-			
-			// Clean up trailing break tags from HTML string, then close the div
+
 			if (htmlText.endsWith('<br>')) {
 				htmlText = htmlText.slice(0, -4);
 			}
-			htmlToCopy = htmlText + `</div>`; // Close the styled wrapper
-
+			htmlToCopy = htmlText + `</div>`;
 		} catch (err) {
 			console.error('Failed to prepare holds:', err);
 		} finally {
@@ -108,11 +114,11 @@
 	}
 
 	function fallbackCopyTextToClipboard(text: string) {
-		const textArea = document.createElement("textarea");
+		const textArea = document.createElement('textarea');
 		textArea.value = text;
-		textArea.style.top = "0";
-		textArea.style.left = "0";
-		textArea.style.position = "fixed";
+		textArea.style.top = '0';
+		textArea.style.left = '0';
+		textArea.style.position = 'fixed';
 		document.body.appendChild(textArea);
 		textArea.focus();
 		textArea.select();
