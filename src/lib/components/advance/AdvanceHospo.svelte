@@ -483,7 +483,7 @@
 		<div class="flex gap-2">
 			<button
 				on:click={() => (showHospoModal = true)}
-				class="flex-1 text-xs bg-gray1 text-gray3 border border-transparent hover:bg-lime hover:text-black transition-colors py-2 rounded-2xl transition-all cursor-pointer"
+				class="flex-1 text-xs bg-gray1 text-gray3 border border-transparent hover:bg-lime hover:text-black py-2 rounded-2xl transition-all cursor-pointer"
 			>
 				Configure Rider
 			</button>
@@ -492,7 +492,7 @@
 				type="button"
 				on:click={toggleRiderSentStatus}
 				disabled={saving}
-				class="flex-1 text-xs border border-transparent transition-colors py-2 rounded-2xl transition-all cursor-pointer {completeHospoRider?.rider_sent_to_mihir
+				class="flex-1 text-xs border border-transparent py-2 rounded-2xl transition-all cursor-pointer {completeHospoRider?.rider_sent_to_mihir
 					? 'bg-lime text-black font-bold'
 					: 'bg-gray1 text-gray3 hover:text-black hover:bg-lime'}"
 			>
@@ -634,8 +634,3 @@
 	</div>
 {/if}
 
-<style lang="postcss">
-	@tailwind base;
-	@tailwind components;
-	@tailwind utilities;
-</style>

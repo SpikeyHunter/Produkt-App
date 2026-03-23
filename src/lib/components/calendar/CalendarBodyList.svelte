@@ -22,7 +22,7 @@
 	export let canViewHolds: boolean;
 
 	// This prop must be bound in the parent for the filter state to be received!
-	export let listFilterMode: 'past' | 'all' | 'upcoming' = 'all';
+	export let listFilterMode: 'past' | 'all' | 'upcoming' = 'upcoming';
 
 	const dispatch = createEventDispatcher();
 

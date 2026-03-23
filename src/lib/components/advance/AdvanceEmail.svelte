@@ -10,7 +10,7 @@
 	import { generateAdvanceEmail } from './emails/emailGenerator';
 	import { generateLocalAdvanceEmail, canGenerateLocalEmail } from './emails/localEmailGenerator';
 	import { supabase } from '$lib/supabase';
-	import { generateProductionClipboardMessage, generateCOIMessage } from './emails/clipboardGenerator';
+	import { generateProductionClipboardMessage, generateCOIMessage, generateAudioSpecsMessage } from './emails/clipboardGenerator';
 	import { generateMihirRider, downloadEmlFile } from './emails/mihirRiderGenerator';
 	import { guestlistSettings } from '$lib/components/settings/AdvanceVariables';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
@@ -18,7 +18,6 @@
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
 	import AdvanceSettingsModal from '$lib/components/modals/AdvanceSettings.svelte';
 
-	
 	export let event: EventAdvance & { timetable?: TimetableEntry[] | null };
 	const dispatch = createEventDispatcher();
 
@@ -114,7 +113,6 @@
 
 	async function handleCopyCOI() {
 		if (!navigator.clipboard?.write) return;
-		
 		const { text, html } = generateCOIMessage();
 		
 		try {
@@ -131,6 +129,28 @@
 		} catch (err) {
 			console.error('Failed to copy COI info:', err);
 			popupMessage = 'Failed to copy COI info';
+			showPopup = true;
+		}
+	}
+
+	async function handleCopyAudioSpecs() {
+		if (!navigator.clipboard?.write) return;
+		const { text, html } = generateAudioSpecsMessage(event?.event_venue);
+		
+		try {
+			const htmlBlob = new Blob([html], { type: 'text/html' });
+			const textBlob = new Blob([text], { type: 'text/plain' });
+			const clipboardItem = new ClipboardItem({ 'text/html': htmlBlob, 'text/plain': textBlob });
+			await navigator.clipboard.write([clipboardItem]);
+			
+			popupMessage = 'Audio Specs copied!';
+			showPopup = true;
+			setTimeout(() => {
+				showPopup = false;
+			}, 2000);
+		} catch (err) {
+			console.error('Failed to copy Audio Specs:', err);
+			popupMessage = 'Failed to copy Audio Specs';
 			showPopup = true;
 		}
 	}
@@ -185,7 +205,6 @@
 	}
 
 	let canGenerateLocal = true;
-
 	// Watch for changes to main_contact and artist_type
 	$: mainContact = event?.main_contact;
 	$: artistType = event?.artist_type;
@@ -205,10 +224,10 @@
 			if (event.artist_type === 'Local') {
 				// FIX: Create a copy of the event to modify safely
 				const eventForEmail = { ...event };
-
 				// FIX: If contact is missing, inject a placeholder so the generator doesn't crash
 				if (!eventForEmail.main_contact) {
-					eventForEmail.main_contact = ' '; // Space or generic text prevents the "No contact found" error
+					eventForEmail.main_contact = ' ';
+					// Space or generic text prevents the "No contact found" error
 				}
 
 				// Pass the modified event object
@@ -382,15 +401,12 @@
 	}
 
 	// Public method that can be called from parent
-	// Public method that can be called from parent
 	export async function recheckCanGenerate() {
 		console.log('🔄 Manually rechecking canGenerate...');
 		console.log('   Current main_contact:', event?.main_contact);
 		console.log('   Current artist_type:', event?.artist_type);
-
 		// Small delay to ensure event prop has updated
 		await new Promise((resolve) => setTimeout(resolve, 50));
-
 		if (event?.artist_type === 'Local') {
 			const result = await canGenerateLocalEmail(event, supabase);
 			console.log('   ✅ Manual check result:', result);
@@ -413,7 +429,7 @@
 />
 
 <div
-	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300 w-40 h-[420px]"
+	class="flex flex-col bg-navbar rounded-2xl overflow-hidden transition-all duration-300 w-40 h-auto min-h-[420px]"
 >
 	<div class="flex items-center justify-between px-4 py-3 border-b border-gray1">
 		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Others</h2>
@@ -600,6 +616,20 @@
 		</div>
 
 		<div class="flex items-center gap-3 text-sm">
+			<div class="w-6 h-6 text-gray3 flex items-center justify-center">
+				<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z" />
+				</svg>
+			</div>
+			<button
+				class="bg-gray2 text-black rounded-xl px-3.5 py-1 font-bold text-xs hover:bg-lime transition-all duration-200 cursor-pointer"
+				on:click={handleCopyAudioSpecs}
+			>
+				Audio Spec
+			</button>
+		</div>
+
+		<div class="flex items-center gap-3 text-sm">
 			<div class="w-6 h-6 flex items-center justify-center text-gray3">
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
@@ -631,7 +661,7 @@
 		</div>
 	</div>
 	<div class="mt-auto pt-2">
-		<h3 class="text-xl font-normal text-gray3 px-4">Guestlist</h3>
+		
 		<div class="border-b border-gray1 mt-2"></div>
 		<div class="px-4 pt-3 pb-5">
 			<div class="flex items-center justify-between text-sm mb-2">

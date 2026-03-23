@@ -218,3 +218,57 @@ export function generateCOIMessage() {
 
 	return { text, html };
 }
+
+export function generateAudioSpecsMessage(venue?: string | null) {
+	const isBazart = venue && venue.toLowerCase().includes('bazart');
+
+	let text = '';
+	let htmlParts: string[] = [];
+
+	if (isBazart) {
+		text = [
+			'DJ Monitors:',
+			'- In-booth monitoring consists of 02x EV ETX-12P powered speakers.',
+			'- Kit is capable of delivering clean, distortion-free output at professional DJ levels.',
+			'',
+			'PA System:',
+			'- The Lounge is equipped with a Meyer Sound system providing full coverage and tonal balance.',
+			'- Setup combines UPA, UPQ, UPJ, Ultra-X40, and UPM series cabinets with 900-LFC subs.',
+			'- Auxiliary hallway zones powered with 02x Crown CTs-3000.',
+			'- Processing and control via Allen&Heath SQ5, BSS London Blu, and Meyer Galileo.',
+			'- Kit is fully tuned, calibrated, and phase-aligned for the Lounge environment.'
+		].join('\n');
+
+		htmlParts = [
+			'<strong><u>DJ Monitors:</u></strong>',
+			'- In-booth monitoring consists of 02x EV ETX-12P powered speakers.<br>- Kit is capable of delivering clean, distortion-free output at professional DJ levels.',
+			'<br>',
+			'<strong><u>PA System:</u></strong>',
+			'- The Lounge is equipped with a Meyer Sound system providing full coverage and tonal balance.<br>- Setup combines UPA, UPQ, UPJ, Ultra-X40, and UPM series cabinets with 900-LFC subs.<br>- Auxiliary hallway zones powered with 02x Crown CTs-3000.<br>- Processing and control via Allen&Heath SQ5, BSS London Blu, and Meyer Galileo.<br>- Kit is fully tuned, calibrated, and phase-aligned for the Lounge environment.'
+		];
+	} else {
+		// Default (New City Gas)
+		text = [
+			'DJ Monitors:',
+			'- In house DJ monitors consist of 6x Vertec VT4886 powered by a Crown iTech HD9000 and 2x JBL Professional ASB7128.',
+			'- Kit is capable of generating 117dBA before limiting distortion free at DJ position.',
+			'',
+			'PA System:',
+			'- The venue has an installed JBL Professional PA using the Application engineered series boxes for full coverage to within 2dB.',
+			'- Subwoofers are arrayed in 3 separate cardioid clusters beneath the stage in properly ventilated chambers.',
+			'- All drivers amplified with Crown iTech HD & Macro-Tech HD and managed by a Soundweb London Blu. Kit is fully calibrated and phase-aligned.'
+		].join('\n');
+
+		htmlParts = [
+			'<strong><u>DJ Monitors:</u></strong>',
+			'- In house DJ monitors consist of 6x Vertec VT4886 powered by a Crown iTech HD9000 and 2x JBL Professional ASB7128.<br>- Kit is capable of generating 117dBA before limiting distortion free at DJ position.',
+			'<br>',
+			'<strong><u>PA System:</u></strong>',
+			'- The venue has an installed JBL Professional PA using the Application engineered series boxes for full coverage to within 2dB.<br>- Subwoofers are arrayed in 3 separate cardioid clusters beneath the stage in properly ventilated chambers.<br>- All drivers amplified with Crown iTech HD & Macro-Tech HD and managed by a Soundweb London Blu. Kit is fully calibrated and phase-aligned.'
+		];
+	}
+
+	const html = `<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 9pt;">${htmlParts.join('<br>')}</div>`;
+
+	return { text, html };
+}

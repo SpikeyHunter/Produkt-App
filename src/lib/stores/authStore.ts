@@ -18,6 +18,7 @@ export type Theme = 'light' | 'dark';
 
 export interface UserSettings {
 	theme: Theme;
+	start_week_on?: string;
 	// Add other settings here as you expand
 	// notifications?: boolean;
 	// language?: string;

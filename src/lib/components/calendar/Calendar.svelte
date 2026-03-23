@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { supabase } from '$lib/supabase';
+	import { authStore } from '$lib/stores/authStore';
+
 	import CalendarHeader from './CalendarHeader.svelte';
 	import CalendarBodyMonth from './CalendarBodyMonth.svelte';
 	import CalendarBodyWeek from './CalendarBodyWeek.svelte';
@@ -35,15 +37,15 @@
 	let draftEvents: CalendarEvent[] = [];
 	let venues: VenueSettings[] = [];
 	let stages: StageConfig[] = [];
-
 	let loading = true;
 	let listLayoutMode: 'list' | 'grid' = 'list';
-	let currentListFilter: 'past' | 'all' | 'upcoming' = 'all';
+	let currentListFilter: 'past' | 'all' | 'upcoming' = 'upcoming';
 
 	let selectedEvent: CalendarEvent | null = null;
 	let selectedDayEvents: CalendarEvent[] = [];
 	let showEventModal = false;
 	let showAddSidebar = false;
+
 	let showAvailsModal = false;
 	let showManageHoldsModal = false;
 	let showSettingsModal = false;
@@ -59,7 +61,6 @@
 
 	let showQuickSearch = false;
 
-	const weekDayNames = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 	const monthNames = [
 		'January',
 		'February',
@@ -74,6 +75,52 @@
 		'November',
 		'December'
 	];
+
+	// --- START PREFERENCES LOGIC ---
+	let startOfWeek = 'Sunday';
+	let preferenceSubscription: any;
+
+	const BASE_WEEK_DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+	const dayOffsets: Record<string, number> = {
+		'Sunday': 0, 'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6
+	};
+
+	// Reactively calculate the offset and the new order of weekday headers
+	$: targetStartDay = dayOffsets[startOfWeek] ?? 0;
+	$: dynamicWeekDayNames = [
+		...BASE_WEEK_DAYS.slice(targetStartDay), 
+		...BASE_WEEK_DAYS.slice(0, targetStartDay)
+	];
+
+	// Listen to authStore and set up real-time sync for instant updates
+	$: if ($authStore.isInitialized) {
+		const userId = $authStore.profile?.id;
+		
+		if (userId) {
+			startOfWeek = $authStore.profile?.user_settings?.start_week_on || 'Sunday';
+			
+			if (!preferenceSubscription) {
+				preferenceSubscription = supabase
+					.channel('user-preferences-main')
+					.on(
+						'postgres_changes',
+						{ event: 'UPDATE', schema: 'public', table: 'user_profiles', filter: `id=eq.${userId}` },
+						(payload) => {
+							const newStartDay = payload.new.user_settings?.start_week_on || 'Sunday';
+							if (startOfWeek !== newStartDay) startOfWeek = newStartDay;
+						}
+					)
+					.subscribe();
+			}
+		} else {
+			startOfWeek = 'Sunday';
+		}
+	}
+
+	onDestroy(() => {
+		if (preferenceSubscription) supabase.removeChannel(preferenceSubscription);
+	});
+	// --- END PREFERENCES LOGIC ---
 
 	$: displayEvents = showManageHoldsModal
 		? [
@@ -123,11 +170,14 @@
 		});
 	}
 
-	function generateMonthDays(month: Date, events: CalendarEvent[]): CalendarDay[] {
+	function generateMonthDays(month: Date, events: CalendarEvent[], startOffset: number): CalendarDay[] {
 		const year = month.getFullYear();
 		const monthIndex = month.getMonth();
 		const startDate = new Date(year, monthIndex, 1);
-		startDate.setDate(startDate.getDate() - startDate.getDay());
+		
+		// Calculate days to subtract to reach the user's preferred start day
+		const daysToSubtract = (startDate.getDay() - startOffset + 7) % 7;
+		startDate.setDate(startDate.getDate() - daysToSubtract);
 
 		const days: CalendarDay[] = [];
 		const today = new Date();
@@ -153,12 +203,16 @@
 		return days;
 	}
 
-	function generateWeekDays(dateInWeek: Date, events: CalendarEvent[]): CalendarDay[] {
+	function generateWeekDays(dateInWeek: Date, events: CalendarEvent[], startOffset: number): CalendarDay[] {
 		const startDate = new Date(dateInWeek);
-		startDate.setDate(startDate.getDate() - startDate.getDay());
+		
+		const daysToSubtract = (startDate.getDay() - startOffset + 7) % 7;
+		startDate.setDate(startDate.getDate() - daysToSubtract);
+
 		const days: CalendarDay[] = [];
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
+
 		for (let i = 0; i < 7; i++) {
 			const date = new Date(startDate);
 			date.setDate(startDate.getDate() + i);
@@ -186,9 +240,11 @@
 				: eventDate.getMonth() === month.getMonth() &&
 						eventDate.getFullYear() === month.getFullYear();
 		});
+
 		filteredEvents.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
 		const grouped: GroupedEvents = {};
+
 		for (const event of filteredEvents) {
 			if (!grouped[event.date])
 				grouped[event.date] = { dateObj: new Date(event.date + 'T00:00:00'), events: [] };
@@ -199,11 +255,13 @@
 
 	async function loadEventsAndSettings(date: Date, isBackgroundRefresh = false) {
 		if (!isBackgroundRefresh) loading = true;
+
 		try {
 			const { data: settingsData, error: settingsError } = await supabase
 				.from('calendar_settings')
 				.select('*')
 				.order('setting_name', { ascending: true });
+
 			if (settingsData && !settingsError) {
 				venues = settingsData;
 				stages = venues.flatMap((v) => {
@@ -249,6 +307,7 @@
 				const month = date.getMonth();
 				let startRange = new Date(year, month, 1);
 				startRange.setDate(startRange.getDate() - 20);
+
 				let endRange = new Date(year, month + 1, 0);
 				endRange.setDate(endRange.getDate() + 20);
 
@@ -295,6 +354,7 @@
 
 	function previousPeriod() {
 		const newDate = new Date(currentViewDate);
+
 		if (viewType === 'week') newDate.setDate(newDate.getDate() - 7);
 		else newDate.setMonth(newDate.getMonth() - 1);
 		currentViewDate = newDate;
@@ -304,6 +364,7 @@
 		const newDate = new Date(currentViewDate);
 		if (viewType === 'week') newDate.setDate(newDate.getDate() + 7);
 		else newDate.setMonth(newDate.getMonth() + 1);
+
 		currentViewDate = newDate;
 	}
 
@@ -314,6 +375,7 @@
 	function handleDayClick(event: CustomEvent<{ day: CalendarDay; clickedDate: Date }>) {
 		const { clickedDate } = event.detail;
 		const dateStr = clickedDate.toISOString().split('T')[0];
+
 		if (!canEdit) return;
 
 		if (showManageHoldsModal) {
@@ -328,7 +390,7 @@
 				activeSelectedDates = [...activeSelectedDates, dateStr];
 			}
 			
-			// ADDED THIS: Close sidebar if no dates are left selected
+			// Close sidebar if no dates are left selected
 			if (activeSelectedDates.length === 0) {
 				showAddSidebar = false;
 			}
@@ -348,11 +410,13 @@
 		}>
 	) {
 		const { event: calendarEvent, e, forceOpenPage } = event.detail;
+
 		e?.stopPropagation();
 
 		if (calendarEvent.isDraft) return;
 
-		// 1. "View Only" cannot access the page ID. If they don't have canViewHolds (Manager+), stop here.
+		// 1. "View Only" cannot access the page ID.
+		// If they don't have canViewHolds (Manager+), stop here.
 		if (!canViewHolds) return;
 
 		// 2. Manager, Editor, and Admin can access the page[id]
@@ -382,6 +446,7 @@
 	async function handleSaveAndView(e: CustomEvent) {
 		await loadEventsAndSettings(currentViewDate);
 		const createdEvents = e.detail.events;
+
 		if (createdEvents && createdEvents.length > 0) {
 			selectedEvent = allEvents.find((ev) => ev.id === createdEvents[0].id) || null;
 			showEventModal = true;
@@ -408,8 +473,10 @@
 		};
 	});
 
-	$: monthViewDays = generateMonthDays(currentViewDate, displayEvents);
-	$: weekViewDays = generateWeekDays(currentViewDate, displayEvents);
+	// PASS targetStartDay INTO THE GENERATE FUNCTIONS
+	$: monthViewDays = generateMonthDays(currentViewDate, displayEvents, targetStartDay);
+	$: weekViewDays = generateWeekDays(currentViewDate, displayEvents, targetStartDay);
+	
 	$: listEventsGrouped = groupEventsForList(currentViewDate, displayEvents);
 	$: listDates = Object.keys(listEventsGrouped);
 
@@ -417,11 +484,12 @@
 		const year = currentViewDate.getFullYear();
 		const monthName = monthNames[currentViewDate.getMonth()];
 		if (viewType === 'week') {
-			const startOfWeek = new Date(currentViewDate);
-			startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-			const endOfWeek = new Date(startOfWeek);
-			endOfWeek.setDate(endOfWeek.getDate() + 6);
-			return `${monthNames[startOfWeek.getMonth()]} ${startOfWeek.getDate()} - ${monthNames[endOfWeek.getMonth()]} ${endOfWeek.getDate()}, ${year}`;
+			const startOfWeekDate = new Date(currentViewDate);
+			const daysToSubtract = (startOfWeekDate.getDay() - targetStartDay + 7) % 7;
+			startOfWeekDate.setDate(startOfWeekDate.getDate() - daysToSubtract);
+			const endOfWeekDate = new Date(startOfWeekDate);
+			endOfWeekDate.setDate(endOfWeekDate.getDate() + 6);
+			return `${monthNames[startOfWeekDate.getMonth()]} ${startOfWeekDate.getDate()} - ${monthNames[endOfWeekDate.getMonth()]} ${endOfWeekDate.getDate()}, ${year}`;
 		}
 		return viewType === 'list' ? 'Upcoming Events' : `${monthName} · ${year}`;
 	})();
@@ -464,6 +532,7 @@
 		on:manageHolds={() => {
 			showEventModal = false;
 			const currentEvent = selectedEvent;
+
 			if (currentEvent) {
 				selectedDayEvents = displayEvents.filter(
 					(e) =>
@@ -508,7 +577,7 @@
 			<CalendarBodyMonth
 				{loading}
 				{monthViewDays}
-				{weekDayNames}
+				weekDayNames={dynamicWeekDayNames}
 				{stages}
 				{canEdit}
 				{canViewHolds}
@@ -529,7 +598,7 @@
 			<CalendarBodyWeek
 				{loading}
 				{weekViewDays}
-				{weekDayNames}
+				weekDayNames={dynamicWeekDayNames}
 				{stages}
 				{canEdit}
 				{canViewHolds}

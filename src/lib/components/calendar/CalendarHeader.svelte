@@ -134,7 +134,7 @@
 				on:click={() => dispatch('quickSearch')}
 			>
 				
-				Quick Search
+				Search
 				<span
 					class="px-1.5 py-0.5 ml-1 bg-[var(--color-gray1)] border border-[var(--color-border)]/30 text-[10px] rounded text-[var(--color-gray2)] font-mono group-hover:bg-black/10 group-hover:text-black group-hover:border-black/20 transition-colors"
 					>⌘K</span
@@ -289,7 +289,7 @@
 									? 'pr-4 border-r border-[var(--color-border)]/10'
 									: ''}"
 							>
-								<div class="grid grid-cols-2 gap-y-2 gap-x-4">
+								<div class="grid grid-rows-6 grid-flow-col gap-y-2 gap-x-4">
 									{#each months as month, idx}
 										<button
 											type="button"
