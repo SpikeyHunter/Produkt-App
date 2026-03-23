@@ -53,17 +53,6 @@
 	let activeTab = tabs[0];
 	let isSidebarOpen = true;
 
-	$: if (tabSlug) {
-		const matchedTab = tabs.find(
-			(t) => t.toLowerCase() === tabSlug.replace(/-/g, ' ').toLowerCase()
-		);
-		if (matchedTab) {
-			activeTab = matchedTab;
-		}
-	} else {
-		activeTab = tabs[0];
-	}
-
 	let showSettingsModal = false;
 	let selectedSettingsVenueId: string | null = null;
 
@@ -72,14 +61,30 @@
 	let userRole = 'Email Only';
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 
-	// 🔥 ONE-LINE TOGGLE: Set to true to block UI on deployed app
-	const DeployedAppBlockage = true;
-	let shouldDisableUI = false;
+	// 🔥 DEFINE ALLOWED TABS IN PRODUCTION HERE
+	const DeployedAppTabs = ['Deals']; 
+	
+	let isDeployed = false;
 
-	// Svelte reactive statement to safely check hostname only in the browser
+	// Safely check hostname only in the browser
 	$: if (browser) {
-		shouldDisableUI =
-			DeployedAppBlockage && !['localhost', '127.0.0.1'].includes(window.location.hostname);
+		isDeployed = !['localhost', '127.0.0.1'].includes(window.location.hostname);
+	}
+
+	// URL Tab Protection
+	$: if (tabSlug) {
+		const matchedTab = tabs.find(
+			(t) => t.toLowerCase() === tabSlug.replace(/-/g, ' ').toLowerCase()
+		);
+		if (matchedTab) {
+			if (isDeployed && !DeployedAppTabs.includes(matchedTab)) {
+				activeTab = DeployedAppTabs[0] || tabs[0];
+			} else {
+				activeTab = matchedTab;
+			}
+		}
+	} else {
+		activeTab = isDeployed ? (DeployedAppTabs[0] || tabs[0]) : tabs[0];
 	}
 
 	onMount(() => {
@@ -148,27 +153,23 @@
 	}
 
 	function handleTabChange(e: CustomEvent<string>) {
-		if (shouldDisableUI) return; // 🛑 Prevents changing tabs if locked
+		const requestedTab = e.detail;
 
-		if (userRole === 'Manager' && e.detail !== 'Deals') return;
-		activeTab = e.detail;
+		// 🛑 Block tab change if deployed and not allowed
+		if (isDeployed && !DeployedAppTabs.includes(requestedTab)) return;
+
+		if (userRole === 'Manager' && requestedTab !== 'Deals') return;
+		activeTab = requestedTab;
 		const slug = activeTab.toLowerCase().replace(/\s+/g, '-');
 		window.history.pushState({}, '', `/calendar/${event.short_id}/${slug}`);
 	}
 
 	function handleOpenSettings(e: CustomEvent<{ venueId: string | null }>) {
-		// Allowing settings to be opened since it's part of the header,
-		// but you can uncomment the line below to lock this too.
-		// if (shouldDisableUI) return;
-
 		selectedSettingsVenueId = e.detail.venueId;
 		showSettingsModal = true;
 	}
 
 	function toggleSidebar() {
-		if (shouldDisableUI) return;
-		// 🛑 Prevents sidebar toggle if locked
-
 		isSidebarOpen = !isSidebarOpen;
 	}
 </script>
@@ -202,15 +203,14 @@
 					{activeTab}
 					{isSidebarOpen}
 					{userRole}
+					{isDeployed}
+					deployedAppTabs={DeployedAppTabs}
 					on:tabChange={handleTabChange}
 					on:openSettings={handleOpenSettings}
 					on:toggleSidebar={toggleSidebar}
 				/>
 
-				<div
-					class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative"
-					class:locked-ui={shouldDisableUI}
-				>
+				<div class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative">
 					<div
 						class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden"
 					>
@@ -239,15 +239,14 @@
 				{activeTab}
 				{isSidebarOpen}
 				{userRole}
+				{isDeployed}
+				deployedAppTabs={DeployedAppTabs}
 				on:tabChange={handleTabChange}
 				on:openSettings={handleOpenSettings}
 				on:toggleSidebar={toggleSidebar}
 			/>
 
-			<div
-				class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative"
-				class:locked-ui={shouldDisableUI}
-			>
+			<div class="flex-1 flex overflow-hidden px-3 pt-8 pb-5 gap-5 min-h-0 relative">
 				<div
 					class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden"
 				>

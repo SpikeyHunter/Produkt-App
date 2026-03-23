@@ -162,9 +162,20 @@
 
 		let logi = [];
 		if (deal.description?.hotels?.enabled) {
-			logi.push(
-				`${deal.description.hotels.rooms || 0} rooms for ${deal.description.hotels.nights || 0}x night`
-			);
+			const h = deal.description.hotels;
+			const rooms = h.rooms || 0;
+			const suites = h.suites || 0;
+			const nights = h.nights || 0;
+
+			let hotelParts = [];
+			if (suites > 0) hotelParts.push(`${suites}x Suites`);
+			if (rooms > 0) hotelParts.push(`${rooms}x Rooms`);
+
+			if (hotelParts.length > 0) {
+				logi.push(`${hotelParts.join(' + ')} for ${nights}x Night`);
+			} else {
+				logi.push(`0x Rooms for ${nights}x Night`);
+			}
 		}
 		if (deal.description?.groundTransport?.enabled) logi.push('ground');
 		if (deal.description?.immigration?.enabled) logi.push('exemption');
@@ -178,7 +189,6 @@
 		return parts.join(' ');
 	}
 
-	// 🚀 FIX: Ensuring we target the PARENT calendar table ID, not the child event ID!
 	async function saveToDatabase(updatedDeals: Deal[]) {
 		let dbPayload: any = {};
 
@@ -220,14 +230,12 @@
 		if (targetId) {
 			try {
 				console.log(`🛠️ [DealsTab] Attempting to save deals to calendar table ID: ${targetId}`);
-
 				const { error } = await supabase
 					.from('calendar')
 					.update({ event_deal: dbPayload })
 					.eq('id', targetId);
 
 				if (error) throw error;
-
 				console.log('✅ [DealsTab] Successfully saved to DB!', dbPayload);
 				eventDealData = dbPayload;
 			} catch (err) {
@@ -274,7 +282,7 @@
 </script>
 
 {#if !hasAnyAccess}
-	<div class="p-8 text-gray2 font-bold bg-navbar h-full">
+	<div class="p-4 text-gray2 font-bold bg-navbar h-full">
 		You do not have permission to view deals.
 	</div>
 {:else}
@@ -285,13 +293,13 @@
 				<div class="flex items-center gap-4">
 					{#if canEditAndManage}
 						<button
-							class="px-6 py-3 bg-navbar border-2 border-gray1 text-lime font-bold rounded-full hover:bg-gray1 transition-colors text-sm cursor-pointer"
+							class="px-6 py-2 bg-navbar border-2 border-gray1 text-lime font-bold rounded-full hover:bg-gray1 transition-colors text-sm cursor-pointer"
 						>
 							Create Partner Deal
 						</button>
 						<button
 							on:click={openCreateDeal}
-							class="px-6 py-3 bg-lime text-black font-bold rounded-full hover:opacity-90 transition-opacity text-sm cursor-pointer"
+							class="px-6 py-2 bg-lime text-black font-bold rounded-full hover:opacity-90 transition-opacity text-sm cursor-pointer"
 						>
 							Create Artist Deal
 						</button>
@@ -314,11 +322,11 @@
 				<div class="flex flex-col gap-8">
 					<div class="rounded-2xl bg-gray1">
 						<div
-							class="bg-black/40 px-6 py-5 font-black uppercase tracking-wide text-gray3 border-b-2 border-navbar rounded-t-2xl"
+							class="bg-black/40 px-4 py-3 font-black uppercase tracking-wide text-gray3 border-b-2 border-navbar rounded-t-2xl"
 						>
 							Headliners
 						</div>
-						<div class="p-8">
+						<div class="p-4">
 							{#if pendingHeadliners.length === 0 && headlinerDeals.length === 0}
 								<p class="text-gray2 font-medium">
 									To add an artist click the "Create Artist Deal" button in the top right.
@@ -327,19 +335,19 @@
 								{#each pendingHeadliners as pending}
 									{#if !hasExistingDeal(headlinerDeals, pending.headliner_name)}
 										<div
-											class="flex items-center gap-4 mb-6 pb-6 border-b-2 border-navbar last:border-0 last:pb-0"
+											class="flex items-center gap-4 mb-3 pb-3 border-b-2 border-navbar last:border-0 last:pb-0"
 										>
 											{#if pending.headliner_pic && pending.headliner_pic !== 'NULL'}
 												<img
 													src={pending.headliner_pic}
 													alt={pending.headliner_name}
-													class="w-12 h-12 rounded-full object-cover bg-black"
+													class="w-16 h-16 rounded-full object-cover bg-black"
 												/>
 											{:else}
 												<img
 													src="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktIcon-iOS-Default-1024x1024@1x%20(1).png"
 													alt={pending.headliner_name}
-													class="w-12 h-12 rounded-full object-cover bg-black"
+													class="w-16 h-16 rounded-full object-cover bg-black"
 												/>
 											{/if}
 											<div>
@@ -354,7 +362,7 @@
 
 								{#each headlinerDeals as deal}
 									<div
-										class="flex justify-between items-center mb-6 last:mb-0 border-b-2 border-navbar pb-6 last:border-0 last:pb-0"
+										class="flex justify-between items-center mb-3 last:mb-0 border-b-2 border-navbar pb-3 last:border-0 last:pb-0"
 									>
 										<div class="flex items-center gap-4">
 											<img
@@ -362,7 +370,7 @@
 													? deal.artistPic
 													: 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktIcon-iOS-Default-1024x1024@1x%20(1).png'}
 												alt={deal.artistName}
-												class="w-12 h-12 rounded-full object-cover bg-black"
+												class="w-16 h-16 rounded-full object-cover bg-black"
 											/>
 											<div>
 												<p class="font-black text-xl text-white">{deal.artistName}</p>
@@ -379,42 +387,64 @@
 											</div>
 										</div>
 
-										{#if canEditAndManage}
-											<div class="relative" use:clickOutsideMenu>
+										<div class="flex items-center gap-4">
+											{#if canViewDetails}
 												<button
-													on:click={() =>
-														(activeMenuId = activeMenuId === deal.id ? null : deal.id)}
-													class="w-10 h-10 flex items-center justify-center text-gray2 hover:text-white transition-colors cursor-pointer rounded-full hover:bg-white/10"
-													aria-label="Deal Options"
+													disabled
+													class="flex items-center gap-2 px-4 py-2 bg-navbar border border-gray2/20 text-gray2 rounded-3xl opacity-50 cursor-not-allowed text-sm font-bold"
 												>
-													<svg
-														class="w-6 h-6"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-														><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"
-														></circle><circle cx="12" cy="19" r="1"></circle></svg
-													>
+													<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+														<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+														<circle cx="12" cy="12" r="3"></circle>
+													</svg>
+													Offer
 												</button>
-												{#if activeMenuId === deal.id}
-													<div
-														class="absolute right-0 top-full mt-2 w-32 bg-navbar border border-gray2/20 rounded-xl shadow-2xl z-[9999] overflow-hidden"
+											{/if}
+
+											{#if canEditAndManage}
+												<div class="relative {activeMenuId === deal.id ? 'z-50' : 'z-10'}" use:clickOutsideMenu>
+													<button
+														on:click={() =>
+															(activeMenuId = activeMenuId === deal.id ? null : deal.id)}
+														class="w-10 h-10 flex items-center justify-center text-gray2 hover:text-white transition-colors cursor-pointer rounded-full hover:bg-white/10"
+														aria-label="Deal Options"
 													>
-														<button
-															on:click={() => editDeal(deal)}
-															class="w-full text-left px-4 py-3 text-sm font-bold text-white hover:bg-lime/10 hover:text-lime transition-colors"
-															>Edit</button
+														<svg
+															class="w-7 h-7"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2"
+															><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"
+															></circle><circle cx="12" cy="19" r="1"></circle></svg
 														>
-														<button
-															on:click={() => deleteDeal(deal.id)}
-															class="w-full text-left px-4 py-3 text-sm font-bold text-problem hover:bg-problem/10 transition-colors"
-															>Remove</button
+													</button>
+													{#if activeMenuId === deal.id}
+														<div
+															class="absolute right-0 top-full mt-1 w-32 bg-navbar border border-gray2/20 rounded-xl shadow-2xl overflow-hidden"
 														>
-													</div>
-												{/if}
-											</div>
-										{/if}
+															<button
+																on:click={() => editDeal(deal)}
+																class="w-full text-left px-3 py-2 text-sm font-bold text-white hover:bg-lime/10 hover:text-lime transition-colors"
+																>Edit</button
+															>
+															<button
+																on:click={() => deleteDeal(deal.id)}
+																class="w-full text-left px-3 py-2 text-sm font-bold text-problem hover:bg-problem/10 transition-colors"
+																>Remove</button
+															>
+														</div>
+													{/if}
+												</div>
+											{/if}
+
+											{#if canViewDetails}
+												<div class="flex flex-col items-end pl-4 ml-2 min-w-[80px]">
+													<span class="text-[10px] text-gray2 font-bold uppercase tracking-widest">Payout</span>
+													<span class="text-lg font-black text-white">{venueCurrency} 0.00</span>
+												</div>
+											{/if}
+										</div>
 									</div>
 								{/each}
 							{/if}
@@ -423,17 +453,17 @@
 
 					<div class="rounded-2xl bg-gray1">
 						<div
-							class="bg-black/40 px-6 py-5 font-black uppercase tracking-wide text-gray3 border-b-2 border-navbar rounded-t-2xl"
+							class="bg-black/40 px-4 py-3 font-black uppercase tracking-wide text-gray3 border-b-2 border-navbar rounded-t-2xl"
 						>
 							Support
 						</div>
-						<div class="p-8">
+						<div class="p-4">
 							{#if supportDeals.length === 0}
 								<p class="text-gray2 font-medium">No support deals added yet.</p>
 							{:else}
 								{#each supportDeals as deal}
 									<div
-										class="flex justify-between items-center mb-6 last:mb-0 border-b-2 border-navbar pb-6 last:border-0 last:pb-0"
+										class="flex justify-between items-center mb-3 last:mb-0 border-b-2 border-navbar pb-3 last:border-0 last:pb-0"
 									>
 										<div class="flex items-center gap-4">
 											<img
@@ -441,7 +471,7 @@
 													? deal.artistPic
 													: 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktIcon-iOS-Default-1024x1024@1x%20(1).png'}
 												alt={deal.artistName}
-												class="w-12 h-12 rounded-full object-cover bg-black"
+												class="w-16 h-16 rounded-full object-cover bg-black"
 											/>
 											<div>
 												<p class="font-black text-xl text-white">{deal.artistName}</p>
@@ -458,42 +488,64 @@
 											</div>
 										</div>
 
-										{#if canEditAndManage}
-											<div class="relative" use:clickOutsideMenu>
+										<div class="flex items-center gap-4">
+											{#if canViewDetails}
 												<button
-													on:click={() =>
-														(activeMenuId = activeMenuId === deal.id ? null : deal.id)}
-													class="w-10 h-10 flex items-center justify-center text-gray2 hover:text-white transition-colors cursor-pointer rounded-full hover:bg-white/10"
-													aria-label="Deal Options"
+													disabled
+													class="flex items-center gap-2 px-4 py-2 bg-navbar border border-gray2/20 text-gray2 rounded-3xl opacity-50 cursor-not-allowed text-sm font-bold"
 												>
-													<svg
-														class="w-6 h-6"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-														><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"
-														></circle><circle cx="12" cy="19" r="1"></circle></svg
-													>
+													<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+														<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+														<circle cx="12" cy="12" r="3"></circle>
+													</svg>
+													Offer
 												</button>
-												{#if activeMenuId === deal.id}
-													<div
-														class="absolute right-0 top-full mt-2 w-32 bg-navbar border border-gray2/20 rounded-xl shadow-2xl z-[9999] overflow-hidden"
+											{/if}
+
+											{#if canEditAndManage}
+												<div class="relative {activeMenuId === deal.id ? 'z-50' : 'z-10'}" use:clickOutsideMenu>
+													<button
+														on:click={() =>
+															(activeMenuId = activeMenuId === deal.id ? null : deal.id)}
+														class="w-10 h-10 flex items-center justify-center text-gray2 hover:text-white transition-colors cursor-pointer rounded-full hover:bg-white/10"
+														aria-label="Deal Options"
 													>
-														<button
-															on:click={() => editDeal(deal)}
-															class="w-full text-left px-4 py-3 text-sm font-bold text-white hover:bg-lime/10 hover:text-lime transition-colors"
-															>Edit</button
+														<svg
+															class="w-7 h-7"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															stroke-width="2"
+															><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"
+															></circle><circle cx="12" cy="19" r="1"></circle></svg
 														>
-														<button
-															on:click={() => deleteDeal(deal.id)}
-															class="w-full text-left px-4 py-3 text-sm font-bold text-problem hover:bg-problem/10 transition-colors"
-															>Remove</button
+													</button>
+													{#if activeMenuId === deal.id}
+														<div
+															class="absolute right-0 top-full mt-1 w-32 bg-navbar border border-gray2/20 rounded-xl shadow-2xl overflow-hidden"
 														>
-													</div>
-												{/if}
-											</div>
-										{/if}
+															<button
+																on:click={() => editDeal(deal)}
+																class="w-full text-left px-3 py-2 text-sm font-bold text-white hover:bg-lime/10 hover:text-lime transition-colors"
+																>Edit</button
+															>
+															<button
+																on:click={() => deleteDeal(deal.id)}
+																class="w-full text-left px-3 py-2 text-sm font-bold text-problem hover:bg-problem/10 transition-colors"
+																>Remove</button
+															>
+														</div>
+													{/if}
+												</div>
+											{/if}
+
+											{#if canViewDetails}
+												<div class="flex flex-col items-end pl-4 ml-2 min-w-[80px]">
+													<span class="text-[10px] text-gray2 font-bold uppercase tracking-widest">Payout</span>
+													<span class="text-lg font-black text-white">{venueCurrency} 0.00</span>
+												</div>
+											{/if}
+										</div>
 									</div>
 								{/each}
 							{/if}

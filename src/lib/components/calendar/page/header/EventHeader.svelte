@@ -29,6 +29,9 @@
 	export let isSidebarOpen: boolean = true;
 	export let userRole: string = 'Email Only';
 
+	export let isDeployed: boolean = false;
+	export let deployedAppTabs: string[] = [];
+
 	const dispatch = createEventDispatcher();
 
 	// --- PERMISSION LOGIC ---
@@ -747,7 +750,9 @@
 		class="mx-3 px-6 pt-2 bg-navbar flex items-end gap-8 overflow-x-auto rounded-2xl custom-scrollbar"
 	>
 		{#each tabs as tab}
-			{@const isDisabled = !isEditor && tab !== 'Deals'}
+			{@const isEnvironmentBlocked = isDeployed && !deployedAppTabs.includes(tab)}
+			{@const isRoleBlocked = !isEditor && tab !== 'Deals'}
+			{@const isDisabled = isEnvironmentBlocked || isRoleBlocked}
 
 			<button
 				class="pb-3 text-sm font-bold uppercase tracking-wider transition-all whitespace-nowrap relative
@@ -758,7 +763,11 @@
 					if (!isDisabled) dispatch('tabChange', tab);
 				}}
 				aria-disabled={isDisabled}
-				title={isDisabled ? 'You do not have permission to view this tab' : ''}
+				title={isEnvironmentBlocked
+					? 'This tab is currently disabled in this environment'
+					: isRoleBlocked
+						? 'You do not have permission to view this tab'
+						: ''}
 			>
 				{tab}
 				{#if activeTab === tab}
