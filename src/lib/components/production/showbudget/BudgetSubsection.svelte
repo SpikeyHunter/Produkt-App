@@ -240,7 +240,7 @@
 							}}
 							on:blur={handleItemNameBlur}
 							placeholder="Type or select preset"
-							class="w-full bg-gray1 text-white rounded-xl px-3 py-1 text-sm placeholder-gray2"
+							class="w-full bg-gray1 text-white rounded-xl px-3 py-1 text-[13px] placeholder-gray2"
 						/>
 						<!-- Auto-suggestion dropdown -->
 						{#if focusedItemId === item.id && groupedFilteredPresetArray.length > 0}
@@ -272,7 +272,7 @@
 							bind:value={item.price}
 							on:input={notifyUpdate}
 							on:blur={notifySave}
-							class="w-full bg-gray1 text-white rounded-xl px-3 py-1 text-sm placeholder-gray2"
+							class="w-full bg-gray1 text-white rounded-xl px-3 py-1 text-[13px] placeholder-gray2"
 						/>
 					</div>
 					<!-- Qty -->
@@ -283,7 +283,7 @@
 							on:input={notifyUpdate}
 							on:blur={notifySave}
 							placeholder="1"
-							class="w-full bg-gray1 text-white rounded-xl px-3 py-1 text-sm placeholder-gray2"
+							class="w-full bg-gray1 text-white rounded-xl px-3 py-1 text-[13px] placeholder-gray2"
 						/>
 					</div>
 					<!-- Unit -->
@@ -295,7 +295,7 @@
 							on:input={notifyUpdate}
 							on:blur={handleUnitBlur}
 							placeholder="Item"
-							class="w-full bg-gray1 text-white rounded-xl px-3 py-1 text-sm placeholder-gray2"
+							class="w-full bg-gray1 text-white rounded-xl px-3 py-1 text-[13px] placeholder-gray2"
 						/>
 						<!-- Unit suggestion dropdown -->
 						{#if focusedUnitId === item.id}
@@ -316,7 +316,7 @@
 					</div>
 					<!-- Total -->
 					<div class="col-span-2 text-right mr-1">
-						<span class="text-white text-sm font-medium mr-3">
+						<span class="text-white text-[13px] font-medium mr-3">
 							{formatMoney(Number(item.price || 0) * Number(item.quantity || 1))}
 						</span>
 						<button
