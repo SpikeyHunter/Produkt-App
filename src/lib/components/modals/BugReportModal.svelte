@@ -256,7 +256,7 @@
 					<div class="flex items-center w-full bg-gray1 border border-gray2 rounded-3xl overflow-hidden focus-within:border-lime transition-colors">
 						<button 
 							type="button" 
-							class="px-4 py-2.5 text-gray2 hover:text-white hover:text-lime transition-colors font-bold text-lg hover:cursor-pointer flex-shrink-0"
+							class="px-4 py-2.5 text-gray hover:text-lime transition-colors font-bold text-lg hover:cursor-pointer flex-shrink-0"
 							on:click={decrementOccurrence}
 							aria-label="Decrease occurrence count"
 						>
@@ -271,7 +271,7 @@
 						/>
 						<button 
 							type="button" 
-							class="px-4 py-2.5 text-gray2 hover:text-white hover:text-lime transition-colors font-bold text-lg hover:cursor-pointer flex-shrink-0"
+							class="px-4 py-2.5 text-gray2 hover:text-lime transition-colors font-bold text-lg hover:cursor-pointer flex-shrink-0"
 							on:click={incrementOccurrence}
 							aria-label="Increase occurrence count"
 						>

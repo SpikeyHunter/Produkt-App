@@ -6,7 +6,9 @@
 	import { quintOut } from 'svelte/easing';
 	import { logout } from '$lib/stores/auth';
 	import { authStore } from '$lib/stores/authStore';
+	import { supabase } from '$lib/supabase';
 	import BugReportModal from '$lib/components/modals/BugReportModal.svelte';
+	import UpdateModal from '$lib/components/settings/UpdateModal.svelte';
 	import { hasPermission } from '$lib/utils/permissions';
 
 	// Props
@@ -26,11 +28,57 @@
 	// Bug Report Modal state
 	let isBugModalOpen = false;
 
+	// --- UPDATE PUSHER LOGIC ---
+	let pendingUpdates: any[] = [];
+	let showUpdateModal = false;
+
+	$: if ($authStore.isInitialized && $authStore.profile && !showUpdateModal) {
+		checkUpdates();
+	}
+
+	async function checkUpdates() {
+		const profile = $authStore.profile;
+		if (!profile) return;
+
+		const { data, error } = await supabase
+			.from('app_updates')
+			.select('*')
+			.order('created_at', { ascending: true }); // Oldest first so they read them chronologically
+
+		if (data && !error) {
+			pendingUpdates = data.filter(u => {
+				// Safety check: is there a JSONB array?
+				if (!u.target_users || !Array.isArray(u.target_users)) return false;
+
+				// Has the current user been targeted and NOT seen it?
+				const userTarget = u.target_users.find((tu: any) => tu.id === profile.id);
+				
+				if (userTarget && userTarget.seen === false) {
+					return true;
+				}
+				
+				return false;
+			});
+
+			// If they have any pending updates, show the modal
+			if (pendingUpdates.length > 0) {
+				showUpdateModal = true;
+			}
+		}
+	}
+
+	function handleUpdateConfirmed() {
+		pendingUpdates = [];
+		// Re-trigger the check for any additional pending updates just in case
+		checkUpdates();
+	}
+	// --- END UPDATE LOGIC ---
+
 	// --- TYPES ---
 	interface SubMenuItem {
 		label: string;
 		route: string;
-		requiredPermission?: string; // Page/Sub-route specific permission
+		requiredPermission?: string;
 	}
 
 	interface MenuItem {
@@ -40,7 +88,6 @@
 		subItems: SubMenuItem[];
 		route?: string;
 		requiredPermission?: string | string[];
-		// Section permission
 	}
 
 	// --- DATA ---
@@ -93,17 +140,9 @@
 			requiredPermission: 'Marketing',
 			subItems: [
 				{ label: 'Events Info', route: '/marketing/eventsinfo', requiredPermission: 'EventsInfo' },
-				{
-					label: 'Comp Tickets',
-					route: '/marketing/comptickets',
-					requiredPermission: 'CompTickets'
-				},
+				{ label: 'Comp Tickets', route: '/marketing/comptickets', requiredPermission: 'CompTickets' },
 				{ label: 'Compare Hub', route: '/marketing/comparehub', requiredPermission: 'CompareHub' },
-				{
-					label: 'Customers Database',
-					route: '/marketing/customers',
-					requiredPermission: 'CustomersDB'
-				}
+				{ label: 'Customers Database', route: '/marketing/customers', requiredPermission: 'CustomersDB' }
 			]
 		},
 		{
@@ -112,16 +151,8 @@
 			icon: icons.booking,
 			requiredPermission: 'Booking',
 			subItems: [
-				{
-					label: 'Talent Payments',
-					route: '/booking/talentpayments',
-					requiredPermission: 'Booking'
-				},
-				{
-					label: 'Artist Availability',
-					route: '/booking/artistavailability',
-					requiredPermission: 'Booking'
-				}
+				{ label: 'Talent Payments', route: '/booking/talentpayments', requiredPermission: 'Booking' },
+				{ label: 'Artist Availability', route: '/booking/artistavailability', requiredPermission: 'Booking' }
 			]
 		},
 		{
@@ -131,17 +162,9 @@
 			requiredPermission: 'Advance',
 			subItems: [
 				{ label: 'Advance Gathered', route: '/advancing/gathered', requiredPermission: 'Advance' },
-				{
-					label: 'Artist Liaison',
-					route: '/advancing/artistliaison',
-					requiredPermission: 'Advance'
-				},
+				{ label: 'Artist Liaison', route: '/advancing/artistliaison', requiredPermission: 'Advance' },
 				{ label: 'Hotel Tracker', route: '/advancing/hoteltracker', requiredPermission: 'Advance' },
-				{
-					label: 'Merch Settlement',
-					route: '/advancing/merchsettlement',
-					requiredPermission: 'Advance'
-				},
+				{ label: 'Merch Settlement', route: '/advancing/merchsettlement', requiredPermission: 'Advance' },
 				{ label: 'Local Artists', route: '/advancing/localartists', requiredPermission: 'Advance' }
 			]
 		},
@@ -164,11 +187,7 @@
 			requiredPermission: 'Schedule',
 			subItems: [
 				{ label: 'Schedule Tech', route: '/schedules/tech', requiredPermission: 'Schedule' },
-				{
-					label: 'Stage Manager',
-					route: '/schedules/stagemanager',
-					requiredPermission: 'StageManager'
-				}
+				{ label: 'Stage Manager', route: '/schedules/stagemanager', requiredPermission: 'StageManager' }
 			]
 		},
 		{
@@ -225,7 +244,6 @@
 	$: visibleMenuItems = menuItems.filter((item) => hasMenuItemAccess(item, $authStore.profile));
 
 	// --- FUNCTIONS ---
-
 	function hasMenuItemAccess(item: MenuItem, profile: any): boolean {
 		if (!profile) return item.id === 'dashboard';
 		if (profile.role === 'Admin') return true;
@@ -250,9 +268,7 @@
 	}
 
 	function handleMenuClick(item: MenuItem) {
-		// Guard against clicking headers that the user technically shouldn't access
 		if (!hasMenuItemAccess(item, $authStore.profile)) return;
-
 		if (item.route) {
 			navigateToRoute(item.route);
 			return;
@@ -269,7 +285,6 @@
 	}
 
 	function handleSubMenuClick(subItem: SubMenuItem) {
-		// Strict check on sub-item click
 		if (!hasPermission(subItem.requiredPermission, $authStore.profile)) {
 			return;
 		}
@@ -311,6 +326,13 @@
 </script>
 
 <BugReportModal bind:isOpen={isBugModalOpen} userProfile={$authStore.profile} />
+
+<UpdateModal 
+	bind:isOpen={showUpdateModal} 
+	updates={pendingUpdates} 
+	userProfile={$authStore.profile} 
+	on:confirmed={handleUpdateConfirmed} 
+/>
 
 <div class="flex h-screen bg-gray1 text-white font-sans">
 	{#if !$authStore.isInitialized}

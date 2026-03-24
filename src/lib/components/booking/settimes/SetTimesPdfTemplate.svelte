@@ -106,6 +106,6 @@
 	</div>
 
 	<div style="position: absolute; bottom: 0.8in; right: 1in; text-align: right;">
-		<img src="LOGO_PLACEHOLDER" alt="Produkt" style="height: 60px; width: auto;" />
+		<img src="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktXX_NOIR.png" alt="Produkt" style="height: 60px; width: auto;" />
 	</div>
 </div>

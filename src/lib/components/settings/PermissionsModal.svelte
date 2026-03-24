@@ -11,6 +11,7 @@
 		'Advance',
 		'Booking',
 		'Calendar',
+		'Corpo',
 		'Marketing',
 		'NCGApp',
 		'Production',
