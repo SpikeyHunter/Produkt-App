@@ -576,7 +576,7 @@
 		opacity: 0;
 	}
 	.nav-item-container {
-		margin-bottom: 0.5rem;
+		margin-bottom: 0.35rem;
 	}
 	.nav-button {
 		display: flex;
