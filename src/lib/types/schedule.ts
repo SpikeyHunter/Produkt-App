@@ -9,7 +9,9 @@ export type ShiftType =
     | 'Corpo' 
     | 'Maintenance' 
     | 'Office'
-    | 'OFF' // Added OFF
+    | 'LD'
+    | 'OFF'
+    | 'PAID OFF'
     | 'Other';
 
 export interface Staff {

@@ -190,15 +190,15 @@
 				{ label: 'Stage Manager', route: '/schedules/stagemanager', requiredPermission: 'StageManager' }
 			]
 		},
-		{
-			id: 'ncgapp',
-			label: 'NCG App',
-			icon: icons.ncgapp,
-			requiredPermission: 'NCGApp',
-			subItems: [
-				{ label: 'Control Center', route: '/ncgapp/controlcenter', requiredPermission: 'NCGApp' }
-			]
-		},
+		//{
+		//	id: 'ncgapp',
+		//	label: 'NCG App',
+		//	icon: icons.ncgapp,
+		//	requiredPermission: 'NCGApp',
+		//	subItems: [
+		//		{ label: 'Control Center', route: '/ncgapp/controlcenter', requiredPermission: 'NCGApp' }
+		//	]
+		//},
 		{
 			id: 'sultanshepard',
 			label: 'Sultan+Shepard',

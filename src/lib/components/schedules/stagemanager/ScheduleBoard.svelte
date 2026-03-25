@@ -19,8 +19,6 @@
 	import { goto } from '$app/navigation';
 
 	export let currentUser: User | null = null;
-	// ---- PERMISSIONS LOGIC ----
-	// Only Supabase users can edit. Guests (Password) are Read-Only.
 	$: canEdit = currentUser !== null;
 
 	const HEX_COLORS: Record<string, string> = {
@@ -36,12 +34,13 @@
 		Other: '#fdfdfd',
 		Office: 'transparent',
 		OFF: '#333333',
-		LD: '#555555' // Added LD color
+		LD: '#555555',
+		'PAID OFF': '#4a4a4a'
 	};
 
 	const DAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 	const DAYS_FULL = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-	
+
 	let weeks: ScheduleWeek[] = [];
 	let staffList: Staff[] = [];
 	let isLoading = true;
@@ -61,10 +60,19 @@
 		shift: Partial<Shift>;
 		dayShiftCount: number;
 		existingShifts: Shift[];
+		fullDateStr: string;
 	} | null = null;
 
-	// COPY / PASTE STATE
+	// COPY / PASTE / UNDO STATE
 	let copiedShift: Partial<Shift> | null = null;
+
+	type HistoryAction =
+		| { type: 'insert'; shiftId: number }
+		| { type: 'delete'; shift: Shift }
+		| { type: 'update'; oldShift: Shift }
+		| { type: 'delete_multiple'; shifts: Shift[] };
+
+	let undoStack: HistoryAction[] = [];
 
 	// HOVER TRACKING
 	let hoveredShift: Shift | null = null;
@@ -105,16 +113,14 @@
 			.on(
 				'postgres_changes',
 				{ event: '*', schema: 'public', table: 'schedule_weeks' },
-				(payload) => handleWeekChange(payload)
+				handleWeekChange
 			)
 			.on(
 				'postgres_changes',
 				{ event: '*', schema: 'public', table: 'schedule_shifts' },
-				(payload) => handleShiftChange(payload)
+				handleShiftChange
 			)
-			.on('postgres_changes', { event: '*', schema: 'public', table: 'prod_staff' }, () =>
-				loadStaffOnly()
-			)
+			.on('postgres_changes', { event: '*', schema: 'public', table: 'prod_staff' }, loadStaffOnly)
 			.subscribe();
 	}
 
@@ -197,6 +203,30 @@
 		return `${h12}${mStr}${ampm}`;
 	}
 
+	function formatFullDate(startDateStr: string, dayIdx: number): string {
+		const date = new Date(startDateStr + 'T00:00:00');
+		date.setDate(date.getDate() + dayIdx);
+		const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+		const months = [
+			'January',
+			'February',
+			'March',
+			'April',
+			'May',
+			'June',
+			'July',
+			'August',
+			'September',
+			'October',
+			'November',
+			'December'
+		];
+		const n = date.getDate();
+		const ordinal =
+			n + (n > 0 ? ['th', 'st', 'nd', 'rd'][(n > 3 && n < 21) || n % 10 > 3 ? 0 : n % 10] : '');
+		return `${days[date.getDay()]}, ${ordinal} ${months[date.getMonth()]} ${date.getFullYear()}`;
+	}
+
 	function getCardStyle(type: string): string {
 		if (type === 'Office')
 			return `background-color: transparent; color: #ffffff; border: 1px solid rgba(255,255,255,0.2);`;
@@ -204,13 +234,14 @@
 			return `background-color: #333333; color: #888888; border: 1px solid #444444;`;
 		if (type === 'LD')
 			return `background-color: #555555; color: #ffffff; border: 1px solid #666666;`;
+		if (type === 'PAID OFF')
+			return `background-color: #4a4a4a; color: #ffffff; border: 1px solid #666666;`;
 		const bg = HEX_COLORS[type] || '#fdfdfd';
 		return `background-color: ${bg}; color: #222; border: 1px solid rgba(0,0,0,0.1);`;
 	}
 
-	// Helper to safely check types avoiding TS intersection errors
 	function isNoTimeShift(type: string): boolean {
-		return type === 'OFF' || type === 'LD';
+		return ['OFF', 'LD', 'PAID OFF'].includes(type);
 	}
 
 	function getFirstName(fullName: string): string {
@@ -245,9 +276,7 @@
 	};
 
 	async function createNextWeek() {
-		// Permissions Check
 		if (!canEdit || viewMode === 'past') return;
-
 		let nextStart = new Date();
 		if (weeks.length > 0) {
 			const latestWeek = [...weeks].sort(
@@ -266,19 +295,23 @@
 	}
 
 	async function deleteWeek(weekId: number) {
-		// Permissions Check
 		if (!canEdit) return;
-
 		weeks = weeks.filter((w) => w.id !== weekId);
 		confirmDeleteWeekId = null;
 		await supabase.from('schedule_weeks').delete().eq('id', weekId);
 	}
 
 	async function deleteRow(weekId: number, staffId: number) {
-		// Permissions Check
 		if (!canEdit) return;
 		const wIdx = weeks.findIndex((w) => w.id === weekId);
 		if (wIdx >= 0) {
+			// Save context to undoStack before deleting multiple shifts
+			const shiftsToDelete = weeks[wIdx].shifts.filter(
+				(s) => s.staff_id === staffId && (s.shift_type as string) !== 'PLACEHOLDER'
+			);
+			if (shiftsToDelete.length > 0) {
+				undoStack.push({ type: 'delete_multiple', shifts: shiftsToDelete.map((s) => ({ ...s })) });
+			}
 			weeks[wIdx].shifts = weeks[wIdx].shifts.filter((s) => s.staff_id !== staffId);
 			weeks = [...weeks];
 			await supabase.from('schedule_shifts').delete().match({ week_id: weekId, staff_id: staffId });
@@ -312,10 +345,17 @@
 	}
 
 	async function handleModalSave(e: CustomEvent) {
-		// Permissions Check
 		if (!modalData || !canEdit) return;
 
 		const details = e.detail;
+		const isNew = !modalData.shift.id;
+
+		let oldShift = null;
+		if (!isNew) {
+			const w = weeks.find((w) => w.id === modalData!.weekId);
+			oldShift = w?.shifts.find((s) => s.id === modalData!.shift.id);
+		}
+
 		const shiftToSave = {
 			...modalData.shift,
 			week_id: modalData.weekId,
@@ -326,14 +366,28 @@
 			shift_type: details.shift_type,
 			custom_label: details.custom_label
 		};
-		await supabase.from('schedule_shifts').upsert(shiftToSave).select().single();
+
+		const { data } = await supabase.from('schedule_shifts').upsert(shiftToSave).select().single();
+		if (data) {
+			if (isNew) undoStack.push({ type: 'insert', shiftId: data.id });
+			else if (oldShift) undoStack.push({ type: 'update', oldShift: { ...oldShift } });
+		}
 	}
 
 	async function handleModalDelete(e: CustomEvent) {
-		// Permissions Check
 		if (!canEdit) return;
-
 		const shiftId = e.detail;
+
+		let shiftToDelete: Shift | null = null;
+		for (const w of weeks) {
+			const s = w.shifts.find((sh) => sh.id === shiftId);
+			if (s) {
+				shiftToDelete = { ...s };
+				break;
+			}
+		}
+		if (shiftToDelete) undoStack.push({ type: 'delete', shift: shiftToDelete });
+
 		weeks.forEach((w) => (w.shifts = w.shifts.filter((s) => s.id !== shiftId)));
 		weeks = [...weeks];
 		await supabase.from('schedule_shifts').delete().eq('id', shiftId);
@@ -352,13 +406,14 @@
 		shift: Shift | null,
 		currentShiftsInDay: number
 	) {
-		// Permissions Check
 		if (!canEdit) return;
-
 		let existingShifts: Shift[] = [];
+		let fullDateStr = '';
 		const week = weeks.find((w) => w.id === weekId);
+
 		if (week) {
 			existingShifts = week.shifts.filter((s) => s.staff_id === staff.id && s.day_index === dayIdx);
+			fullDateStr = formatFullDate(week.start_date, dayIdx);
 		}
 
 		modalData = {
@@ -367,7 +422,8 @@
 			dayIdx,
 			shift: shift || {},
 			dayShiftCount: currentShiftsInDay,
-			existingShifts: existingShifts
+			existingShifts,
+			fullDateStr
 		};
 		isModalOpen = true;
 	}
@@ -389,9 +445,11 @@
 				.forEach((shift) => {
 					if ((shift.shift_type as string) !== 'PLACEHOLDER') {
 						staffShifts[shift.day_index].push(shift);
-						// Force cast to string to avoid TS error on 'LD'
 						const sType = shift.shift_type as string;
-						if (sType !== 'OFF' && sType !== 'LD') {
+						// Handle custom Paid Off summing
+						if (sType === 'PAID OFF') {
+							totalHours += 8;
+						} else if (sType !== 'OFF' && sType !== 'LD') {
 							totalHours += calculateHours(shift.start_time, shift.end_time);
 						}
 					}
@@ -408,10 +466,13 @@
 		rows.forEach((row) => {
 			row.shifts.forEach((dayShifts, dayIdx) => {
 				dayShifts.forEach((shift) => {
-					// Force cast to string to avoid TS error on 'LD'
 					const sType = shift.shift_type as string;
-					if (shift && sType !== 'OFF' && sType !== 'LD') {
-						totals[dayIdx] += calculateHours(shift.start_time, shift.end_time);
+					if (shift) {
+						if (sType === 'PAID OFF') {
+							totals[dayIdx] += 8;
+						} else if (sType !== 'OFF' && sType !== 'LD') {
+							totals[dayIdx] += calculateHours(shift.start_time, shift.end_time);
+						}
 					}
 				});
 			});
@@ -419,14 +480,42 @@
 		return totals;
 	}
 
-	// ---- GLOBAL KEYBOARD SHORTCUTS ----
+	async function handleUndo() {
+		if (undoStack.length === 0) return;
+		const action = undoStack.pop();
+		undoStack = [...undoStack]; // Trigger reactivity
 
+		if (action!.type === 'insert') {
+			await supabase.from('schedule_shifts').delete().eq('id', action!.shiftId);
+		} else if (action!.type === 'delete') {
+			const shiftData = { ...action!.shift };
+			delete shiftData.id; // Prevent sequence clash
+			await supabase.from('schedule_shifts').insert(shiftData);
+		} else if (action!.type === 'update') {
+			await supabase.from('schedule_shifts').upsert(action!.oldShift);
+		} else if (action!.type === 'delete_multiple') {
+			const shiftsData = action!.shifts.map((s) => {
+				const copy = { ...s };
+				delete copy.id;
+				return copy;
+			});
+			await supabase.from('schedule_shifts').insert(shiftsData);
+		}
+	}
+
+	// ---- GLOBAL KEYBOARD SHORTCUTS ----
 	function handleGlobalKeyDown(e: KeyboardEvent) {
-		// PERMISSIONS: Strict check - Must be Authenticated to use shortcuts
 		if (!canEdit) return;
 		const isCmd = e.ctrlKey || e.metaKey;
 		const key = e.key.toLowerCase();
-		// CUT: Cmd + X (Hovering Shift)
+
+		// UNDO: Cmd + Z
+		if (isCmd && key === 'z') {
+			e.preventDefault();
+			handleUndo();
+		}
+
+		// CUT: Cmd + X
 		if (isCmd && key === 'x' && hoveredShift && hoveredShift.id) {
 			e.preventDefault();
 			copiedShift = { ...hoveredShift };
@@ -434,19 +523,18 @@
 			handleModalDelete({ detail: hoveredShift.id } as CustomEvent);
 		}
 
-		// COPY: Cmd + C (Hovering Shift)
+		// COPY: Cmd + C
 		if (isCmd && key === 'c' && hoveredShift) {
 			e.preventDefault();
 			copiedShift = { ...hoveredShift };
 			delete copiedShift.id;
 		}
 
-		// PASTE: Cmd + V (Hovering Slot)
+		// PASTE: Cmd + V
 		if (isCmd && key === 'v' && copiedShift && hoveredSlot) {
 			e.preventDefault();
 			const { weekId, staffId, dayIdx } = hoveredSlot;
 
-			// Limit check: Max 2 shifts per slot
 			const wIdx = weeks.findIndex((w) => w.id === weekId);
 			if (wIdx >= 0) {
 				const count = weeks[wIdx].shifts.filter(
@@ -459,7 +547,12 @@
 			}
 
 			const newShift = { ...copiedShift, week_id: weekId, staff_id: staffId, day_index: dayIdx };
-			supabase.from('schedule_shifts').insert(newShift).select().single();
+
+			// Wrapper async immediately invoked function to let we push to undo
+			(async () => {
+				const { data } = await supabase.from('schedule_shifts').insert(newShift).select().single();
+				if (data) undoStack.push({ type: 'insert', shiftId: data.id });
+			})();
 		}
 	}
 </script>
@@ -479,13 +572,15 @@
 
 			<div class="flex bg-gray2/20 p-1 rounded-full border border-gray2/30 h-10">
 				<button
-					class="px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all {viewMode === 'current'
+					class="px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all {viewMode ===
+					'current'
 						? 'bg-lime text-black font-bold shadow-lg'
 						: 'text-gray2 hover:text-white'}"
 					on:click={() => (viewMode = 'current')}>Current</button
 				>
 				<button
-					class="px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all {viewMode === 'past'
+					class="px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all {viewMode ===
+					'past'
 						? 'bg-white text-black font-bold shadow-lg'
 						: 'text-gray2 hover:text-white'}"
 					on:click={() => (viewMode = 'past')}>Past</button
@@ -646,9 +741,7 @@
 									class="text-center p-3 text-xs font-bold text-gray2 uppercase tracking-wider border-l border-gray2/10 w-20"
 									>Total</th
 								>
-								{#if canEdit}
-									<th class="w-12 p-0 border-l border-gray2/10"></th>
-								{/if}
+								{#if canEdit}<th class="w-12 p-0 border-l border-gray2/10"></th>{/if}
 							</tr>
 						</thead>
 						<tbody>
@@ -690,7 +783,11 @@
 															}}
 														>
 															{#if isNoTimeShift(shift.shift_type)}
-																<span class="font-bold text-xs" class:text-gray-400={shift.shift_type === 'OFF'}>{shift.shift_type}</span>
+																<span
+																	class="font-bold text-xs"
+																	class:text-gray-400={shift.shift_type === 'OFF'}
+																	>{shift.shift_type}</span
+																>
 															{:else}
 																<span class="font-bold whitespace-nowrap text-xs sm:text-sm"
 																	>{formatTimeDisplay(shift.start_time)} - {formatTimeDisplay(
@@ -741,8 +838,7 @@
 												>
 											{:else}
 												<button
-													class="w-full h-14 flex items-center justify-center text-gray2 hover:text-red-500 opacity-0 group-hover/row:opacity-100 
-													transition-all cursor-pointer"
+													class="w-full h-14 flex items-center justify-center text-gray2 hover:text-red-500 opacity-0 group-hover/row:opacity-100 transition-all cursor-pointer"
 													on:click={() =>
 														(confirmDeleteRow = { weekId: week.id, staffId: row.staff.id })}
 													title="Remove Staff"
@@ -796,7 +892,7 @@
 	<ShiftModal
 		isOpen={isModalOpen}
 		staff={modalData?.staff ?? null}
-		dayName={modalData ? DAYS_FULL[modalData.dayIdx] : ''}
+		dayName={modalData?.fullDateStr || ''}
 		shift={modalData?.shift ?? {}}
 		dayShiftCount={modalData?.dayShiftCount || 0}
 		existingShifts={modalData?.existingShifts || []}
