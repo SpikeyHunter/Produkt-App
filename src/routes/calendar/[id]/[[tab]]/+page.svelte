@@ -15,8 +15,8 @@
 	// --- IMPORT TAB COMPONENTS ---
 	import DealsTab from '$lib/components/calendar/page/tabs/deals/DealsTab.svelte';
 	import RevenueTab from '$lib/components/calendar/page/tabs/revenue/RevenueTab.svelte';
-	import ProFormaTab from '$lib/components/calendar/page/tabs/ProFormaTab.svelte';
-	import CostsTab from '$lib/components/calendar/page/tabs/CostsTab.svelte';
+	import ProFormaTab from '$lib/components/calendar/page/tabs/proforma/ProFormaTab.svelte';
+	import CostsTab from '$lib/components/calendar/page/tabs/costs/CostsTab.svelte';
 	import InternalSettlementTab from '$lib/components/calendar/page/tabs/InternalSettlementTab.svelte';
 	import RunOfShowTab from '$lib/components/calendar/page/tabs/RunOfShowTab.svelte';
 	import ContactsTab from '$lib/components/calendar/page/tabs/ContactsTab.svelte';
@@ -62,8 +62,8 @@
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 
 	// 🔥 DEFINE ALLOWED TABS IN PRODUCTION HERE
-	const DeployedAppTabs = ['Deals']; 
-	
+	const DeployedAppTabs = ['Deals'];
+
 	let isDeployed = false;
 
 	// Safely check hostname only in the browser
@@ -84,7 +84,7 @@
 			}
 		}
 	} else {
-		activeTab = isDeployed ? (DeployedAppTabs[0] || tabs[0]) : tabs[0];
+		activeTab = isDeployed ? DeployedAppTabs[0] || tabs[0] : tabs[0];
 	}
 
 	onMount(() => {
@@ -214,14 +214,16 @@
 					<div
 						class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden"
 					>
-						<svelte:component
-							this={tabComponents[activeTab]}
-							{userRole}
-							{event}
-							eventDealData={event?.calendar?.event_deal || event?.event_deal}
-							eventDate={event?.start_date || event?.date || ''}
-							venueCurrency={event?.calendar?.currency || 'CAD'}
-						/>
+						{#key event?.calendar?.current_version}
+							<svelte:component
+								this={tabComponents[activeTab]}
+								{userRole}
+								{event}
+								eventDealData={event?.calendar_data?.event_deal || {}}
+								eventDate={event?.start_date || event?.date || ''}
+								venueCurrency={event?.calendar?.currency || 'CAD'}
+							/>
+						{/key}
 					</div>
 					<EventSidebar {isSidebarOpen} {userRole} {event} />
 				</div>
@@ -250,14 +252,16 @@
 				<div
 					class="flex-1 flex flex-col min-w-0 bg-navbar border border-gray2/10 rounded-2xl shadow-sm relative overflow-hidden"
 				>
-					<svelte:component
-						this={tabComponents[activeTab]}
-						{userRole}
-						{event}
-						eventDealData={event?.calendar?.event_deal || event?.event_deal}
-						eventDate={event?.start_date || event?.date || ''}
-						venueCurrency={event?.calendar?.currency || 'CAD'}
-					/>
+					{#key event?.calendar?.current_version}
+						<svelte:component
+							this={tabComponents[activeTab]}
+							{userRole}
+							{event}
+							eventDealData={event?.calendar_data?.event_deal || {}}
+							eventDate={event?.start_date || event?.date || ''}
+							venueCurrency={event?.calendar?.currency || 'CAD'}
+						/>
+					{/key}
 				</div>
 				<EventSidebar {isSidebarOpen} {userRole} {event} />
 			</div>

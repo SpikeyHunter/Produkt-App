@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/supabase';
-	import FacilityFee from './FacilityFee.svelte';
-	import TicketManagement from './TicketManagement.svelte';
+	import FixedCosts from './FixedCosts.svelte';
+	import VariableCosts from './VariableCosts.svelte';
+	import { slide } from 'svelte/transition';
 
 	export let userRole: string = 'Email Only';
 	export let event: any = null;
@@ -10,8 +11,11 @@
 	$: hasAccess = ['Editor', 'Admin'].includes(userRole);
 	$: eventId = event?.id || event?.group_id;
 
-	let financials: any = null;
-	let tickets: any[] = [];
+	let eventCosts: { fixedCosts: any[]; variableCosts: any[] } = {
+		fixedCosts: [],
+		variableCosts: []
+	};
+	let eventRevenue: any = {}; // Added to hold revenue data for variable calculations
 	let currency: string = 'CAD';
 
 	let saveTimeout: ReturnType<typeof setTimeout>;
@@ -19,36 +23,34 @@
 	let isInitialized = false;
 	let currencyChannel: any;
 
-	function triggerSave() {
+	// Expanded states
+	let fixedExpanded = true;
+	let variableExpanded = false;
+
+	export function triggerSave() {
 		if (!isInitialized || !hasAccess || !eventId) return;
 
 		clearTimeout(saveTimeout);
-		// Changed from 1000 to 300 for significantly faster UI updates
 		saveTimeout = setTimeout(async () => {
 			isSaving = true;
-			const payload = { financials, tickets };
-
 			try {
 				const targetId = event?.group_id || event?.id;
 				const currentVersion = event?.calendar?.current_version || 1;
 				await supabase
 					.from('calendar_data')
-					.update({ event_revenue: payload })
+					.update({ event_cost: eventCosts })
 					.eq('calendar_id', targetId)
 					.eq('version_number', currentVersion);
 			} catch (error) {
-				console.error('Error saving revenue data:', error);
+				console.error('Error saving cost data:', error);
 			} finally {
 				isSaving = false;
 			}
 		}, 300);
 	}
 
-	let venueFinancials: any = null; // Store venue defaults
-
 	async function syncVenueSettings() {
 		if (!eventId) return;
-
 		try {
 			let venueParsed = typeof event?.venue === 'string' ? JSON.parse(event.venue) : event?.venue;
 			let category = venueParsed?.category;
@@ -62,7 +64,6 @@
 
 				const venueRaw = eventData?.[0]?.venue;
 				if (!venueRaw) return;
-
 				venueParsed = typeof venueRaw === 'string' ? JSON.parse(venueRaw) : venueRaw;
 				category = venueParsed?.category;
 			}
@@ -81,11 +82,8 @@
 							? JSON.parse(settingData.setting_params)
 							: settingData.setting_params;
 
-					// Store the full venue financials
-					venueFinancials = params?.financials || null;
-
-					if (venueFinancials?.currency) {
-						currency = venueFinancials.currency;
+					if (params?.financials?.currency) {
+						currency = params.financials.currency;
 					}
 				}
 			}
@@ -94,68 +92,39 @@
 		}
 	}
 
-	function resetToVenueSettings() {
-		if (!venueFinancials) return;
-		financials = {
-			...financials,
-			taxRate: venueFinancials.taxRate || 0,
-			taxType: venueFinancials.taxType || 'Divisor',
-			facilityFee: venueFinancials.facilityFee || 0
-		};
-	}
-
 	onMount(async () => {
 		if (!eventId) return;
 
-		// 1. Fetch Venue Settings (Currency, Tax, Fees)
 		await syncVenueSettings();
 
-		// 2. Fetch the Revenue DB Data directly based on the event
 		const targetId = event?.group_id || event?.id;
 		const currentVersion = event?.calendar?.current_version || 1;
 
 		const { data: dbData } = await supabase
 			.from('calendar_data')
-			.select('event_revenue')
+			.select('event_cost, event_revenue')
 			.eq('calendar_id', targetId)
 			.eq('version_number', currentVersion)
 			.single();
 
-		if (dbData?.event_revenue) {
-			tickets = dbData.event_revenue.tickets || [];
-
-			// Only populate with Venue Settings if the DB has no financials configured yet
-			if (!dbData.event_revenue.financials) {
-				financials = venueFinancials
-					? {
-							taxRate: venueFinancials.taxRate || 0,
-							taxType: venueFinancials.taxType || 'Divisor',
-							facilityFee: venueFinancials.facilityFee || 0
-						}
-					: { taxRate: 0, taxType: 'Divisor', facilityFee: 0 };
-				// Save this initial state
-				triggerSave();
-			} else {
-				financials = dbData.event_revenue.financials;
-			}
+		if (dbData?.event_cost) {
+			eventCosts = {
+				fixedCosts: dbData.event_cost.fixedCosts || [],
+				variableCosts: dbData.event_cost.variableCosts || []
+			};
 		} else {
-			tickets = [];
-			// Initialize a completely new event with Venue Settings
-			financials = venueFinancials
-				? {
-						taxRate: venueFinancials.taxRate || 0,
-						taxType: venueFinancials.taxType || 'Divisor',
-						facilityFee: venueFinancials.facilityFee || 0
-					}
-				: { taxRate: 0, taxType: 'Divisor', facilityFee: 0 };
+			eventCosts = { fixedCosts: [], variableCosts: [] };
 			triggerSave();
+		}
+
+		if (dbData?.event_revenue) {
+			eventRevenue = dbData.event_revenue;
 		}
 
 		isInitialized = true;
 
-		// 3. Realtime Venue Updates
 		currencyChannel = supabase
-			.channel('venue-currency-updates')
+			.channel('venue-currency-updates-costs')
 			.on(
 				'postgres_changes',
 				{ event: 'UPDATE', schema: 'public', table: 'calendar_settings' },
@@ -168,8 +137,7 @@
 		if (currencyChannel) supabase.removeChannel(currencyChannel);
 	});
 
-	// Save whenever user interacts with tickets/financials
-	$: if (isInitialized && (financials || tickets)) triggerSave();
+	$: if (isInitialized && eventCosts) triggerSave();
 </script>
 
 {#if !hasAccess}
@@ -177,10 +145,22 @@
 		<p class="text-gray2 font-bold text-lg">You do not have permission to view this.</p>
 	</div>
 {:else}
-	<div class="p-6 flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-8 bg-navbar">
+	<div class="p-6 flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-1 bg-navbar">
 		{#if isInitialized}
-			<TicketManagement bind:tickets {financials} {currency} />
-			<FacilityFee bind:financials onReset={venueFinancials ? resetToVenueSettings : null} />
+			<FixedCosts
+				bind:fixedCosts={eventCosts.fixedCosts}
+				bind:expanded={fixedExpanded}
+				{currency}
+				{triggerSave}
+			/>
+
+			<VariableCosts
+				bind:variableCosts={eventCosts.variableCosts}
+				bind:expanded={variableExpanded}
+				{eventRevenue}
+				{currency}
+				{triggerSave}
+			/>
 		{/if}
 	</div>
 {/if}

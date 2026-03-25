@@ -13,7 +13,6 @@
 
 	// --- BULLETPROOF DATA PARSING WITH LOGS ---
 	$: totalCost = (() => {
-
 		try {
 			if (!eventCost) {
 				return 0;
@@ -29,10 +28,9 @@
 			const extractedArray = parsed?.total_cost;
 
 			const finalValue = extractedArray?.[0] || 0;
-			
+
 			return finalValue;
 		} catch (e) {
-
 			return 0;
 		}
 	})();
@@ -76,20 +74,38 @@
 	$: if (dealType !== 'Plus' && details.bonuses.length > 1) {
 		details.bonuses = [details.bonuses[0]];
 	}
-</script>
 
-<style>
-	:global(input[type='number']::-webkit-outer-spin-button),
-	:global(input[type='number']::-webkit-inner-spin-button) {
-		-webkit-appearance: none;
-		appearance: none;
-		margin: 0;
+	// --- RETROACTIVE BONUS LOGIC ---
+	// Initialize defaults if they don't exist
+	$: if (details.retroactiveBonusEnabled === undefined) details.retroactiveBonusEnabled = false;
+	$: if (!details.retroactiveSwitchesAt) details.retroactiveSwitchesAt = '% Sell Through';
+	$: if (!details.retroactiveBonuses || details.retroactiveBonuses.length === 0) {
+		details.retroactiveBonuses = [
+			{
+				id: crypto.randomUUID(),
+				switchesAt: details.retroactiveSwitchesAt,
+				bonusAmount: 0,
+				atAmount: 0
+			}
+		];
 	}
-	:global(input[type='number']) {
-		-moz-appearance: textfield;
-		appearance: textfield;
+
+	function addRetroactiveBonus() {
+		details.retroactiveBonuses = [
+			...details.retroactiveBonuses,
+			{
+				id: crypto.randomUUID(),
+				switchesAt: details.retroactiveSwitchesAt,
+				bonusAmount: 0,
+				atAmount: 0
+			}
+		];
 	}
-</style>
+
+	function removeRetroactiveBonus(id: string) {
+		details.retroactiveBonuses = details.retroactiveBonuses.filter((b) => b.id !== id);
+	}
+</script>
 
 <div class="flex flex-col gap-8 text-white w-full">
 	<div class="flex flex-col gap-5">
@@ -154,8 +170,6 @@
 	</div>
 
 	{#if afterOptions.length > 0}
-	
-
 		<div class="flex flex-col gap-5">
 			<div class="font-bold text-white text-md uppercase">After</div>
 			<div class="flex gap-8 items-center">
@@ -226,70 +240,11 @@
 					{/if}
 				</div>
 			{:else if details.metricType === 'Per Ticket' || details.metricType === 'Flat'}
-			<div class="flex flex-col gap-4 mt-2">
-				{#each details.bonuses as bonus, i (bonus.id)}
-					<div transition:slide={{ duration: 300 }}>
-						{#if dealType === 'Plus'}
-							{#if i === 0}
-								<div class="flex-1 max-w-[200px]">
-									<label
-										for="bonus-at-{bonus.id}"
-										class="block text-xs text-gray2 mb-2 font-bold uppercase tracking-wide"
-									>
-										{String(details.afterType) === '% Sell Through'
-											? '% percent sold'
-											: String(details.afterType) === '# Tickets Sold'
-												? '# of tickets'
-												: 'Split Point'}
-									</label>
-									<div class="relative">
-										<input
-											id="bonus-at-{bonus.id}"
-											type="number"
-											bind:value={bonus.atAmount}
-											on:focus={(e) => {
-												if (e.currentTarget.value === '0') e.currentTarget.value = '';
-											}}
-											on:blur={() => (bonus.atAmount = bonus.atAmount || 0)}
-											class="w-full bg-gray1 rounded-3xl py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime {String(
-												details.afterType
-											) === 'Manual Split Point'
-												? 'pl-[72px] pr-4'
-												: 'pl-5 pr-10'}"
-										/>
-										{#if String(details.afterType) === '% Sell Through'}
-											<span class="absolute right-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">%</span>
-										{:else if String(details.afterType) === 'Manual Split Point'}
-											<span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">{venueCurrency}$</span>
-										{/if}
-									</div>
-								</div>
-							{:else}
-								<div class="flex gap-4 items-end mt-2">
-									<div class="flex-1 max-w-[200px]">
-										<label
-											for="bonus-amount-{bonus.id}"
-											class="block text-xs text-gray2 mb-2 font-bold uppercase tracking-wide"
-										>
-											Bonus amount
-										</label>
-										<div class="relative">
-											<input
-												id="bonus-amount-{bonus.id}"
-												type="number"
-												bind:value={bonus.bonusAmount}
-												on:focus={(e) => {
-													if (e.currentTarget.value === '0') e.currentTarget.value = '';
-												}}
-												on:blur={() => (bonus.bonusAmount = bonus.bonusAmount || 0)}
-												class="w-full bg-gray1 rounded-3xl pl-8 pr-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime"
-											/>
-											<span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">$</span>
-										</div>
-									</div>
-
-									<div class="font-bold text-lg mb-2 text-gray2">at</div>
-
+				<div class="flex flex-col gap-4 mt-2">
+					{#each details.bonuses as bonus, i (bonus.id)}
+						<div transition:slide={{ duration: 300 }}>
+							{#if dealType === 'Plus'}
+								{#if i === 0}
 									<div class="flex-1 max-w-[200px]">
 										<label
 											for="bonus-at-{bonus.id}"
@@ -317,73 +272,302 @@
 													: 'pl-5 pr-10'}"
 											/>
 											{#if String(details.afterType) === '% Sell Through'}
-												<span class="absolute right-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">%</span>
+												<span class="absolute right-4 top-1/2 -translate-y-1/2 text-gray2 font-bold"
+													>%</span
+												>
 											{:else if String(details.afterType) === 'Manual Split Point'}
-												<span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">{venueCurrency}$</span>
+												<span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold"
+													>{venueCurrency}$</span
+												>
 											{/if}
 										</div>
 									</div>
-									<div class="mb-1">
-									<button
-										on:click={() => removeBonus(bonus.id)}
-										class="w-8 h-8 flex items-center justify-center cursor-pointer rounded-full text-red-500 bg-problem/10 hover:bg-problem/20 transition-colors mb-1 font-bold"
-										title="Remove Bonus"
+								{:else}
+									<div class="flex gap-4 items-end mt-2">
+										<div class="flex-1 max-w-[200px]">
+											<label
+												for="bonus-amount-{bonus.id}"
+												class="block text-xs text-gray3 mb-2 font-bold uppercase tracking-wide"
+											>
+												Bonus amount
+											</label>
+											<div class="relative">
+												<input
+													id="bonus-amount-{bonus.id}"
+													type="number"
+													bind:value={bonus.bonusAmount}
+													on:focus={(e) => {
+														if (e.currentTarget.value === '0') e.currentTarget.value = '';
+													}}
+													on:blur={() => (bonus.bonusAmount = bonus.bonusAmount || 0)}
+													class="w-full bg-gray1 rounded-3xl pl-8 pr-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime"
+												/>
+												<span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold"
+													>$</span
+												>
+											</div>
+										</div>
+
+										<div class="font-bold text-lg mb-2 text-gray2">at</div>
+
+										<div class="flex-1 max-w-[200px]">
+											<label
+												for="bonus-at-{bonus.id}"
+												class="block text-xs text-gray2 mb-2 font-bold uppercase tracking-wide"
+											>
+												{String(details.afterType) === '% Sell Through'
+													? '% percent sold'
+													: String(details.afterType) === '# Tickets Sold'
+														? '# of tickets'
+														: 'Split Point'}
+											</label>
+											<div class="relative">
+												<input
+													id="bonus-at-{bonus.id}"
+													type="number"
+													bind:value={bonus.atAmount}
+													on:focus={(e) => {
+														if (e.currentTarget.value === '0') e.currentTarget.value = '';
+													}}
+													on:blur={() => (bonus.atAmount = bonus.atAmount || 0)}
+													class="w-full bg-gray1 rounded-3xl py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime {String(
+														details.afterType
+													) === 'Manual Split Point'
+														? 'pl-[72px] pr-4'
+														: 'pl-5 pr-10'}"
+												/>
+												{#if String(details.afterType) === '% Sell Through'}
+													<span
+														class="absolute right-4 top-1/2 -translate-y-1/2 text-gray2 font-bold"
+														>%</span
+													>
+												{:else if String(details.afterType) === 'Manual Split Point'}
+													<span
+														class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold"
+														>{venueCurrency}$</span
+													>
+												{/if}
+											</div>
+										</div>
+										<div class="mb-1">
+											<button
+												on:click={() => removeBonus(bonus.id)}
+												class="w-8 h-8 flex items-center justify-center cursor-pointer rounded-full text-red-500 bg-problem/10 hover:bg-problem/20 transition-colors mb-1 font-bold"
+												title="Remove Bonus"
+											>
+												✕
+											</button>
+										</div>
+									</div>
+								{/if}
+							{:else}
+								<div class="flex-1 max-w-[200px]">
+									<label
+										for="bonus-at-{bonus.id}"
+										class="block text-xs text-gray2 mb-2 font-bold uppercase tracking-wide"
 									>
-										✕
-									</button>
-								</div>	
+										{String(details.afterType) === '% Sell Through'
+											? '% percent sold'
+											: String(details.afterType) === '# Tickets Sold'
+												? '# of tickets'
+												: 'Split Point'}
+									</label>
+									<div class="relative">
+										<input
+											id="bonus-at-{bonus.id}"
+											type="number"
+											bind:value={bonus.atAmount}
+											on:focus={(e) => {
+												if (e.currentTarget.value === '0') e.currentTarget.value = '';
+											}}
+											on:blur={() => (bonus.atAmount = bonus.atAmount || 0)}
+											class="w-full bg-gray1 rounded-3xl py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime {String(
+												details.afterType
+											) === 'Manual Split Point'
+												? 'pl-[72px] pr-4'
+												: 'pl-5 pr-10'}"
+										/>
+										{#if String(details.afterType) === '% Sell Through'}
+											<span class="absolute right-4 top-1/2 -translate-y-1/2 text-gray2 font-bold"
+												>%</span
+											>
+										{:else if String(details.afterType) === 'Manual Split Point'}
+											<span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold"
+												>{venueCurrency}$</span
+											>
+										{/if}
+									</div>
 								</div>
 							{/if}
-						{:else}
-							<div class="flex-1 max-w-[200px]">
-								<label
-									for="bonus-at-{bonus.id}"
-									class="block text-xs text-gray2 mb-2 font-bold uppercase tracking-wide"
-								>
-									{String(details.afterType) === '% Sell Through'
-										? '% percent sold'
-										: String(details.afterType) === '# Tickets Sold'
-											? '# of tickets'
-											: 'Split Point'}
-								</label>
-								<div class="relative">
-									<input
-										id="bonus-at-{bonus.id}"
-										type="number"
-										bind:value={bonus.atAmount}
-										on:focus={(e) => {
-											if (e.currentTarget.value === '0') e.currentTarget.value = '';
-										}}
-										on:blur={() => (bonus.atAmount = bonus.atAmount || 0)}
-										class="w-full bg-gray1 rounded-3xl py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime {String(
-											details.afterType
-										) === 'Manual Split Point'
-											? 'pl-[72px] pr-4'
-											: 'pl-5 pr-10'}"
-									/>
-									{#if String(details.afterType) === '% Sell Through'}
-										<span class="absolute right-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">%</span>
-									{:else if String(details.afterType) === 'Manual Split Point'}
-										<span class="absolute left-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">{venueCurrency}$</span>
+						</div>
+					{/each}
+
+					{#if dealType === 'Plus'}
+						<button
+							on:click={addBonus}
+							class="flex items-center gap-2 text-lime font-bold hover:opacity-80 transition-opacity w-max mt-2"
+						>
+							<span
+								class="text-2xl bg-lime text-black rounded-full w-6 h-6 flex items-center justify-center pb-0.5"
+								>+</span
+							> Add Bonuses
+						</button>
+					{/if}
+				</div>
+			{/if}
+
+			{#if ['Door Deal', 'Plus', 'Versus'].includes(dealType)}
+				<div class="flex flex-col gap-4 mt-2">
+					<label class="flex items-center cursor-pointer gap-3 w-max">
+						<div class="relative">
+							<input
+								type="checkbox"
+								bind:checked={details.retroactiveBonusEnabled}
+								class="sr-only peer"
+							/>
+							<div
+								class="block w-12 h-6 rounded-full bg-gray1 peer-checked:bg-lime transition-colors duration-300"
+							></div>
+							<div
+								class="absolute left-1 top-1 bg-black  peer-checked:bg-black w-4 h-4 rounded-full transition-transform duration-300 peer-checked:translate-x-6"
+							></div>
+						</div>
+						<span class="text-white text-md font-bold">Retroactive Bonus</span>
+					</label>
+
+					{#if details.retroactiveBonusEnabled}
+						<div class="flex flex-col gap-3 pl-6 mt-2" transition:slide={{ duration: 300 }}>
+							<div class="font-bold text-gray3 text-md uppercase">Switches At</div>
+							<div class="grid grid-cols-4 gap-4 items-center w-full">
+								{#each ['% Sell Through', '# Tickets Sold'] as switchOpt}
+									<label class="group flex items-center cursor-pointer relative -ml-2 w-max">
+										<div
+											class="w-10 h-10 rounded-full flex items-center justify-center group-hover:bg-white/5 transition-colors duration-200"
+										>
+											<div
+												class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors duration-200 {details.retroactiveSwitchesAt ===
+												switchOpt
+													? 'border-lime'
+													: 'border-gray2 group-hover:border-gray-400'}"
+											>
+												{#if details.retroactiveSwitchesAt === switchOpt}
+													<div class="w-2.5 h-2.5 bg-lime rounded-full"></div>
+												{/if}
+											</div>
+										</div>
+										<input
+											type="radio"
+											bind:group={details.retroactiveSwitchesAt}
+											value={switchOpt}
+											class="hidden"
+										/>
+										<span
+											class="ml-1 font-bold {details.retroactiveSwitchesAt === switchOpt
+												? 'text-white'
+												: 'text-gray2 group-hover:text-gray-300'} transition-colors duration-200"
+											>{switchOpt}</span
+										>
+									</label>
+									<div></div>
+								{/each}
+							</div>
+
+							{#each details.retroactiveBonuses as retroBonus, i (retroBonus.id)}
+								<div class="flex gap-4 items-end" transition:slide={{ duration: 300 }}>
+									<div class="flex-1 max-w-[200px]">
+										<label
+											for="retro-bonus-amount-{retroBonus.id}"
+											class="block text-xs text-gray3 mb-2 font-bold uppercase tracking-wide"
+										>
+											Bonus amount
+										</label>
+										<div class="relative">
+											<input
+												id="retro-bonus-amount-{retroBonus.id}"
+												type="number"
+												bind:value={retroBonus.bonusAmount}
+												on:focus={(e) => {
+													if (e.currentTarget.value === '0') e.currentTarget.value = '';
+												}}
+												on:blur={() => (retroBonus.bonusAmount = retroBonus.bonusAmount || 0)}
+												class="w-full bg-gray1 rounded-3xl pl-5 pr-10 py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime"
+											/>
+											<span class="absolute right-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">
+												{details.metricType.includes('%') ? '%' : '$'}
+											</span>
+										</div>
+									</div>
+
+									<div class="font-bold text-lg mb-2 text-gray2">At</div>
+
+									<div class="flex-1 max-w-[200px]">
+										<label
+											for="retro-bonus-at-{retroBonus.id}"
+											class="block text-xs text-gray3 mb-2 font-bold uppercase tracking-wide"
+										>
+											{details.retroactiveSwitchesAt === '% Sell Through'
+												? 'Percent Sold'
+												: '# of tickets'}
+										</label>
+										<div class="relative">
+											<input
+												id="retro-bonus-at-{retroBonus.id}"
+												type="number"
+												bind:value={retroBonus.atAmount}
+												on:focus={(e) => {
+													if (e.currentTarget.value === '0') e.currentTarget.value = '';
+												}}
+												on:blur={() => (retroBonus.atAmount = retroBonus.atAmount || 0)}
+												class="w-full bg-gray1 rounded-3xl pl-5 pr-10 py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime"
+											/>
+											<span class="absolute right-4 top-1/2 -translate-y-1/2 text-gray2 font-bold">
+												{details.retroactiveSwitchesAt === '% Sell Through' ? '%' : ''}
+											</span>
+										</div>
+									</div>
+
+									{#if i > 0 || details.retroactiveBonuses.length > 1}
+										<div class="mb-1">
+											<button
+												on:click={() => removeRetroactiveBonus(retroBonus.id)}
+												class="w-8 h-8 flex items-center justify-center cursor-pointer rounded-full text-red-500 bg-problem/10 hover:bg-problem/20 transition-colors mb-1 font-bold"
+												title="Remove Retroactive Bonus"
+											>
+												✕
+											</button>
+										</div>
 									{/if}
 								</div>
-							</div>
-						{/if}
-					</div>
-				{/each}
+							{/each}
 
-				{#if dealType === 'Plus'}
-					<button
-						on:click={addBonus}
-						class="flex items-center gap-2 text-lime font-bold hover:opacity-80 transition-opacity w-max mt-2"
-					>
-						<span
-							class="text-2xl bg-lime text-black rounded-full w-6 h-6 flex items-center justify-center pb-0.5"
-						>+</span> Add Bonuses
-					</button>
-				{/if}
-			</div>
+							<button
+								on:click={addRetroactiveBonus}
+								class="flex items-center gap-2 text-lime font-bold hover:opacity-80 transition-opacity w-max mt-4 pt-4 cursor-pointer"
+							>
+								<div
+									class="w-5 h-5 rounded-full border-2 border-lime flex items-center justify-center"
+								>
+									<span class="text-lg pb-0.5 leading-none">+</span>
+								</div>
+								Additional Retroactive Bonus
+							</button>
+						</div>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	{/if}
 </div>
+
+<style>
+	:global(input[type='number']::-webkit-outer-spin-button),
+	:global(input[type='number']::-webkit-inner-spin-button) {
+		-webkit-appearance: none;
+		appearance: none;
+		margin: 0;
+	}
+	:global(input[type='number']) {
+		-moz-appearance: textfield;
+		appearance: textfield;
+	}
+</style>

@@ -55,8 +55,8 @@
 		role: 'Headliner' as DealRole,
 		dealType: 'Flat' as DealTypeOption,
 		guaranteeAmount: 0,
-		w_tax: true, // 🚀 NEW: Withholding tax boolean
-		w_tax_amount: 24, // 🚀 NEW: Withholding tax amount
+		w_tax: true,
+		w_tax_amount: 24,
 		description: {
 			hotels: {
 				enabled: true,
@@ -78,6 +78,11 @@
 			afterType: 'Costs',
 			splitPointAmount: 0,
 			retroactiveBonusEnabled: false,
+			retroactiveSwitchesAt: '% Sell Through', // <-- ADD THIS
+			retroactiveBonuses: [
+				// <-- ADD THIS
+				{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
+			],
 			bonuses: [
 				{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
 			]
@@ -92,6 +97,38 @@
 			// Handle legacy deals that might not have w_tax defined yet
 			if (newDeal.w_tax === undefined) newDeal.w_tax = true;
 			if (newDeal.w_tax_amount === undefined) newDeal.w_tax_amount = 24;
+
+			// Handle legacy deals for retroactive bonuses
+			if (!newDeal.details) {
+				// Fallback if details is completely missing (e.g. was a Flat deal)
+				newDeal.details = {
+					metricType: '% of Net',
+					metricAmount: 0,
+					afterType: 'Costs',
+					splitPointAmount: 0,
+					retroactiveBonusEnabled: false,
+					retroactiveSwitchesAt: '% Sell Through',
+					retroactiveBonuses: [
+						{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
+					],
+					bonuses: [
+						{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
+					]
+				} as DealDetailsInfo;
+			} else {
+				if (newDeal.details.retroactiveBonusEnabled === undefined)
+					newDeal.details.retroactiveBonusEnabled = false;
+				if (!newDeal.details.retroactiveSwitchesAt)
+					newDeal.details.retroactiveSwitchesAt = '% Sell Through';
+				if (
+					!newDeal.details.retroactiveBonuses ||
+					newDeal.details.retroactiveBonuses.length === 0
+				) {
+					newDeal.details.retroactiveBonuses = [
+						{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
+					];
+				}
+			}
 
 			selectedArtist = {
 				name: newDeal.artistName,
@@ -133,49 +170,63 @@
 		else if (newDeal.dealType === 'Versus') prefix = `${guar} Versus`;
 		else if (newDeal.dealType === 'Plus') prefix = `${guar} Plus`;
 
+		let baseSummary = '';
+
 		if (newDeal.details.metricType === '% of Net') {
 			const afterVal = afterType === 'Costs' ? totalCost : newDeal.details.splitPointAmount || 0;
 			if (newDeal.dealType === 'Door Deal') {
-				return `${prefix} ${formatNum(amount)}% of Net Revenue after ${venueCurrency}$${formatNum(afterVal)}`;
+				baseSummary = `${prefix} ${formatNum(amount)}% of Net Revenue after ${venueCurrency}$${formatNum(afterVal)}`;
 			} else {
 				const afterLabel =
 					afterType === 'Costs' ? 'Costs' : `${venueCurrency}$${formatNum(afterVal)}`;
-				return `${prefix} ${formatNum(amount)}% of Net Revenue after ${afterLabel}`;
+				baseSummary = `${prefix} ${formatNum(amount)}% of Net Revenue after ${afterLabel}`;
+			}
+		} else if (newDeal.details.metricType === '% of Net Gross') {
+			baseSummary = `${prefix} ${formatNum(amount)}% of Net Gross`;
+		} else {
+			const bonusCount = newDeal.details.bonuses?.length || 0;
+			if (
+				newDeal.dealType === 'Plus' &&
+				bonusCount > 1 &&
+				['Per Ticket', 'Flat'].includes(newDeal.details.metricType)
+			) {
+				baseSummary = `${guar} + ${bonusCount} Bonuses`;
+			} else {
+				const threshold = newDeal.details.bonuses?.[0]?.atAmount || 0;
+
+				if (newDeal.details.metricType === 'Per Ticket') {
+					if (afterType === '% Sell Through')
+						baseSummary = `${prefix} $${formatNum(amount)} per ticket after ${formatNum(threshold)}% sold`;
+					else if (afterType === '# Tickets Sold')
+						baseSummary = `${prefix} $${formatNum(amount)} per ticket after ${threshold} tickets sold`;
+				} else if (newDeal.details.metricType === 'Flat') {
+					if (afterType === '% Sell Through')
+						baseSummary = `${prefix} $${formatNum(amount)} after ${formatNum(threshold)}% sold`;
+					else if (afterType === '# Tickets Sold')
+						baseSummary = `${prefix} $${formatNum(amount)} after ${threshold} tickets sold`;
+					else if (afterType === 'Manual Split Point')
+						baseSummary = `${prefix} $${formatNum(amount)} after ${venueCurrency}$${formatNum(threshold)}`;
+				}
 			}
 		}
 
-		if (newDeal.details.metricType === '% of Net Gross') {
-			return `${prefix} ${formatNum(amount)}% of Net Gross`;
+		if (!baseSummary) return '';
+
+		let retroSummary = '';
+		if (newDeal.details.retroactiveBonusEnabled && newDeal.details.retroactiveBonuses?.length) {
+			const isPercent = newDeal.details.metricType.includes('%');
+			const retroStrings = newDeal.details.retroactiveBonuses.map((b) => {
+				const amt = isPercent ? `${b.bonusAmount}%` : `$${b.bonusAmount}`;
+				const at =
+					newDeal.details.retroactiveSwitchesAt === '% Sell Through'
+						? `${b.atAmount}% sold`
+						: `${b.atAmount} tickets sold`;
+				return `switches to ${amt} after ${at}`;
+			});
+			retroSummary = ` (${retroStrings.join(', ')})`;
 		}
 
-		const bonusCount = newDeal.details.bonuses?.length || 0;
-		if (
-			newDeal.dealType === 'Plus' &&
-			bonusCount > 1 &&
-			['Per Ticket', 'Flat'].includes(newDeal.details.metricType)
-		) {
-			return `${guar} + ${bonusCount} Bonuses`;
-		}
-
-		const threshold = newDeal.details.bonuses?.[0]?.atAmount || 0;
-
-		if (newDeal.details.metricType === 'Per Ticket') {
-			if (afterType === '% Sell Through')
-				return `${prefix} $${formatNum(amount)} per ticket after ${formatNum(threshold)}% sold`;
-			else if (afterType === '# Tickets Sold')
-				return `${prefix} $${formatNum(amount)} per ticket after ${threshold} tickets sold`;
-		}
-
-		if (newDeal.details.metricType === 'Flat') {
-			if (afterType === '% Sell Through')
-				return `${prefix} $${formatNum(amount)} after ${formatNum(threshold)}% sold`;
-			else if (afterType === '# Tickets Sold')
-				return `${prefix} $${formatNum(amount)} after ${threshold} tickets sold`;
-			else if (afterType === 'Manual Split Point')
-				return `${prefix} $${formatNum(amount)} after ${venueCurrency}$${formatNum(threshold)}`;
-		}
-
-		return '';
+		return baseSummary + retroSummary;
 	})();
 
 	function handleSave() {
@@ -356,7 +407,7 @@
 						{newDeal.w_tax ? 'Subject to Withholding Tax' : 'Not subject to Withholding Tax'}
 					</h3>
 					{#if newDeal.w_tax}
-						<div class="relative w-18" >
+						<div class="relative w-18">
 							<input
 								id="w_tax_amount"
 								type="number"

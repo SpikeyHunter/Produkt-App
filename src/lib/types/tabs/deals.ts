@@ -53,6 +53,8 @@ export interface DealDetailsInfo {
 	afterType: SplitAfter;
 	splitPointAmount: number;
 	retroactiveBonusEnabled: boolean;
+	retroactiveSwitchesAt: SwitchAtType; 
+	retroactiveBonuses: DealBonus[];
 	bonuses: DealBonus[];
 	capEnabled: boolean;
 	capAmount: number;

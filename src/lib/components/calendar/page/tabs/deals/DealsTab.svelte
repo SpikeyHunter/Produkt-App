@@ -43,7 +43,7 @@
 	})();
 
 	$: parsedEventCost = (() => {
-		const rawCost = event?.event_cost || event?.event_costs;
+		const rawCost = event?.calendar_data?.event_cost || event?.event_cost || event?.event_costs;
 		if (!rawCost) return null;
 		if (typeof rawCost === 'object') return rawCost;
 		if (typeof rawCost === 'string') {
@@ -226,14 +226,18 @@
 
 		// Grab parent ID (group_id or calendar.id). Fallback to event.id just in case.
 		const targetId = event?.calendar?.id || event?.group_id || event?.id;
+		const currentVersion = event?.calendar?.current_version || 1;
 
 		if (targetId) {
 			try {
-				console.log(`🛠️ [DealsTab] Attempting to save deals to calendar table ID: ${targetId}`);
+				console.log(
+					`🛠️ [DealsTab] Attempting to save deals to calendar_data table ID: ${targetId} v${currentVersion}`
+				);
 				const { error } = await supabase
-					.from('calendar')
+					.from('calendar_data')
 					.update({ event_deal: dbPayload })
-					.eq('id', targetId);
+					.eq('calendar_id', targetId)
+					.eq('version_number', currentVersion);
 
 				if (error) throw error;
 				console.log('✅ [DealsTab] Successfully saved to DB!', dbPayload);
@@ -279,6 +283,31 @@
 			}
 		};
 	}
+	function getRetroBonusText(deal: Deal): string {
+		// Return empty string if no retroactive bonus is enabled or set up
+		if (
+			!deal.details?.retroactiveBonusEnabled ||
+			!deal.details?.retroactiveBonuses ||
+			deal.details.retroactiveBonuses.length === 0
+		) {
+			return '';
+		}
+
+		// Check if the base deal is a percentage or flat amount to use the right symbol
+		const isPercent = deal.details.metricType?.includes('%');
+
+		const bonusStrings = deal.details.retroactiveBonuses.map((b: any) => {
+			const amountStr = isPercent ? `${b.bonusAmount}%` : `$${b.bonusAmount}`;
+			const atStr =
+				deal.details.retroactiveSwitchesAt === '% Sell Through'
+					? `${b.atAmount}% sold`
+					: `${b.atAmount} tickets sold`;
+
+			return `switches to ${amountStr} after ${atStr}`;
+		});
+
+		return ` (${bonusStrings.join(', ')})`;
+	}
 </script>
 
 {#if !hasAnyAccess}
@@ -315,7 +344,7 @@
 					on:cancel={handleCancelDeal}
 					existingDeal={dealToEdit}
 					event_date={eventDate}
-					eventCost={event?.calendar?.event_cost || event?.event_cost || null}
+					eventCost={event?.calendar_data?.event_cost || event?.event_cost || null}
 					{venueCurrency}
 				/>
 			{:else}
@@ -393,7 +422,15 @@
 													disabled
 													class="flex items-center gap-2 px-4 py-2 bg-navbar border border-gray2/20 text-gray2 rounded-3xl opacity-50 cursor-not-allowed text-sm font-bold"
 												>
-													<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+													<svg
+														class="w-4 h-4"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
 														<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
 														<circle cx="12" cy="12" r="3"></circle>
 													</svg>
@@ -402,7 +439,10 @@
 											{/if}
 
 											{#if canEditAndManage}
-												<div class="relative {activeMenuId === deal.id ? 'z-50' : 'z-10'}" use:clickOutsideMenu>
+												<div
+													class="relative {activeMenuId === deal.id ? 'z-50' : 'z-10'}"
+													use:clickOutsideMenu
+												>
 													<button
 														on:click={() =>
 															(activeMenuId = activeMenuId === deal.id ? null : deal.id)}
@@ -440,7 +480,9 @@
 
 											{#if canViewDetails}
 												<div class="flex flex-col items-end pl-4 ml-2 min-w-[80px]">
-													<span class="text-[10px] text-gray2 font-bold uppercase tracking-widest">Payout</span>
+													<span class="text-[10px] text-gray2 font-bold uppercase tracking-widest"
+														>Payout</span
+													>
 													<span class="text-lg font-black text-white">{venueCurrency} 0.00</span>
 												</div>
 											{/if}
@@ -494,7 +536,15 @@
 													disabled
 													class="flex items-center gap-2 px-4 py-2 bg-navbar border border-gray2/20 text-gray2 rounded-3xl opacity-50 cursor-not-allowed text-sm font-bold"
 												>
-													<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+													<svg
+														class="w-4 h-4"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-linejoin="round"
+													>
 														<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
 														<circle cx="12" cy="12" r="3"></circle>
 													</svg>
@@ -503,7 +553,10 @@
 											{/if}
 
 											{#if canEditAndManage}
-												<div class="relative {activeMenuId === deal.id ? 'z-50' : 'z-10'}" use:clickOutsideMenu>
+												<div
+													class="relative {activeMenuId === deal.id ? 'z-50' : 'z-10'}"
+													use:clickOutsideMenu
+												>
 													<button
 														on:click={() =>
 															(activeMenuId = activeMenuId === deal.id ? null : deal.id)}
@@ -541,7 +594,9 @@
 
 											{#if canViewDetails}
 												<div class="flex flex-col items-end pl-4 ml-2 min-w-[80px]">
-													<span class="text-[10px] text-gray2 font-bold uppercase tracking-widest">Payout</span>
+													<span class="text-[10px] text-gray2 font-bold uppercase tracking-widest"
+														>Payout</span
+													>
 													<span class="text-lg font-black text-white">{venueCurrency} 0.00</span>
 												</div>
 											{/if}

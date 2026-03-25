@@ -3,11 +3,10 @@ import { error } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 
 export const load: PageLoad = async ({ params }) => {
-    // The ID from the URL is now the short_id
     const shortId = params.id; 
-    const tabSlug = params.tab; // SvelteKit captures 'deals', 'revenue', etc. from the [[tab]] folder
+    const tabSlug = params.tab; 
     
-    // Fetch the specific event using the short_id
+    // Fetch the specific event
     const { data: event, error: fetchError } = await supabase
         .from('calendar_events')
         .select('*, calendar(*)')
@@ -16,6 +15,22 @@ export const load: PageLoad = async ({ params }) => {
 
     if (fetchError || !event) {
         throw error(404, 'Event not found');
+    }
+
+    const calendarId = event.group_id || event.id;
+    const currentVersion = event.calendar?.current_version || 1;
+
+    // Fetch the active version data
+    const { data: calendarData } = await supabase
+        .from('calendar_data')
+        .select('*')
+        .eq('calendar_id', calendarId)
+        .eq('version_number', currentVersion)
+        .single();
+
+    // Attach it to the event object so tabs can access it easily
+    if (event && calendarData) {
+        event.calendar_data = calendarData;
     }
 
     // Fetch sibling events tied to the same group
@@ -34,6 +49,6 @@ export const load: PageLoad = async ({ params }) => {
         event, 
         groupEvents: groupEvents || [], 
         venues: venues || [],
-        tabSlug // Add this to the returned object
+        tabSlug 
     };
 };

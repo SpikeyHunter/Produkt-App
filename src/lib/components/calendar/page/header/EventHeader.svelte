@@ -10,6 +10,7 @@
 	import TypeSelector from '$lib/components/calendar/page/header/TypeSelector.svelte';
 	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
 	import HeaderActions from './HeaderActions.svelte'; // <-- NEW IMPORT
+	import VersionSelector from './VersionSelector.svelte';
 	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
 
@@ -657,6 +658,9 @@
 		</div>
 
 		<div class="flex items-center gap-4">
+			
+			<VersionSelector {event} {isEditor} />
+
 			<div class="relative status-dropdown-container">
 				<button
 					class="flex items-center gap-3 px-5 py-2.5 rounded-3xl bg-navbar shadow-lg border border-gray2/10 transition-colors {isEditor
