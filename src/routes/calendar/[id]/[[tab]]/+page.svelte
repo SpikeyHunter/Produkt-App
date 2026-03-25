@@ -62,7 +62,7 @@
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 
 	// 🔥 DEFINE ALLOWED TABS IN PRODUCTION HERE
-	const DeployedAppTabs = ['Deals'];
+	const DeployedAppTabs = ['Deals', 'Revenue', 'Pro Forma', 'Costs'];
 
 	let isDeployed = false;
 

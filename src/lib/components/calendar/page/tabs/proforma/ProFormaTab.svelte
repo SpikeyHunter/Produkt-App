@@ -368,7 +368,9 @@
 		<p class="text-gray2 font-bold text-lg">You do not have permission to view this.</p>
 	</div>
 {:else}
-	<div class="p-6 flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-6 bg-navbar">
+	<div
+		class="p-6 flex-1 overflow-y-auto overflow-x-hidden  flex flex-col gap-6 bg-navbar"
+	>
 		{#if isInitialized}
 			<section class="flex flex-col">
 				<div
@@ -479,6 +481,17 @@
 {/if}
 
 <style>
+	/* Hide scrollbar for Chrome, Safari and Opera */
+	:global(.hide-scrollbar::-webkit-scrollbar) {
+		display: none;
+	}
+
+	/* Hide scrollbar for IE, Edge and Firefox */
+	:global(.hide-scrollbar) {
+		-ms-overflow-style: none;  /* IE and Edge */
+		scrollbar-width: none;  /* Firefox */
+	}
+
 	input[type='number']::-webkit-outer-spin-button,
 	input[type='number']::-webkit-inner-spin-button {
 		-webkit-appearance: none;
