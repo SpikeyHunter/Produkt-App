@@ -645,6 +645,7 @@
 					.select('first_name, last_name, email')
 					.eq('id', userId)
 					.single();
+
 				if (!profileError && profileData) {
 					if (profileData.first_name || profileData.last_name) {
 						creatorName = `${profileData.first_name || ''} ${profileData.last_name || ''}`.trim();
@@ -672,13 +673,19 @@
 							.insert({
 								title: title,
 								creator_name: creatorName,
-								details: buildDetails(priorityHold),
-								event_deal: buildEventDeal()
+								details: buildDetails(priorityHold)
 							})
 							.select('id')
 							.single();
 
 						if (calErr) throw calErr;
+
+						// NEW: Create the associated calendar_data row with the deal info
+						await supabase.from('calendar_data').insert({
+							calendar_id: calData.id,
+							event_deal: buildEventDeal(),
+							version_number: 1
+						});
 
 						const eventsToCreate = newDrafts.map((draft) => ({
 							group_id: calData.id,
@@ -689,6 +696,7 @@
 							time: draft.time,
 							event_details: draft.event_details
 						}));
+
 						const { data, error } = await supabase
 							.from('calendar_events')
 							.insert(eventsToCreate)
@@ -720,14 +728,20 @@
 						.insert({
 							title: title,
 							creator_name: creatorName,
-							details: buildDetails(priorityHold),
-							event_deal: buildEventDeal()
+							details: buildDetails(priorityHold)
 						})
 						.select('id')
 						.single();
 
 					if (calErr) throw calErr;
 					const sharedGroupId = calData.id;
+
+					// NEW: Create the associated calendar_data row with the deal info
+					await supabase.from('calendar_data').insert({
+						calendar_id: sharedGroupId,
+						event_deal: buildEventDeal(),
+						version_number: 1
+					});
 
 					const eventsToCreate = newDrafts.map((draft) => ({
 						group_id: sharedGroupId,
@@ -738,6 +752,7 @@
 						time: draft.time,
 						event_details: draft.event_details
 					}));
+
 					const { data, error } = await supabase
 						.from('calendar_events')
 						.insert(eventsToCreate)
@@ -780,8 +795,9 @@
 				allSavedEvents.length > 0
 			) {
 				const firstEvent = allSavedEvents[0];
+
 				const payload = {
-					eventId: firstEvent.short_id || firstEvent.id, // Corrected back to child event ID
+					eventId: firstEvent.short_id || firstEvent.id,
 					eventTitle: firstEvent.calendar?.title || firstEvent.title || 'Unnamed Event',
 					eventType: firstEvent.details?.type || 'Event',
 					eventDate: firstEvent.date,
@@ -792,6 +808,7 @@
 					action: 'confirm'
 				};
 				const promises: Promise<any>[] = [];
+
 				if (confirmDetails.sendEmail) {
 					promises.push(
 						fetch('/api/calendar-confirm-email', {
@@ -819,7 +836,6 @@
 			if (openModalAfter && allSavedEvents && allSavedEvents.length > 0) {
 				closeSidebar();
 
-				// Grab the exact short_id (the 1300+ number) from the child event we just inserted
 				const finalRouteId = allSavedEvents[0].short_id || allSavedEvents[0].id;
 
 				if (finalRouteId) {
