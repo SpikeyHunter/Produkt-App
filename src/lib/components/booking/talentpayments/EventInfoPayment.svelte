@@ -3,7 +3,12 @@
 
     function formatDisplayDate(dateStr: string): string {
         if (!dateStr) return '';
-        return new Date(dateStr).toLocaleDateString('en-US', {
+        
+        // Fixed Date Parsing: Append T12:00:00 (midday) if there isn't a time already
+        // This ensures parsing YYYY-MM-DD doesn't shift backward to the previous day in local time
+        const safeDateStr = dateStr.includes('T') ? dateStr : `${dateStr}T12:00:00`;
+        
+        return new Date(safeDateStr).toLocaleDateString('en-US', {
             weekday: 'long',
             year: 'numeric',
             month: 'long',
@@ -77,7 +82,7 @@
         display: none;
     }
     .no-scrollbar {
-        -ms-overflow-style: none;  /* IE and Edge */
-        scrollbar-width: none;  /* Firefox */
+        -ms-overflow-style: none; /* IE and Edge */
+        scrollbar-width: none; /* Firefox */
     }
 </style>

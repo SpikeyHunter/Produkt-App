@@ -248,14 +248,28 @@
 		}
 	}
 
-	function handlePasswordSubmit() {
-		if (passwordInput === 'Tech2025!') {
-			// CHANGE: Set expiry to 7 days (7 * 24h * 60m * 60s * 1000ms)
-			const expiry = Date.now() + (7 * 24 * 60 * 60 * 1000);
-            
-			// CHANGE: Save to localStorage
+	async function handlePasswordSubmit() {
+		// 1. Fetch the correct password from the database
+		const { data, error } = await supabase
+			.from('parameters')
+			.select('data_1')
+			.eq('param_name', 'password_schedule')
+			.single();
+
+		if (error || !data) {
+			console.error('Failed to fetch password:', error);
+			passwordError = 'System error: Could not verify password.';
+			return;
+		}
+
+		const correctPassword = data.data_1;
+
+		// 2. Compare user input to the database password
+		if (passwordInput === correctPassword) {
+			// Set expiry to 7 days
+			const expiry = Date.now() + 7 * 24 * 60 * 60 * 1000;
 			localStorage.setItem('tech_guest_token', JSON.stringify({ expiry }));
-            
+
 			isGuestAuthenticated = true;
 			passwordError = '';
 		} else {

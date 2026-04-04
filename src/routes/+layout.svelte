@@ -22,7 +22,7 @@
 	];
 
 	const PUBLIC_ONLY_ROUTES = ['/', '/login', '/login/register', '/login/forgot-password'];
-	const UNPROTECTED_ROUTES = ['/calendar/unsubscribe'];
+	const UNPROTECTED_ROUTES = ['/calendar/unsubscribe', '/production/backline'];
 
 	// --- PERMISSION CONFIGURATION ---
 	const PERMISSION_MAP: Record<string, string | string[]> = {

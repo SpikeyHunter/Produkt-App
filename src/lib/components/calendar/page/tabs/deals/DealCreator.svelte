@@ -216,7 +216,7 @@
 		if (newDeal.details.retroactiveBonusEnabled && newDeal.details.retroactiveBonuses?.length) {
 			const isPercent = newDeal.details.metricType.includes('%');
 			const retroStrings = newDeal.details.retroactiveBonuses.map((b) => {
-				const amt = isPercent ? `${b.bonusAmount}%` : `$${b.bonusAmount}`;
+				const amt = isPercent ? `${b.bonusAmount}%` : `$${formatNum(b.bonusAmount)}`;
 				const at =
 					newDeal.details.retroactiveSwitchesAt === '% Sell Through'
 						? `${b.atAmount}% sold`
@@ -234,8 +234,13 @@
 
 		payload.artistId = selectedArtist?.id || 'NULL';
 		payload.artistPic = selectedArtist?.picture || 'NULL';
+		const formattedGuarantee = new Intl.NumberFormat('en-US', {
+			minimumFractionDigits: 2,
+			maximumFractionDigits: 2
+		}).format(Number(payload.guaranteeAmount || 0));
+
 		payload.summaryText =
-			dealSummary || (payload.dealType === 'Flat' ? `$${payload.guaranteeAmount} Flat Deal` : '');
+			dealSummary || (payload.dealType === 'Flat' ? `$${formattedGuarantee} Flat Deal` : '');
 
 		if (payload.dealType === 'Flat') {
 			delete payload.details;

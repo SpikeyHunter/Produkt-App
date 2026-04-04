@@ -15,7 +15,9 @@
 
 	onMount(async () => {
 		// 1. Check Supabase User
-		const { data: { session } } = await supabase.auth.getSession();
+		const {
+			data: { session }
+		} = await supabase.auth.getSession();
 		currentUser = session?.user || null;
 
 		supabase.auth.onAuthStateChange((_event, session) => {
@@ -26,7 +28,7 @@
 		if (!currentUser) {
 			checkGuestAccess();
 		}
-		
+
 		loading = false;
 	});
 
@@ -50,14 +52,29 @@
 		}
 	}
 
-	function handlePasswordSubmit() {
-		if (passwordInput === 'NCG2025!') {
-			// Success: Save token with 7 DAYS expiry
-			const expiry = Date.now() + (7 * 24 * 60 * 60 * 1000); 
+	async function handlePasswordSubmit() {
+		// 1. Fetch the correct password from the database
+		const { data, error } = await supabase
+			.from('parameters')
+			.select('data_1')
+			.eq('param_name', 'password_stagemanager')
+			.single();
 
-			// Save to localStorage
-			localStorage.setItem('guest_access_token', JSON.stringify({ expiry }));
-			
+		if (error || !data) {
+			console.error('Failed to fetch password:', error);
+			passwordError = 'System error: Could not verify password.';
+			return;
+		}
+
+		const correctPassword = data.data_1;
+
+		// 2. Compare user input to the database password
+		if (passwordInput === correctPassword) {
+			// Success: Save token with 1h expiry
+			const expiry = Date.now() + 60 * 60 * 1000;
+			sessionStorage.setItem('guest_access_token', JSON.stringify({ expiry }));
+
+			// Flipping this to true automatically mounts <ScheduleBoard />
 			isGuestAuthenticated = true;
 			passwordError = '';
 		} else {
@@ -71,8 +88,8 @@
 		}
 	}
 
-    function focusInput(node: HTMLElement) {
-        node.focus();
+	function focusInput(node: HTMLElement) {
+		node.focus();
 	}
 </script>
 
@@ -83,40 +100,44 @@
 {#if !loading}
 	{#if currentUser}
 		<MainLayout pageTitle="Stage Manager">
-			<ScheduleBoard {currentUser}/>
+			<ScheduleBoard {currentUser} />
 		</MainLayout>
-
 	{:else if isGuestAuthenticated}
 		<div class="w-full h-screen bg-gray1 overflow-hidden">
-			<ScheduleBoard {currentUser}/>
+			<ScheduleBoard {currentUser} />
 		</div>
-
 	{:else}
-		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-			<div class="bg-gray1 border border-gray2/30 w-full max-w-md rounded-2xl shadow-2xl p-8 flex flex-col gap-6">
+		<div
+			class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4"
+		>
+			<div
+				class="bg-gray1 border border-gray2/30 w-full max-w-md rounded-2xl shadow-2xl p-8 flex flex-col gap-6"
+			>
 				<div class="text-center">
-                    <img src="/images/ProduktXX_LOGO1.png" alt="Produkt Logo" class="h-9 mx-auto mb-10" />
+					<img src="/images/ProduktXX_LOGO1.png" alt="Produkt Logo" class="h-9 mx-auto mb-10" />
 					<h2 class="text-2xl font-bold text-white mb-2">Stage Manager</h2>
 					<p class="text-gray2 text-sm">Please enter the password to view the schedule.</p>
 				</div>
 
 				<div class="space-y-2">
-					<input 
-						type="password" 
-						placeholder="Enter Password" 
+					<input
+						type="password"
+						placeholder="Enter Password"
 						bind:value={passwordInput}
 						on:keydown={handleKeydown}
 						use:focusInput
 						class="w-full bg-black/30 border border-gray2/20 rounded-xl px-4 py-3 text-white text-center focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime transition-all placeholder-gray2/50"
 					/>
 					{#if passwordError}
-						<p class="text-red-500 text-xs text-center font-bold animate-in fade-in slide-in-from-top-1">
+						<p
+							class="text-red-500 text-xs text-center font-bold animate-in fade-in slide-in-from-top-1"
+						>
 							{passwordError}
 						</p>
 					{/if}
 				</div>
 
-				<button 
+				<button
 					on:click={handlePasswordSubmit}
 					class="w-full py-3 rounded-xl bg-lime text-black font-bold hover:bg-lime/90 transition-all shadow-lg shadow-lime/10"
 				>

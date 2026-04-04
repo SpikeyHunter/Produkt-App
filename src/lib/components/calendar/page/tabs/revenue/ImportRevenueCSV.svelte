@@ -8,10 +8,12 @@
 	let rawHeaders: string[] = [];
 	let parsedData: any[] = [];
 	let isDragging = false;
+	let errorMessage = '';
 
 	const dispatch = createEventDispatcher();
 
 	function handleFile(e: Event) {
+		errorMessage = ''; // Reset error on new file
 		const file = (e.target as HTMLInputElement).files?.[0];
 		if (!file) return;
 		readFile(file);
@@ -20,10 +22,14 @@
 	function handleDrop(e: DragEvent) {
 		e.preventDefault();
 		isDragging = false;
-		const file = e.dataTransfer?.files?.[0];
-		if (!file || !file.name.endsWith('.csv')) return;
+		errorMessage = ''; // Reset error on drop
 
-		// Sync the dropped file to the input for consistency
+		const file = e.dataTransfer?.files?.[0];
+		if (!file || !file.name.toLowerCase().endsWith('.csv')) {
+			errorMessage = "Please upload a valid .csv file.";
+			return;
+		}
+
 		if (fileInput) {
 			const dataTransfer = new DataTransfer();
 			dataTransfer.items.add(file);
@@ -45,47 +51,99 @@
 	function readFile(file: File) {
 		const reader = new FileReader();
 		reader.onload = (event) => {
-			const text = event.target?.result as string;
+			let text = event.target?.result as string;
+			text = text.replace(/^\uFEFF/, ''); 
 			parseCSV(text);
 		};
 		reader.readAsText(file);
 	}
 
+	function splitCsvRow(line: string) {
+		return line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map((v) => v.trim().replace(/^"|"$/g, ''));
+	}
+
 	function parseCSV(text: string) {
-		// Simple comma delimiting, accounting for potential empty lines
 		const lines = text
 			.split('\n')
 			.map((l) => l.trim())
 			.filter((l) => l !== '');
-		if (lines.length < 1) return;
+			
+		if (lines.length <= 1) { // 1 line or less means no data (just headers or empty)
+			errorMessage = "File doesn't contain proper data that can be read.";
+			return;
+		}
 
-		rawHeaders = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+		const allHeaders = splitCsvRow(lines[0]);
 
-		parsedData = lines.slice(1).map((line) => {
-			// Rough split for standard CSV without extensive complex quoted-comma handling
-			const values = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''));
-			const row: any = {};
-			rawHeaders.forEach((h, i) => {
-				row[h] = values[i] || '';
-			});
-			return row;
+		const columnDefinitions = [
+			{ key: 'name', label: 'Name' },
+			{ key: 'allotment', label: 'Allotment' },
+			{ key: 'comps', label: 'Comps' },
+			{ key: 'kills', label: 'Kills' },
+			{ key: 'price', label: 'Price' },
+			{ key: 'estsold', label: 'Est. Sold' }, 
+			{ key: 'sold', label: 'Sold' }
+		];
+
+		const headerMap: { index: number; name: string }[] = [];
+		rawHeaders = [];
+
+		allHeaders.forEach((header, index) => {
+			const cleanHeader = header.toLowerCase().replace(/[^a-z]/g, '');
+			const match = columnDefinitions.find((c) => c.key === cleanHeader);
+
+			if (match) {
+				headerMap.push({ index, name: match.label });
+				rawHeaders.push(match.label);
+			}
 		});
+
+		const tempParsedData: any[] = [];
+
+		lines.slice(1).forEach((line) => {
+			const values = splitCsvRow(line);
+			const row: any = {};
+
+			headerMap.forEach(({ index, name }) => {
+				row[name] = values[index] !== undefined ? values[index] : '';
+			});
+
+			if (row['Name'] && row['Name'].trim() !== '') {
+				tempParsedData.push(row);
+			}
+		});
+
+		parsedData = tempParsedData;
+
+		// If no valid rows were found matching our allowed columns
+		if (parsedData.length === 0) {
+			errorMessage = "File doesn't contain proper data that can be read.";
+		}
+	}
+
+	function parseNumber(val: any): number {
+		if (!val) return 0;
+		const cleanString = String(val).replace(/[^0-9.-]+/g, '');
+		return Number(cleanString) || 0;
 	}
 
 	function processImport() {
+		const generateId = () =>
+			typeof crypto !== 'undefined' && crypto.randomUUID
+				? crypto.randomUUID()
+				: Math.random().toString(36).substring(2, 15);
+
 		const newTickets = parsedData.map((row, i) => {
-			// Look for likely headers via fallbacks
 			return {
-				id: crypto.randomUUID(),
-				name: row['Name'] || row['name'] || `Imported Tier ${i + 1}`,
-				allotment: Number(row['Allotment'] || row['allotment']) || 0,
-				comps: Number(row['Comps'] || row['comps']) || 0,
-				kills: Number(row['Kills'] || row['kills']) || 0,
-				price: Number((row['Price'] || row['price'] || '').replace(/[^0-9.-]+/g, '')) || 0,
-				estSold: Number(row['Est. Sold'] || row['estSold'] || row['Est Sold']) || 0,
-				sold: Number(row['Sold'] || row['sold']) || 0,
-				ticketFees:
-					Number((row['Ticket Fees'] || row['ticketFees'] || '').replace(/[^0-9.-]+/g, '')) || 0
+				id: generateId(),
+				name: row['Name'] || `Imported Tier ${i + 1}`,
+				allotment: parseNumber(row['Allotment']),
+				comps: parseNumber(row['Comps']),
+				kills: parseNumber(row['Kills']),
+				price: parseNumber(row['Price']),
+				estSold: parseNumber(row['Est. Sold']),
+				sold: parseNumber(row['Sold']),
+				ticketFees: 0
 			};
 		});
 
@@ -96,6 +154,7 @@
 	function close() {
 		parsedData = [];
 		rawHeaders = [];
+		errorMessage = '';
 		if (fileInput) fileInput.value = '';
 		isOpen = false;
 		isDragging = false;
@@ -151,8 +210,14 @@
 			</div>
 		</div>
 
+		{#if errorMessage}
+			<div class="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-center">
+				<p class="text-red-400 text-sm font-medium">{errorMessage}</p>
+			</div>
+		{/if}
+
 		{#if parsedData.length > 0}
-			<div class="mt-4">
+			<div class="mt-2">
 				<h4 class="text-white font-bold mb-2">Preview Data ({parsedData.length} rows found)</h4>
 				<div
 					class="w-full bg-navbar/50 border border-gray2/20 rounded-lg overflow-x-auto custom-scrollbar max-h-60 overflow-y-auto"

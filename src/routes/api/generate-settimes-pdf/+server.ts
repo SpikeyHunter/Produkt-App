@@ -2,8 +2,8 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { dev } from '$app/environment';
 
-// The new Supabase URL you provided
-const LOGO_URL = 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO2.png';
+// The updated, correct NOIR logo URL
+const LOGO_URL = 'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/calendar/logos/ProduktXX_NOIR.png';
 
 export const POST: RequestHandler = async ({ request }) => {
 	let { htmlContent, fileName } = await request.json();
@@ -17,7 +17,13 @@ export const POST: RequestHandler = async ({ request }) => {
 		// 1. Fetch the logo from Supabase and convert it to Base64
 		let dataUri = '';
 		try {
-			const response = await fetch(LOGO_URL);
+			// CRITICAL FIX: Add User-Agent header so Supabase doesn't block the request with a 400 error
+			const response = await fetch(LOGO_URL, {
+				headers: {
+					'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+				}
+			});
+
 			if (response.ok) {
 				const imageBuffer = await response.arrayBuffer();
 				const base64Image = Buffer.from(imageBuffer).toString('base64');
@@ -30,12 +36,16 @@ export const POST: RequestHandler = async ({ request }) => {
 			console.error('Error fetching logo:', e);
 		}
 
-		// Replace the placeholder in your Svelte template with the actual Base64 image
+		// 2. Inject the Base64 image into the HTML
 		if (dataUri) {
+			// Replace the hardcoded Supabase URL from your Svelte template with the new Base64 string
+			htmlContent = htmlContent.replace(LOGO_URL, dataUri);
+			
+			// Fallback: Also replace placeholder if you decide to use it in the future
 			htmlContent = htmlContent.replace(/src="LOGO_PLACEHOLDER"/g, `src="${dataUri}"`);
 		}
 
-		// 2. Launch browser depending on environment
+		// 3. Launch browser depending on environment
 		if (dev) {
 			const { chromium } = await import('playwright');
 			browser = await chromium.launch({ headless: true });
@@ -52,7 +62,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		
 		await page.setViewportSize({ width: 816, height: 1056 }); // 8.5x11 inches at 96dpi
 
-		// 3. Inject Google Fonts (Inter) and force it as the font family
+		// 4. Inject Google Fonts (Inter) and force it as the font family
 		const fullHtml = `
 			<!DOCTYPE html>
 			<html lang="en">

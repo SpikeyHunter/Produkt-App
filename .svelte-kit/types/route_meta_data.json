@@ -65,6 +65,9 @@
 	"/api/generate-advance-pdf": [
 		"src/routes/api/generate-advance-pdf/+server.ts"
 	],
+	"/api/generate-bottle-details": [
+		"src/routes/api/generate-bottle-details/+server.ts"
+	],
 	"/api/generate-liaison-pdf": [
 		"src/routes/api/generate-liaison-pdf/+server.ts"
 	],
@@ -88,6 +91,9 @@
 	],
 	"/api/register": [
 		"src/routes/api/register/+server.ts"
+	],
+	"/api/scrape-saq": [
+		"src/routes/api/scrape-saq/+server.ts"
 	],
 	"/api/sync-drive-rider": [
 		"src/routes/api/sync-drive-rider/+server.ts"
@@ -114,6 +120,7 @@
 		"src/routes/auth/reset-password/+server.ts"
 	],
 	"/auth/verify": [],
+	"/bazart": [],
 	"/booking/artistavailability": [],
 	"/booking/talentpayments": [],
 	"/calendar": [

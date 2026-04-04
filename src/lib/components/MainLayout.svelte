@@ -106,7 +106,8 @@
 		schedules: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>`,
 		ncgapp: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>`,
 		sultan: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 24px; height: 24px;"><div style="width: 100%; height: 2px; background-color: currentColor;"></div><span style="font-family: sans-serif; font-weight: bold; font-size: 14px; line-height: 1; margin: 3px 0;">S+S</span><div style="width: 100%; height: 2px; background-color: currentColor;"></div></div>`,
-		bug: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>`
+		bug: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>`,
+		bazart: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="24" height="24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10 C22 4, 42 4, 54 10 C60 16, 60 32, 54 48 C48 60, 32 62, 20 58 C10 54, 6 44, 6 32 C6 20, 6 14, 10 10Z" stroke-width="3"/><path d="M20 20 C27 16, 37 16, 44 20 C48 24, 48 32, 45 40 C42 46, 36 50, 29 49 C23 48, 18 43, 17 36 C16 29, 17 24, 20 20Z" stroke-width="2.2"/><circle cx="32" cy="32" r="9" stroke-width="3.6"/><circle cx="32" cy="32" r="4" fill="currentColor" stroke="none"/><g stroke-width="1.6"><line x1="32" y1="12" x2="32" y2="7"/><line x1="26" y1="13" x2="24" y2="9"/><line x1="38" y1="13" x2="40" y2="9"/><line x1="20" y1="18" x2="17" y2="15"/><line x1="44" y1="18" x2="47" y2="15"/><line x1="14" y1="26" x2="10" y2="25"/><line x1="50" y1="26" x2="54" y2="25"/><line x1="12" y1="32" x2="7" y2="32"/><line x1="52" y1="32" x2="57" y2="32"/><line x1="14" y1="38" x2="10" y2="39"/><line x1="50" y1="38" x2="54" y2="39"/><line x1="20" y1="46" x2="17" y2="49"/><line x1="44" y1="46" x2="47" y2="49"/><line x1="26" y1="51" x2="24" y2="55"/><line x1="38" y1="51" x2="40" y2="55"/><line x1="32" y1="52" x2="32" y2="57"/></g></svg>`
 	};
 
 	const menuItems: MenuItem[] = [
@@ -205,6 +206,14 @@
 			icon: icons.sultan,
 			requiredPermission: 'sultanshepard',
 			route: '/sultanshepard/djshow',
+			subItems: []
+		},
+		{
+			id: 'bazart',
+			label: 'Bazart',
+			icon: icons.bazart,
+			requiredPermission: 'bazart',
+			route: '/bazart',
 			subItems: []
 		}
 	];

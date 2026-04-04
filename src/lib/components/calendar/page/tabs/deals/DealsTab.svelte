@@ -191,7 +191,6 @@
 
 	async function saveToDatabase(updatedDeals: Deal[]) {
 		let dbPayload: any = {};
-
 		const hList = updatedDeals.filter((d) => d.role === 'Headliner');
 		const sList = updatedDeals.filter((d) => d.role === 'Support');
 
@@ -233,6 +232,7 @@
 				console.log(
 					`🛠️ [DealsTab] Attempting to save deals to calendar_data table ID: ${targetId} v${currentVersion}`
 				);
+
 				const { error } = await supabase
 					.from('calendar_data')
 					.update({ event_deal: dbPayload })
@@ -283,6 +283,7 @@
 			}
 		};
 	}
+
 	function getRetroBonusText(deal: Deal): string {
 		// Return empty string if no retroactive bonus is enabled or set up
 		if (
@@ -295,9 +296,8 @@
 
 		// Check if the base deal is a percentage or flat amount to use the right symbol
 		const isPercent = deal.details.metricType?.includes('%');
-
 		const bonusStrings = deal.details.retroactiveBonuses.map((b: any) => {
-			const amountStr = isPercent ? `${b.bonusAmount}%` : `$${b.bonusAmount}`;
+			const amountStr = isPercent ? `${b.bonusAmount}%` : `$${formatMoney(b.bonusAmount)}`;
 			const atStr =
 				deal.details.retroactiveSwitchesAt === '% Sell Through'
 					? `${b.atAmount}% sold`
@@ -307,6 +307,95 @@
 		});
 
 		return ` (${bonusStrings.join(', ')})`;
+	}
+
+	function formatMoney(amount: number | string) {
+		const num = Number(amount);
+		if (isNaN(num)) return amount; // Return as-is if it's not a valid number
+
+		return new Intl.NumberFormat('en-US', {
+			minimumFractionDigits: 2,
+			maximumFractionDigits: 2
+		}).format(num);
+	}
+
+	// --- Live Currency Conversion via Supabase ---
+	let fetchedCurrency = 'USD'; // Default fallback
+	let exchangeRate = 1;
+	let isRateLoading = true;
+
+	// Reactively trigger when event venue data is available
+	$: if (event?.venue?.category) {
+		getVenueCurrency(event.venue.category);
+	}
+
+	async function getVenueCurrency(venueCategory: string) {
+		isRateLoading = true;
+		try {
+			// 1. Fetch the venue settings from Supabase
+			const { data, error } = await supabase
+				.from('calendar_settings')
+				.select('*')
+				.eq('setting_type', 'VENUE');
+
+			if (error) throw error;
+
+			// 2. Find the row that matches the event's venue category.
+			const matchedVenue = data?.find(
+				(row) =>
+					row.setting_name === venueCategory ||
+					row.name === venueCategory ||
+					row.setting_params?.name === venueCategory
+			);
+
+			// 3. Extract the currency dynamically
+			if (matchedVenue?.setting_params?.financials?.currency) {
+				fetchedCurrency = matchedVenue.setting_params.financials.currency;
+			} else {
+				fetchedCurrency = 'USD';
+			}
+
+			// 4. Fetch the exchange rate based on the DB currency
+			await fetchExchangeRate(fetchedCurrency);
+		} catch (err) {
+			console.error('Failed to fetch venue currency from DB:', err);
+			fetchedCurrency = 'USD';
+			exchangeRate = 1;
+			isRateLoading = false;
+		}
+	}
+
+	async function fetchExchangeRate(targetCurrency: string) {
+		if (targetCurrency === 'USD') {
+			exchangeRate = 1;
+			isRateLoading = false;
+			return;
+		}
+
+		try {
+			const res = await fetch('https://open.er-api.com/v6/latest/USD');
+			const data = await res.json();
+
+			if (data?.rates?.[targetCurrency]) {
+				exchangeRate = data.rates[targetCurrency];
+			} else {
+				exchangeRate = 1;
+			}
+		} catch (err) {
+			console.error('Error fetching exchange rate:', err);
+			exchangeRate = 1;
+		} finally {
+			isRateLoading = false;
+		}
+	}
+
+	// Calculate the converted amount
+	function calculatePayout(guaranteeAmount: number | string | undefined) {
+		const amount = Number(guaranteeAmount) || 0;
+		const converted = amount * exchangeRate;
+
+		// Use the formatMoney function we created previously!
+		return formatMoney(converted);
 	}
 </script>
 
@@ -483,7 +572,21 @@
 													<span class="text-[10px] text-gray2 font-bold uppercase tracking-widest"
 														>Payout</span
 													>
-													<span class="text-lg font-black text-white">{venueCurrency} 0.00</span>
+													{#if isRateLoading}
+														<span class="text-sm font-bold text-gray2 animate-pulse"
+															>Calculating...</span
+														>
+													{:else}
+														<span
+															class="text-lg font-black text-white"
+															title={fetchedCurrency !== 'USD'
+																? `Converted from USD at ${exchangeRate.toFixed(4)}`
+																: 'Base USD amount'}
+														>
+															{fetchedCurrency}
+															{calculatePayout(deal.guaranteeAmount)}
+														</span>
+													{/if}
 												</div>
 											{/if}
 										</div>
@@ -597,7 +700,21 @@
 													<span class="text-[10px] text-gray2 font-bold uppercase tracking-widest"
 														>Payout</span
 													>
-													<span class="text-lg font-black text-white">{venueCurrency} 0.00</span>
+													{#if isRateLoading}
+														<span class="text-sm font-bold text-gray2 animate-pulse"
+															>Calculating...</span
+														>
+													{:else}
+														<span
+															class="text-lg font-black text-white"
+															title={fetchedCurrency !== 'USD'
+																? `Converted from USD at ${exchangeRate.toFixed(4)}`
+																: 'Base USD amount'}
+														>
+															{fetchedCurrency}
+															{calculatePayout(deal.guaranteeAmount)}
+														</span>
+													{/if}
 												</div>
 											{/if}
 										</div>

@@ -1,1 +1,1 @@
-export { default as component } from "../../../../src/routes/marketing/comptickets/+page.svelte";
+export { default as component } from "../../../../src/routes/marketing/comparehub/+page.svelte";

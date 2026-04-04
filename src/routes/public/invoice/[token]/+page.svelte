@@ -6,12 +6,10 @@
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
 
     const token = $page.params.token;
-    
     let loading = true;
     let paymentData: any = null;
     let eventData: any = null;
     let artistData: any = null;
-    
     let isUploading = false;
     let showUploadModal = false;
 	let showPreviewModal = false;
@@ -60,11 +58,12 @@
         const file = e.detail.file;
         
 		// FORMAT: Date_ArtistName_DJ_Invoice.ext
+        // Fixed: Use the date string directly without parsing to Date to avoid timezone shifts
 		const dateStr = eventData?.event_date 
-            ? new Date(eventData.event_date).toISOString().split('T')[0] 
+            ? eventData.event_date.split('T')[0]
             : new Date().toISOString().split('T')[0];
-            
-        // Clean the artist name to ensure no spaces or weird characters break the URL
+
+		// Clean the artist name to ensure no spaces or weird characters break the URL
 		const cleanArtist = (artistData.artist_name || 'Artist')
             .replace(/[^a-zA-Z0-9]/g, '_')
             .replace(/_+/g, '_'); // Removes duplicate underscores
@@ -99,7 +98,7 @@
                 })
                 .eq('id', paymentData.id);
 
-			paymentData.invoice_url = publicUrl;
+            paymentData.invoice_url = publicUrl;
             success = true;
             showUploadModal = false;
         } catch (err) {
@@ -120,8 +119,8 @@
                     status: 'Draft'
                 })
                 .eq('id', paymentData.id);
-			
-			paymentData.invoice_url = null;
+
+            paymentData.invoice_url = null;
 			success = false;
 		} catch (err) {
 			console.error(err);
@@ -152,7 +151,7 @@
                     </div>
                     <div class="flex justify-between items-center border-b border-gray2/30 pb-2">
                         <span class="text-gray2">Date:</span>
-                        <span class="font-bold text-right">{eventData?.event_date ? new Date(eventData.event_date).toDateString() : 'TBA'}</span>
+                        <span class="font-bold text-right">{eventData?.event_date ? new Date(eventData.event_date.includes('T') ? eventData.event_date : eventData.event_date + 'T12:00:00').toDateString() : 'TBA'}</span>
                     </div>
                     <div class="flex justify-between items-center pt-1">
                         <span class="text-gray2 text-lg">Amount:</span>

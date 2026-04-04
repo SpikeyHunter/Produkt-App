@@ -173,7 +173,7 @@
 	<title>Comp Tickets</title>
 </svelte:head>
 
-<MainLayout requiredPermission="CompTickets">
+<MainLayout>
 	<div class="h-full overflow-hidden bg-bg-primary">
 		<div class="h-full p-6 flex gap-4 min-w-[1200px]">
 			<div class="w-80 flex-shrink-0 h-full">
