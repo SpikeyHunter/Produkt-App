@@ -96,7 +96,7 @@ export function generateTechEmailString(
 	if (form.projector_outdoor) {
 		html += `<br><p style="margin: 0;"><strong>@${videoName}</strong></p>
                  <p style="margin: 0;"><strong>Projecteur extérieur:</strong></p>
-                 <p style="margin: 0 0 10px 0;">${form.projector_outdoor}</p>`;
+                 <p style="margin: 0 0 10px 0;">${form.projector_outdoor.replace(/\n/g, '<br>')}</p>`;
 	}
 
 	// --- VISUALS (Interior) ---

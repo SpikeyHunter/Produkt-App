@@ -16,10 +16,12 @@
     $: isStandardVenue = isDSTRKT || isBazart || isNCG;
 
     // Default logo name logic
+    $: projectorLink = isDSTRKT ? 'https://link.produkt.ca/dstrkt-projector' : (isNCG ? 'https://link.produkt.ca/ncg-projector' : '');
+
     $: standardLogoName = (() => {
         if (isBazart) return 'Gobo Bazart';
-        if (isDSTRKT) return 'DSTRKT Logo';
-        return 'NCG Logo';
+        if (isDSTRKT) return 'DSTRKT Animation';
+        return 'NCG Animation';
     })();
 
     // Default interior text logic
@@ -49,10 +51,12 @@
             const parsed = parseTimeFromText(formData.projector_outdoor);
             // Only update if we have a valid parse, otherwise keep current or default
             if (parsed) outdoorTime = parsed;
-            
+
             // Parse Custom Logo
             if (!isStandardVenue) {
-                const parts = formData.projector_outdoor.split(' - ');
+                // Ignore the injected link on line 2 if it exists
+                const firstLine = formData.projector_outdoor.split('\n')[0];
+                const parts = firstLine.split(' - ');
                 if (parts.length > 1) {
                     const extractedName = parts.slice(1).join(' - ');
                     if (extractedName) customLogoName = extractedName;
@@ -80,14 +84,21 @@
     }
 
     // --- 4. UPDATE FUNCTIONS (Local -> Data) ---
-    // Triggered by user input. Updates formData immediately.
+    // Triggered by user input.
+    // Updates formData immediately.
     
     function updateOutdoorData() {
         const validTime = outdoorTime || (isBazart ? '17:00' : '21:30');
         const name = isStandardVenue ? standardLogoName : customLogoName;
         
+        let outdoorText = `${formatTimeDisplay(validTime)} - ${name}`;
+        
+        if (projectorLink) {
+            outdoorText += `\nLink : ${projectorLink}`;
+        }
+
         // This format must match what parseTimeFromText expects to avoid jumping
-        formData.projector_outdoor = `${formatTimeDisplay(validTime)} - ${name}`;
+        formData.projector_outdoor = outdoorText;
         dispatch('change');
     }
 
@@ -149,19 +160,16 @@
     
     // Safety check for undefined
     $: if (formData.sponsor_name === undefined) formData.sponsor_name = 'None';
-
     $: currentSponsorLabel = (() => {
         if (!formData.sponsor_name || formData.sponsor_name === 'None') return 'None';
         const match = SPONSOR_OPTIONS.find(opt => opt.label === formData.sponsor_name);
         return match ? match.label : 'Other'; 
     })();
-
     $: currentSponsorColor = (() => {
         if (currentSponsorLabel === 'Other') return '#9ca3af';
         const match = SPONSOR_OPTIONS.find(opt => opt.label === currentSponsorLabel);
         return match ? match.color : '#52525b';
     })();
-
     function selectSponsor(option: typeof SPONSOR_OPTIONS[0]) {
         formData.sponsor_name = option.label === 'Other' ? '' : option.label;
         showSponsorDropdown = false;
@@ -203,6 +211,7 @@
         <div class="flex flex-col gap-6">
             <div class="flex flex-col gap-1.5">
                 <span class="text-[10px] text-gray2 uppercase font-bold ml-1">Exterior Projector</span>
+         
                 <div class="flex items-center gap-3 pl-1">
                     <input 
                         aria-label="Outdoor Time" 
@@ -227,6 +236,12 @@
                         />
                     {/if}
                 </div>
+
+                {#if isStandardVenue && projectorLink}
+                    <div class="bg-gray1/20 border border-gray1 rounded-2xl p-3 text-xs text-gray3 font-mono leading-relaxed whitespace-pre-wrap select-text mt-2">
+                        Link: {projectorLink}
+                    </div>
+                {/if}
             </div>
 
             {#if !isBazart}
@@ -259,7 +274,7 @@
                             disabled={readOnly}
                             class="bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white w-[5.5rem] text-center focus:border-lime focus:outline-none transition-colors"
                         />
-                        <span class="text-sm text-gray2 font-bold">Remove Artwork</span>
+                        <span class="text-sm text-gray2 font-bold">Remove Artwork TVS only</span>
                     </div>
                 </div>
             {/if}
