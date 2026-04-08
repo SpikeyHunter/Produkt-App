@@ -285,13 +285,38 @@
 	$: filteredEvents = sortEvents(
 		events
 			.filter((event) => {
+				// First, handle the local/all toggle
 				return showLocalOnly ? event.artist_type === 'Local' : event.artist_type !== 'Local';
 			})
-			.filter(
-				(event) =>
-					event.name.toLowerCase().includes(searchValue.toLowerCase()) ||
-					event.tags.some((tag) => tag.toLowerCase().includes(searchValue.toLowerCase()))
-			),
+			.filter((event) => {
+				// If the search bar is empty, show everything
+				if (!searchValue) return true;
+
+				const s = searchValue.toLowerCase();
+
+				// 1. Safely extract and stringify text fields (prevents null/undefined crashes)
+				const name = String(event.name || '').toLowerCase();
+				const artistName = String(event.artist_name || '').toLowerCase();
+				const date = String(event.event_date || event.date || '').toLowerCase();
+				const venue = String(event.event_venue || event.venue || '').toLowerCase();
+
+				// 2. Check main fields
+				if (name.includes(s) || artistName.includes(s) || date.includes(s) || venue.includes(s)) {
+					return true;
+				}
+
+				// 3. Safely check tags (ensures tags exists, is an array, AND the individual tag isn't null)
+				if (Array.isArray(event.tags)) {
+					return event.tags.some((tag) =>
+						String(tag || '')
+							.toLowerCase()
+							.includes(s)
+					);
+				}
+
+				// No match found
+				return false;
+			}),
 		currentFilter,
 		showLive
 	);
