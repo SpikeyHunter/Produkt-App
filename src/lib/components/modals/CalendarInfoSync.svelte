@@ -38,7 +38,6 @@
 			await updateEventAdvance(event.event_id, event.artist_name, {
 				flights_enabled: newFlightsEnabled
 			});
-
 			event = { ...event, flights_enabled: newFlightsEnabled };
 
 			console.log(`Flights enabled toggled to: ${newFlightsEnabled}`);
@@ -64,23 +63,8 @@
 
 	let arrivals: Flight[] = [];
 	let departures: Flight[] = [];
-	let arrivalFlightDate = '';
-	let arrivalFlightNumber = '';
-	let departureFlightDate = '';
-	let departureFlightNumber = '';
-	let isSearchingArrival = false;
-	let isSearchingDeparture = false;
-	let arrivalSearchError = '';
-	let departureSearchError = '';
 
 	$: if (isOpen && event) {
-		arrivalFlightDate = '';
-		arrivalFlightNumber = '';
-		departureFlightDate = '';
-		departureFlightNumber = '';
-		arrivalSearchError = '';
-		departureSearchError = '';
-
 		let info = event.ground_info;
 		if (info) {
 			if (typeof info === 'string') {
@@ -125,39 +109,56 @@
 		departures = departures.filter((flight) => flight.id !== id);
 	}
 
+	function getNextDay(dateStr: string): string {
+		if (!dateStr) return '';
+		const d = new Date(dateStr + 'T12:00:00');
+		d.setDate(d.getDate() + 1);
+		return d.toISOString().split('T')[0];
+	}
+
 	function addManualFlight(type: 'arrival' | 'departure') {
 		const defaultDate = event.event_date
 			? event.event_date
 			: new Date().toISOString().split('T')[0];
 		const defaultTime = '12:00';
 
-		const newFlightBase = {
-			id: Date.now(),
-			flightNumber: '',
-			from: '',
-			to: '',
-			time: toEasternISO(defaultDate, defaultTime),
-			assignedRoles: [...roleNames],
-			isEditable: true
-		};
-
 		if (type === 'arrival') {
+			const newFlightBase = {
+				id: Date.now(),
+				flightNumber: '',
+				from: '',
+				to: '',
+				time: toEasternISO(defaultDate, defaultTime),
+				assignedRoles: [...roleNames],
+				isEditable: true
+			};
 			const newArrival: Flight = {
 				...newFlightBase,
 				date: defaultDate
 			};
 			arrivals = [newArrival, ...arrivals];
 		} else {
+			const depDate = getNextDay(defaultDate);
 			const hours = 3;
+			const newFlightBase = {
+				id: Date.now(),
+				flightNumber: '',
+				from: '',
+				to: '',
+				time: toEasternISO(depDate, defaultTime),
+				assignedRoles: [...roleNames],
+				isEditable: true
+			};
 			const newDeparture: Flight = {
 				...newFlightBase,
-				date: defaultDate,
+				date: depDate,
 				hoursBeforeDeparture: hours,
 				timeAtAirport: calculateTimeAtAirport(newFlightBase.time, hours)
 			};
 			departures = [newDeparture, ...departures];
 		}
 	}
+
 	function toEasternISO(dateStr: string, timeStr: string = '12:00'): string {
 		const dateObj = new Date(dateStr + 'T12:00:00');
 		const isDST = isDaylightSavingTime(dateObj);
@@ -214,7 +215,6 @@
 		const airportHours = Math.floor(finalMinutes / 60);
 		const airportMins = finalMinutes % 60;
 		const airportTimeStr = `${airportHours.toString().padStart(2, '0')}:${airportMins.toString().padStart(2, '0')}`;
-
 		let finalDate = dateStr;
 		if (dayOffset !== 0) {
 			const date = new Date(dateStr + 'T12:00:00');
@@ -252,72 +252,6 @@
 			}
 			return flight;
 		});
-	}
-
-	async function findFlight(type: 'arrival' | 'departure') {
-		const isArrival = type === 'arrival';
-		const flightDate = isArrival ? arrivalFlightDate : departureFlightDate;
-		const flightNumber = isArrival ? arrivalFlightNumber : departureFlightNumber;
-		const setError = (msg: string) => {
-			if (isArrival) arrivalSearchError = msg;
-			else departureSearchError = msg;
-		};
-		const setLoading = (val: boolean) => {
-			if (isArrival) isSearchingArrival = val;
-			else isSearchingDeparture = val;
-		};
-
-		if (!flightDate || !flightNumber) {
-			setError('Please provide a date and flight number.');
-			return;
-		}
-
-		setLoading(true);
-		setError('');
-		try {
-			const response = await fetch(
-				`/api/flight-lookup?flightNumber=${flightNumber}&date=${flightDate}`
-			);
-			const data = await response.json();
-			if (!response.ok) {
-				throw new Error(data.error || 'Could not find flight.');
-			}
-
-			if (isArrival) {
-				const newArrival: Flight = {
-					id: Date.now(),
-					flightNumber: data.flightNumber,
-					date: flightDate,
-					from: data.from,
-					to: data.to,
-					time: data.arrivalTime,
-					assignedRoles: [...roleNames]
-				};
-				arrivals = [...arrivals, newArrival];
-				arrivalFlightDate = '';
-				arrivalFlightNumber = '';
-			} else {
-				const hoursBeforeDeparture = getDefaultHoursBeforeDeparture(data.from, data.to);
-				const newDeparture: Flight = {
-					id: Date.now(),
-					flightNumber: data.flightNumber,
-					date: flightDate,
-					from: data.from,
-					to: data.to,
-					time: data.departureTime,
-					hoursBeforeDeparture,
-					timeAtAirport: calculateTimeAtAirport(data.departureTime, hoursBeforeDeparture),
-					assignedRoles: [...roleNames]
-				};
-				departures = [...departures, newDeparture];
-				departureFlightDate = '';
-				departureFlightNumber = '';
-			}
-		} catch (error) {
-			setError((error as Error).message);
-		} finally {
-			setLoading(false);
-		}
 	}
 
 	function updateFlightInList(
@@ -360,7 +294,6 @@
 			const cleanArrivals = arrivals.map(({ isEditable, ...rest }) => rest);
 			const cleanDepartures = departures.map(({ isEditable, ...rest }) => rest);
 			const groundInfoPayload = { arrivals: cleanArrivals, departures: cleanDepartures };
-
 			await updateEventAdvance(event.event_id, event.artist_name, {
 				ground_info: groundInfoPayload
 			});
@@ -411,7 +344,6 @@
 
 	function getISOTimePart(isoString: string) {
 		if (!isoString) return '00:00';
-
 		const hasTimezone =
 			isoString.includes('-', 10) || isoString.includes('+', 10) || isoString.endsWith('Z');
 
@@ -440,10 +372,8 @@
 
 		const currentDatePart = getISODatePart(flight.time);
 		const currentTimePart = getISOTimePart(flight.time);
-
 		const newDate = part === 'date' ? value : currentDatePart;
 		const newTime = part === 'time' ? value : currentTimePart;
-
 		const newIsoTime = toEasternISO(newDate, newTime);
 
 		updateFlightInList(flightId, type, (f) => {
@@ -473,66 +403,35 @@
 	<div class="relative">
 		<div class="grid grid-cols-2 gap-4 {!flightsEnabled ? 'opacity-20 blur-sm' : ''}">
 			<div class="space-y-4">
-				<h2 class="text-xl font-bold text-white flex items-center gap-2">
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						class="h-6 w-6 text-lime"
-						fill="none"
-						viewBox="0 0 24 24"
-						stroke="currentColor"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M19 14l-7 7m0 0l-7-7m7 7V3"
-						/>
-					</svg>
-					Arrivals
-				</h2>
-
-				<div class="p-4 bg-gray1 rounded-lg">
-					<div class="space-y-3">
-						<label>
-							<span class="text-xs text-gray2 block mb-1">Date</span>
-							<DatePicker bind:value={arrivalFlightDate} placeholder="Set Date" />
-						</label>
-						<div>
-							<label for="arrivalFlightNumber" class="text-xs text-gray2 block mt-2 mb-1"
-								>Flight Number</label
-							>
-							<input
-								type="text"
-								bind:value={arrivalFlightNumber}
-								placeholder="e.g., AC123"
-								class="w-full bg-navbar border border-gray2/50 text-white text-sm rounded-lg focus:ring-lime focus:border-lime px-3 py-2"
-								id="arrivalFlightNumber"
-							/>
-						</div>
-						<Button
-							on:click={() => findFlight('arrival')}
-							disabled={isSearchingArrival}
-							width="w-full"
+				<div class="flex items-center justify-between">
+					<h2 class="text-xl font-bold text-white flex items-center gap-2">
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							class="h-6 w-6 text-lime"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
 						>
-							{isSearchingArrival ? 'Detecting...' : 'Detect Arrival'}
-						</Button>
-						<p class="text-center text-xs pt-1.5">
-							<button
-								on:click={() => addManualFlight('arrival')}
-								class="text-gray2 hover:cursor-pointer hover:text-lime transition-colors underline"
-							>
-								or add manually
-							</button>
-						</p>
-					</div>
-					{#if arrivalSearchError}
-						<p class="text-problem text-sm mt-2 text-center">{arrivalSearchError}</p>
-					{/if}
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M19 14l-7 7m0 0l-7-7m7 7V3"
+							/>
+						</svg>
+						Arrivals
+					</h2>
+					<button
+						on:click={() => addManualFlight('arrival')}
+						class="px-4 py-2 text-sm text-black rounded-3xl bg-gray3 hover:bg-lime hover:text-black cursor-pointer transition-colors"
+					>
+						+ Add Arrival Flight
+					</button>
 				</div>
 
 				<div class="p-4 bg-gray1 rounded-lg space-y-3">
 					{#if arrivals.length === 0}
-						<p class="text-gray2 text-sm text-center py-8">No arrival flights detected.</p>
+						<p class="text-gray2 text-sm text-center py-8">No arrival flights added.</p>
 					{/if}
 					{#each arrivals as flight (flight.id)}
 						{@const availableRoles = roleNames.filter(
@@ -714,66 +613,35 @@
 			</div>
 
 			<div class="space-y-4">
-				<h2 class="text-xl font-bold text-white flex items-center gap-2">
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						class="h-6 w-6 text-lime"
-						fill="none"
-						viewBox="0 0 24 24"
-						stroke="currentColor"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M5 10l7-7m0 0l7 7m-7-7v18"
-						/>
-					</svg>
-					Departures
-				</h2>
-
-				<div class="p-4 bg-gray1 rounded-lg">
-					<div class="space-y-3">
-						<label>
-							<span class="text-xs text-gray2 block mb-1">Date</span>
-							<DatePicker bind:value={departureFlightDate} placeholder="Set Date" />
-						</label>
-						<div>
-							<label for="departureFlightNumber" class="text-xs text-gray2 block mt-2 mb-1"
-								>Flight Number</label
-							>
-							<input
-								type="text"
-								bind:value={departureFlightNumber}
-								placeholder="e.g., AC123"
-								class="w-full bg-navbar border border-gray2/50 text-white text-sm rounded-lg focus:ring-lime focus:border-lime px-3 py-2"
-								id="departureFlightNumber"
-							/>
-						</div>
-						<Button
-							on:click={() => findFlight('departure')}
-							disabled={isSearchingDeparture}
-							width="w-full"
+				<div class="flex items-center justify-between">
+					<h2 class="text-xl font-bold text-white flex items-center gap-2">
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							class="h-6 w-6 text-lime"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
 						>
-							{isSearchingDeparture ? 'Detecting...' : 'Detect Departure'}
-						</Button>
-						<p class="text-center text-xs pt-1.5">
-							<button
-								on:click={() => addManualFlight('departure')}
-								class="text-gray2 hover:cursor-pointer hover:text-lime transition-colors underline"
-							>
-								or add manually
-							</button>
-						</p>
-					</div>
-					{#if departureSearchError}
-						<p class="text-problem text-sm mt-2 text-center">{departureSearchError}</p>
-					{/if}
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M5 10l7-7m0 0l7 7m-7-7v18"
+							/>
+						</svg>
+						Departures
+					</h2>
+					<button
+						on:click={() => addManualFlight('departure')}
+						class="px-4 py-2 text-sm text-black rounded-3xl bg-gray3 hover:bg-lime hover:text-black cursor-pointer transition-colors"
+					>
+						+ Add Departure Flight
+					</button>
 				</div>
 
 				<div class="p-4 bg-gray1 rounded-lg space-y-3">
 					{#if departures.length === 0}
-						<p class="text-gray2 text-sm text-center py-8">No departure flights detected.</p>
+						<p class="text-gray2 text-sm text-center py-8">No departure flights added.</p>
 					{/if}
 					{#each departures as flight (flight.id)}
 						{@const availableRoles = roleNames.filter(
