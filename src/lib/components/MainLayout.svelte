@@ -152,6 +152,8 @@
 			icon: icons.booking,
 			requiredPermission: 'Booking',
 			subItems: [
+				
+				{ label: 'Daily Count', route: '/booking/dailycount', requiredPermission: 'Booking' },
 				{ label: 'Talent Payments', route: '/booking/talentpayments', requiredPermission: 'Booking' },
 				{ label: 'Artist Availability', route: '/booking/artistavailability', requiredPermission: 'Booking' }
 			]

@@ -122,6 +122,7 @@
 	"/auth/verify": [],
 	"/bazart": [],
 	"/booking/artistavailability": [],
+	"/booking/dailycount": [],
 	"/booking/talentpayments": [],
 	"/calendar": [
 		"src/routes/calendar/+page.server.ts"
