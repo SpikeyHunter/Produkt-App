@@ -133,7 +133,7 @@
 		} else {
 			const content = isNCG || isDSTRKT ? standardInteriorText : customInteriorText;
 			const validTime = removalTime || '00:00';
-			formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(validTime)}`;
+			formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} TVS only`;
 		}
 		dispatch('change');
 	}
