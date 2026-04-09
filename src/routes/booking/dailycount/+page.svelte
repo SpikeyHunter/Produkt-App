@@ -142,11 +142,21 @@
 	async function handleColorChange(e: CustomEvent<{ id: number; color: string }>) {
 		const { id, color } = e.detail;
 		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, color } : ev));
-
+		
 		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
 			selectedEventForInfo.color = color;
 		}
 		await supabase.from('events').update({ color }).eq('event_id', id);
+	}
+
+	async function handleStageTypeChange(e: CustomEvent<{ id: number; stage_type: any }>) {
+		const { id, stage_type } = e.detail;
+		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, stage_type } : ev));
+		
+		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
+			selectedEventForInfo.stage_type = stage_type;
+		}
+		await supabase.from('events').update({ stage_type }).eq('event_id', id);
 	}
 </script>
 
@@ -170,6 +180,8 @@
 
 			<ControlPanel
 				events={eventsWithData}
+				{activeEvents}
+				{dailyCounts}
 				bind:mode
 				bind:selectedCustomIds
 				{selectedEventForInfo}
@@ -177,6 +189,7 @@
 				on:selectionChanged={handleSelectionChange}
 				on:closeInfoPanel={() => (selectedEventForInfo = null)}
 				on:colorChanged={handleColorChange}
+				on:stageTypeChanged={handleStageTypeChange}
 			/>
 		</div>
 	</div>
