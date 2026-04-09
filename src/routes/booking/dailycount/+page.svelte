@@ -11,22 +11,20 @@
 
 	let allEvents: EventData[] = [];
 	let dailyCounts: DailyCount[] = [];
-	let dateRange: string[] = [];
+	let fullDateRange: string[] = [];
+	let dateRange: string[] = []; // Sub-filtered range passed to the chart
 	let mode: 'LIVE' | 'CUSTOM' = 'LIVE';
 	let selectedCustomIds: number[] = [];
 	let realtimeChannel: any;
 	let selectedEventForInfo: EventData | null = null;
 	let latestCountForSelected: DailyCount | null = null;
 
+	// Filter dates
+	let filterStartDate = '';
+	let filterEndDate = '';
+
 	const excludeKeywords = [
-		'test',
-		'réservations',
-		'pass',
-		'event',
-		'template',
-		'produktworld',
-		'piknic',
-		'oktoberfest'
+		'test', 'réservations', 'pass', 'event', 'template', 'produktworld', 'piknic', 'oktoberfest'
 	];
 
 	$: eventsWithData = allEvents.filter((e) => {
@@ -36,16 +34,26 @@
 		return latest.total > 0;
 	});
 
-	$: activeEvents =
-		mode === 'LIVE'
-			? eventsWithData.filter((e) => e.event_status === 'LIVE')
-			: eventsWithData.filter((e) => selectedCustomIds.includes(e.event_id));
+	$: activeEvents = mode === 'LIVE'
+		? eventsWithData.filter((e) => e.event_status === 'LIVE')
+		: eventsWithData.filter((e) => selectedCustomIds.includes(e.event_id));
 
 	$: {
 		const activeCounts = dailyCounts.filter((c) =>
 			activeEvents.some((e) => e.event_id === c.event_id)
 		);
 		calculateDateRange(activeCounts);
+	}
+
+	$: minAvailableDate = fullDateRange.length > 0 ? fullDateRange[0] : '';
+	$: maxAvailableDate = fullDateRange.length > 0 ? fullDateRange[fullDateRange.length - 1] : '';
+
+	$: {
+		if (filterStartDate && filterEndDate) {
+			dateRange = fullDateRange.filter(d => d >= filterStartDate && d <= filterEndDate);
+		} else {
+			dateRange = fullDateRange;
+		}
 	}
 
 	$: if (selectedEventForInfo) {
@@ -65,9 +73,7 @@
 	async function loadData() {
 		const { data: eventData } = await supabase
 			.from('events')
-			.select(
-				'event_id, event_name, event_date, event_status, event_flyer, event_venue, stage_type, color'
-			);
+			.select('event_id, event_name, event_date, event_status, event_flyer, event_venue, stage_type, color');
 
 		const { data: countData } = await supabase
 			.from('daily_count')
@@ -102,7 +108,7 @@
 
 	function calculateDateRange(counts: DailyCount[]) {
 		if (counts.length === 0) {
-			dateRange = [];
+			fullDateRange = [];
 			return;
 		}
 		const dates = counts.map((c) => new Date(c.report_date).getTime());
@@ -115,7 +121,7 @@
 			range.push(current.toISOString().split('T')[0]);
 			current.setDate(current.getDate() + 1);
 		}
-		dateRange = range;
+		fullDateRange = range;
 	}
 
 	function setupRealtime() {
@@ -139,10 +145,14 @@
 		selectedEventForInfo = e.detail;
 	}
 
+	function handleDateRangeChanged(e: CustomEvent<{ startDate: string; endDate: string }>) {
+		filterStartDate = e.detail.startDate;
+		filterEndDate = e.detail.endDate;
+	}
+
 	async function handleColorChange(e: CustomEvent<{ id: number; color: string }>) {
 		const { id, color } = e.detail;
 		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, color } : ev));
-		
 		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
 			selectedEventForInfo.color = color;
 		}
@@ -152,7 +162,6 @@
 	async function handleStageTypeChange(e: CustomEvent<{ id: number; stage_type: any }>) {
 		const { id, stage_type } = e.detail;
 		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, stage_type } : ev));
-		
 		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
 			selectedEventForInfo.stage_type = stage_type;
 		}
@@ -186,10 +195,13 @@
 				bind:selectedCustomIds
 				{selectedEventForInfo}
 				{latestCountForSelected}
+				{minAvailableDate}
+				{maxAvailableDate}
 				on:selectionChanged={handleSelectionChange}
 				on:closeInfoPanel={() => (selectedEventForInfo = null)}
 				on:colorChanged={handleColorChange}
 				on:stageTypeChanged={handleStageTypeChange}
+				on:dateRangeFilterChanged={handleDateRangeChanged}
 			/>
 		</div>
 	</div>

@@ -20,7 +20,6 @@
 	$: innerWidth = Math.max(0, chartWidth - padding.left - padding.right);
 	$: innerHeight = Math.max(0, chartHeight - padding.top - padding.bottom);
 
-	// Ensure the sidebar events are sorted oldest (top) to future (bottom)
 	$: sortedSidebarEvents = [...activeEvents].sort((a, b) => {
 		const dateA = new Date(a.event_date || 0).getTime();
 		const dateB = new Date(b.event_date || 0).getTime();
@@ -31,8 +30,21 @@
 
 	$: chartDataPrep = activeEvents.map((event, eventIdx) => {
 		const counts = dailyCounts.filter((c) => c.event_id === event.event_id);
+
+		// Math fix: Determine if there were sales BEFORE our filtered dateRange
 		let lastTotal = 0;
 		let firstRecordFound = false;
+
+		if (dateRange.length > 0) {
+			const firstVisibleDate = dateRange[0];
+			const priorRecords = counts.filter((c) => c.report_date < firstVisibleDate);
+			if (priorRecords.length > 0) {
+				// Sort to find the most recent one before the range
+				priorRecords.sort((a, b) => a.report_date.localeCompare(b.report_date));
+				lastTotal = priorRecords[priorRecords.length - 1].total;
+				firstRecordFound = true; // Record already happened before
+			}
+		}
 
 		const points = dateRange.map((date, dateIdx) => {
 			const record = counts.find((c) => c.report_date === date);
@@ -120,6 +132,7 @@
 		if (points.length === 0) return '';
 		if (points.length === 1)
 			return `M ${points[0].xLine} ${points[0].y} L ${points[0].xLine + innerWidth} ${points[0].y}`;
+
 		return (
 			`M ${points[0].xLine} ${points[0].y} ` +
 			points
@@ -161,6 +174,7 @@
 			eventName: event.event_name
 		};
 	}
+
 	function hideTooltip() {
 		tooltip.visible = false;
 	}
@@ -170,7 +184,7 @@
 	class="flex-1 bg-navbar rounded-3xl border border-gray1 flex flex-col min-w-0 h-full overflow-hidden shadow-lg p-6"
 >
 	<div class="flex items-center justify-between mb-4 shrink-0">
-		<h2 class="text-white font-bold text-xl">Daily Count Analysis</h2>
+		<h2 class="text-white font-bold text-xl">Sales Overview</h2>
 		<div class="flex items-center gap-3">
 			<button
 				class="px-4 py-2 text-xs rounded-3xl outline-none focus:outline-none hover:cursor-pointer font-bold transition-colors bg-gray1 text-gray2 hover:text-white border border-gray2/20"
@@ -237,7 +251,7 @@
 
 	<div class="flex flex-1 min-h-0 gap-6">
 		<div class="w-[240px] shrink-0 overflow-y-auto custom-scrollbar space-y-2 pr-2">
-            <h2 class="text-gray3 font-bold text-sm">Selected Events</h2>
+			<h2 class="text-gray3 font-bold text-sm">Selected Events</h2>
 			{#each sortedSidebarEvents as event}
 				<div
 					class="flex items-center gap-3 p-2 bg-gray1/40 rounded-xl border-l-4 border-r-4 shadow-sm transition-all outline-none hover:bg-gray1/60 cursor-pointer {selectedEventForInfo &&
@@ -480,7 +494,8 @@
 {#if tooltip.visible}
 	<div
 		class="fixed pointer-events-none z-50 bg-navbar border p-3 rounded-xl shadow-2xl transition-opacity w-[180px]"
-		style="left: {tooltip.x}px; top: {tooltip.y}px; border-color: {tooltip.color}; transform: translate(-50%, -115%);"
+		style="left: {tooltip.x}px; top: {tooltip.y}px; border-color: {tooltip.color};
+		transform: translate(-50%, {tooltip.y < 220 ? '15px' : '-115%'});"
 	>
 		<div
 			class="text-[11px] font-bold mb-1 break-words whitespace-normal leading-tight"

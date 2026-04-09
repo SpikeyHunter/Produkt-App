@@ -3,12 +3,16 @@
 	import { createEventDispatcher } from 'svelte';
 	import { fly, slide } from 'svelte/transition';
 	import EventInfoPanel from './EventInfoPanel.svelte';
+	import RangeFilter from './RangeFilter.svelte';
 
 	export let events: EventData[] = [];
 	export let activeEvents: EventData[] = [];
 	export let dailyCounts: DailyCount[] = [];
 	export let mode: 'LIVE' | 'CUSTOM' = 'LIVE';
 	export let selectedCustomIds: number[] = [];
+
+	export let minAvailableDate = '';
+	export let maxAvailableDate = '';
 
 	export let selectedEventForInfo: EventData | null = null;
 	export let latestCountForSelected: DailyCount | null = null;
@@ -18,6 +22,11 @@
 	let searchQuery = '';
 	let showCustomDropdown = false;
 	let expandedTop3Id: number | null = null;
+
+	// Auto-close the custom dropdown if an event is selected to view info
+	$: if (selectedEventForInfo) {
+		showCustomDropdown = false;
+	}
 
 	$: filteredEvents = events
 		.filter((e) => {
@@ -68,22 +77,28 @@
 <aside
 	class="w-[340px] bg-navbar rounded-3xl p-5 flex flex-col h-full shadow-lg border border-gray1 shrink-0 relative overflow-hidden"
 >
-	<div class="flex flex-col h-full w-full overflow-y-auto custom-scrollbar pr-1">
+	<div
+		class="flex flex-col h-full w-full overflow-y-auto custom-scrollbar pr-1 relative {selectedEventForInfo
+			? 'z-0'
+			: 'z-10'}"
+	>
 		<div class="flex items-center justify-between mb-4 shrink-0">
 			<span class="text-xl font-bold text-white tracking-tight">Data Source</span>
 		</div>
 
 		<div
-			class="relative flex w-full shrink-0 bg-gray1 p-1 rounded-3xl cursor-pointer select-none mb-6"
+			class="relative flex w-full shrink-0 bg-gray1 p-1 rounded-3xl cursor-pointer select-none mb-6 {selectedEventForInfo
+				? 'z-0'
+				: 'z-20'}"
 		>
 			<div
 				class="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-lime rounded-3xl transition-transform duration-300 ease-in-out shadow-sm"
 				style="transform: translateX({mode === 'LIVE' ? '0' : '100%'})"
 			></div>
 			<div
-				class="flex-1 text-center py-2 relative z-10 text-sm font-bold outline-none {mode === 'LIVE'
-					? 'text-black'
-					: 'text-gray2'}"
+				class="flex-1 text-center py-2 relative {selectedEventForInfo
+					? 'z-0'
+					: 'z-10'} text-sm font-bold outline-none {mode === 'LIVE' ? 'text-black' : 'text-gray2'}"
 				on:click={() => (mode = 'LIVE')}
 				role="button"
 				tabindex="0"
@@ -92,8 +107,9 @@
 				Live Events
 			</div>
 			<div
-				class="flex-1 text-center py-2 relative z-10 text-sm font-bold outline-none {mode ===
-				'CUSTOM'
+				class="flex-1 text-center py-2 relative {selectedEventForInfo
+					? 'z-0'
+					: 'z-10'} text-sm font-bold outline-none {mode === 'CUSTOM'
 					? 'text-black'
 					: 'text-gray2'}"
 				on:click={() => (mode = 'CUSTOM')}
@@ -106,7 +122,7 @@
 		</div>
 
 		{#if mode === 'CUSTOM'}
-			<div class="relative w-full z-30 shrink-0 mb-6">
+			<div class="relative w-full shrink-0 mb-6 {selectedEventForInfo ? 'z-0' : 'z-30'}">
 				<span class="text-sm font-bold text-gray2 mb-3 block">Custom Selection</span>
 				<div
 					class="w-full bg-gray1 text-white rounded-xl flex items-center justify-between text-sm font-bold transition-colors"
@@ -115,11 +131,11 @@
 						class="flex-1 flex items-center justify-between px-4 py-3 outline-none cursor-pointer bg-transparent border-none text-left"
 						on:click={() => (showCustomDropdown = !showCustomDropdown)}
 					>
-						<span class="truncate pr-2"
-							>{selectedCustomIds.length > 0
+						<span class="truncate pr-2">
+							{selectedCustomIds.length > 0
 								? `${selectedCustomIds.length} Event${selectedCustomIds.length > 1 ? 's' : ''} Selected`
-								: 'Select Events'}</span
-						>
+								: 'Select Events'}
+						</span>
 						<svg
 							class="w-4 h-4 shrink-0 transition-transform duration-200 {showCustomDropdown
 								? 'rotate-180'
@@ -223,94 +239,107 @@
 			</div>
 		{/if}
 
-		<div class="w-full pb-6">
-            <span class="text-sm font-bold text-gray2 mb-3 block">Top 3 Shows</span>
-            <div class="space-y-2">
-                {#each top3Shows as show (show.event.event_id)}
-                    {@const isExpanded = expandedTop3Id === show.event.event_id}
-                    <div class="bg-gray1/30 rounded-xl overflow-hidden transition-all duration-300">
-                        <button
-                            class="w-full flex items-center gap-3 p-2 text-left outline-none hover:bg-gray1/50 transition-colors border-none bg-transparent cursor-pointer"
-                            on:click={() => (expandedTop3Id = isExpanded ? null : show.event.event_id)}
-                        >
-                            <div class="w-8 h-8 shrink-0 rounded-md overflow-hidden bg-black">
-                                {#if show.event.event_flyer}<img
-                                        class="w-full h-full object-cover"
-                                        src={show.event.event_flyer}
-                                        alt={show.event.event_name}
-                                    />{/if}
-                            </div>
-                            <div class="flex flex-col min-w-0 flex-1">
-                                <div
-                                    class="font-bold text-xs truncate leading-tight"
-                                    style="color: {show.event.color || '#fff'}"
-                                >
-                                    {show.event.event_name}
-                                </div>
-                                <div class="text-gray2 text-[10px] truncate leading-tight mt-0.5">
-                                    {show.event.event_id} {#if show.event.event_venue}
-                                        - {show.event.event_venue}{/if}
-                                </div>
-                                <div class="text-gray3 text-[10px] truncate leading-tight mt-0.5">
-                                    {show.event.event_date}
-                                </div>
-                            </div>
-                            <div class="text-right shrink-0">
-                                <div class="text-sm font-bold text-lime">{show.latest.total} sold</div>
-                            </div>
-                        </button>
-                        {#if isExpanded}
-                            <div class="p-3 pt-0 bg-black/20" transition:slide={{ duration: 200 }}>
-                                <div class="flex w-full mt-0 gap-4">
-                                    <div class="flex-1 flex mt-2 flex-col gap-1.5 border-r border-gray2/10 pr-4">
-                                        <span class="text-[11px] font-bold text-lime uppercase">Total</span>
-                                        <div class="flex justify-between text-xs">
-                                            <span class="text-gray2">GA</span><span class="font-bold text-white"
-                                                >{show.latest.ga}</span
-                                            >
-                                        </div>
-                                        <div class="flex justify-between text-xs">
-                                            <span class="text-gray2">VIP</span><span class="font-bold text-white"
-                                                >{show.latest.vip}</span
-                                            >
-                                        </div>
-                                    </div>
-                                    <div class="flex-1 flex mt-2  flex-col gap-1.5">
-                                        <span class="text-[11px] font-bold text-lime uppercase">Sell Through</span>
-                                        <div class="flex justify-between text-xs">
-                                            <span class="text-gray2">GA</span><span class="font-bold text-white"
-                                                >{show.event.stage_type?.capacity?.GA
-                                                    ? Math.round((show.latest.ga / show.event.stage_type.capacity.GA) * 100)
-                                                    : 0}%</span
-                                            >
-                                        </div>
-                                        <div class="flex justify-between text-xs">
-                                            <span class="text-gray2">VIP</span><span class="font-bold text-white"
-                                                >{show.event.stage_type?.capacity?.VIP
-                                                    ? Math.round((show.latest.vip / show.event.stage_type.capacity.VIP) * 100)
-                                                    : 0}%</span
-                                            >
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="mt-3 pt-3 border-t border-gray2/10 flex justify-between text-[12px]">
-                                    <span class="text-gray2"
-                                        >Daily Avg. <strong class="text-white ml-1">{show.dailyAvg}</strong></span
-                                    >
-                                    <span class="text-gray2"
-                                        >Weekly Avg. <strong class="text-white ml-1">{show.weeklyAvg}</strong></span
-                                    >
-                                </div>
-                            </div>
-                        {/if}
-                    </div>
-                {:else}
-                    <div class="text-[14px] text-gray2 text-center py-4 bg-gray1 rounded-xl">
-                        Select events to display the Top 3
-                    </div>
-                {/each}
-            </div>
-        </div>
+		<div
+			class="w-full pb-6 border-b border-gray1/40 mb-6 shrink-0 relative {selectedEventForInfo
+				? 'z-0'
+				: 'z-20'}"
+		>
+			<span class="text-sm font-bold text-gray2 mb-3 block">Filter by Date</span>
+			<RangeFilter
+				minDateStr={minAvailableDate}
+				maxDateStr={maxAvailableDate}
+				on:change={(e) => dispatch('dateRangeFilterChanged', e.detail)}
+			/>
+		</div>
+
+		<div class="w-full pb-6 relative {selectedEventForInfo ? 'z-0' : 'z-10'}">
+			<span class="text-sm font-bold text-gray2 mb-3 block">Top 3 Shows</span>
+			<div class="space-y-2">
+				{#each top3Shows as show (show.event.event_id)}
+					{@const isExpanded = expandedTop3Id === show.event.event_id}
+					<div class="bg-gray1/30 rounded-xl overflow-hidden transition-all duration-300">
+						<button
+							class="w-full flex items-center gap-3 p-2 text-left outline-none hover:bg-gray1/50 transition-colors border-none bg-transparent cursor-pointer"
+							on:click={() => (expandedTop3Id = isExpanded ? null : show.event.event_id)}
+						>
+							<div class="w-8 h-8 shrink-0 rounded-md overflow-hidden bg-black">
+								{#if show.event.event_flyer}<img
+										class="w-full h-full object-cover"
+										src={show.event.event_flyer}
+										alt={show.event.event_name}
+									/>{/if}
+							</div>
+							<div class="flex flex-col min-w-0 flex-1">
+								<div
+									class="font-bold text-xs truncate leading-tight"
+									style="color: {show.event.color || '#fff'}"
+								>
+									{show.event.event_name}
+								</div>
+								<div class="text-gray2 text-[10px] truncate leading-tight mt-0.5">
+									{show.event.event_id}
+									{#if show.event.event_venue}- {show.event.event_venue}{/if}
+								</div>
+								<div class="text-gray3 text-[10px] truncate leading-tight mt-0.5">
+									{show.event.event_date}
+								</div>
+							</div>
+							<div class="text-right shrink-0">
+								<div class="text-sm font-bold text-lime">{show.latest.total} sold</div>
+							</div>
+						</button>
+						{#if isExpanded}
+							<div class="p-3 pt-0 bg-black/20" transition:slide={{ duration: 200 }}>
+								<div class="flex w-full mt-0 gap-4">
+									<div class="flex-1 flex mt-2 flex-col gap-1.5 border-r border-gray2/10 pr-4">
+										<span class="text-[11px] font-bold text-lime uppercase">Total</span>
+										<div class="flex justify-between text-xs">
+											<span class="text-gray2">GA</span><span class="font-bold text-white"
+												>{show.latest.ga}</span
+											>
+										</div>
+										<div class="flex justify-between text-xs">
+											<span class="text-gray2">VIP</span><span class="font-bold text-white"
+												>{show.latest.vip}</span
+											>
+										</div>
+									</div>
+									<div class="flex-1 flex mt-2 flex-col gap-1.5">
+										<span class="text-[11px] font-bold text-lime uppercase">Sell Through</span>
+										<div class="flex justify-between text-xs">
+											<span class="text-gray2">GA</span><span class="font-bold text-white"
+												>{show.event.stage_type?.capacity?.GA
+													? Math.round((show.latest.ga / show.event.stage_type.capacity.GA) * 100)
+													: 0}%</span
+											>
+										</div>
+										<div class="flex justify-between text-xs">
+											<span class="text-gray2">VIP</span><span class="font-bold text-white"
+												>{show.event.stage_type?.capacity?.VIP
+													? Math.round((show.latest.vip / show.event.stage_type.capacity.VIP) * 100)
+													: 0}%</span
+											>
+										</div>
+									</div>
+								</div>
+								<div class="mt-3 pt-3 border-t border-gray2/10 flex justify-between text-[12px]">
+									<span class="text-gray2"
+										>Daily Avg. <strong class="text-white ml-1">{show.dailyAvg}</strong></span
+									>
+									<span class="text-gray2"
+										>Weekly Avg. <strong class="text-white ml-1">{show.weeklyAvg}</strong></span
+									>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{:else}
+					<div class="text-[14px] text-gray2 text-center py-4 bg-gray1 rounded-xl">
+						Select events to display the Top 3
+					</div>
+				{/each}
+			</div>
+		</div>
 	</div>
 
 	<EventInfoPanel
