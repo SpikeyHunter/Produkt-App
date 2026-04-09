@@ -66,7 +66,7 @@
 </script>
 
 <aside
-	class="w-[340px] bg-navbar rounded-3xl p-5 flex flex-col h-[760px] shadow-lg border border-gray1 shrink-0 relative overflow-hidden"
+	class="w-[340px] bg-navbar rounded-3xl p-5 flex flex-col h-full shadow-lg border border-gray1 shrink-0 relative overflow-hidden"
 >
 	<div class="flex flex-col h-full w-full overflow-y-auto custom-scrollbar pr-1">
 		<div class="flex items-center justify-between mb-4 shrink-0">

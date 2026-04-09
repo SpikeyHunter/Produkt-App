@@ -167,10 +167,10 @@
 </script>
 
 <div
-	class="flex-1 bg-navbar rounded-3xl border border-gray1 flex flex-col min-w-0 h-[760px] overflow-hidden shadow-lg p-6"
+	class="flex-1 bg-navbar rounded-3xl border border-gray1 flex flex-col min-w-0 h-full overflow-hidden shadow-lg p-6"
 >
 	<div class="flex items-center justify-between mb-4 shrink-0">
-		<h2 class="text-white font-bold text-lg">Daily Sales Analysis</h2>
+		<h2 class="text-white font-bold text-xl">Daily Count Analysis</h2>
 		<div class="flex items-center gap-3">
 			<button
 				class="px-4 py-2 text-xs rounded-3xl outline-none focus:outline-none hover:cursor-pointer font-bold transition-colors bg-gray1 text-gray2 hover:text-white border border-gray2/20"
@@ -237,6 +237,7 @@
 
 	<div class="flex flex-1 min-h-0 gap-6">
 		<div class="w-[240px] shrink-0 overflow-y-auto custom-scrollbar space-y-2 pr-2">
+            <h2 class="text-gray3 font-bold text-sm">Selected Events</h2>
 			{#each sortedSidebarEvents as event}
 				<div
 					class="flex items-center gap-3 p-2 bg-gray1/40 rounded-xl border-l-4 border-r-4 shadow-sm transition-all outline-none hover:bg-gray1/60 cursor-pointer {selectedEventForInfo &&
