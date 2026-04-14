@@ -139,7 +139,7 @@
                     on:click={() => toggleTerrasseType('back-side')}
                     class="py-1.5 px-3 rounded-xl hover:cursor-pointer border text-xs font-bold transition-all {terrasseType === 'back-side' ? 'bg-lime text-black border-lime' : 'bg-navbar border-gray1 text-gray2 hover:border-gray3 hover:text-white'}"
                 >
-                    Back-Side Terrasse
+                    Both Terrasse
                 </button>
                 <button 
                     type="button" 
