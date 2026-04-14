@@ -35,10 +35,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		// Add display modifier for Bazart Nuits
 		const displayEventType = eventType === 'Bazart Nuits' ? 'Nuits Bazart' : eventType;
 
-		// Fetch all users who opted into emails
+		// Fetch all users who opted into emails AND pull their exempt status
 		const { data: users, error } = await supabaseAdmin
 			.from('calendar_users')
-			.select('id, email, name')
+			.select('id, email, name, confirmation_exempt') // ADDED confirmation_exempt
 			.eq('confirmation_email', true)
 			.not('email', 'is', null)
 			.neq('email', '');
@@ -99,8 +99,15 @@ export const POST: RequestHandler = async ({ request }) => {
 			? `<p style="color: #FF4D4D; font-weight: 700; font-size: 16px;">Event Canceled</p>`
 			: `<a href="https://app.produkt.ca/calendar/${eventId}" class="verify-button"><span>View in Calendar</span></a>`;
 
+		// EXEMPTION LOGIC
+		const exemptAllowedTypes = ['NCG Show', 'NCG 360', 'DSTRKT', 'Tour Prod'];
+		const isAllowedType = exemptAllowedTypes.includes(eventType);
+
 		for (const user of users) {
 			if (!user.email) continue;
+			
+			// Skip user if they are exempt and the event is not one of the allowed types
+			if (user.confirmation_exempt && !isAllowedType) continue;
 
 			const eventUrl = `https://app.produkt.ca/calendar/${eventId}`;
 			const unsubscribeUrl = `https://app.produkt.ca/calendar/unsubscribe?id=${user.id}`;

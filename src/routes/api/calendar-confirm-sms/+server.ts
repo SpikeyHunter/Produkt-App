@@ -28,10 +28,10 @@ export const POST: RequestHandler = async ({ request }) => {
         // Add display modifier for Bazart Nuits
         const displayEventType = eventType === 'Bazart Nuits' ? 'Nuits Bazart' : eventType;
 
-        // Fetch all users who opted into SMS
+        // Fetch all users who opted into SMS AND pull their exempt status
         const { data: users, error } = await supabaseAdmin
             .from('calendar_users')
-            .select('phone, name')
+            .select('phone, name, confirmation_exempt') // ADDED confirmation_exempt
             .eq('confirmation_phone', true)
             .not('phone', 'is', null)
             .neq('phone', '');
@@ -95,8 +95,15 @@ export const POST: RequestHandler = async ({ request }) => {
         // Updated Footer
         message += `Reply STOP to unsubscribe`;
 
+        // EXEMPTION LOGIC
+        const exemptAllowedTypes = ['NCG Show', 'NCG 360', 'DSTRKT', 'Tour Prod'];
+        const isAllowedType = exemptAllowedTypes.includes(eventType);
+
         for (const user of users) {
             if (!user.phone) continue;
+
+            // Skip user if they are exempt and the event is not one of the allowed types
+            if (user.confirmation_exempt && !isAllowedType) continue;
 
             // Clean the phone number and format to E.164
             let cleanPhone = user.phone.replace(/\D/g, '');

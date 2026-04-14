@@ -61,10 +61,10 @@ export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const { eventId, eventTitle, oldDates, newDates, oldType, newType, venueName, authUserName } = await request.json();
 
-		// Fetch all users who opted into emails
+		// Fetch all users who opted into emails AND pull their exempt status
 		const { data: users, error } = await supabaseAdmin
 			.from('calendar_users')
-			.select('id, email, name')
+			.select('id, email, name, confirmation_exempt') // ADDED confirmation_exempt
 			.eq('confirmation_email', true)
 			.not('email', 'is', null)
 			.neq('email', '');
@@ -117,8 +117,15 @@ export const POST: RequestHandler = async ({ request }) => {
 		const finalSubjectDate = newDateStrings.subjectText; 
 		const typeDisplay = finalType && finalType !== 'Select Type' ? ` - [${finalType}]` : '';
 
+		// EXEMPTION LOGIC
+		const exemptAllowedTypes = ['NCG Show', 'NCG 360', 'DSTRKT', 'Tour Prod'];
+		const isAllowedType = exemptAllowedTypes.includes(finalType);
+
 		for (const user of users) {
 			if (!user.email) continue;
+
+			// Skip user if they are exempt and the event is not one of the allowed types
+			if (user.confirmation_exempt && !isAllowedType) continue;
 
 			const eventUrl = `https://app.produkt.ca/calendar/${eventId}`;
 			const unsubscribeUrl = `https://app.produkt.ca/calendar/unsubscribe?id=${user.id}`;

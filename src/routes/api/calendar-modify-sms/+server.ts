@@ -33,9 +33,10 @@ export const POST: RequestHandler = async ({ request }) => {
     try {
         const { eventId, eventTitle, oldDates, newDates, oldType, newType, venueName, authUserName } = await request.json();
 
+        // Fetch all users who opted into SMS AND pull their exempt status
         const { data: users, error } = await supabaseAdmin
             .from('calendar_users')
-            .select('phone, name')
+            .select('phone, name, confirmation_exempt') // ADDED confirmation_exempt
             .eq('confirmation_phone', true)
             .not('phone', 'is', null)
             .neq('phone', '');
@@ -73,8 +74,15 @@ export const POST: RequestHandler = async ({ request }) => {
         
         let message = `${headerText}\n\n${eventTitle}${typeDisplay}${venueDisplay}\n\nUpdated by ${authUserName}\n${changesText}\n\nhttps://app.produkt.ca/calendar/${eventId}\n\nReply STOP to unsubscribe`;
 
+        // EXEMPTION LOGIC
+        const exemptAllowedTypes = ['NCG Show', 'NCG 360', 'DSTRKT', 'Tour Prod'];
+        const isAllowedType = exemptAllowedTypes.includes(finalType);
+
         for (const user of users) {
             if (!user.phone) continue;
+
+            // Skip user if they are exempt and the event is not one of the allowed types
+            if (user.confirmation_exempt && !isAllowedType) continue;
 
             let cleanPhone = user.phone.replace(/\D/g, '');
             if (cleanPhone.length === 10) cleanPhone = '1' + cleanPhone;

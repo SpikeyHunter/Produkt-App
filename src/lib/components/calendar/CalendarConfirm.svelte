@@ -12,6 +12,7 @@
 	export let saving = false;
 	export let isAdmin = false;
 	export let defaultEmail = false;
+	export let eventType = '';
 
 	// Conflict props
 	export let showConflicts = false;
@@ -64,19 +65,37 @@
 	}
 
 	async function refreshUserCounts() {
-	try {
-		const { data, error } = await supabase.rpc('get_notification_counts');
-		
-		if (error) throw error;
+		try {
+			// Query direct to handle the exempt logic based on the eventType
+			const { data, error } = await supabase
+				.from('calendar_users')
+				.select('confirmation_email, confirmation_phone, confirmation_exempt');
 
-		if (data) {
-			emailUsersCount = data.email || 0;
-			smsUsersCount = data.sms || 0;
+			if (error) throw error;
+
+			let eCount = 0;
+			let sCount = 0;
+			const exemptAllowedTypes = ['NCG Show', 'NCG 360', 'DSTRKT', 'Tour Prod'];
+			const isAllowedType = exemptAllowedTypes.includes(eventType);
+
+			if (data) {
+				data.forEach((user) => {
+					// If user is exempt, skip them unless it's one of the allowed types
+					if (user.confirmation_exempt && !isAllowedType) {
+						return;
+					}
+
+					if (user.confirmation_email) eCount++;
+					if (user.confirmation_phone) sCount++;
+				});
+
+				emailUsersCount = eCount;
+				smsUsersCount = sCount;
+			}
+		} catch (err) {
+			console.error('Failed to fetch user counts:', err);
 		}
-	} catch (err) {
-		console.error('Failed to fetch user counts:', err);
 	}
-}
 
 	function handleConfirm() {
 		dispatch('confirm', {

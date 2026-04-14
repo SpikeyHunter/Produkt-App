@@ -47,13 +47,30 @@
 
 	async function refreshUserCounts() {
 		try {
-			const { data, error } = await supabase.rpc('get_notification_counts');
+			const { data, error } = await supabase
+				.from('calendar_users')
+				.select('confirmation_email, confirmation_phone, confirmation_exempt');
 
 			if (error) throw error;
 
+			let eCount = 0;
+			let sCount = 0;
+
+			// Evaluate against the modified event's new type
+			const typeToEvaluate = newType || oldType;
+			const exemptAllowedTypes = ['NCG Show', 'NCG 360', 'DSTRKT', 'Tour Prod'];
+			const isAllowedType = exemptAllowedTypes.includes(typeToEvaluate);
+
 			if (data) {
-				emailUsersCount = data.email || 0;
-				smsUsersCount = data.sms || 0;
+				data.forEach((user) => {
+					if (user.confirmation_exempt && !isAllowedType) return;
+
+					if (user.confirmation_email) eCount++;
+					if (user.confirmation_phone) sCount++;
+				});
+
+				emailUsersCount = eCount;
+				smsUsersCount = sCount;
 			}
 		} catch (err) {
 			console.error('Failed to fetch user counts:', err);

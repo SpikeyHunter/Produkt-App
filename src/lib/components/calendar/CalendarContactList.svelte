@@ -50,6 +50,7 @@
 		password: string;
 		confirmation_email: boolean;
 		confirmation_phone: boolean;
+		confirmation_exempt: boolean;
 		reset_password?: boolean;
 	}
 
@@ -62,7 +63,8 @@
 		role: '',
 		password: DEFAULT_PASSWORD,
 		confirmation_email: false,
-		confirmation_phone: false
+		confirmation_phone: false,
+		confirmation_exempt: false
 	};
 
 	$: isFormValid = !!(
@@ -128,7 +130,8 @@
 			role: '',
 			password: DEFAULT_PASSWORD,
 			confirmation_email: true,
-			confirmation_phone: false
+			confirmation_phone: false,
+			confirmation_exempt: false
 		};
 		showForm = true;
 	}
@@ -171,7 +174,8 @@
 					job: formData.job,
 					role: formData.role,
 					confirmation_email: formData.confirmation_email,
-					confirmation_phone: formData.confirmation_phone
+					confirmation_phone: formData.confirmation_phone,
+					confirmation_exempt: formData.confirmation_exempt
 				};
 				if (passwordWasReset) {
 					updates.password = DEFAULT_PASSWORD;
@@ -200,6 +204,7 @@
 							role: formData.role,
 							confirmation_email: formData.confirmation_email,
 							confirmation_phone: formData.confirmation_phone,
+							confirmation_exempt: formData.confirmation_exempt,
 							password: formData.password,
 							has_default_password: applyDefaultPassword,
 							invite_status: defaultInviteStatus
@@ -767,6 +772,38 @@
 						</div>
 						<label for="confirm-phone-checkbox" class="text-white font-bold cursor-pointer text-sm"
 							>Confirmation Phone</label
+						>
+					</div>
+
+					<div class="flex items-center gap-3">
+						<div
+							class="relative flex items-center justify-center w-5 h-5 bg-gray2/20 border border-transparent rounded cursor-pointer has-[:checked]:bg-lime has-[:checked]:border-lime transition-colors"
+						>
+							<input
+								id="confirm-exempt-checkbox"
+								type="checkbox"
+								class="appearance-none w-full h-full absolute inset-0 cursor-pointer peer"
+								bind:checked={formData.confirmation_exempt}
+							/>
+							<svg
+								class="w-3.5 h-3.5 text-black opacity-0 peer-checked:opacity-100 pointer-events-none z-10"
+								viewBox="0 0 14 10"
+								fill="none"
+								xmlns="http://www.w3.org/2000/svg"
+								><path
+									d="M1 5L4.5 8.5L13 1"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/></svg
+							>
+						</div>
+						<label
+							for="confirm-exempt-checkbox"
+							class="text-white font-bold cursor-pointer text-sm"
+							title="If checked, only receives notifications for NCG Show, NCG 360, DSTRKT, and Tour Prod."
+							>Exempt Filter</label
 						>
 					</div>
 				</div>
