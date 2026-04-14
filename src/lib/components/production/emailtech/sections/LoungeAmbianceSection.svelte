@@ -29,7 +29,7 @@
         'Other',
         'No Music',
         '5PM - Playlist & 10PM - Bazart Music',
-        '5PM - Playlist & 10PM - Main Room Music'
+        '5PM - Playlist & 12AM - Main Room Music (when Bazart closed)'
     ];
 
     // --- LOCAL STATE ---

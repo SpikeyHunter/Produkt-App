@@ -74,12 +74,12 @@
                     />
                     
                     <input 
-                        aria-label="Crew Names" 
-                        type="text" 
-                        bind:value={call.names} 
-                        on:input={(e) => handleNameInput(i, e)} 
-                        disabled={readOnly} 
-                        placeholder="Enter names here"
+                    aria-label="Crew Names" 
+                    type="text" 
+                    value={call.names} 
+                    on:input={(e) => handleNameInput(i, e)} 
+                    disabled={readOnly} 
+                    placeholder="Enter names here"
                         class="flex-1 bg-navbar border border-gray1 rounded-2xl px-4 py-2 text-sm text-white focus:border-lime focus:outline-none placeholder-gray2/50 transition-colors" 
                     />
                     

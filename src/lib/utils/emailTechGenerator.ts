@@ -221,7 +221,11 @@ export function generateTechEmailString(
 	}
 
 	// --- SPONSORS ---
-	const sponsorTxt = form.sponsor_name && form.sponsor_name !== 'None' ? form.sponsor_name : 'NONE';
+
+	let sponsorTxt = form.sponsor_name && form.sponsor_name !== 'None' ? form.sponsor_name : 'NONE';
+	if (sponsorTxt !== 'NONE' && form.sponsor_link) {
+		sponsorTxt += ` - <a href="${form.sponsor_link}">${form.sponsor_link}</a>`;
+	}
 	html += `<br><p style="margin: 0 0 10px 0;"><strong>Sponsors and/or branding:</strong> ${sponsorTxt}</p>`;
 
 	// --- POST SHOW ---

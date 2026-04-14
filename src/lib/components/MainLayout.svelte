@@ -43,20 +43,21 @@
 		const { data, error } = await supabase
 			.from('app_updates')
 			.select('*')
-			.order('created_at', { ascending: true }); // Oldest first so they read them chronologically
+			.order('created_at', { ascending: true });
 
+		// Oldest first so they read them chronologically
 		if (data && !error) {
-			pendingUpdates = data.filter(u => {
+			pendingUpdates = data.filter((u) => {
 				// Safety check: is there a JSONB array?
 				if (!u.target_users || !Array.isArray(u.target_users)) return false;
 
 				// Has the current user been targeted and NOT seen it?
 				const userTarget = u.target_users.find((tu: any) => tu.id === profile.id);
-				
+
 				if (userTarget && userTarget.seen === false) {
 					return true;
 				}
-				
+
 				return false;
 			});
 
@@ -107,7 +108,8 @@
 		ncgapp: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>`,
 		sultan: `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 24px; height: 24px;"><div style="width: 100%; height: 2px; background-color: currentColor;"></div><span style="font-family: sans-serif; font-weight: bold; font-size: 14px; line-height: 1; margin: 3px 0;">S+S</span><div style="width: 100%; height: 2px; background-color: currentColor;"></div></div>`,
 		bug: `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>`,
-		bazart: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="24" height="24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10 C22 4, 42 4, 54 10 C60 16, 60 32, 54 48 C48 60, 32 62, 20 58 C10 54, 6 44, 6 32 C6 20, 6 14, 10 10Z" stroke-width="3"/><path d="M20 20 C27 16, 37 16, 44 20 C48 24, 48 32, 45 40 C42 46, 36 50, 29 49 C23 48, 18 43, 17 36 C16 29, 17 24, 20 20Z" stroke-width="2.2"/><circle cx="32" cy="32" r="9" stroke-width="3.6"/><circle cx="32" cy="32" r="4" fill="currentColor" stroke="none"/><g stroke-width="1.6"><line x1="32" y1="12" x2="32" y2="7"/><line x1="26" y1="13" x2="24" y2="9"/><line x1="38" y1="13" x2="40" y2="9"/><line x1="20" y1="18" x2="17" y2="15"/><line x1="44" y1="18" x2="47" y2="15"/><line x1="14" y1="26" x2="10" y2="25"/><line x1="50" y1="26" x2="54" y2="25"/><line x1="12" y1="32" x2="7" y2="32"/><line x1="52" y1="32" x2="57" y2="32"/><line x1="14" y1="38" x2="10" y2="39"/><line x1="50" y1="38" x2="54" y2="39"/><line x1="20" y1="46" x2="17" y2="49"/><line x1="44" y1="46" x2="47" y2="49"/><line x1="26" y1="51" x2="24" y2="55"/><line x1="38" y1="51" x2="40" y2="55"/><line x1="32" y1="52" x2="32" y2="57"/></g></svg>`
+		bazart: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="24" height="24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M10 10 C22 4, 42 4, 54 10 C60 16, 60 32, 54 48 C48 60, 32 62, 20 58 C10 54, 6 44, 6 32 C6 20, 6 14, 10 10Z" stroke-width="3"/><path d="M20 20 C27 16, 37 16, 44 20 C48 24, 48 32, 45 40 C42 46, 36 50, 29 49 C23 48, 18 43, 17 36 C16 29, 17 24, 20 20Z" stroke-width="2.2"/><circle cx="32" cy="32" r="9" stroke-width="3.6"/><circle cx="32" cy="32" r="4" fill="currentColor" stroke="none"/><g stroke-width="1.6"><line x1="32" y1="12" x2="32" y2="7"/><line x1="26" y1="13" x2="24" y2="9"/><line x1="38" y1="13" x2="40" y2="9"/><line x1="20" y1="18" x2="17" y2="15"/><line x1="44" y1="18" x2="47" y2="15"/><line x1="14" y1="26" x2="10" y2="25"/><line x1="50" y1="26" x2="54" y2="25"/><line x1="12" y1="32" x2="7" y2="32"/><line x1="52" y1="32" x2="57" y2="32"/><line x1="14" y1="38" x2="10" y2="39"/><line x1="50" y1="38" x2="54" y2="39"/><line x1="20" y1="46" x2="17" y2="49"/><line x1="44" y1="46" x2="47" y2="49"/><line x1="26" y1="51" x2="24" y2="55"/><line x1="38" y1="51" x2="40" y2="55"/><line x1="32" y1="52" x2="32" y2="57"/></g></svg>`,
+		boxoffice: `<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="rotate(-45 12 12)"><path d="M3 6h18v4a2 2 0 0 0 0 4v4H3v-4a2 2 0 0 0 0-4z"/><path d="M12 7v10" stroke-dasharray="2 2" stroke-linecap="butt"/></g></svg>`
 	};
 
 	const menuItems: MenuItem[] = [
@@ -152,7 +154,6 @@
 			icon: icons.booking,
 			requiredPermission: 'Booking',
 			subItems: [
-				
 				{ label: 'Daily Count', route: '/booking/dailycount', requiredPermission: 'Booking' },
 				{ label: 'Talent Payments', route: '/booking/talentpayments', requiredPermission: 'Booking' },
 				{ label: 'Artist Availability', route: '/booking/artistavailability', requiredPermission: 'Booking' }
@@ -203,6 +204,14 @@
 		//	]
 		//},
 		{
+			id: 'boxoffice',
+			label: 'Box Office',
+			icon: icons.boxoffice,
+			requiredPermission: ['Booking', 'BoxOffice'],
+			route: '/boxoffice',
+			subItems: []
+		},
+		{
 			id: 'sultanshepard',
 			label: 'Sultan+Shepard',
 			icon: icons.sultan,
@@ -210,14 +219,14 @@
 			route: '/sultanshepard/djshow',
 			subItems: []
 		},
-		{
-			id: 'bazart',
-			label: 'Bazart',
-			icon: icons.bazart,
-			requiredPermission: 'bazart',
-			route: '/bazart',
-			subItems: []
-		}
+		//{
+		//	id: 'bazart',
+		//	label: 'Bazart',
+		//	icon: icons.bazart,
+		//	requiredPermission: 'bazart',
+		//	route: '/bazart',
+		//	subItems: []
+		//}
 	];
 
 	// --- LIFECYCLE ---
@@ -360,9 +369,9 @@
 			<div class="flex flex-col h-full">
 				<div class="nav-header" class:animate-in={playAnimations}>
 					<div class="header-content-expanded">
-						<img src="/images/ProduktXX_LOGO1.png" alt="ProduktXX Logo" class="logo mb-2" />
+						<img src="/images/ProduktXX_LOGO1.png" alt="ProduktXX Logo" class="logo mb-1" />
 						<div class="welcome-text">
-							<span class="text-sm text-gray2">Welcome back!</span>
+							<span class="text-xs text-gray2">Welcome back!</span>
 						</div>
 					</div>
 					<button
@@ -381,7 +390,7 @@
 							<div
 								class="nav-item-container"
 								in:fly={playAnimations
-									? { y: 20, duration: 400, delay: i * 50 + 200, easing: quintOut }
+									? { y: 15, duration: 300, delay: i * 35 + 150, easing: quintOut }
 									: { duration: 0 }}
 							>
 								<button
@@ -459,7 +468,7 @@
 								<span class="icon">
 									{#if isLoading}
 										<div
-											class="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"
+											class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"
 										></div>
 									{:else}
 										{@html icons.logout}
@@ -482,9 +491,9 @@
 
 <style>
 	:root {
-		--nav-width-expanded: 256px;
-		--nav-width-collapsed: 88px;
-		--transition-duration: 0.3s;
+		--nav-width-expanded: 240px;
+		--nav-width-collapsed: 72px;
+		--transition-duration: 0.25s;
 		--transition-easing: cubic-bezier(0.4, 0, 0.2, 1);
 		--nav-bg: var(--color-navbar);
 		--accent-color: var(--color-lime);
@@ -516,14 +525,15 @@
 		position: relative;
 		display: flex;
 		align-items: center;
-		padding: 1.5rem;
-		height: 89px;
+		padding: 1rem;
+		height: 72px;
 		flex-shrink: 0;
+		overflow: hidden;
 	}
 	@keyframes header-fade-in {
 		from {
 			opacity: 0;
-			transform: translateY(-20px);
+			transform: translateY(-15px);
 		}
 		to {
 			opacity: 1;
@@ -531,25 +541,29 @@
 		}
 	}
 	.nav-header.animate-in {
-		animation: header-fade-in 0.4s var(--transition-easing) forwards;
+		animation: header-fade-in 0.3s var(--transition-easing) forwards;
 	}
 	.header-content-expanded {
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
 		transition:
-			opacity 0.2s ease-in-out,
-			transform 0.3s var(--transition-easing);
+			opacity 0.25s var(--transition-easing),
+			transform 0.25s var(--transition-easing);
 		opacity: 1;
 		transform: translateX(0);
+		white-space: nowrap;
+		overflow: hidden;
+		width: 100%;
 	}
 	.navbar.collapsed .header-content-expanded {
 		opacity: 0;
 		pointer-events: none;
-		transform: translateX(-20px);
+		transform: translateX(-15px);
 	}
 	.logo {
-		height: 1.5rem;
+		height: 1.25rem;
+		transition: transform var(--transition-duration) var(--transition-easing);
 	}
 	.toggle-button-collapsed {
 		position: absolute;
@@ -560,7 +574,7 @@
 		border-radius: 0.5rem;
 		color: var(--text-secondary);
 		cursor: pointer;
-		transition: opacity 0.2s ease-in-out;
+		transition: opacity 0.25s ease-in-out;
 		opacity: 0;
 		pointer-events: none;
 	}
@@ -573,31 +587,31 @@
 		background-color: var(--hover-bg);
 	}
 	.nav-scroll-area {
-		padding: 0 1rem 1rem 1rem;
+		padding: 0 0.8rem 0.8rem 0.8rem;
 		overflow-y: auto;
 		overflow-x: hidden;
 	}
 	.nav-separator {
 		height: 1px;
 		background-color: var(--color-gray1);
-		margin: 1rem 0;
+		margin: 0.75rem 0;
 		transition: opacity var(--transition-duration) var(--transition-easing);
 	}
 	.navbar.collapsed .nav-separator {
 		opacity: 0;
 	}
 	.nav-item-container {
-		margin-bottom: 0.35rem;
+		margin-bottom: 0.5rem;
 	}
 	.nav-button {
 		display: flex;
 		align-items: center;
 		width: 100%;
-		padding: 0.75rem 1rem;
-		border-radius: 0.75rem;
+		padding: 0.6rem 1rem;
+		border-radius: 0.5rem;
 		text-align: left;
 		font-weight: 700;
-		font-size: 1rem;
+		font-size: 0.95rem;
 		color: var(--text-secondary);
 		transition:
 			background-color 0.2s ease,
@@ -623,7 +637,7 @@
 	}
 	.icon {
 		flex-shrink: 0;
-		margin-right: 1rem;
+		margin-right: 0.75rem;
 		transition: margin-right var(--transition-duration) var(--transition-easing);
 	}
 	.icon :global(img) {
@@ -666,15 +680,15 @@
 	}
 	.submenu-content {
 		overflow: hidden;
-		padding-top: 0.25rem;
-		padding-left: 1.5rem;
+		padding-top: 0.15rem;
+		padding-left: 1.25rem;
 	}
 	.submenu-button {
 		display: block;
 		width: 100%;
-		padding: 0.5rem 1rem;
+		padding: 0.4rem 0.75rem;
 		text-align: left;
-		font-size: 0.875rem;
+		font-size: 0.85rem;
 		border-radius: 0.5rem;
 		color: var(--text-secondary);
 		transition:

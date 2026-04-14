@@ -80,7 +80,9 @@ export function generateVJEmailString(events: EmailTechEvent[], form: TechEmailF
         html += `<p style="margin: 0 0 10px 0;">@${vjName}: ${form.vj_notes.replace(/\n/g, '<br>')}</p>`;
     }
 
-    html += `<p style="margin: 0 0 10px 0;"><strong>Branding/Sponsor:</strong> ${form.sponsors || 'NONE'}</p>`;
+    const sponsorName = (form.sponsor_name && form.sponsor_name !== 'None') ? form.sponsor_name : 'NONE';
+    const sponsorLinkStr = (sponsorName !== 'NONE' && form.sponsor_link) ? ` - <a href="${form.sponsor_link}">Link</a>` : '';
+    html += `<p style="margin: 0 0 10px 0;"><strong>Branding/Sponsor:</strong> ${sponsorName}${sponsorLinkStr}</p>`;
 
     (form.specs_links || []).forEach((l) => {
         html += `<p style="margin: 0;"><strong>${l.label}</strong>: <a href="${l.url}">${l.url}</a></p>`;

@@ -130,7 +130,7 @@
 	<title>Artist Liaison - NCG</title>
 </svelte:head>
 
-<MainLayout pageTitle="Artist Liaison" requiredPermission="ArtistLiaison">
+<MainLayout pageTitle="Artist Liaison">
 	<div class="h-full overflow-hidden p-6">
 		<div class="liaison-container fade-in {mounted ? 'mounted' : ''}">
 			<div class="selector-column">

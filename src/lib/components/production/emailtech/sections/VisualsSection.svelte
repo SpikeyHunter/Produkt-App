@@ -111,7 +111,6 @@
 	// --- 4. UPDATE FUNCTIONS (Local -> Data) ---
 	// Triggered by user input.
 	// Updates formData immediately.
-
 	function updateOutdoorData() {
 		const validTime = outdoorTime || (isBazart ? '17:00' : '21:30');
 		const name = isStandardVenue ? standardLogoName : customLogoName;
@@ -154,6 +153,7 @@
 		if (match12) {
 			const timePart = match12[1];
 			const period = match12[2].toUpperCase();
+
 			let [h, m] = timePart.split(':').map(Number);
 			if (period === 'PM' && h < 12) h += 12;
 			if (period === 'AM' && h === 12) h = 0;
@@ -181,20 +181,26 @@
 		{ label: 'Corona', color: '#d7b8e8ff' },
 		{ label: 'Other', color: '#9ca3af' }
 	];
+
 	let showSponsorDropdown = false;
 
 	// Safety check for undefined
 	$: if (formData.sponsor_name === undefined) formData.sponsor_name = 'None';
+
 	$: currentSponsorLabel = (() => {
-		if (!formData.sponsor_name || formData.sponsor_name === 'None') return 'None';
+		if (formData.sponsor_name === 'None') return 'None';
+		// Fix: If an empty string exists, assume it's 'Other' awaiting input
+		if (!formData.sponsor_name) return 'Other';
 		const match = SPONSOR_OPTIONS.find((opt) => opt.label === formData.sponsor_name);
 		return match ? match.label : 'Other';
 	})();
+
 	$: currentSponsorColor = (() => {
 		if (currentSponsorLabel === 'Other') return '#9ca3af';
 		const match = SPONSOR_OPTIONS.find((opt) => opt.label === currentSponsorLabel);
 		return match ? match.color : '#52525b';
 	})();
+
 	function selectSponsor(option: (typeof SPONSOR_OPTIONS)[0]) {
 		formData.sponsor_name = option.label === 'Other' ? '' : option.label;
 		showSponsorDropdown = false;
@@ -387,7 +393,7 @@
 				</div>
 			{/if}
 
-			{#if formData.sponsor_name && formData.sponsor_name !== 'None'}
+			{#if currentSponsorLabel !== 'None'}
 				<div transition:fly={{ y: -5, duration: 150 }} class="flex flex-col gap-1.5">
 					<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Sponsor Visuals Link</span>
 					<input
