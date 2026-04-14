@@ -36,139 +36,11 @@
 	// --- 2. LOCAL STATE ---
 	let outdoorTime = '';
 	let customLogoName = 'Custom Logo';
+	let customOutdoorText = 'Link: ';
 	let customInteriorText = 'Link: \nStage: \nShow Artwork: ';
 	let removalTime = '';
 
-	// --- 3. SYNC LOGIC (The Fix) ---
-	// This reactive block runs whenever formData changes (e.g. switching events).
-	// It parses the saved string back into the separate input variables.
-	$: {
-		if (formData) {
-			syncOutdoorFromProp();
-			syncInteriorFromProp();
-		}
-	}
-
-	function syncOutdoorFromProp() {
-		if (formData.projector_outdoor) {
-			// Parse existing data
-			const parsed = parseTimeFromText(formData.projector_outdoor);
-			// Only update if we have a valid parse, otherwise keep current or default
-			if (parsed) outdoorTime = parsed;
-
-			// Parse Custom Logo or Upgrade Standard Venue Data
-			if (!isStandardVenue) {
-				// Ignore the injected link on line 2 if it exists
-				const firstLine = formData.projector_outdoor.split('\n')[0];
-				const parts = firstLine.split(' - ');
-				if (parts.length > 1) {
-					const extractedName = parts.slice(1).join(' - ');
-					if (extractedName) customLogoName = extractedName;
-				}
-			} else {
-				// FIX: Automatically upgrade old data (like "NCG Logo") to the new "Animation" format and append link
-				const currentText = formData.projector_outdoor;
-				const needsUpgrade =
-					!currentText.includes(standardLogoName) ||
-					(projectorLink && !currentText.includes(projectorLink));
-
-				if (needsUpgrade) {
-					let outdoorText = `${formatTimeDisplay(outdoorTime)} - ${standardLogoName}`;
-					if (projectorLink) {
-						outdoorText += `\nLink : ${projectorLink}`;
-					}
-					formData.projector_outdoor = outdoorText;
-				}
-			}
-		} else {
-			// Set defaults if empty
-			outdoorTime = isBazart ? '17:00' : '21:30';
-
-			// Ensure the initial blank state gets populated correctly
-			let outdoorText = `${formatTimeDisplay(outdoorTime)} - ${isStandardVenue ? standardLogoName : customLogoName}`;
-			if (isStandardVenue && projectorLink) {
-				outdoorText += `\nLink : ${projectorLink}`;
-			}
-			formData.projector_outdoor = outdoorText;
-		}
-	}
-
-	function syncInteriorFromProp() {
-		if (formData.visuals_interior) {
-			const parsed = parseTimeFromText(formData.visuals_interior);
-			if (parsed) removalTime = parsed;
-
-			// Parse Custom Text
-			if (!isStandardVenue) {
-				const splitContent = formData.visuals_interior.split('\nPlease remove');
-				if (splitContent[0]) customInteriorText = splitContent[0];
-			}
-		} else {
-			removalTime = '00:00';
-		}
-	}
-
-	// --- 4. UPDATE FUNCTIONS (Local -> Data) ---
-	// Triggered by user input.
-	// Updates formData immediately.
-	function updateOutdoorData() {
-		const validTime = outdoorTime || (isBazart ? '17:00' : '21:30');
-		const name = isStandardVenue ? standardLogoName : customLogoName;
-
-		let outdoorText = `${formatTimeDisplay(validTime)} - ${name}`;
-
-		if (projectorLink) {
-			outdoorText += `\nLink : ${projectorLink}`;
-		}
-
-		// This format must match what parseTimeFromText expects to avoid jumping
-		formData.projector_outdoor = outdoorText;
-		dispatch('change');
-	}
-
-	function updateInteriorData() {
-		if (isBazart) {
-			formData.visuals_interior = '';
-		} else {
-			const content = isNCG || isDSTRKT ? standardInteriorText : customInteriorText;
-			const validTime = removalTime || '00:00';
-			formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} TVS only`;
-		}
-		dispatch('change');
-	}
-
-	// --- HELPER: Time Parsing/Formatting ---
-	function formatTimeDisplay(time: string) {
-		if (!time) return '';
-		const [h, m] = time.split(':').map(Number);
-		const ampm = h >= 12 ? 'PM' : 'AM';
-		const h12 = h % 12 || 12;
-		return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
-	}
-
-	function parseTimeFromText(text: string): string | null {
-		if (!text) return null;
-		// Matches "5:00 PM" or "17:00"
-		const match12 = text.match(/(\d{1,2}:\d{2})\s*(AM|PM)/i);
-		if (match12) {
-			const timePart = match12[1];
-			const period = match12[2].toUpperCase();
-
-			let [h, m] = timePart.split(':').map(Number);
-			if (period === 'PM' && h < 12) h += 12;
-			if (period === 'AM' && h === 12) h = 0;
-			return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-		}
-		const match24 = text.match(/(\d{1,2}:\d{2})/);
-		return match24 ? match24[1] : null;
-	}
-
-	function adjustHeight(el: HTMLTextAreaElement) {
-		el.style.height = 'auto';
-		el.style.height = el.scrollHeight + 'px';
-	}
-
-	// --- 5. SPONSOR LOGIC ---
+	// --- 3. SPONSOR LOGIC (Moved up for reactivity) ---
 	const SPONSOR_OPTIONS = [
 		{ label: 'None', color: '#52525b' },
 		{ label: 'Patron', color: '#ffe089ff' },
@@ -184,12 +56,10 @@
 
 	let showSponsorDropdown = false;
 
-	// Safety check for undefined
 	$: if (formData.sponsor_name === undefined) formData.sponsor_name = 'None';
 
 	$: currentSponsorLabel = (() => {
 		if (formData.sponsor_name === 'None') return 'None';
-		// Fix: If an empty string exists, assume it's 'Other' awaiting input
 		if (!formData.sponsor_name) return 'Other';
 		const match = SPONSOR_OPTIONS.find((opt) => opt.label === formData.sponsor_name);
 		return match ? match.label : 'Other';
@@ -201,10 +71,158 @@
 		return match ? match.color : '#52525b';
 	})();
 
+	// The Core Fix: Stage specs ONLY override if sponsor is NOT custom.
+	$: useStandardLogo = isStandardVenue && currentSponsorLabel !== 'Other';
+
+	// --- 4. SYNC LOGIC ---
+	$: {
+		if (formData && typeof useStandardLogo === 'boolean') {
+			syncOutdoorFromProp(useStandardLogo);
+			syncInteriorFromProp(useStandardLogo);
+		}
+	}
+
+	function syncOutdoorFromProp(useStdLogo: boolean) {
+		if (formData.projector_outdoor) {
+			const parsed = parseTimeFromText(formData.projector_outdoor);
+			if (parsed) outdoorTime = parsed;
+
+			if (!useStdLogo) {
+				// Parse custom content for text areas
+				const lines = formData.projector_outdoor.split('\n');
+				const firstLine = lines[0] || '';
+				const parts = firstLine.split(' - ');
+				if (parts.length > 1) {
+					const extractedName = parts.slice(1).join(' - ');
+					if (extractedName) customLogoName = extractedName;
+				} else if (firstLine && !parsed) {
+					customLogoName = firstLine;
+				}
+				
+				if (lines.length > 1) {
+					customOutdoorText = lines.slice(1).join('\n');
+				} else {
+					customOutdoorText = projectorLink ? `Link: ${projectorLink}` : 'Link: ';
+				}
+			} else {
+				// Enforce Standard Layout
+				const currentText = formData.projector_outdoor;
+				const needsUpgrade =
+					!currentText.includes(standardLogoName) ||
+					(projectorLink && !currentText.includes(projectorLink));
+
+				if (needsUpgrade) {
+					let outdoorText = `${formatTimeDisplay(outdoorTime)} - ${standardLogoName}`;
+					if (projectorLink) {
+						outdoorText += `\nLink: ${projectorLink}`;
+					}
+					formData.projector_outdoor = outdoorText;
+				}
+			}
+		} else {
+			outdoorTime = isBazart ? '17:00' : '21:30';
+			customLogoName = standardLogoName || 'Custom Logo';
+			customOutdoorText = projectorLink ? `Link: ${projectorLink}` : 'Link: ';
+			
+			let outdoorText = `${formatTimeDisplay(outdoorTime)} - ${useStdLogo ? standardLogoName : customLogoName}`;
+			if (useStdLogo && projectorLink) {
+				outdoorText += `\nLink: ${projectorLink}`;
+			}
+			formData.projector_outdoor = outdoorText;
+		}
+	}
+
+	function syncInteriorFromProp(useStdLogo: boolean) {
+		if (formData.visuals_interior) {
+			const parsed = parseTimeFromText(formData.visuals_interior);
+			if (parsed) removalTime = parsed;
+
+			if (!useStdLogo) {
+				// Allow editing the main body
+				const splitContent = formData.visuals_interior.split('\nPlease remove');
+				if (splitContent[0]) {
+					customInteriorText = splitContent[0];
+				}
+			} else {
+				// Enforce Standard Layout for Interior
+				if (isNCG || isDSTRKT) {
+					const validTime = removalTime || '00:00';
+					formData.visuals_interior = `${standardInteriorText}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} TVS only`;
+				}
+			}
+		} else {
+			removalTime = '00:00';
+			customInteriorText = standardInteriorText || 'Link: \nStage: \nShow Artwork: ';
+		}
+	}
+
+	// --- 5. UPDATE FUNCTIONS ---
+	function updateOutdoorData() {
+		const validTime = outdoorTime || (isBazart ? '17:00' : '21:30');
+		const name = useStandardLogo ? standardLogoName : customLogoName;
+
+		let outdoorText = `${formatTimeDisplay(validTime)} - ${name}`;
+
+		if (useStandardLogo && projectorLink) {
+			outdoorText += `\nLink: ${projectorLink}`;
+		} else if (!useStandardLogo) {
+			if (customOutdoorText.trim() !== '') {
+				outdoorText += `\n${customOutdoorText}`;
+			}
+		}
+
+		formData.projector_outdoor = outdoorText;
+		dispatch('change');
+	}
+
+	function updateInteriorData() {
+		if (isBazart) {
+			formData.visuals_interior = '';
+		} else {
+			const content = useStandardLogo && (isNCG || isDSTRKT) ? standardInteriorText : customInteriorText;
+			const validTime = removalTime || '00:00';
+			formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} TVS only`;
+		}
+		dispatch('change');
+	}
+
+	function formatTimeDisplay(time: string) {
+		if (!time) return '';
+		const [h, m] = time.split(':').map(Number);
+		const ampm = h >= 12 ? 'PM' : 'AM';
+		const h12 = h % 12 || 12;
+		return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+	}
+
+	function parseTimeFromText(text: string): string | null {
+		if (!text) return null;
+		const match12 = text.match(/(\d{1,2}:\d{2})\s*(AM|PM)/i);
+		if (match12) {
+			const timePart = match12[1];
+			const period = match12[2].toUpperCase();
+			let [h, m] = timePart.split(':').map(Number);
+			if (period === 'PM' && h < 12) h += 12;
+			if (period === 'AM' && h === 12) h = 0;
+			return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+		}
+		const match24 = text.match(/(\d{1,2}:\d{2})/);
+		return match24 ? match24[1] : null;
+	}
+
+	function adjustHeight(el: HTMLTextAreaElement) {
+		el.style.height = 'auto';
+		el.style.height = el.scrollHeight + 'px';
+	}
+
 	function selectSponsor(option: (typeof SPONSOR_OPTIONS)[0]) {
 		formData.sponsor_name = option.label === 'Other' ? '' : option.label;
 		showSponsorDropdown = false;
 		dispatch('change');
+		
+		setTimeout(() => {
+			updateOutdoorData();
+			updateInteriorData();
+		}, 0);
 	}
 
 	function handleReset() {
@@ -212,7 +230,8 @@
 		outdoorTime = isBazart ? '17:00' : '21:30';
 		removalTime = '00:00';
 		customLogoName = 'Custom Logo';
-		customInteriorText = 'Link: \nStage: \nShow Artwork: ';
+		customOutdoorText = projectorLink ? `Link: ${projectorLink}` : 'Link: ';
+		customInteriorText = standardInteriorText || 'Link: \nStage: \nShow Artwork: ';
 		formData.sponsor_name = 'None';
 		formData.sponsor_link = '';
 
@@ -223,7 +242,9 @@
 	function handleToggle(e: CustomEvent) {
 		dispatch('toggle', e.detail);
 	}
+	
 	function handleChange() {
+		updateOutdoorData();
 		dispatch('change');
 	}
 </script>
@@ -245,6 +266,7 @@
 >
 	<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 		<div class="flex flex-col gap-6">
+			
 			<div class="flex flex-col gap-1.5">
 				<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Exterior Projector</span>
 
@@ -255,11 +277,11 @@
 						bind:value={outdoorTime}
 						on:input={updateOutdoorData}
 						disabled={readOnly}
-						class="bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white w-[5.5rem] text-center focus:border-lime focus:outline-none transition-colors"
+						class="bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white w-[5.5rem] flex-shrink-0 text-center focus:border-lime focus:outline-none transition-colors"
 					/>
 
-					{#if isStandardVenue}
-						<span class="text-sm text-gray2 font-bold select-none">{standardLogoName}</span>
+					{#if useStandardLogo}
+						<span class="text-sm text-gray2 font-bold select-none truncate">{standardLogoName}</span>
 					{:else}
 						<input
 							aria-label="Custom Logo Name"
@@ -267,18 +289,30 @@
 							bind:value={customLogoName}
 							on:input={updateOutdoorData}
 							disabled={readOnly}
-							class="bg-transparent border-b border-gray1 px-2 py-1 text-sm text-white focus:border-lime focus:outline-none placeholder-gray2/50 transition-colors w-full max-w-[12rem]"
+							class="bg-transparent border-b border-gray1 px-2 py-1 text-sm text-white focus:border-lime focus:outline-none placeholder-gray2/50 transition-colors flex-1 min-w-0"
 							placeholder="Logo Name"
 						/>
 					{/if}
 				</div>
 
-				{#if isStandardVenue && projectorLink}
+				{#if useStandardLogo && projectorLink}
 					<div
 						class="bg-gray1/20 border border-gray1 rounded-2xl p-3 text-xs text-gray3 font-mono leading-relaxed whitespace-pre-wrap select-text mt-2"
 					>
 						Link: {projectorLink}
 					</div>
+				{:else if !useStandardLogo}
+					<textarea
+						bind:value={customOutdoorText}
+						on:input={(e) => {
+							adjustHeight(e.target as HTMLTextAreaElement);
+							updateOutdoorData();
+						}}
+						disabled={readOnly}
+						rows="2"
+						placeholder="Link: "
+						class="w-full bg-navbar border border-gray1 rounded-2xl p-3 text-xs text-white font-mono leading-relaxed focus:border-lime focus:outline-none placeholder-gray2/50 resize-none overflow-hidden mt-2"
+					></textarea>
 				{/if}
 			</div>
 
@@ -286,7 +320,7 @@
 				<div class="flex flex-col gap-1.5" transition:fly={{ y: -5, duration: 200 }}>
 					<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Interior / TVS</span>
 
-					{#if isDSTRKT || isNCG}
+					{#if useStandardLogo && (isDSTRKT || isNCG)}
 						<div
 							class="bg-gray1/20 border border-gray1 rounded-2xl p-3 text-xs text-gray3 font-mono leading-relaxed whitespace-pre-wrap select-text"
 						>
@@ -312,7 +346,7 @@
 							bind:value={removalTime}
 							on:input={updateInteriorData}
 							disabled={readOnly}
-							class="bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white w-[5.5rem] text-center focus:border-lime focus:outline-none transition-colors"
+							class="bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white w-[5.5rem] flex-shrink-0 text-center focus:border-lime focus:outline-none transition-colors"
 						/>
 						<span class="text-sm text-gray2 font-bold">Remove Artwork TVS only</span>
 					</div>
