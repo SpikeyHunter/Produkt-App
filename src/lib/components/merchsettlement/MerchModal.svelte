@@ -34,6 +34,7 @@
 	let filteredEvents: any[] = [];
 	let searchValue = '';
 	let showEventDropdown = false;
+	let eventFilter: 'LIVE' | 'PAST' = 'LIVE';
 
 	// Form State
 	let isCustomEvent = false;
@@ -69,11 +70,26 @@
 	}
 
 	async function loadEvents() {
-		const { data } = await supabase
+		const isLive = eventFilter === 'LIVE';
+
+		// Get today's date formatted as YYYY-MM-DD for Supabase comparison
+		const today = new Date().toISOString().split('T')[0];
+
+		let query = supabase
 			.from('events')
 			.select('event_id, event_name, event_date, event_flyer')
-			.eq('event_status', 'LIVE')
-			.order('event_date', { ascending: true });
+			.eq('event_status', eventFilter)
+			// LIVE: Ascending (Today -> Furthest) | PAST: Descending (Yesterday -> Oldest)
+			.order('event_date', { ascending: isLive });
+
+		// Apply date boundaries based on toggle
+		if (isLive) {
+			query = query.gte('event_date', today);
+		} else {
+			query = query.lt('event_date', today);
+		}
+
+		const { data } = await query;
 
 		if (data) {
 			availableEvents = data.filter((e) => {
@@ -82,6 +98,17 @@
 			});
 		} else {
 			availableEvents = [];
+		}
+
+		// Re-trigger the search filter to update the dropdown immediately
+		if (searchValue && !isCustomEvent) {
+			filteredEvents = availableEvents.filter(
+				(event) =>
+					event.event_name.toLowerCase().includes(searchValue.toLowerCase()) ||
+					event.event_id.toString().includes(searchValue)
+			);
+		} else {
+			filteredEvents = availableEvents;
 		}
 	}
 	async function loadExistingSettlements() {
@@ -320,7 +347,38 @@
 			<div class="flex-1 overflow-y-auto p-6 space-y-8 custom-scroll flex flex-col">
 				{#if !isCustomEvent}
 					<div class="dropdown-container relative z-10">
-						<p class="text-lime text-sm font-bold mb-2 block">Search Events</p>
+						<div class="flex items-center justify-between mb-2">
+							<p class="text-lime text-sm font-bold block">Search Events</p>
+
+							<div class="flex bg-gray1 border border-gray2/20 rounded-lg p-0.5">
+								<button
+									type="button"
+									class="px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer {eventFilter ===
+									'LIVE'
+										? 'bg-lime text-black'
+										: 'text-gray2 hover:text-white'}"
+									on:click={() => {
+										eventFilter = 'LIVE';
+										loadEvents();
+									}}
+								>
+									LIVE
+								</button>
+								<button
+									type="button"
+									class="px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer {eventFilter ===
+									'PAST'
+										? 'bg-lime text-black'
+										: 'text-gray2 hover:text-white'}"
+									on:click={() => {
+										eventFilter = 'PAST';
+										loadEvents();
+									}}
+								>
+									PAST
+								</button>
+							</div>
+						</div>
 						<div class="relative">
 							<input
 								id="event-search"
