@@ -24,7 +24,6 @@
 	let items: MerchItem[] = [];
 	let channel: any;
 	let saveDebounce: any;
-
 	let itemToDelete: string | null = null;
 
 	onMount(() => {
@@ -75,7 +74,6 @@
 	function saveToDb() {
 		if (saveDebounce) clearTimeout(saveDebounce);
 		saveDebounce = setTimeout(async () => {
-			// Clean up any legacy error properties from DB just in case
 			const cleanItems = items.map((item) => {
 				const { _errorSize, _errors, ...rest } = item as any;
 				return rest;
@@ -122,14 +120,12 @@
 
 	function updateCell(itemIdx: number, size: string, field: 'qty' | 'finals' | 'sales', e: Event) {
 		const inputEl = e.currentTarget as HTMLInputElement;
-		
 		const isEmpty = inputEl.value === '';
 		let val = isEmpty ? 0 : parseInt(inputEl.value);
 
 		if (isNaN(val)) val = 0;
-
 		const item = items[itemIdx];
-		item[field][size] = val; // Store exactly what they typed
+		item[field][size] = val;
 
 		// Recalculate dependent cell based on strict mode math
 		if (field === 'qty') {
@@ -169,8 +165,8 @@
 			></div>
 		{:else}
 			<div class="p-5 border-b border-gray2/20 flex justify-between items-center bg-gray1/50">
-				<h2 class="text-white font-bold text-lg">{settlement.event_name}</h2>
-				<div class="flex items-center gap-4">
+				<h2 class="text-white font-bold text-lg truncate pr-4">{settlement.event_name}</h2>
+				<div class="flex items-center gap-4 shrink-0">
 					<div class="flex items-center gap-1 bg-gray1 rounded-full p-1">
 						<button
 							on:click={toggleInputMode}
@@ -196,7 +192,7 @@
 			</div>
 
 			<div class="flex-1 overflow-auto custom-scroll p-4">
-				<table class="w-full text-left border-collapse">
+				<table class="w-full text-left border-collapse table-fixed">
 					<thead>
 						<tr>
 							<th class="p-3 border-b border-gray2/20 text-gray3 font-bold uppercase text-xs"
@@ -207,7 +203,7 @@
 							>
 							{#each settlement.sizes as size}
 								<th
-									class="p-3 border-b border-gray2/20 text-center text-gray3 font-bold text-xs w-16"
+									class="p-3 border-b border-gray2/20 text-center text-gray3 font-bold text-xs min-w-[5.5rem]"
 									>{size}</th
 								>
 							{/each}
@@ -225,8 +221,8 @@
 										on:input={saveToDb}
 										class="w-full bg-gray1 rounded-3xl text-sm px-4 py-1 text-white font-bold mb-2 placeholder-gray2"
 									/>
-									<div class="flex items-center text-lime text-sm">
-										<p>Price {currencySym}</p>
+									<div class="flex items-center justify-end text-lime text-sm">
+										<p class="whitespace-nowrap">Price {currencySym}</p>
 										<input
 											type="number"
 											step="0.01"
@@ -256,16 +252,25 @@
 									</div>
 								</td>
 								{#each settlement.sizes as size}
-									{@const hasError = item.qty[size] < 0 || item.finals[size] < 0 || item.sales[size] < 0}
+									{@const hasError =
+										item.qty[size] < 0 || item.finals[size] < 0 || item.sales[size] < 0}
 
 									<td class="p-3 align-top pt-5 space-y-3 text-center">
 										<input
 											type="number"
 											value={item.qty[size]}
 											on:change={(e) => updateCell(i, size, 'qty', e)}
-											on:focus={(e) => { if(e.currentTarget.value === '0') e.currentTarget.value = ''; else e.currentTarget.select(); }}
-											on:blur={(e) => { if(e.currentTarget.value === '') e.currentTarget.value = '0'; updateCell(i, size, 'qty', e); }}
-											class="w-full text-center bg-gray1 {hasError ? 'border-2 border-problem focus:border-problem text-problem' : ''} rounded-lg px-1 h-8 text-xs text-white outline-none transition-colors"
+											on:focus={(e) => {
+												if (e.currentTarget.value === '0') e.currentTarget.value = '';
+												else e.currentTarget.select();
+											}}
+											on:blur={(e) => {
+												if (e.currentTarget.value === '') e.currentTarget.value = '0';
+												updateCell(i, size, 'qty', e);
+											}}
+											class="w-full text-center bg-gray1 {hasError
+												? 'border-2 border-problem focus:border-problem text-problem'
+												: ''} rounded-lg px-1 h-8 text-xs text-white outline-none transition-colors"
 										/>
 
 										{#if settlement.input_mode === 'final'}
@@ -273,13 +278,23 @@
 												type="number"
 												value={item.finals[size]}
 												on:change={(e) => updateCell(i, size, 'finals', e)}
-												on:focus={(e) => { if(e.currentTarget.value === '0') e.currentTarget.value = ''; else e.currentTarget.select(); }}
-												on:blur={(e) => { if(e.currentTarget.value === '') e.currentTarget.value = '0'; updateCell(i, size, 'finals', e); }}
-												class="w-full text-center bg-gray1 {hasError ? 'border-2 border-problem focus:border-problem text-problem' : 'bg-lime/10 text-lime'} rounded-lg px-1 h-8 text-xs outline-none transition-colors"
+												on:focus={(e) => {
+													if (e.currentTarget.value === '0') e.currentTarget.value = '';
+													else e.currentTarget.select();
+												}}
+												on:blur={(e) => {
+													if (e.currentTarget.value === '') e.currentTarget.value = '0';
+													updateCell(i, size, 'finals', e);
+												}}
+												class="w-full text-center bg-gray1 {hasError
+													? 'border-2 border-problem focus:border-problem text-problem'
+													: 'bg-lime/10 text-lime'} rounded-lg px-1 h-8 text-xs outline-none transition-colors"
 											/>
 										{:else}
 											<div
-												class="h-8 text-xs flex items-center justify-center font-medium bg-gray1/20 border border-transparent rounded-lg {hasError ? 'text-problem border-problem' : 'text-gray2'}"
+												class="h-8 text-xs flex items-center justify-center font-medium bg-gray1/20 border border-transparent rounded-lg {hasError
+													? 'text-problem border-problem'
+													: 'text-gray2'}"
 											>
 												{item.finals[size]}
 											</div>
@@ -290,13 +305,23 @@
 												type="number"
 												value={item.sales[size]}
 												on:change={(e) => updateCell(i, size, 'sales', e)}
-												on:focus={(e) => { if(e.currentTarget.value === '0') e.currentTarget.value = ''; else e.currentTarget.select(); }}
-												on:blur={(e) => { if(e.currentTarget.value === '') e.currentTarget.value = '0'; updateCell(i, size, 'sales', e); }}
-												class="w-full text-center bg-gray1 {hasError ? 'border-2 border-problem focus:border-problem text-problem' : 'bg-lime/10 text-lime'} rounded-lg px-1 h-8 text-xs outline-none transition-colors"
+												on:focus={(e) => {
+													if (e.currentTarget.value === '0') e.currentTarget.value = '';
+													else e.currentTarget.select();
+												}}
+												on:blur={(e) => {
+													if (e.currentTarget.value === '') e.currentTarget.value = '0';
+													updateCell(i, size, 'sales', e);
+												}}
+												class="w-full text-center bg-gray1 {hasError
+													? 'border-2 border-problem focus:border-problem text-problem'
+													: 'bg-lime/10 text-lime'} rounded-lg px-1 h-8 text-xs outline-none transition-colors"
 											/>
 										{:else}
 											<div
-												class="h-8 text-xs flex items-center justify-center font-medium bg-gray1/20 border border-transparent rounded-lg {hasError ? 'text-problem border-problem' : 'text-gray2'}"
+												class="h-8 text-xs flex items-center justify-center font-medium bg-gray1/20 border border-transparent rounded-lg {hasError
+													? 'text-problem border-problem'
+													: 'text-gray2'}"
 											>
 												{item.sales[size]}
 											</div>

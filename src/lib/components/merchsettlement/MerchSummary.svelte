@@ -44,7 +44,6 @@
 
 		try {
 			const htmlContent = getTemplateHtml();
-
 			const res = await fetch('/api/generate-merch-pdf', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },

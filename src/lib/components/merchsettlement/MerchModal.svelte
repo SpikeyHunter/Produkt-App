@@ -12,7 +12,7 @@
 	let existingSettlementIds: Set<string | number> = new Set();
 
 	const dispatch = createEventDispatcher();
-	const ALL_SIZES = ['3XS', '2XS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'];
+	const ALL_SIZES = ['All-Size', '3XS', '2XS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'];
 	const DEFAULT_SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL'];
 
 	const excludeKeywords = [
@@ -34,7 +34,6 @@
 	let filteredEvents: any[] = [];
 	let searchValue = '';
 	let showEventDropdown = false;
-	let eventFilter: 'LIVE' | 'PAST' = 'LIVE';
 
 	// Form State
 	let isCustomEvent = false;
@@ -55,7 +54,7 @@
 		showDeleteConfirm = false;
 		if (editData) loadEditData();
 		else resetForm();
-		loadExistingSettlements(); // <-- ADD THIS LINE
+		loadExistingSettlements();
 		loadEvents();
 	}
 
@@ -70,24 +69,11 @@
 	}
 
 	async function loadEvents() {
-		const isLive = eventFilter === 'LIVE';
-
-		// Get today's date formatted as YYYY-MM-DD for Supabase comparison
-		const today = new Date().toISOString().split('T')[0];
-
+		// Fetch events ordered from most recent to oldest
 		let query = supabase
 			.from('events')
 			.select('event_id, event_name, event_date, event_flyer')
-			.eq('event_status', eventFilter)
-			// LIVE: Ascending (Today -> Furthest) | PAST: Descending (Yesterday -> Oldest)
-			.order('event_date', { ascending: isLive });
-
-		// Apply date boundaries based on toggle
-		if (isLive) {
-			query = query.gte('event_date', today);
-		} else {
-			query = query.lt('event_date', today);
-		}
+			.order('event_date', { ascending: false });
 
 		const { data } = await query;
 
@@ -100,7 +86,6 @@
 			availableEvents = [];
 		}
 
-		// Re-trigger the search filter to update the dropdown immediately
 		if (searchValue && !isCustomEvent) {
 			filteredEvents = availableEvents.filter(
 				(event) =>
@@ -111,6 +96,7 @@
 			filteredEvents = availableEvents;
 		}
 	}
+	
 	async function loadExistingSettlements() {
 		const { data } = await supabase
 			.from('merch_settlements')
@@ -162,12 +148,26 @@
 	}
 
 	function toggleSize(size: string) {
-		if (selectedSizes.includes(size)) {
-			selectedSizes = selectedSizes.filter((s) => s !== size);
-		} else {
-			selectedSizes = [...selectedSizes, size];
-			selectedSizes.sort((a, b) => ALL_SIZES.indexOf(a) - ALL_SIZES.indexOf(b));
+		if (size === 'All-Size') {
+			if (selectedSizes.includes('All-Size')) {
+				selectedSizes = [];
+			} else {
+				selectedSizes = ['All-Size'];
+			}
+			return;
 		}
+
+		// If selecting a standard size, remove 'All-Size' if it was active
+		let newSizes = selectedSizes.filter(s => s !== 'All-Size');
+
+		if (newSizes.includes(size)) {
+			newSizes = newSizes.filter((s) => s !== size);
+		} else {
+			newSizes = [...newSizes, size];
+			newSizes.sort((a, b) => ALL_SIZES.indexOf(a) - ALL_SIZES.indexOf(b));
+		}
+		
+		selectedSizes = newSizes;
 	}
 
 	function selectEvent(event: any) {
@@ -256,16 +256,15 @@
 				.eq('id', editData.id)
 				.single();
 			let updatedItems = currentData?.items || [];
+
 			updatedItems = updatedItems.map((item: any) => {
 				// Check all possible sizes to catch unselected ones
 				ALL_SIZES.forEach((sz) => {
 					if (selectedSizes.includes(sz)) {
-						// Keep existing values or initialize to 0 if newly selected
 						if (item.qty[sz] === undefined) item.qty[sz] = 0;
 						if (item.finals[sz] === undefined) item.finals[sz] = 0;
 						if (item.sales[sz] === undefined) item.sales[sz] = 0;
 					} else {
-						// Force to 0 if the size was unselected
 						if (item.qty) item.qty[sz] = 0;
 						if (item.finals) item.finals[sz] = 0;
 						if (item.sales) item.sales[sz] = 0;
@@ -349,35 +348,6 @@
 					<div class="dropdown-container relative z-10">
 						<div class="flex items-center justify-between mb-2">
 							<p class="text-lime text-sm font-bold block">Search Events</p>
-
-							<div class="flex bg-gray1 border border-gray2/20 rounded-lg p-0.5">
-								<button
-									type="button"
-									class="px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer {eventFilter ===
-									'LIVE'
-										? 'bg-lime text-black'
-										: 'text-gray2 hover:text-white'}"
-									on:click={() => {
-										eventFilter = 'LIVE';
-										loadEvents();
-									}}
-								>
-									LIVE
-								</button>
-								<button
-									type="button"
-									class="px-3 py-1 text-xs font-bold rounded-md transition-colors cursor-pointer {eventFilter ===
-									'PAST'
-										? 'bg-lime text-black'
-										: 'text-gray2 hover:text-white'}"
-									on:click={() => {
-										eventFilter = 'PAST';
-										loadEvents();
-									}}
-								>
-									PAST
-								</button>
-							</div>
 						</div>
 						<div class="relative">
 							<input
