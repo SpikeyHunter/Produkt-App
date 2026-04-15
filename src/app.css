@@ -85,9 +85,11 @@
 /* Prevent horizontal scrollbars across the entire app */
 html,
 body {
-	overflow-x: hidden;
-	background-color: var(--color-bg-primary);
-	color: var(--color-text-primary);
+    height: 100%;
+    height: 100dvh; /* Uses exact viewport height, respecting mobile browser bars */
+    overflow: hidden; /* Prevents the whole browser window from expanding/scrolling */
+    background-color: var(--color-bg-primary);
+    color: var(--color-text-primary);
 }
 
 /* Custom checkbox styling */
