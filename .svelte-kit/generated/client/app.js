@@ -41,7 +41,8 @@ export const nodes = [
 	() => import('./nodes/37'),
 	() => import('./nodes/38'),
 	() => import('./nodes/39'),
-	() => import('./nodes/40')
+	() => import('./nodes/40'),
+	() => import('./nodes/41')
 ];
 
 export const server_loads = [];
@@ -84,8 +85,9 @@ export const dictionary = {
 		"/settings": [36],
 		"/sultanshepard/djshow": [37],
 		"/sultanshepard/djshow/[id]": [38],
-		"/wifi/corpo": [39],
-		"/wifi/ncg": [40]
+		"/sultanshepard/tour": [39],
+		"/wifi/corpo": [40],
+		"/wifi/ncg": [41]
 	};
 
 export const hooks = {

@@ -55,6 +55,7 @@ declare module '$env/static/private' {
 	export const GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
 	export const GOOGLE_PRIVATE_KEY: string;
 	export const GOOGLE_CREDENTIALS: string;
+	export const VITE_GOOGLE_MAPS_API_KEY: string;
 	export const GITHUB_TOKEN: string;
 	export const TICKETMASTER_CONSUMER_KEY: string;
 	export const TICKETMASTER_CONSUMER_SECRET: string;
@@ -237,6 +238,7 @@ declare module '$env/dynamic/private' {
 		GOOGLE_SERVICE_ACCOUNT_EMAIL: string;
 		GOOGLE_PRIVATE_KEY: string;
 		GOOGLE_CREDENTIALS: string;
+		VITE_GOOGLE_MAPS_API_KEY: string;
 		GITHUB_TOKEN: string;
 		TICKETMASTER_CONSUMER_KEY: string;
 		TICKETMASTER_CONSUMER_SECRET: string;

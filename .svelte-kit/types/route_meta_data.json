@@ -160,6 +160,7 @@
 	"/sultanshepard/djshow/[id]": [
 		"src/routes/sultanshepard/djshow/[id]/+page.ts"
 	],
+	"/sultanshepard/tour": [],
 	"/wifi/corpo": [],
 	"/wifi/ncg": []
 }

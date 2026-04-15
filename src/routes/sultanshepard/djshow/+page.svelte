@@ -9,13 +9,14 @@
     import SSShowEditModal from '$lib/components/sultanshepard/SSShowEditModal.svelte';
     import SSFilter, { type FilterType } from '$lib/components/sultanshepard/SSFilter.svelte';
     import { fetchSSShows, type SSShow } from '$lib/services/ssShowService';
-    import Button from '$lib/components/buttons/Button.svelte'; // Used for error retry button
+    import Button from '$lib/components/buttons/Button.svelte';
 
+    // Used for error retry button
     let mounted = false;
     let loading = true;
     let searchValue = '';
     let error: string | null = null;
-    
+
     // Filters & Sorting
     let showLive = true;
     let sortOption: FilterType = 'none';
@@ -161,11 +162,11 @@
 
 <MainLayout pageTitle="Sultan + Shepard Shows">
     <div class="h-full overflow-auto">
-        <div class="page-container">
+        <div class="p-6 min-h-full max-w-none transition-all duration-300 ease-in-out">
             
-            <div class="fade-in {mounted ? 'mounted' : ''} mb-8" style="transition-delay: 0.1s;">
-                <div class="controls-container">
-                    <div class="search-container">
+            <div class="mb-8 delay-[100ms] transition-all duration-600 ease-out {mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'}">
+                <div class="flex flex-col min-[900px]:flex-row justify-between items-stretch min-[900px]:items-center gap-4 min-[900px]:gap-3 w-full mx-auto max-w-[400px] min-[900px]:max-w-[824px] min-[1350px]:max-w-[1248px] min-[1800px]:max-w-[1672px]">
+                    <div class="flex-1 w-full min-[900px]:w-auto">
                         <SearchBar
                             placeholder="Search venue or city..."
                             bind:value={searchValue}
@@ -173,8 +174,8 @@
                         />
                     </div>
 
-                    <div class="buttons-container">
-                        <div class="buttons-left">
+                    <div class="flex items-center justify-between w-full">
+                        <div class="flex items-center justify-start gap-3">
                             <SSFilter 
                                 currentFilter={sortOption} 
                                 on:filterChange={handleFilterChange} 
@@ -192,9 +193,16 @@
                             </button>
                         </div>
 
-                        <div class="buttons-right">
+                        <div class="flex items-center justify-end gap-3">
                             <button 
-                                class="add-event-btn" 
+                                class="h-7 px-3 flex items-center justify-center rounded-[14px] text-[14px] leading-[22px] font-bold whitespace-nowrap cursor-pointer transition-all duration-200 ease-in-out bg-transparent text-lime border border-lime hover:bg-lime hover:text-black" 
+                                on:click={() => goto('/sultanshepard/tour')}
+                            >
+                                <span>S+S Tour</span>
+                            </button>
+
+                            <button 
+                                class="h-7 px-3 flex items-center justify-center rounded-[14px] text-[14px] leading-[22px] font-bold whitespace-nowrap cursor-pointer transition-all duration-200 ease-in-out bg-lime text-black border-none hover:opacity-90" 
                                 on:click={() => showAddModal = true}
                             >
                                 <span class="flex items-center gap-2">
@@ -232,12 +240,12 @@
                     <Button variant="filled" on:click={loadShows}>Retry</Button>
                 </div>
             {:else}
-                <div class="fade-in {mounted ? 'mounted' : ''}" style="transition-delay: 0.2s;">
+                <div class="delay-[200ms] transition-all duration-600 ease-out {mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'}">
                     {#if filteredShows.length > 0}
-                        <div class="events-grid">
+                        <div class="grid gap-6 justify-center grid-cols-[repeat(1,400px)] min-[900px]:grid-cols-[repeat(2,400px)] min-[1350px]:grid-cols-[repeat(3,400px)] min-[1800px]:grid-cols-[repeat(4,400px)]">
                             {#each filteredShows as show, i (show.id)}
                                 <div 
-                                    class="event-card-wrapper fade-in {mounted ? 'mounted' : ''}"
+                                    class="w-[400px] h-auto cursor-pointer transition-all duration-600 ease-out {mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'}"
                                     style="transition-delay: {0.3 + i * 0.05}s;"
                                 >
                                     <SSShowCard 
@@ -300,154 +308,3 @@
     on:save={handleSaveSuccess}
     on:delete={handleSaveSuccess}
 />
-
-<style>
-    .page-container {
-        padding: 24px;
-        min-height: 100%;
-        max-width: none;
-        transition: all 0.3s ease;
-    }
-
-    .fade-in {
-        opacity: 0;
-        transform: translateY(20px);
-        transition: opacity 0.6s ease-out, transform 0.6s ease-out;
-    }
-    .fade-in.mounted {
-        opacity: 1;
-        transform: translateY(0);
-    }
-
-    /* Layout matching reference */
-    .controls-container {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px;
-        width: 100%;
-        max-width: 400px;
-        margin: 0 auto;
-    }
-
-    .search-container {
-        flex: 1;
-    }
-
-    .buttons-container {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        width: 100%;
-    }
-
-    .buttons-left {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-
-    .buttons-right {
-        display: flex;
-        align-items: center;
-    }
-
-    .events-grid {
-        display: grid;
-        gap: 24px;
-        justify-content: center;
-        grid-template-columns: repeat(1, 400px);
-    }
-
-    .event-card-wrapper {
-        width: 400px;
-        height: auto;
-        cursor: pointer;
-    }
-
-    /* Button Styles */
-    .add-event-btn {
-        height: 28px;
-        padding: 0 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 14px;
-        font-family: var(--font-helvetica);
-        font-size: 14px;
-        line-height: 22px;
-        font-weight: 700;
-        background: var(--color-lime);
-        color: var(--color-black);
-        border: none;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        white-space: nowrap;
-    }
-
-    .add-event-btn:hover {
-        opacity: 0.9;
-    }
-
-    /* Responsive Breakpoints */
-    @media (min-width: 900px) {
-        .events-grid {
-            grid-template-columns: repeat(2, 400px);
-        }
-        .controls-container {
-            max-width: 824px;
-        }
-    }
-
-    @media (min-width: 1350px) {
-        .events-grid {
-            grid-template-columns: repeat(3, 400px);
-        }
-        .controls-container {
-            max-width: 1248px;
-        }
-    }
-
-    @media (min-width: 1800px) {
-        .events-grid {
-            grid-template-columns: repeat(4, 400px);
-        }
-        .controls-container {
-            max-width: 1672px;
-        }
-    }
-
-    @media (max-width: 899px) {
-        .controls-container {
-            flex-direction: column;
-            gap: 16px;
-            align-items: stretch;
-            max-width: 400px;
-        }
-
-        .search-container {
-            width: 100%;
-        }
-
-        .buttons-container {
-            justify-content: space-between;
-            width: 100%;
-        }
-
-        .buttons-left {
-            justify-content: flex-start;
-        }
-
-        .buttons-right {
-            justify-content: flex-end;
-        }
-    }
-
-    @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
-    .animate-spin {
-        animation: spin 0.2s linear infinite;
-    }
-</style>
