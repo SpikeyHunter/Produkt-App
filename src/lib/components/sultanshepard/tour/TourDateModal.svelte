@@ -8,11 +8,13 @@
     export let isOpen = false;
     export let tourId: string; 
     export let tourDate: SSTourDate | null = null;
+    export let initialType = 'Tour Date'; // Defaults to standard if not provided
     export let tourStartDate = '';
     export let tourEndDate = '';
     export let bookedDates: string[] = [];
 
     const dispatch = createEventDispatcher();
+
     let loading = false;
     let showDeleteConfirm = false;
 
@@ -20,6 +22,7 @@
     let addressObj: SSTourDateAddress | null = null;
     let venue = '';
     let date = '';
+    let currentType = 'Tour Date';
 
     // Custom Headless Autocomplete State
     let searchInputValue = '';
@@ -34,8 +37,9 @@
     $: isEditMode = !!tourDate;
     $: isFormValid = !!(date && venue && addressObj);
 
-    // FIX: Tracker to prevent Svelte reactivity from wiping the form when data updates
+    // Tracker to prevent Svelte reactivity from wiping the form when data updates
     let wasOpen = false;
+
     $: if (isOpen && !wasOpen) {
         wasOpen = true;
         if (tourDate) {
@@ -43,8 +47,10 @@
             venue = tourDate.venue;
             addressObj = typeof tourDate.address === 'object' ? tourDate.address : null;
             searchInputValue = addressObj?.full_address || tourDate.venue || '';
+            currentType = tourDate.type || 'Tour Date';
         } else {
             resetForm();
+            currentType = initialType; // Map the type passed from the button
         }
         showDeleteConfirm = false;
         setTimeout(loadGoogleMaps, 100);
@@ -61,7 +67,6 @@
                 initGooglePlaces();
             } else if (!document.querySelector('#google-maps-script')) {
                 win.__initGooglePlacesCallback = initGooglePlaces;
-
                 const script = document.createElement('script');
                 script.id = 'google-maps-script';
                 script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&v=weekly&loading=async&callback=__initGooglePlacesCallback`;
@@ -87,7 +92,6 @@
 
     async function handleSearchInput() {
         addressObj = null;
-        
         if (!searchInputValue.trim() || !AutocompleteSuggestion) {
             predictions = [];
             showPredictions = false;
@@ -128,6 +132,7 @@
             let city = '';
             let country = '';
             let country_code = '';
+
             for (const component of place.addressComponents || []) {
                 const types = component.types || [];
                 if (types.includes('locality') || types.includes('postal_town') || types.includes('administrative_area_level_2')) {
@@ -147,9 +152,11 @@
                 lng: place.location ? place.location.lng() : 0,
                 country_code
             };
+
             const placeName = place.displayName ? (typeof place.displayName === 'object' ? place.displayName.text : place.displayName) : '';
             if (!venue) venue = placeName || prediction.structuredFormat?.mainText?.text || '';
             searchInputValue = placeName ? `${placeName}, ${place.formattedAddress}` : place.formattedAddress;
+            
             sessionToken = new AutocompleteSessionToken();
         } catch (error) {
             console.error("❌ [Select] Error fetching place details:", error);
@@ -178,13 +185,14 @@
 
     async function handleSave() {
         if (!isFormValid || loading || !addressObj) return;
+
         try {
             loading = true;
             if (isEditMode && tourDate) {
-                const updatedDate = await updateTourDate(tourDate.id, { date, venue, address: addressObj });
+                const updatedDate = await updateTourDate(tourDate.id, { date, venue, address: addressObj, type: currentType });
                 dispatch('save', { date: updatedDate });
             } else {
-                const newDate = await createTourDate({ tour_id: tourId, date, venue, address: addressObj });
+                const newDate = await createTourDate({ tour_id: tourId, date, venue, address: addressObj, type: currentType });
                 dispatch('save', { date: newDate });
             }
             closeModal();
@@ -198,6 +206,7 @@
 
     async function handleDelete() {
         if (!tourDate) return;
+
         try {
             loading = true;
             await deleteTourDate(tourDate.id);
@@ -213,21 +222,21 @@
 
 <svelte:window on:click={closePredictions} />
 
-<Modal bind:isOpen title={isEditMode ? "Edit Tour Date" : "Add Tour Date"} maxWidth="max-w-2xl" hasFooter={true} closeOnBackdropClick={true} on:close={closeModal}>
+<Modal bind:isOpen title={isEditMode ? `Edit ${currentType}` : `Add ${currentType}`} maxWidth="max-w-2xl" hasFooter={true} closeOnBackdropClick={true} on:close={closeModal}>
     <div class="space-y-6">
         
         <div class="flex gap-4">
             <div class="w-1/2">
-                <p class="font-normal text-lime mb-2">Venue Name</p>
+                <p class="font-normal text-lime mb-2">{currentType === 'Tour Date' ? 'Venue Name' : `${currentType} Location`}</p>
                 <input 
                     type="text" 
                     class="w-full bg-gray1 rounded-3xl px-4 h-[50px] text-white placeholder-gray2 outline-none focus:outline-none focus:ring-0 focus:border-lime shadow-none m-0 appearance-none border-2 border-transparent" 
-                    placeholder="Enter venue name" 
+                    placeholder={currentType === 'Tour Date' ? "Enter venue name" : `Enter ${currentType.toLowerCase()} location`}
                     bind:value={venue} 
                 />
             </div>
             <div class="w-1/2 relative z-50">
-                <p class="font-normal text-lime mb-2">Show Date</p>
+                <p class="font-normal text-lime mb-2">{currentType === 'Tour Date' ? 'Show Date' : `${currentType} Date`}</p>
                 <TourDatePicker 
                     bind:value={date} 
                     variant="input" 
@@ -297,7 +306,7 @@
                     tabindex="-1" 
                 />
             </div>
-            
+        
             <div class="flex gap-4">
                 <div class="w-1/2">
                     <p class="font-normal text-gray2 text-xs mb-1.5 uppercase tracking-wide">City</p>
@@ -377,12 +386,12 @@
 
     <div slot="footer" class="flex gap-3 justify-between">
         {#if isEditMode && !showDeleteConfirm}
-            <button type="button" class="px-6 py-3 border border-red-500 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors disabled:opacity-50 cursor-pointer" disabled={loading} on:click={() => showDeleteConfirm = true}>Delete Date</button>
+            <button type="button" class="px-6 py-3 border border-red-500 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors disabled:opacity-50 cursor-pointer" disabled={loading} on:click={() => showDeleteConfirm = true}>Delete</button>
         {:else}<div></div>{/if}
 
         <div class="flex gap-3">
             <button type="button" class="px-6 py-3 border border-gray2 text-gray2 rounded-full hover:bg-gray2 hover:text-black transition-colors cursor-pointer" on:click={closeModal}>Cancel</button>
-            <button type="button" class="px-6 py-3 rounded-full transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed" class:bg-lime={isFormValid && !loading} class:text-black={isFormValid && !loading} class:bg-gray1={!isFormValid || loading} class:text-gray2={!isFormValid || loading} class:hover:bg-lime={isFormValid && !loading} disabled={!isFormValid || loading || showDeleteConfirm} on:click={handleSave}>{loading ? (isEditMode ? 'Saving...' : 'Adding...') : (isEditMode ? 'Save Changes' : 'Add Date')}</button>
+            <button type="button" class="px-6 py-3 rounded-full transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed" class:bg-lime={isFormValid && !loading} class:text-black={isFormValid && !loading} class:bg-gray1={!isFormValid || loading} class:text-gray2={!isFormValid || loading} class:hover:bg-lime={isFormValid && !loading} disabled={!isFormValid || loading || showDeleteConfirm} on:click={handleSave}>{loading ? (isEditMode ? 'Saving...' : 'Adding...') : (isEditMode ? 'Save Changes' : 'Add')}</button>
         </div>
     </div>
 </Modal>

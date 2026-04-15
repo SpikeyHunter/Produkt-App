@@ -157,7 +157,7 @@
 </script>
 
 <svelte:head>
-    <title>Sultan + Shepard | Shows</title>
+    <title>S+S - Shows</title>
 </svelte:head>
 
 <MainLayout pageTitle="Sultan + Shepard Shows">

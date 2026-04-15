@@ -23,4 +23,5 @@ export interface SSTourDate {
     date: string;
     venue: string;
     address: SSTourDateAddress;
+    type?: string; // <-- Changed to a generic string to allow future custom types
 }

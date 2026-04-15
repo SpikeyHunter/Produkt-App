@@ -20,6 +20,7 @@
 	let loading = true;
 	let tours: SSTour[] = [];
 	let tourDates: SSTourDate[] = [];
+	let dateInitialType = 'Tour Date';
 
 	// Selection State
 	let selectedTourId: string | null = null;
@@ -32,7 +33,6 @@
 	let dateToEdit: SSTourDate | null = null;
 
 	let realtimeChannel: any;
-
 	$: currentTour = tours.find((t) => t.id === selectedTourId) || null;
 
 	$: if (selectedTourId) {
@@ -61,7 +61,6 @@
 		if (showSpinner) loading = true;
 		try {
 			tours = await fetchTours();
-
 			if (tours.length > 0 && !selectedTourId) {
 				selectedTourId = tours[0].id;
 			} else if (tours.length === 0) {
@@ -78,8 +77,7 @@
 	async function loadDatesForTour(tourId: string, showSpinner = true) {
 		try {
 			const dates = await fetchTourDates(tourId);
-			tourDates = [...dates]; // spread to ensure Svelte detects the change
-
+			tourDates = [...dates];
 			if (selectedDateId && !dates.find((d) => d.id === selectedDateId)) {
 				selectedDateId = null;
 			}
@@ -94,30 +92,38 @@
 		tourToEdit = null;
 		showTourModal = true;
 	}
+	
 	function openEditTour() {
 		tourToEdit = currentTour;
 		showTourModal = true;
 	}
+	
 	function handleTourSaved(event: CustomEvent<{ tour: SSTour }>) {
 		if (event.detail && event.detail.tour) selectedTourId = event.detail.tour.id;
 		loadAllTours();
 	}
+	
 	function handleTourDeleted() {
 		selectedTourId = null;
 		loadAllTours();
 	}
 
-	function openAddDate() {
+	function openAddDate(event: CustomEvent<{ type?: string }>) {
 		dateToEdit = null;
+		dateInitialType = event?.detail?.type || 'Tour Date';
 		showDateModal = true;
 	}
+	
 	function openEditDate(event: CustomEvent<{ date: SSTourDate }>) {
 		dateToEdit = event.detail.date;
+		dateInitialType = event.detail.date.type || 'Tour Date';
 		showDateModal = true;
 	}
+	
 	function handleDateSaved() {
 		if (selectedTourId) loadDatesForTour(selectedTourId);
 	}
+	
 	function handleDateDeleted() {
 		selectedDateId = null;
 		if (selectedTourId) loadDatesForTour(selectedTourId);
@@ -125,11 +131,11 @@
 </script>
 
 <svelte:head>
-	<title>Sultan + Shepard | Tour Management</title>
+	<title>S+S Tour</title>
 </svelte:head>
 
 <MainLayout pageTitle="Sultan + Shepard Tour">
-	<div class="p-6 h-[calc(100vh-80px)] max-w-[1800px] mx-auto flex flex-col gap-6">
+	<div class="p-6 h-[calc(100vh-25px)] max-w-[1800px] mx-auto flex flex-col gap-6">
 		<div class="flex items-center justify-between shrink-0">
 			<Button variant="gray" on:click={() => goto('/sultanshepard/djshow')}>
 				<span class="flex items-center gap-2">
@@ -225,8 +231,7 @@
 				</div>
 
 				<div class="flex-1 min-w-0 h-full min-h-0">
-					<!-- FIX: tourDates is now passed down to TourMiddleDisplay -->
-					<TourMiddleDisplay {currentTour} {tourDates} />
+					<TourMiddleDisplay {currentTour} {tourDates} bind:selectedDateId />
 				</div>
 
 				<div class="w-full md:w-[220px] shrink-0 h-full min-h-0">
@@ -251,6 +256,7 @@
 {#if currentTour}
 	<TourDateModal
 		bind:isOpen={showDateModal}
+		initialType={dateInitialType} 
 		tourId={currentTour.id}
 		tourDate={dateToEdit}
 		tourStartDate={currentTour.start_date}
