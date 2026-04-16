@@ -30,6 +30,7 @@ export interface Shift {
   end_time: string;   // "17:00"
   shift_type: ShiftType | 'PLACEHOLDER';
   custom_label?: string;
+  notes?: string;
 }
 
 export interface ScheduleWeek {

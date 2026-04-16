@@ -135,7 +135,7 @@
 </svelte:head>
 
 <MainLayout pageTitle="Sultan + Shepard Tour">
-	<div class="p-6 h-[calc(100vh-25px)] max-w-[1800px] mx-auto flex flex-col gap-6">
+	<div class="p-6 flex-1 min-h-0 w-full max-w-[1800px] mx-auto flex flex-col gap-6">
 		<div class="flex items-center justify-between shrink-0">
 			<Button variant="gray" on:click={() => goto('/sultanshepard/djshow')}>
 				<span class="flex items-center gap-2">

@@ -124,6 +124,7 @@
 	"/booking/artistavailability": [],
 	"/booking/dailycount": [],
 	"/booking/talentpayments": [],
+	"/boxoffice": [],
 	"/calendar": [
 		"src/routes/calendar/+page.server.ts"
 	],

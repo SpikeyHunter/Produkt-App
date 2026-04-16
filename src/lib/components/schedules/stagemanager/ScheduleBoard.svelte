@@ -349,7 +349,6 @@
 
 		const details = e.detail;
 		const isNew = !modalData.shift.id;
-
 		let oldShift = null;
 		if (!isNew) {
 			const w = weeks.find((w) => w.id === modalData!.weekId);
@@ -364,9 +363,9 @@
 			start_time: details.start_time,
 			end_time: details.end_time,
 			shift_type: details.shift_type,
-			custom_label: details.custom_label
+			custom_label: details.custom_label,
+			notes: details.notes // <-- ADD THIS LINE
 		};
-
 		const { data } = await supabase.from('schedule_shifts').upsert(shiftToSave).select().single();
 		if (data) {
 			if (isNew) undoStack.push({ type: 'insert', shiftId: data.id });
@@ -783,11 +782,16 @@
 															}}
 														>
 															{#if isNoTimeShift(shift.shift_type)}
-																<span
-																	class="font-bold text-xs"
-																	class:text-gray-400={shift.shift_type === 'OFF'}
-																	>{shift.shift_type}</span
-																>
+															<span
+																class="font-bold text-xs"
+																class:text-gray-400={shift.shift_type === 'OFF'}
+																>{shift.shift_type}</span
+															>
+															{#if shift.shift_type === 'OFF' && shift.notes}
+																<span class="text-[10px] text-gray-400/80 w-full text-center mt-0.5 px-1 whitespace-normal break-words leading-tight line-clamp-2">
+																	{shift.notes}
+																</span>
+															{/if}
 															{:else}
 																<span class="font-bold whitespace-nowrap text-xs sm:text-sm"
 																	>{formatTimeDisplay(shift.start_time)} - {formatTimeDisplay(

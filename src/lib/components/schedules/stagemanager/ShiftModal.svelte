@@ -5,7 +5,6 @@
 	export let isOpen = false;
 	export let staff: Staff | null = null;
 	export let dayName: string = '';
-
 	export let shift: Partial<Shift> = {};
 	export let dayShiftCount = 0;
 	export let existingShifts: Shift[] = [];
@@ -37,6 +36,7 @@
 	let endTime = '18:00';
 	let selectedType: string = 'Office';
 	let customLabel = '';
+	let notes = '';
 	let validationError = '';
 
 	$: isNoTime = ['OFF', 'LD', 'PAID OFF'].includes(selectedType);
@@ -49,10 +49,12 @@
 			selectedType = (shift.shift_type && HEX_COLORS[shift.shift_type]) ? 
 				(shift.shift_type as string) : 'Office';
 			customLabel = shift.custom_label || '';
+			notes = shift.notes || '';
 		} else {
 			// CREATE MODE
 			selectedType = 'Office';
 			customLabel = '';
+			notes = '';
 			applyTimeDefaults('Office');
 		}
 	}
@@ -95,12 +97,13 @@
 
 	function handleSave() {
 		if (validationError && !isNoTime) return;
-		
+
 		dispatch('save', {
 			start_time: isNoTime ? '00:00' : startTime,
 			end_time: isNoTime ? '00:00' : endTime,
 			shift_type: selectedType,
-			custom_label: customLabel
+			custom_label: customLabel,
+			notes: selectedType === 'OFF' ? notes : null
 		});
 		close();
 	}
@@ -108,7 +111,7 @@
 	function handleDelete() {
 		if (shift.id) { 
             dispatch('delete', shift.id);
-            close(); 
+            close();
         }
 	}
 
@@ -211,9 +214,21 @@
 							</div>
 						</div>
 					{:else}
-						<div class="p-4 rounded-lg bg-gray2/10 border border-gray2/20 text-center text-gray2 text-sm italic animate-in fade-in">
+						<div class="p-4 rounded-2xl bg-black/30 text-center text-gray2 text-sm italic animate-in fade-in">
 							Staff marked as {selectedType} for this slot. {selectedType === 'PAID OFF' ? '(8 Hours Paid)' : ''}
 						</div>
+						
+						{#if selectedType === 'OFF'}
+							<div class="space-y-2 animate-in fade-in slide-in-from-top-2">
+								
+								<textarea 
+									id="notes" 
+									bind:value={notes} 
+									placeholder="Add a note here" 
+									class="w-full bg-black/30 rounded-2xl px-5 py-2 text-white text-sm focus:outline-none focus:border-lime transition-all h-[40px]"
+								></textarea>
+							</div>
+						{/if}
 					{/if}
 					
 					{#if validationError && !isNoTime}
