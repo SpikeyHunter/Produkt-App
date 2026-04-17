@@ -658,7 +658,6 @@
 		</div>
 
 		<div class="flex items-center gap-4">
-			
 			<VersionSelector {event} {isEditor} />
 
 			<div class="relative status-dropdown-container">
@@ -695,7 +694,10 @@
 						class="absolute right-0 top-[calc(100%+8px)] w-56 bg-navbar rounded-2xl shadow-xl overflow-hidden py-2 z-50 border border-gray2/10"
 					>
 						{#each statuses as status}
-							{@const isLocked = status.value === 'IN SETTLEMENT' || status.value === 'SETTLED'}
+							{@const isLocked =
+								status.value === 'IN SETTLEMENT' ||
+								status.value === 'SETTLED' ||
+								(event.status === 'HOLD' && status.value === 'CANCELED')}
 							{@const isDisabled = status.value === event.status || isLocked}
 							<button
 								class="w-full px-5 py-3 flex items-center gap-3 text-left transition-colors {isDisabled

@@ -6,7 +6,10 @@
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
 	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
 
-	export let event: CalendarEvent & { calendar?: { title?: string; details?: any }; group_id?: string };
+	export let event: CalendarEvent & {
+		calendar?: { title?: string; details?: any };
+		group_id?: string;
+	};
 	export let parsedDetails: any;
 	export let venues: VenueSettings[];
 	export let isEditor: boolean;
@@ -29,13 +32,41 @@
 	let dupDatesMonth = new Date();
 	let dupStagedDates: string[] = [];
 
+	// Add this near your other modal states (around line 18)
+	let showDeleteHoldModal = false;
+
 	// === INITIALIZE ACTIONS ===
 	function triggerDelete() {
 		showMoreMenu = false;
+
+		// --- NEW: Open custom modal for deleting a HOLD event ---
+		if (event.status === 'HOLD') {
+			showDeleteHoldModal = true;
+			return; // Stop here so the main email modal doesn't open
+		}
+		// --------------------------------------------------------
+
 		confirmPendingTask = 'delete';
-		confirmAction = 'cancel'; // Renders the red "Cancel Event" UI in the modal
+		confirmAction = 'cancel';
+		// Renders the red "Cancel Event" UI in the modal
 		showCalendarConfirm = true;
 	}
+
+	// --- NEW: Execution function for the Delete Hold Modal ---
+	async function executeDeleteHold() {
+		isSavingConfirm = true;
+		try {
+			confirmPendingTask = 'delete';
+			// Pass a mock CustomEvent to execute Confirm Task with emails/sms forced to false
+			await executeConfirmTask(new CustomEvent('confirm', {
+				detail: { sendEmail: false, sendSms: false }
+			}));
+		} finally {
+			showDeleteHoldModal = false;
+			isSavingConfirm = false;
+		}
+	}
+	// ---------------------------------------------------------
 
 	function openDuplicateModal() {
 		showMoreMenu = false;
@@ -67,7 +98,9 @@
 
 		try {
 			const authUser = $authStore?.profile;
-			const authName = authUser ? `${authUser.first_name || ''} ${authUser.last_name || ''}`.trim() : 'An Admin';
+			const authName = authUser
+				? `${authUser.first_name || ''} ${authUser.last_name || ''}`.trim()
+				: 'An Admin';
 
 			// --- DELETE LOGIC ---
 			if (confirmPendingTask === 'delete') {
@@ -95,8 +128,8 @@
 
 				showCalendarConfirm = false;
 				goto('/calendar');
-			} 
-			
+			}
+
 			// --- DUPLICATE LOGIC ---
 			else if (confirmPendingTask === 'duplicate') {
 				const { data: calData } = await supabase
@@ -111,8 +144,10 @@
 						const venueObj = venues.find((v) => v.setting_name === vParsed.category);
 						if (venueObj) {
 							try {
-								const params = typeof venueObj.setting_params === 'string'
-										? JSON.parse(venueObj.setting_params) : venueObj.setting_params || {};
+								const params =
+									typeof venueObj.setting_params === 'string'
+										? JSON.parse(venueObj.setting_params)
+										: venueObj.setting_params || {};
 								const defaultLevelStr = params?.holdSettings?.defaultHoldLevel;
 								if (defaultLevelStr && defaultLevelStr.startsWith('H')) {
 									defaultLevelNum = parseInt(defaultLevelStr.replace('H', '')) || 2;
@@ -179,7 +214,7 @@
 								} as CalendarEvent;
 								await syncEventToTechSchedule(syncPayload, newEv.status as any);
 							} catch (e) {
-								console.error("Duplicate Tech Sync failed:", e);
+								console.error('Duplicate Tech Sync failed:', e);
 							}
 						}
 
@@ -190,7 +225,8 @@
 							eventTitle: duplicateEventName.trim(),
 							eventType: parsedDetails?.type || 'Event',
 							eventDate: firstEv.date,
-							venueName: `${vParsed.category || ''} ${vParsed.room ? '/ ' + vParsed.room : ''}`.trim(),
+							venueName:
+								`${vParsed.category || ''} ${vParsed.room ? '/ ' + vParsed.room : ''}`.trim(),
 							authUserName: authName,
 							action: 'confirm'
 						};
@@ -202,7 +238,7 @@
 				invalidateAll();
 			}
 		} catch (err) {
-			console.error("Execute Confirm Task Error:", err);
+			console.error('Execute Confirm Task Error:', err);
 		} finally {
 			isSavingConfirm = false;
 			confirmPendingTask = null;
@@ -212,10 +248,22 @@
 	async function sendNotifications(payload: any, sendEmail: boolean, sendSms: boolean) {
 		const promises = [];
 		if (sendEmail) {
-			promises.push(fetch('/api/calendar-confirm-email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }));
+			promises.push(
+				fetch('/api/calendar-confirm-email', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload)
+				})
+			);
 		}
 		if (sendSms) {
-			promises.push(fetch('/api/calendar-confirm-sms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }));
+			promises.push(
+				fetch('/api/calendar-confirm-sms', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload)
+				})
+			);
 		}
 		if (promises.length > 0) await Promise.allSettled(promises);
 	}
@@ -223,7 +271,11 @@
 
 <svelte:window
 	on:click={(e) => {
-		if (showMoreMenu && e.target instanceof Element && !e.target.closest('.more-options-dropdown-container')) {
+		if (
+			showMoreMenu &&
+			e.target instanceof Element &&
+			!e.target.closest('.more-options-dropdown-container')
+		) {
 			showMoreMenu = false;
 		}
 	}}
@@ -231,12 +283,16 @@
 
 <div class="relative more-options-dropdown-container">
 	<button
-		class="text-gray2 transition-colors p-1 {isEditor ? 'hover:text-white cursor-pointer' : 'opacity-50'}"
+		class="text-gray2 transition-colors p-1 {isEditor
+			? 'hover:text-white cursor-pointer'
+			: 'opacity-50'}"
 		style="cursor: {!isEditor ? 'not-allowed' : 'pointer'};"
 		aria-label="More options"
 		disabled={!isEditor}
 		title={!isEditor ? 'You do not have permission for advanced options' : 'More options'}
-		on:click={() => { if (isEditor) showMoreMenu = !showMoreMenu; }}
+		on:click={() => {
+			if (isEditor) showMoreMenu = !showMoreMenu;
+		}}
 	>
 		<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 			<circle cx="12" cy="12" r="1"></circle>
@@ -246,50 +302,99 @@
 	</button>
 
 	{#if showMoreMenu && isEditor}
-		<div class="absolute right-0 top-[calc(100%+8px)] w-48 bg-navbar rounded-2xl shadow-xl overflow-hidden py-2 z-[9999] border border-gray2/10">
+		<div
+			class="absolute right-0 top-[calc(100%+8px)] w-48 bg-navbar rounded-2xl shadow-xl overflow-hidden py-2 z-[9999] border border-gray2/10"
+		>
 			<button
 				class="w-full px-4 py-2.5 text-sm font-bold text-white hover:bg-white/5 text-left transition-colors cursor-pointer"
-				on:click={openDuplicateModal}>Duplicate Event</button>
+				on:click={openDuplicateModal}>Duplicate Event</button
+			>
 			<button
 				class="w-full px-4 py-2.5 text-sm font-bold text-problem hover:bg-white/5 text-left transition-colors cursor-pointer"
-				on:click={triggerDelete}>Delete Event</button>
+				on:click={triggerDelete}>Delete Event</button
+			>
 		</div>
 	{/if}
 </div>
 
 {#if showDuplicateModal && isEditor}
-	<div class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+	<div
+		class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+	>
 		<div class="bg-gray1 border border-gray2/20 rounded-2xl max-w-sm w-full p-6 shadow-2xl">
 			<h3 class="text-xl font-black text-white mb-6">Duplicate Event</h3>
 			<div class="flex flex-col gap-4 mb-6">
 				<div class="flex flex-col gap-2">
-					<label for="dup-name" class="text-xs font-bold text-gray2 uppercase tracking-wider">Event Name</label>
-					<input id="dup-name" type="text" bind:value={duplicateEventName} class="bg-navbar border border-gray2/20 rounded-xl px-4 py-3 text-white font-bold focus:border-lime transition-colors w-full" />
+					<label for="dup-name" class="text-xs font-bold text-gray2 uppercase tracking-wider"
+						>Event Name</label
+					>
+					<input
+						id="dup-name"
+						type="text"
+						bind:value={duplicateEventName}
+						class="bg-navbar border border-gray2/20 rounded-xl px-4 py-3 text-white font-bold focus:border-lime transition-colors w-full"
+					/>
 				</div>
 				<div class="flex flex-col gap-2 mt-2">
 					<p class="text-xs font-bold text-gray2 uppercase tracking-wider">Select Dates</p>
 					<div class="bg-navbar border border-gray2/20 rounded-2xl p-4">
 						<div class="flex justify-between items-center mb-4">
-							<button aria-label="Previous month" class="p-1 hover:bg-white/5 rounded cursor-pointer" on:click={() => (dupDatesMonth = new Date(dupDatesMonth.setMonth(dupDatesMonth.getMonth() - 1)))}>
-								<svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+							<button
+								aria-label="Previous month"
+								class="p-1 hover:bg-white/5 rounded cursor-pointer"
+								on:click={() =>
+									(dupDatesMonth = new Date(dupDatesMonth.setMonth(dupDatesMonth.getMonth() - 1)))}
+							>
+								<svg
+									class="w-4 h-4 text-white"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg
+								>
 							</button>
-							<span class="text-sm font-bold text-white tracking-wide">{dupDatesMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</span>
-							<button aria-label="Next month" class="p-1 hover:bg-white/5 rounded cursor-pointer" on:click={() => (dupDatesMonth = new Date(dupDatesMonth.setMonth(dupDatesMonth.getMonth() + 1)))}>
-								<svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+							<span class="text-sm font-bold text-white tracking-wide"
+								>{dupDatesMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</span
+							>
+							<button
+								aria-label="Next month"
+								class="p-1 hover:bg-white/5 rounded cursor-pointer"
+								on:click={() =>
+									(dupDatesMonth = new Date(dupDatesMonth.setMonth(dupDatesMonth.getMonth() + 1)))}
+							>
+								<svg
+									class="w-4 h-4 text-white"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg
+								>
 							</button>
 						</div>
 						<div class="grid grid-cols-7 gap-1 text-center mb-2">
-							{#each ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as d}<div class="text-[10px] font-bold text-gray2">{d}</div>{/each}
+							{#each ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as d}<div
+									class="text-[10px] font-bold text-gray2"
+								>
+									{d}
+								</div>{/each}
 						</div>
 						<div class="grid grid-cols-7 gap-1.5 text-center">
-							{#each Array(new Date(dupDatesMonth.getFullYear(), dupDatesMonth.getMonth(), 1).getDay()) as _}<div></div>{/each}
+							{#each Array(new Date(dupDatesMonth.getFullYear(), dupDatesMonth.getMonth(), 1).getDay()) as _}<div
+								></div>{/each}
 							{#each Array(new Date(dupDatesMonth.getFullYear(), dupDatesMonth.getMonth() + 1, 0).getDate()) as _, i}
 								{@const dayNum = i + 1}
 								{@const targetDate = `${dupDatesMonth.getFullYear()}-${String(dupDatesMonth.getMonth() + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`}
 								{@const isSelected = dupStagedDates.includes(targetDate)}
-								<button class="w-7 h-7 mx-auto rounded-full flex flex-col items-center justify-center text-xs font-bold transition-all relative cursor-pointer {isSelected ? 'border-2 border-lime text-white' : 'text-gray2 hover:bg-white/5'}" on:click={() => toggleDupDate(targetDate)}>
+								<button
+									class="w-7 h-7 mx-auto rounded-full flex flex-col items-center justify-center text-xs font-bold transition-all relative cursor-pointer {isSelected
+										? 'border-2 border-lime text-white'
+										: 'text-gray2 hover:bg-white/5'}"
+									on:click={() => toggleDupDate(targetDate)}
+								>
 									{dayNum}
-									{#if isSelected}<div class="w-1 h-1 rounded-full bg-lime absolute bottom-0.5"></div>{/if}
+									{#if isSelected}<div
+											class="w-1 h-1 rounded-full bg-lime absolute bottom-0.5"
+										></div>{/if}
 								</button>
 							{/each}
 						</div>
@@ -297,9 +402,53 @@
 				</div>
 			</div>
 			<div class="flex items-center justify-end gap-3">
-				<button class="py-2.5 px-5 rounded-xl font-bold text-white hover:bg-white/5 transition-colors cursor-pointer" on:click={() => (showDuplicateModal = false)}>Cancel</button>
-				<button class="py-2.5 px-6 rounded-xl font-black text-bg-primary bg-lime hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-50" on:click={triggerDuplicateConfirm} disabled={!duplicateEventName.trim() || dupStagedDates.length === 0}>Create</button>
+				<button
+					class="py-2.5 px-5 rounded-xl font-bold text-white hover:bg-white/5 transition-colors cursor-pointer"
+					on:click={() => (showDuplicateModal = false)}>Cancel</button
+				>
+				<button
+					class="py-2.5 px-6 rounded-xl font-black text-bg-primary bg-lime hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-50"
+					on:click={triggerDuplicateConfirm}
+					disabled={!duplicateEventName.trim() || dupStagedDates.length === 0}>Create</button
+				>
 			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showDeleteHoldModal && isEditor}
+	<div class="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+		<div class="bg-gray1 rounded-2xl max-w-sm w-full relative shadow-2xl border border-gray2/20 flex flex-col p-8 text-center">
+			
+			<div class="w-12 h-12 rounded-full bg-problem/20 text-problem flex items-center justify-center mx-auto mb-4 shrink-0">
+				<svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+					<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+				</svg>
+			</div>
+
+			<h3 class="text-xl font-black text-white mb-2">Delete Held Event</h3>
+			<p class="text-sm font-bold text-gray2 mb-8">Are you sure you want to delete this held event? No emails will be sent.</p>
+
+			<div class="flex gap-3 w-full shrink-0">
+				<button
+					class="flex-1 py-3 bg-transparent border border-gray2/20 text-gray2 font-bold rounded-xl hover:bg-gray2/10 hover:text-white transition-colors cursor-pointer"
+					on:click={() => (showDeleteHoldModal = false)}
+					disabled={isSavingConfirm}
+				>
+					Cancel
+				</button>
+				<button
+					class="flex-[1.5] py-3 text-black font-bold rounded-xl bg-problem hover:bg-problem/90 transition-colors flex justify-center items-center cursor-pointer"
+					on:click={executeDeleteHold}
+					disabled={isSavingConfirm}
+				>
+					{#if isSavingConfirm}
+						<div class="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin mr-2"></div>
+					{/if}
+					Delete Event
+				</button>
+			</div>
+			
 		</div>
 	</div>
 {/if}
@@ -311,7 +460,7 @@
 		saving={isSavingConfirm}
 		{isAdmin}
 		defaultEmail={defaultEmailForVenue}
-		showConflicts={false} 
+		showConflicts={false}
 		on:confirm={executeConfirmTask}
 		on:cancel={() => {
 			showCalendarConfirm = false;
