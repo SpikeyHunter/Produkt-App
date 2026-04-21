@@ -2,6 +2,7 @@
 	// @ts-nocheck
 	import { createEventDispatcher } from 'svelte';
 	import ProgressBar from '$lib/components/inputs/ProgressBar.svelte';
+
 	export let event = {
 		id: '',
 		artist_name: 'Artist Name',
@@ -14,10 +15,8 @@
 	};
 
 	const dispatch = createEventDispatcher();
-	// Component references
 	let progressBarRef;
 
-	// Helper function to parse JSON
 	function parseJson(data) {
 		if (!data) return null;
 		if (typeof data === 'object') return data;
@@ -31,55 +30,72 @@
 		return null;
 	}
 
+	// Follow Up logic
+	$: followUps = parseJson(event.follow_up) || [];
+	$: latestFollowUp = followUps.length > 0 ? followUps[followUps.length - 1] : null;
+
+	function formatFollowUpDate(isoString) {
+		if (!isoString) return '';
+		const d = new Date(isoString);
+		const month = d.toLocaleDateString('en-US', { month: 'long' });
+		const day = d.getDate();
+		const year = d.getFullYear();
+
+		let hours = d.getHours();
+		const minutes = d.getMinutes().toString().padStart(2, '0');
+		const ampm = hours >= 12 ? 'PM' : 'AM';
+		hours = hours % 12;
+		hours = hours ? hours : 12;
+
+		const suffix =
+			['th', 'st', 'nd', 'rd'][day % 10 > 3 ? 0 : (((day % 100) - (day % 10) !== 10) * day) % 10] ||
+			'th';
+		return `${month} ${day}${suffix}, ${year} - ${hours}:${minutes}${ampm}`;
+	}
+
+	function formatShortDate(isoString) {
+		if (!isoString) return '';
+		const d = new Date(isoString);
+		return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+	}
+
 	$: progressStyles = (() => {
-		// 1. Ensure progress is a number (handles strings like "100" or undefined)
 		const p = parseInt(event.progress) || 0;
 
 		if (p === 100) {
-			return { 
-				label: 'text-[var(--color-confirmed)]', 
-				bar: 'bg-[var(--color-confirmed)]' 
+			return {
+				label: 'text-[var(--color-confirmed)]',
+				bar: 'bg-[var(--color-confirmed)]'
 			};
-		} 
-        // Updated: Checks if status is 'To Do' (Advance to start) OR progress is 0
-        else if (
-            event.advance_status === 'To Do' || 
-            !event.advance_status || 
-            (p === 0 && event.advance_status !== 'Asked')
-        ) {
-			return { 
-				label: 'text-[var(--color-problem)]', 
-				bar: 'bg-[var(--color-problem)]' 
+		} else if (
+			event.advance_status === 'To Do' ||
+			!event.advance_status ||
+			(p === 0 && event.advance_status !== 'Asked')
+		) {
+			return {
+				label: 'text-[var(--color-problem)]',
+				bar: 'bg-[var(--color-problem)]'
 			};
 		} else {
-			// Default lime for 'Asked' or in-progress
 			return { label: 'text-lime', bar: 'bg-lime' };
 		}
 	})();
 
-	// Function to extract date from custom event ID
 	function extractDateFromEventId(eventId) {
 		const eventIdStr = String(eventId);
-
 		let dateStr = null;
-		// Check for new format: 90YYYYMMDD (10 digits starting with 90)
+
 		if (eventIdStr.startsWith('90') && eventIdStr.length === 10) {
 			dateStr = eventIdStr.substring(2);
-		}
-		// Check for old format: 1YMMDDDD (9 digits starting with 1) - try flexible parsing
-		else if (eventIdStr.startsWith('1') && eventIdStr.length === 9) {
+		} else if (eventIdStr.startsWith('1') && eventIdStr.length === 9) {
 			const withoutPrefix = eventIdStr.substring(1);
-
-			// Try to extract month and day from the end (last 4 digits)
 			const possibleMonth = withoutPrefix.substring(
 				withoutPrefix.length - 4,
 				withoutPrefix.length - 2
 			);
 			const possibleDay = withoutPrefix.substring(withoutPrefix.length - 2);
-
-			// Current year as fallback
 			const currentYear = new Date().getFullYear();
-			// Validate month and day
+
 			const monthNum = parseInt(possibleMonth);
 			const dayNum = parseInt(possibleDay);
 			if (monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31) {
@@ -103,83 +119,64 @@
 			const month = dateStr.substring(4, 6);
 			const day = dateStr.substring(6, 8);
 			try {
-				// Create date using ISO format (YYYY-MM-DD) to avoid timezone issues
 				const isoDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 				const date = new Date(isoDate);
-
-				// Check if date is valid
 				if (isNaN(date.getTime())) {
 					return null;
 				}
 
-				const formattedDate = date.toLocaleDateString('en-US', {
+				return date.toLocaleDateString('en-US', {
 					month: 'long',
 					day: 'numeric'
 				});
-
-				return formattedDate;
 			} catch (error) {
 				console.error('Error parsing date from event ID:', error);
 				return null;
 			}
 		}
-
 		return null;
 	}
 
 	function generateSmartTags(event) {
 		const tags = [];
-
-		// Check Rider to Mihir FIRST - this should always show if false, regardless of completion status
 		const hospoRider = parseJson(event.hospo_rider);
 		if (hospoRider && hospoRider.rider_sent_to_mihir === false) {
 			tags.push('Rider to Mihir');
 		}
 
-		// If the advance is already marked as 'Completed', show completed tag along with any others
 		if (event.advance_status === 'Completed') {
 			tags.push('Advance Completed ✓');
-			return tags; // Return with both "Rider to Mihir" (if applicable) and "Advance Completed"
+			return tags;
 		}
 
-		// If advance status is "To Do", only show "Advance to start"
 		if (!event.advance_status || event.advance_status === 'To Do') {
 			return ['Advance to start'];
 		}
 
-		// Once advance is "Asked", show specific missing items
-
-		// Check Contact
 		if (!event.main_contact) {
 			tags.push('DOS');
 		}
 
-		// Check Contract
 		if (!event.contract || !event.contract_url) {
 			tags.push('Contract');
 		}
 
-		// Check Role List
 		const roles = parseJson(event.roles);
 		if (!roles || !Array.isArray(roles) || roles.length === 0) {
 			tags.push('Role List');
 		}
 
-		// ROS (Running Order/Set Times) Logic
 		const timetable = parseJson(event.timetable);
 		let isRosConfirmed = false;
 		if (timetable && Array.isArray(timetable) && event.artist_name) {
 			const cardArtist = event.artist_name.trim().toLowerCase();
-
 			isRosConfirmed = timetable.some((slot) => {
 				if (!slot.artist || !slot.status) return false;
 
 				const slotArtist = slot.artist.trim().toLowerCase();
 				const statusLower = slot.status.toLowerCase();
 
-				// Check if the timetable entry contains "b2b"
 				if (slotArtist.includes('b2b')) {
-					// Split by "b2b" and check if any part matches the card artist
 					const artistParts = slotArtist.split(/b2b/i).map((part) => part.trim());
 					const artistMatches = artistParts.some(
 						(part) => part === cardArtist || part.includes(cardArtist) || cardArtist.includes(part)
@@ -187,7 +184,6 @@
 					return artistMatches && statusLower === 'confirmed';
 				}
 
-				// Regular exact match
 				return slotArtist === cardArtist && statusLower === 'confirmed';
 			});
 		}
@@ -195,7 +191,6 @@
 			tags.push('ROS');
 		}
 
-		// Check Passports (for roles requiring immigration)
 		if (roles && Array.isArray(roles)) {
 			const rolesNeedingPassports = roles.filter((r) => r.immigration === true);
 			if (rolesNeedingPassports.length > 0) {
@@ -216,7 +211,6 @@
 			}
 		}
 
-		// Check Immigration Status
 		if (event.immigration_status === 'Waiting') {
 			tags.push('Immigration waiting');
 		} else if (!event.immigration_status || event.immigration_status === 'To Do') {
@@ -228,7 +222,6 @@
 			}
 		}
 
-		// Check Flights
 		const groundInfo = parseJson(event.ground_info);
 		const flightsEnabled = event.flights_enabled !== false;
 		if (flightsEnabled) {
@@ -239,7 +232,6 @@
 			}
 		}
 
-		// Check Hotels
 		const hotelsEnabled = event.hotel_enabled !== false;
 		if (hotelsEnabled) {
 			const hotelInfo = parseJson(event.hotel_info);
@@ -255,7 +247,6 @@
 			}
 		}
 
-		// Check Rider Files
 		const riderFiles = parseJson(event.rider_files);
 		if (!riderFiles || !riderFiles.tech_rider_url) {
 			tags.push('Rider');
@@ -263,7 +254,6 @@
 			tags.push('Rider');
 		}
 
-		// Soundcheck Logic
 		const soundcheck = parseJson(event.soundcheck);
 		if (soundcheck && soundcheck.status) {
 			const status = soundcheck.status.toLowerCase();
@@ -274,16 +264,13 @@
 			}
 		}
 
-		// Check for VJ to determine if visuals are needed
 		const hasVJ = roles && Array.isArray(roles) && roles.some((r) => r.role === 'VJ');
-		// Check Visuals (skip for Bazart venue or if a VJ is assigned)
 		if (event.event_venue !== 'Bazart' && !hasVJ) {
 			if (!event.visual_received) {
 				tags.push('Visuals');
 			}
 		}
 
-		// If everything is done but status isn't completed
 		if (tags.length === 0 && event.advance_status !== 'Completed') {
 			tags.push('Mark as completed');
 		}
@@ -291,14 +278,11 @@
 		return tags;
 	}
 
-	// Get display date
 	$: displayDate = (() => {
-		// First, try the regular date field
 		if (event.date && event.date !== 'TBD') {
 			return event.date;
 		}
 
-		// If no date, try to extract from event_id (for custom events)
 		if (event.event_id || event.id) {
 			const eventIdToCheck = event.event_id || event.id;
 			const extractedDate = extractDateFromEventId(eventIdToCheck);
@@ -306,19 +290,14 @@
 				return extractedDate;
 			}
 		}
-
-		// Fallback
 		return 'TBD';
 	})();
-	// Generate smart tags instead of using static tags
 	$: smartTags = generateSmartTags(event);
 
-	// NEW: Generate tags from notes
 	$: noteTags = (() => {
 		const parsed = parseJson(event.notes);
 		return Array.isArray(parsed) ? parsed.map((n) => n.text) : [];
 	})();
-
 	function handleEdit() {
 		dispatch('edit', { event });
 	}
@@ -327,24 +306,18 @@
 		dispatch('click', { event });
 	}
 
-	// Handle progress bar updates from child component
 	function handleProgressUpdate(updateEvent) {
 		const { event: updatedEvent } = updateEvent.detail;
-		// Update local event data with fresh data from DB
 		event = { ...event, ...updatedEvent };
 		console.log('📊 AdvanceCard: Progress updated for', event.artist_name);
-
-		// Dispatch to parent component if needed
 		dispatch('event-updated', { event });
 	}
 
-	// Handle progress bar errors
 	function handleProgressError(errorEvent) {
 		const { error } = errorEvent.detail;
 		console.error('❌ AdvanceCard: Progress error for', event.artist_name, ':', error);
 	}
 
-	// Generate lime gradients only for poster placeholder
 	const limeGradients = [
 		'from-lime/80 to-lime/40',
 		'from-lime/70 to-lime/30',
@@ -366,7 +339,7 @@
 			<div
 				class="w-full h-36 rounded-xl {event.poster
 					? 'bg-gray-900'
-					: `bg-gradient-to-br ${randomGradient}`} flex items-center justify-center relative overflow-hidden flex-shrink-0"
+					: `bg-gradient-to-br ${randomGradient}`} flex items-center justify-center relative flex-shrink-0"
 			>
 				{#if event.poster}
 					<img
@@ -386,6 +359,46 @@
 						<div class="text-xs opacity-60 font-bold">Poster</div>
 					</div>
 				{/if}
+
+				{#if latestFollowUp && event.advance_status !== 'Completed'}
+					<div
+						class="absolute top-0 left-0 group/followup z-30"
+						role="button"
+						tabindex="0"
+						on:click|stopPropagation
+						on:keydown|stopPropagation
+					>
+						<span
+							class="flex items-center gap-1 bg-problem text-black shadow-md rounded-tl-xl rounded-br-xl px-2 py-0.5 text-[10px] font-bold cursor-default whitespace-nowrap"
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								viewBox="0 0 24 24"
+								fill="currentColor"
+								class="w-3 h-3"
+							>
+								<path
+									d="M3.464 2.222a.75.75 0 0 1 .919.528l.47 1.75h14.397a.75.75 0 0 1 .536 1.272l-3.327 3.228 3.327 3.228a.75.75 0 0 1-.536 1.272H5.66l.723 2.698a.75.75 0 0 1-1.446.388l-2.4-8.96a.75.75 0 0 1-.035-.152L1.87 3.14a.75.75 0 0 1 .528-.918Z"
+								/>
+							</svg>
+							{formatShortDate(latestFollowUp.timestamp)}
+						</span>
+
+						<div
+							class="absolute left-0 top-full mt-1 w-max min-w-[200px] bg-navbar border border-gray1 text-white text-xs rounded-xl p-3 shadow-xl opacity-0 invisible group-hover/followup:opacity-100 group-hover/followup:visible transition-all duration-200 pointer-events-none z-50"
+						>
+							<div class="font-bold text-gray3 mb-2 border-b border-gray1 pb-1">Follow-up:</div>
+							<div class="flex flex-col gap-1 max-h-32 overflow-y-auto tags-container">
+								{#each followUps as fu, i}
+									<div class="py-0.5 text-[11px] whitespace-nowrap">
+										<span class="text-gray2 font-bold">#{i + 1} -</span>
+										{formatFollowUpDate(fu.timestamp)}
+									</div>
+								{/each}
+							</div>
+						</div>
+					</div>
+				{/if}
 			</div>
 
 			<div
@@ -395,7 +408,7 @@
 			</div>
 		</div>
 
-		<div class="w-2/3 flex flex-col min-w-0 overflow-hidden h-full">
+		<div class="w-2/3 flex flex-col min-w-0 h-full relative">
 			<div class="flex items-start justify-between mb-2">
 				<div class="flex-1 min-w-0 pr-2">
 					<h3 class="text-white text-lg font-bold truncate leading-tight">{event.artist_name}</h3>
@@ -404,22 +417,24 @@
 					{/if}
 				</div>
 
-				<button
-					on:click|stopPropagation={handleEdit}
-					class="p-2 text-gray2 hover:text-black hover:bg-lime rounded-lg transition-all duration-200 cursor-pointer flex-shrink-0"
-					aria-label="Edit event"
-				>
-					<svg
-						class="w-4 h-4"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
+				<div class="flex items-center gap-2 flex-shrink-0">
+					<button
+						on:click|stopPropagation={handleEdit}
+						class="p-2 text-gray2 hover:text-black hover:bg-lime rounded-lg transition-all duration-200 cursor-pointer flex-shrink-0"
+						aria-label="Edit event"
 					>
-						<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-						<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-					</svg>
-				</button>
+						<svg
+							class="w-4 h-4"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+							<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+						</svg>
+					</button>
+				</div>
 			</div>
 
 			<div class="mb-2">
@@ -485,7 +500,6 @@
 	}
 
 	.tag-item:hover {
-		/* Removed transform: scale(1.05); to prevent clipping */
 		opacity: 0.9;
 	}
 
@@ -512,7 +526,6 @@
 		color: var(--color-black) !important;
 	}
 
-	/* Custom scrollbar styles matching your design */
 	.tags-container {
 		scrollbar-width: auto;
 		scrollbar-color: var(--color-lime) transparent;

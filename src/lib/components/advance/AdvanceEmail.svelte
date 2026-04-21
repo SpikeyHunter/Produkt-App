@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount } from 'svelte';
+	import { createEventDispatcher, onMount, onDestroy } from 'svelte';
 	import { env } from '$env/dynamic/public';
 	import { getAccessToken } from '$lib/stores/auth';
 	import {
@@ -47,6 +47,95 @@
 
 	// Add reactive statement to check if artist is local
 	$: isLocalArtist = event?.artist_type === 'Local';
+
+	// JSON Parser for follow up - Bulletproofed for Supabase JSONB strings
+	function parseJson(data: any): any[] {
+		if (!data) return [];
+		let parsed = data;
+		
+		// If it comes back as a string, parse it
+		if (typeof parsed === 'string') {
+			try { parsed = JSON.parse(parsed); } catch (e) { return []; }
+		}
+		// If it was double-stringified in the database, parse it again
+		if (typeof parsed === 'string') {
+			try { parsed = JSON.parse(parsed); } catch (e) { return []; }
+		}
+		
+		// Ensure we ALWAYS return an array
+		return Array.isArray(parsed) ? parsed : [];
+	}
+
+	// Follow Up logic & Real-time Cooldown
+	let currentTime = Date.now();
+	let timeInterval: ReturnType<typeof setInterval>;
+
+	onMount(() => {
+		// Update the current time every minute to enforce the 12h cooldown without page refresh
+		timeInterval = setInterval(() => {
+			currentTime = Date.now();
+		}, 60000);
+	});
+
+	
+	onDestroy(() => {
+		if (timeInterval) clearInterval(timeInterval);
+	});
+
+	$: followUps = parseJson(event?.follow_up);
+	$: lastFollowUp = followUps.length > 0 ? followUps[followUps.length - 1].timestamp : null;
+	
+	// 12 hour cooldown check (12 hours * 60 mins * 60 secs * 1000 ms = 43200000)
+	$: isFollowUpDisabled = lastFollowUp ? (currentTime - new Date(lastFollowUp).getTime()) < 43200000 : false;
+
+	$: followUpClasses = [
+		'rounded-xl px-3 py-1 font-bold text-xs transition-all duration-200 truncate',
+		isFollowUpDisabled 
+			? 'bg-gray2 text-black opacity-50 cursor-not-allowed' 
+			: 'bg-gray2 text-black hover:bg-lime cursor-pointer'
+	].filter(Boolean).join(' ');
+
+	function formatButtonDate(isoString: string) {
+		if (!isoString) return 'Follow Up';
+		const d = new Date(isoString);
+		const month = d.toLocaleDateString('en-US', { month: 'long' });
+		const day = d.getDate();
+		let hours = d.getHours();
+		hours = hours % 12;
+		hours = hours ? hours : 12;
+		return `${month} ${day}`;
+	}
+
+	async function handleFollowUpClick() {
+		if (isFollowUpDisabled) return;
+		
+		// Grab the freshest array directly
+		const currentFollowUps = parseJson(event?.follow_up);
+		const timestamp = new Date().toISOString();
+		
+		// Append new item dynamically as #2, #3, etc.
+		const newFollowUps = [
+			...currentFollowUps,
+			{
+				id: currentFollowUps.length + 1,
+				timestamp: timestamp
+			}
+		];
+		
+		try {
+			await updateEventColumn(event.id, 'follow_up', newFollowUps);
+			event = { ...event, follow_up: newFollowUps };
+			dispatch('datachanged', event);
+			popupMessage = 'Follow Up tracked!';
+			showPopup = true;
+			setTimeout(() => showPopup = false, 2000);
+		} catch (error) {
+			console.error('Failed to save follow up:', error);
+			popupMessage = 'Failed to save follow up';
+			showPopup = true;
+			setTimeout(() => showPopup = false, 2000);
+		}
+	}
 
 	// Button classes for Tech/Hospo
 	$: techHospoButtonClasses = [
@@ -136,7 +225,6 @@
 	async function handleCopyAudioSpecs() {
 		if (!navigator.clipboard?.write) return;
 		const { text, html } = generateAudioSpecsMessage(event?.event_venue);
-		
 		try {
 			const htmlBlob = new Blob([html], { type: 'text/html' });
 			const textBlob = new Blob([text], { type: 'text/plain' });
@@ -208,7 +296,6 @@
 	// Watch for changes to main_contact and artist_type
 	$: mainContact = event?.main_contact;
 	$: artistType = event?.artist_type;
-
 	// Re-check whenever these change
 	$: if (artistType === 'Local' && mainContact !== undefined) {
 		canGenerateLocalEmail(event, supabase).then((result) => {
@@ -434,7 +521,7 @@
 	<div class="flex items-center justify-between px-4 py-3 border-b border-gray1">
 		<h2 class="text-xl font-normal text-gray3 truncate flex-1 mr-4">Others</h2>
 	</div>
-	<div class="flex-1 flex flex-col gap-3 px-4 py-2">
+	<div class="flex-1 flex flex-col gap-2.5 px-4 pt-2">
 		<div class="flex items-center gap-3 text-sm">
 			<div class="w-6 h-6 text-gray3">
 				<svg
@@ -630,6 +717,26 @@
 		</div>
 
 		<div class="flex items-center gap-3 text-sm">
+			<div class="w-6 h-6 text-gray3 flex items-center justify-center">
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
+					<path d="M3 2.25a.75.75 0 0 1 .75.75v18a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75Z" />
+					<path d="M3.75 4.5h15a.75.75 0 0 1 .556 1.252L16 9l3.306 3.248A.75.75 0 0 1 18.75 13.5h-15V4.5Z" />
+				</svg>
+			</div>
+			<button
+				class={followUpClasses}
+				on:click={handleFollowUpClick}
+				disabled={isFollowUpDisabled}
+			>
+				{#if lastFollowUp}
+					{formatButtonDate(lastFollowUp)}
+				{:else}
+					Follow Up
+				{/if}
+			</button>
+		</div>
+
+		<div class="flex items-center gap-3 text-sm">
 			<div class="w-6 h-6 flex items-center justify-center text-gray3">
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
@@ -660,10 +767,10 @@
 			</button>
 		</div>
 	</div>
-	<div class="mt-auto pt-2">
+	<div class="">
 		
-		<div class="border-b border-gray1 mt-2"></div>
-		<div class="px-4 pt-3 pb-5">
+		<div class="border-b border-gray1 mt-1"></div>
+		<div class="px-4 pt-2 pb-2">
 			<div class="flex items-center justify-between text-sm mb-2">
 				<span class="text-gray3 font-semibold">GA</span>
 				<div class="flex items-center gap-2">

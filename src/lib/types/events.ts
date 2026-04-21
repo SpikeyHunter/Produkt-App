@@ -172,6 +172,7 @@ export interface EventAdvanceBase {
 	meetgreet_enabled?: boolean | null;
 	meetgreet_info?: MeetGreetInfo | string | null;
 	notes?: NoteItem[] | null;
+	follow_up?: FollowUpItem[] | string | null;
 }
 
 /**
@@ -208,6 +209,7 @@ export interface EventAdvance extends Omit<EventAdvanceBase, 'id'> {
 	meetgreet_info?: MeetGreetInfo | string | null;
 	notes?: NoteItem[] | null;
 	guestlist?: { ga: number; vip: number } | null; 
+	follow_up?: FollowUpItem[] | string | null;
 }
 
 /**
@@ -258,4 +260,9 @@ export interface ApiResponse<T = any> {
 	data?: T;
 	error?: string;
 	message?: string;
+}
+
+export interface FollowUpItem {
+	id: number;
+	timestamp: string;
 }

@@ -210,7 +210,7 @@
 						</div>
 
 						<div class="fade-in {mounted ? 'mounted' : ''} card-item" style="transition-delay: 0.7s;">
-							<AdvanceEmail bind:this={advanceEmailRef} {event} />
+							<AdvanceEmail bind:this={advanceEmailRef} {event} on:datachanged={handleDataChanged} />
 						</div>
 					</div>
 				</div>
