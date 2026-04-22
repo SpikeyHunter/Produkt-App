@@ -912,7 +912,7 @@
 						<button
 							class="flex-1 py-3 bg-problem text-black font-bold rounded-2xl hover:bg-problem/90 transition-colors cursor-pointer"
 							on:click={confirmMode === 'clearAll' ? executeClearAll : executeClearSingle}
-							disabled={saving}>Confirm</button
+							disabled={saving}>Clear Holds</button
 						>
 					</div>
 				</div>
