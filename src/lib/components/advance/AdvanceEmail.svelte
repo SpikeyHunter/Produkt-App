@@ -74,7 +74,7 @@
 		// Update the current time every minute to enforce the 12h cooldown without page refresh
 		timeInterval = setInterval(() => {
 			currentTime = Date.now();
-		}, 60000);
+		}, 30000);
 	});
 
 	
