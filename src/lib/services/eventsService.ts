@@ -511,7 +511,10 @@ export async function updateEventAdvance(
 			'meetgreet_enabled',
 			'meetgreet_info',
 			'notes',
-			'guestlist'
+			'guestlist',
+			'follow_up',
+			'custom_settings',
+			'liaison_notes'
 		];
 
 		// Create a 'clean' object containing only the keys that are valid columns.

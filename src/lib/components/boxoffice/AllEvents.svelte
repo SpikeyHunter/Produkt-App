@@ -52,11 +52,11 @@
 	const gridBorderColor = resolveColor('#333333');
 	// 2. Section Background Colors (Cells)
 	// Try changing these! E.g., 'color-problem/10', 'color-lime/5', '#3b82f6/15'
-	const bgDetails = resolveColor('color-black/30');
+	const bgDetails = resolveColor('color-navbar');
 	const bgAdvance = resolveColor('color-question/10');
 	// Faint Blue
 	const bgNightOfShow = resolveColor('color-info/8'); // Faint Purple
-	const bgTotal = resolveColor('color-black/30');
+	const bgTotal = resolveColor('color-navbar');
 	// Faint Lime
 	// --------------------------------
 
@@ -185,7 +185,7 @@
 		if (!ds) return 'Date TBD';
 		const parts = ds.split('-');
 		const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-		return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+		return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 	}
 
 	function getVenueClass(venue: string) {
@@ -293,7 +293,7 @@
 	class="h-full flex flex-col bg-[#1e1e1e] w-full relative"
 	style="--grid-border: {gridBorderThickness} solid {gridBorderColor};"
 >
-	<div class="p-4 border-b border-gray1/50 flex justify-between items-center bg-black/40 flex-shrink-0 relative z-50">
+	<div class="p-4 border-b border-gray1/50 flex justify-between items-center bg-black/20 flex-shrink-0 relative z-50">
 		<h2 class="text-xl font-black text-gray3 tracking-wide">ALL EVENTS - Scan Reports</h2>
 		
 		<div class="flex items-center gap-4">
@@ -429,7 +429,7 @@
 								</span>
 							</td>
 							<td
-								class="p-3 font-bold truncate max-w-[280px] text-center"
+								class="p-3 font-bold truncate max-w-[280px] text-left"
 								title={row.name}
 								style="background: {bgDetails};">{row.name}</td
 							>
