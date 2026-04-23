@@ -56,6 +56,9 @@
 	"/api/deezer/search": [
 		"src/routes/api/deezer/search/+server.ts"
 	],
+	"/api/download-report": [
+		"src/routes/api/download-report/+server.ts"
+	],
 	"/api/download-tech-rider": [
 		"src/routes/api/download-tech-rider/+server.ts"
 	],
@@ -97,6 +100,9 @@
 	],
 	"/api/sync-drive-rider": [
 		"src/routes/api/sync-drive-rider/+server.ts"
+	],
+	"/api/tixr/import": [
+		"src/routes/api/tixr/import/+server.ts"
 	],
 	"/api/upload": [
 		"src/routes/api/upload/+server.ts"

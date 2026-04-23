@@ -7,6 +7,7 @@
     export let isBookingUser = false;
     export let currentUser: any;
     export let loading = false;
+    export let isViewingAllEvents = false;
 
     const dispatch = createEventDispatcher();
 
@@ -14,6 +15,9 @@
     let searchTerm = '';
     let showDropdown = false;
     let showApproveModal = false;
+
+    let resetStep = 0;
+    let resetTimeout: any;
 
     // Keywords to exclude from event list (case-insensitive)
     const excludeKeywords = [
@@ -69,7 +73,7 @@
                     (e.event_venue ?? '').toLowerCase().includes(s)
                 );
             }
-           
+            
             return true;
         })
         .sort((a: any, b: any) => {
@@ -80,11 +84,16 @@
             return viewMode === 'LIVE' ? tA - tB : tB - tA;
         });
 
-    $: currentStatusKey = selectedEvent?.box_office_reports?.[0]?.status || 'todo';
+    $: currentStatusKey = (() => {
+        const rep = selectedEvent?.box_office_reports;
+        if (!rep) return 'todo';
+        return (Array.isArray(rep) ? rep[0]?.status : rep.status) || 'todo';
+    })();
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
     function getStatusDetails(evt: any) {
-        const key = evt?.box_office_reports?.[0]?.status || 'todo';
+        const rep = evt?.box_office_reports;
+        const key = rep ? (Array.isArray(rep) ? rep[0]?.status : rep.status) : 'todo';
         return STATUS_CONFIG[key] ?? STATUS_CONFIG['todo'];
     }
 
@@ -96,6 +105,7 @@
             const day   = date.getDate();
             const month = date.toLocaleString('en-US', { month: 'long' });
             const year  = date.getFullYear();
+
             const getSuffix = (d: number) => {
                 if (d > 3 && d < 21) return 'th';
                 switch (d % 10) {
@@ -150,7 +160,6 @@
         showApproveModal = false;
     }
 
-    // Approve is the 4th grid button — it triggers the modal instead of a direct dispatch
     function handleStatusClick(statusId: string) {
         if (statusId === 'approved') {
             if (isBookingUser) showApproveModal = true;
@@ -159,16 +168,64 @@
         }
     }
 
+    function handleResetClick() {
+        if (resetTimeout) clearTimeout(resetTimeout);
+        
+        if (resetStep === 0) {
+            resetStep = 1;
+            resetTimeout = setTimeout(() => { resetStep = 0; }, 3000);
+        } else if (resetStep === 1) {
+            resetStep = 2;
+            resetTimeout = setTimeout(() => { resetStep = 0; }, 3000);
+        } else if (resetStep === 2) {
+            resetStep = 0;
+            dispatch('resetReport');
+        }
+    }
+
     function handleClickOutside(e: MouseEvent) {
         if (!(e.target as HTMLElement).closest('.event-selector-container')) {
             showDropdown = false;
         }
     }
+
+    function handleToggleAllEvents() {
+        console.log('--- ALL EVENTS TOGGLE CLICKED ---');
+        console.log('Total Events Received by Selector:', events.length);
+        
+        const statusCounts: Record<string, number> = { todo: 0, in_progress: 0, done: 0, approved: 0, missing_report: 0 };
+        let eventsWithReports = 0;
+
+        events.forEach(e => {
+            const rep = e.box_office_reports;
+            if (rep) {
+                const isArr = Array.isArray(rep);
+                if ((isArr && rep.length > 0) || !isArr) {
+                    eventsWithReports++;
+                    const s = String(isArr ? rep[0].status : rep.status);
+                    if (statusCounts[s] !== undefined) {
+                        statusCounts[s]++;
+                    } else {
+                        statusCounts[s] = 1;
+                    }
+                } else {
+                    statusCounts.missing_report++;
+                }
+            } else {
+                statusCounts.missing_report++;
+            }
+        });
+
+        console.log('Events containing a Box Office Report:', eventsWithReports);
+        console.log('Status Breakdown:', JSON.stringify(statusCounts));
+        
+        dispatch('toggleAllEvents');
+    }
 </script>
 
 <svelte:window on:click={handleClickOutside} />
 
-<div class="event-selector-container flex flex-col gap-4 w-full">
+<div class="event-selector-container flex flex-col gap-4 w-full h-full">
 
     <div class="relative w-full">
        <h1 class="ml-2 mt-2 text-2xl uppercase text-gray2">Box Office</h1>
@@ -246,11 +303,11 @@
                                             <path d="M21 15l-5-5L5 21"/>
                                         </svg>
                                     </div>
-                                {/if}
+                                 {/if}
 
                                 <div class="flex-1 min-w-0">
                                     <div class="text-white text-sm font-bold truncate transition-colors group-hover:text-lime">
-                                        {event.event_name}
+                                         {event.event_name}
                                     </div>
                                     <div class="text-gray2 text-xs">
                                         {event.event_venue || 'No Venue'} • {formatDate(event.event_date)}
@@ -266,10 +323,10 @@
                                 {#if isSelected}
                                     <svg class="w-5 h-5 text-lime flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                                         <polyline points="20 6 9 17 4 12" />
-                                    </svg>
+                                     </svg>
                                 {/if}
                             </button>
-                        {/each}
+                         {/each}
 
                     {:else}
                         <div class="p-4 text-center text-gray2 text-sm">
@@ -282,7 +339,7 @@
     </div>
 
     {#if selectedEvent}
-        <div class="w-full bg-navbar border border-gray1 rounded-xl p-3 flex items-start gap-4">
+         <div class="w-full bg-navbar border border-gray1 rounded-xl p-3 flex items-start gap-4">
             <div class="flex-shrink-0 w-24 rounded-lg overflow-hidden border border-gray1 relative self-start bg-black">
                 {#if selectedEvent.event_flyer}
                     <img
@@ -310,7 +367,7 @@
                     {formatDateLong(selectedEvent.event_date)}
                 </div>
                 <div class="text-lime text-xs font-bold leading-snug break-words">
-                    {selectedEvent.event_venue || 'No Venue'}
+                     {selectedEvent.event_venue || 'No Venue'}
                 </div>
                 <div class="text-gray2 text-xs font-mono pt-1">
                     Event ID: {selectedEvent.event_id}
@@ -319,7 +376,7 @@
         </div>
 
     {:else}
-        <div class="w-full bg-navbar border border-gray1 rounded-xl p-6 flex flex-col items-center justify-center text-gray2 gap-2">
+         <div class="w-full bg-navbar border border-gray1 rounded-xl p-6 flex flex-col items-center justify-center text-gray2 gap-2">
             <svg class="w-8 h-8 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
                 <line x1="16" y1="2" x2="16" y2="6"/>
@@ -331,19 +388,37 @@
     {/if}
 
     <div class="bg-navbar border border-gray1 rounded-xl p-3 transition-all duration-300 {selectedEvent ? '' : 'opacity-50 grayscale pointer-events-none'}">
-        <h3 class="text-xs font-bold text-gray3 mb-2 uppercase tracking-wider">Status</h3>
+        <div class="flex justify-between items-center mb-2">
+            <h3 class="text-xs font-bold text-gray3 uppercase tracking-wider m-0">Status</h3>
+            <button
+                type="button"
+                on:click={handleResetClick}
+                class="text-[10px] font-bold px-2 py-1 rounded-3xl transition-colors text-problem border border-problem/30 hover:bg-problem hover:text-black cursor-pointer"
+            >
+                {#if resetStep === 0}
+                    Reset
+                {:else if resetStep === 1}
+                    Are you sure?
+                {:else}
+                    Report will be reset
+                {/if}
+            </button>
+        </div>
         <div class="grid grid-cols-2 gap-2">
             {#each STATUS_OPTIONS as statusId}
                 {@const statConfig = STATUS_CONFIG[statusId]}
                 {@const isActive   = currentStatusKey === statusId}
+                {@const isReportApproved = currentStatusKey === 'approved'}
                 {@const isApprove  = statusId === 'approved'}
+                
+                {@const isDisabled = (!isBookingUser && isReportApproved) || (!isBookingUser && isApprove)}
+                
                 <button
                     type="button"
                     on:click={() => handleStatusClick(statusId)}
-                    disabled={isApprove && !isBookingUser}
-                    class="py-2.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer hover:opacity-90
-                           {isActive ? '' : 'hover:border-gray3 hover:text-white'}
-                           {isApprove && !isBookingUser ? 'opacity-40 cursor-not-allowed' : ''}"
+                    disabled={isDisabled}
+                    class="py-2.5 px-2 rounded-lg text-xs font-bold transition-all 
+                           {isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:opacity-90 hover:border-gray3 hover:text-white'}"
                     style={getStatusStyle(isActive, statConfig.color)}
                 >
                     {statConfig.label}
@@ -351,6 +426,15 @@
             {/each}
         </div>
     </div>
+
+    <button
+        type="button"
+        on:click={handleToggleAllEvents}
+        class="w-full py-2.5 rounded-3xl font-bold text-sm tracking-wide transition-colors cursor-pointer flex items-center justify-center gap-2 
+        {isViewingAllEvents ? 'bg-transparent border-2 border-lime text-lime hover:bg-lime hover:text-black' : 'bg-transparent border-2 border-gray2 text-gray2 hover:bg-gray2 hover:text-black'}"
+    >
+        {isViewingAllEvents ? 'Close All Events' : 'View All Events'}
+    </button>
 
 </div>
 
@@ -370,7 +454,7 @@
             in:fly={{ y: 20, duration: 200 }}
         >
             <h3 class="text-xl font-bold text-white mb-2 border-b border-gray1 py-3">Approve Report</h3>
-            <p class="text-gray2 mb-6 mt-2">
+             <p class="text-gray2 mb-6 mt-2">
                 Are you sure you want to approve this report? This will lock it and mark it as approved by
                 <strong class="text-white">{currentUser?.first_name} {currentUser?.last_name}</strong>.
             </p>
