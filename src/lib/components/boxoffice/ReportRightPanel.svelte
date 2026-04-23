@@ -20,7 +20,7 @@
 	let hiddenPdfContainer: HTMLElement;
 
 	// --- NEW: Row Limit State ---
-	$: rowLimit = reportData?.row_limit || 25;
+	$: rowLimit = reportData?.row_limit || 30;
 
 	$: summary = calculateTotals(reportData);
 

@@ -1,12 +1,12 @@
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
-    import Modal from '$lib/components/modals/Modal.svelte'; 
+    import Modal from '$lib/components/modals/Modal.svelte';
 
     export let isOpen = false;
     export let eventId: number | null = null;
 
     const dispatch = createEventDispatcher();
-    
+
     let loading = true;
     let error: string | null = null;
     
@@ -29,11 +29,29 @@
 
         try {
             const res = await fetch(`/api/tixr/import?eventId=${eventId}`);
+           
             const data = await res.json();
 
             if (!res.ok) throw new Error(data.error || 'Failed to fetch from Tixr');
             
-            allTickets = data.tickets || [];
+            // Transform data: divide price by 4 for "GA 4x" tickets
+            allTickets = (data.tickets || []).map((t: any) => {
+                const ticketName = (t.ticket || '').toLowerCase();
+                const originalName = (t.originalName || '').toLowerCase();
+                
+                let adjustedPrice = t.price;
+                if (ticketName.includes('ga 4x') || originalName.includes('ga 4x')) {
+                    if (typeof adjustedPrice === 'number') {
+                        adjustedPrice = adjustedPrice / 4;
+                    }
+                }
+                
+                return {
+                    ...t,
+                    price: adjustedPrice
+                };
+            });
+
         } catch (err: any) {
             error = err.message;
         } finally {
@@ -47,10 +65,12 @@
 
     function toggleAll() {
         const targetState = !isAllSelected;
+
         const visibleIds = new Set(goodTickets.map(t => t.id));
         if (showHiddenTickets) {
             hiddenTickets.forEach(t => visibleIds.add(t.id));
         }
+
         allTickets = allTickets.map(t => {
             if (visibleIds.has(t.id)) {
                 return { ...t, selected: targetState };
@@ -88,7 +108,12 @@
             <colgroup>
                 <col style="width: 40px;" />
                 <col style="width: 32px;" />
-                <col style="width: auto;" />  <col style="width: 150px;" /> <col style="width: 80px;" />  <col style="width: 90px;" />  <col style="width: 80px;" />  </colgroup>
+                <col style="width: auto;" />  
+                <col style="width: 150px;" /> 
+                <col style="width: 80px;" />  
+                <col style="width: 90px;" />  
+                <col style="width: 80px;" />  
+            </colgroup>
             <thead>
                 <tr class="text-gray2 text-[10px] uppercase tracking-wider border-b border-gray1">
                     <th class="p-2 text-center align-middle">
@@ -129,14 +154,20 @@
             </div>
         {:else if goodTickets.length === 0 && !showHiddenTickets}
             <div class="p-6 text-center text-gray2 italic border border-dashed border-gray1 rounded-xl">
-                All available tickets are $0 or have 0 sold. Enable "Hidden Tickets" to view them.
+                All available tickets are $0 or have 0 sold.
+                Enable "Hidden Tickets" to view them.
             </div>
         {:else}
             <table class="w-full text-left text-[13px] border-collapse table-fixed">
                 <colgroup>
                     <col style="width: 40px;" />
                     <col style="width: 32px;" />
-                    <col style="width: auto;" />  <col style="width: 150px;" /> <col style="width: 80px;" />  <col style="width: 90px;" />  <col style="width: 80px;" />  </colgroup>
+                    <col style="width: auto;" />  
+                    <col style="width: 150px;" /> 
+                    <col style="width: 80px;" />  
+                    <col style="width: 90px;" />  
+                    <col style="width: 80px;" />  
+                </colgroup>
                 <tbody>
                     {#each goodTickets as item}
                         <tr class="border-b border-gray1/30 last:border-0 hover:bg-white/[0.03] transition-colors">

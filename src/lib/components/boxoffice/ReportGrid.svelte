@@ -95,6 +95,92 @@
     }
     // --------------------------------------
 
+    // --- DRAG AND DROP ---
+    let draggingRowIndex: number | null = null;
+    let draggingCategory: string | null = null;
+    let hideOriginal = false;
+    let isDragHandle = false;
+
+    function handleDragStart(e: DragEvent, category: string, index: number) {
+        if (!isDragHandle) {
+            e.preventDefault();
+            return;
+        }
+
+        draggingRowIndex = index;
+        draggingCategory = category;
+        hideOriginal = false;
+
+        const target = e.currentTarget as HTMLElement;
+
+        if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', index.toString());
+            const clone = target.cloneNode(true) as HTMLElement;
+            clone.style.backgroundColor = '#1A1A1A'; 
+            clone.style.outline = '2px solid #E1FF00';
+            
+            // Match exact widths from the currently displayed row
+            const originalCells = Array.from(target.children);
+            Array.from(clone.getElementsByTagName('td')).forEach((td, i) => {
+                td.style.backgroundColor = '#1A1A1A';
+                td.style.borderColor = 'transparent';
+                td.style.width = `${originalCells[i].getBoundingClientRect().width}px`;
+                td.style.boxSizing = 'border-box';
+            });
+
+            // Wrap the clone in a table to retain correct table-row formatting
+            const tableWrapper = document.createElement('table');
+            tableWrapper.className = 'w-full text-left text-[13px] border-collapse';
+            tableWrapper.style.position = 'absolute';
+            tableWrapper.style.top = '-9999px';
+            tableWrapper.style.left = '-9999px';
+            tableWrapper.style.width = `${target.getBoundingClientRect().width}px`;
+            tableWrapper.style.tableLayout = 'fixed'; 
+            
+            const tbody = document.createElement('tbody');
+            tbody.appendChild(clone);
+            tableWrapper.appendChild(tbody);
+            document.body.appendChild(tableWrapper);
+
+            // Set the newly wrapped table as the drag image
+            e.dataTransfer.setDragImage(tableWrapper, 20, 20);
+            
+            setTimeout(() => {
+                if (document.body.contains(tableWrapper)) document.body.removeChild(tableWrapper);
+            }, 0);
+        }
+
+        setTimeout(() => {
+            hideOriginal = true;
+        }, 0);
+    }
+
+    function handleDragOver(e: DragEvent) { e.preventDefault(); }
+
+    function handleDrop(e: DragEvent, category: string, dropIndex: number) {
+        e.preventDefault();
+        if (draggingRowIndex !== null && draggingCategory === category && draggingRowIndex !== dropIndex) {
+            const clone = [...reportData[category]];
+            const movedItem = clone.splice(draggingRowIndex, 1)[0];
+            clone.splice(dropIndex, 0, movedItem);
+            
+            dispatch('update', { [category]: clone });
+            scheduleHistorySave();
+        }
+        draggingRowIndex = null;
+        draggingCategory = null;
+        isDragHandle = false;
+    }
+
+    function handleDragEnd() {
+        draggingRowIndex = null;
+        draggingCategory = null;
+        hideOriginal = false;
+        isDragHandle = false;
+    }
+    // --------------------------------------
+
     function updateItem(category: string, index: number, field: string, value: any) {
         const newData = [...reportData[category]];
         newData[index][field] = value;
@@ -133,6 +219,7 @@
     }
 
     const EDITABLE_COLS = ['ticket', 'category', 'tier', 'price', 'sold', 'scanned'];
+
     function handleKeydown(e: KeyboardEvent, category: string, r: number, colName: string) {
         const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
         if (!keys.includes(e.key)) return;
@@ -190,8 +277,10 @@
         const startColIndex = EDITABLE_COLS.indexOf(startColName);
 
         if (startColIndex === -1) return;
+
         for (let i = 0; i < rows.length; i++) {
             const targetRowIndex = startRowIndex + i;
+
             // Auto-expand: Create new rows if we paste past the current end of the category
             if (targetRowIndex >= newData.length) {
                 newData.push({
@@ -210,10 +299,12 @@
                 const colName = EDITABLE_COLS[currentColIndex];
                 const rawVal = pastedCols[j].trim();
                 const item = newData[targetRowIndex];
+
                 // Respect field permissions
                 if (colName === 'price' && item.allowPrice === false) continue;
                 if (colName === 'sold' && item.allowSold === false) continue;
                 if (colName === 'scanned' && item.allowScanned === false) continue;
+
                 // Format depending on the column type
                 if (colName === 'price') {
                     const parsed = parseFloat(rawVal.replace(/[^0-9.-]+/g, ""));
@@ -270,6 +361,7 @@
         acc[cat] = { sold, scanned, settle };
         return acc;
     }, {});
+
 </script>
 
 <style>
@@ -303,6 +395,7 @@
                 <table class="w-full text-left text-[13px] border-collapse">
                     <thead>
                         <tr class="text-gray2 text-[10px] uppercase tracking-wider">
+                            <th class="p-1 w-6"></th>
                             <th class="p-1 font-semibold w-1/4">Ticket Name</th>
                             <th class="p-1 font-semibold w-20">Category</th>
                             <th class="p-1 font-semibold w-20">Tier</th>
@@ -334,7 +427,20 @@
                             {@const entryPct = allowEntry && safeSold > 0 ? (safeScanned / safeSold) * 100 : 0}
                             {@const settle = safePrice * safeSold}
                             
-                            <tr class="transition-colors group hover:bg-white/[0.02] {isGroupEnd ? 'border-b border-gray1' : ''}">
+                            <tr class="transition-colors group hover:bg-white/[0.02] {isGroupEnd ? 'border-b border-gray1' : ''} {draggingRowIndex === i && draggingCategory === category && hideOriginal ? 'opacity-30 bg-gray2/10' : ''}" 
+                                draggable="true" 
+                                on:dragstart={(e) => handleDragStart(e, category, i)} 
+                                on:dragend={handleDragEnd} 
+                                on:dragover={handleDragOver} 
+                                on:drop={(e) => handleDrop(e, category, i)}>
+                                
+                                <td class="p-0.5 text-center cursor-grab active:cursor-grabbing text-gray2 hover:text-white"
+                                    on:mousedown={() => isDragHandle = true}
+                                    on:mouseup={() => isDragHandle = false}
+                                    on:mouseleave={() => isDragHandle = false}>
+                                    <svg class="w-4 h-4 mx-auto pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"></path></svg>
+                                </td>
+
                                 <td class="p-0.5">
                                     <input type="text" data-category={category} data-row={i} data-col="ticket" class="w-full bg-transparent px-2 py-1 focus:bg-white/10 outline-none rounded" value={item.ticket} on:input={(e) => updateItem(category, i, 'ticket', (e.currentTarget as HTMLInputElement).value)} on:keydown={(e) => handleKeydown(e, category, i, 'ticket')} on:paste={(e) => handlePaste(e, category, i, 'ticket')} />
                                 </td>
@@ -426,13 +532,13 @@
 
                         {#if !reportData[category] || reportData[category].length === 0}
                             <tr>
-                                <td colspan="9" class="p-4 text-center text-gray2 italic text-xs">No items in {category}</td>
+                                <td colspan="10" class="p-4 text-center text-gray2 italic text-xs">No items in {category}</td>
                             </tr>
                         {:else}
                             {@const totals = categoryTotals[category]}
                             {@const entryPct = totals.sold > 0 ? (totals.scanned / totals.sold) * 100 : 0}
                             <tr class="bg-white/[0.03] border-t border-gray1 font-bold">
-                                <td colspan="4" class="p-2 text-right text-gray2 uppercase text-[10px] tracking-wider">Subtotal</td>
+                                <td colspan="5" class="p-2 text-right text-gray2 uppercase text-[10px] tracking-wider">Subtotal</td>
                                 <td class="p-2 text-right text-white">{totals.sold}</td>
                                 <td class="p-2 text-right text-white">{totals.scanned}</td>
                                 <td class="p-2 text-right text-lime">

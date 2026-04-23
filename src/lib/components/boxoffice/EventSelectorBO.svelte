@@ -1,6 +1,8 @@
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+   import { createEventDispatcher, tick } from 'svelte';
     import { fly, fade } from 'svelte/transition';
+    import BatchUploadModal from './BatchUploadModal.svelte';
+    
 
     export let events: any[] = [];
     export let selectedEvent: any = null;
@@ -15,7 +17,7 @@
     let searchTerm = '';
     let showDropdown = false;
     let showApproveModal = false;
-
+    let showBatchModal = false;
     let resetStep = 0;
     let resetTimeout: any;
 
@@ -170,7 +172,7 @@
 
     function handleResetClick() {
         if (resetTimeout) clearTimeout(resetTimeout);
-        
+
         if (resetStep === 0) {
             resetStep = 1;
             resetTimeout = setTimeout(() => { resetStep = 0; }, 3000);
@@ -190,36 +192,19 @@
     }
 
     function handleToggleAllEvents() {
-        console.log('--- ALL EVENTS TOGGLE CLICKED ---');
-        console.log('Total Events Received by Selector:', events.length);
-        
-        const statusCounts: Record<string, number> = { todo: 0, in_progress: 0, done: 0, approved: 0, missing_report: 0 };
-        let eventsWithReports = 0;
+        dispatch('toggleAllEvents');
+    }
 
-        events.forEach(e => {
-            const rep = e.box_office_reports;
-            if (rep) {
-                const isArr = Array.isArray(rep);
-                if ((isArr && rep.length > 0) || !isArr) {
-                    eventsWithReports++;
-                    const s = String(isArr ? rep[0].status : rep.status);
-                    if (statusCounts[s] !== undefined) {
-                        statusCounts[s]++;
-                    } else {
-                        statusCounts[s] = 1;
-                    }
-                } else {
-                    statusCounts.missing_report++;
-                }
-            } else {
-                statusCounts.missing_report++;
+    $: if (showDropdown && selectedEvent) {
+        tick().then(() => {
+            const container = document.getElementById('event-dropdown-list');
+            const selectedItem = document.getElementById(`evt-${selectedEvent.event_id}`);
+            
+            if (container && selectedItem) {
+                // Scroll the container so the selected item is at the top
+                container.scrollTop = selectedItem.offsetTop;
             }
         });
-
-        console.log('Events containing a Box Office Report:', eventsWithReports);
-        console.log('Status Breakdown:', JSON.stringify(statusCounts));
-        
-        dispatch('toggleAllEvents');
     }
 </script>
 
@@ -278,8 +263,7 @@
                     />
                 </div>
 
-                <div class="max-h-72 overflow-y-auto custom-scrollbar">
-                
+                <div id="event-dropdown-list" class="max-h-72 overflow-y-auto custom-scrollbar relative">
                     {#if loading}
                         <div class="p-4 flex justify-center">
                             <div class="animate-spin w-5 h-5 border-2 border-lime border-t-transparent rounded-full"></div>
@@ -290,9 +274,10 @@
                             {@const isSelected = selectedEvent?.event_id === event.event_id}
                             {@const statusInfo = getStatusDetails(event)}
                             <button
-                                on:click={() => handleSelect(event)}
-                                class="group w-full text-left p-3 hover:bg-gray1 transition-colors flex items-center gap-4 border-b border-gray1 last:border-b-0 cursor-pointer"
-                            >
+                            id="evt-{event.event_id}"
+                            on:click={() => handleSelect(event)}
+                            class="group w-full text-left p-3 hover:bg-gray1 transition-colors flex items-center gap-4 border-b border-gray1 last:border-b-0 cursor-pointer"
+                        >
                                 {#if event.event_flyer}
                                     <img src={event.event_flyer} alt={event.event_name} class="w-12 h-16 object-cover rounded flex-shrink-0" />
                                 {:else}
@@ -303,11 +288,11 @@
                                             <path d="M21 15l-5-5L5 21"/>
                                         </svg>
                                     </div>
-                                 {/if}
+                                {/if}
 
                                 <div class="flex-1 min-w-0">
                                     <div class="text-white text-sm font-bold truncate transition-colors group-hover:text-lime">
-                                         {event.event_name}
+                                        {event.event_name}
                                     </div>
                                     <div class="text-gray2 text-xs">
                                         {event.event_venue || 'No Venue'} • {formatDate(event.event_date)}
@@ -323,10 +308,10 @@
                                 {#if isSelected}
                                     <svg class="w-5 h-5 text-lime flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                                         <polyline points="20 6 9 17 4 12" />
-                                     </svg>
+                                    </svg>
                                 {/if}
                             </button>
-                         {/each}
+                        {/each}
 
                     {:else}
                         <div class="p-4 text-center text-gray2 text-sm">
@@ -339,7 +324,7 @@
     </div>
 
     {#if selectedEvent}
-         <div class="w-full bg-navbar border border-gray1 rounded-xl p-3 flex items-start gap-4">
+        <div class="w-full bg-navbar border border-gray1 rounded-xl p-3 flex items-start gap-4">
             <div class="flex-shrink-0 w-24 rounded-lg overflow-hidden border border-gray1 relative self-start bg-black">
                 {#if selectedEvent.event_flyer}
                     <img
@@ -367,7 +352,7 @@
                     {formatDateLong(selectedEvent.event_date)}
                 </div>
                 <div class="text-lime text-xs font-bold leading-snug break-words">
-                     {selectedEvent.event_venue || 'No Venue'}
+                    {selectedEvent.event_venue || 'No Venue'}
                 </div>
                 <div class="text-gray2 text-xs font-mono pt-1">
                     Event ID: {selectedEvent.event_id}
@@ -376,7 +361,7 @@
         </div>
 
     {:else}
-         <div class="w-full bg-navbar border border-gray1 rounded-xl p-6 flex flex-col items-center justify-center text-gray2 gap-2">
+        <div class="w-full bg-navbar border border-gray1 rounded-xl p-6 flex flex-col items-center justify-center text-gray2 gap-2">
             <svg class="w-8 h-8 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
                 <line x1="16" y1="2" x2="16" y2="6"/>
@@ -430,12 +415,23 @@
     <button
         type="button"
         on:click={handleToggleAllEvents}
-        class="w-full py-2.5 rounded-3xl font-bold text-sm tracking-wide transition-colors cursor-pointer flex items-center justify-center gap-2 
-        {isViewingAllEvents ? 'bg-transparent border-2 border-lime text-lime hover:bg-lime hover:text-black' : 'bg-transparent border-2 border-gray2 text-gray2 hover:bg-gray2 hover:text-black'}"
+        class="w-full py-2.5 rounded-3xl font-bold text-sm tracking-wide transition-colors cursor-pointer flex items-center justify-center gap-2 {isViewingAllEvents ? 'bg-transparent border-2 border-lime text-lime hover:bg-lime hover:text-black' : 'bg-transparent border-2 border-gray2 text-gray2 hover:bg-gray2 hover:text-black'}"
     >
         {isViewingAllEvents ? 'Close All Events' : 'View All Events'}
     </button>
 
+    <button
+        type="button"
+        on:click={() => (showBatchModal = true)}
+        class="w-full py-2.5 rounded-3xl font-bold text-sm tracking-wide transition-colors cursor-pointer flex items-center justify-center gap-2 bg-transparent border-2 border-lime text-lime hover:bg-lime hover:text-black"
+    >
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        Upload CSV
+    </button>
 </div>
 
 {#if showApproveModal}
@@ -473,6 +469,15 @@
             </div>
         </div>
     </div>
+{/if}
+
+{#if showBatchModal}
+    <BatchUploadModal
+        isOpen={showBatchModal}
+        events={events}
+        currentUser={currentUser}
+        on:close={() => (showBatchModal = false)}
+    />
 {/if}
 
 <style>

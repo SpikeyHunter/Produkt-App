@@ -358,13 +358,13 @@
 	<div
 		bind:this={tableContainer}
 		on:scroll={handleScroll}
-		class="flex-1 overflow-auto custom-scrollbar p-4 {isScrolling ? 'is-scrolling' : ''}"
+		class="flex-1 overflow-auto custom-scrollbar  {isScrolling ? 'is-scrolling' : ''}"
 	>
 		<table 
 			class="w-max text-left border-collapse text-[13px] text-white custom-grid-table"
 			style="zoom: {actualZoom};"
 		>
-			<thead class="sticky top-0 z-10 shadow-md backdrop-blur-sm">
+			<thead class="sticky top-0 z-10 shadow-md bg-[#1e1e1e]">
 				<tr class="text-[11px] uppercase tracking-widest text-gray3">
 					<th
 						colspan="4"
