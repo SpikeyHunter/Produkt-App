@@ -133,6 +133,10 @@
 	});
 </script>
 
+<svelte:head>
+	<meta name="apple-itunes-app" content="app-id=000000000, app-argument=https://app.produkt.ca">
+</svelte:head>
+
 {#if !isAuthInitialized}
 	<div class="flex h-screen bg-gray1 items-center justify-center">
 		<div class="text-center">
