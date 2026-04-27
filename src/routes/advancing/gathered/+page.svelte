@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
+	// 1. 👇 Import beforeNavigate and tick
+	import { onMount, tick } from 'svelte';
+	import { goto, beforeNavigate } from '$app/navigation';
 	import { page } from '$app/stores';
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import SearchBar from '$lib/components/inputs/SearchBar.svelte';
@@ -12,50 +13,58 @@
 	import { fetchEventsAdvance, type EventAdvance } from '$lib/services/eventsService.js';
 	import { supabase } from '$lib/supabase.js';
 
+	let scrollContainer: HTMLElement;
 	let mounted = false;
 	let searchValue = '';
 	let currentFilter: FilterType = 'none';
 	let loading = true;
 	let error: string | null = null;
-
-	// State for the new toggle button
 	let showLive = true;
 	let showLocalOnly = false;
-
-	// allEvents stores the complete list from the server
 	let allEvents: EventAdvance[] = [];
-	// events stores the filtered list (live or past)
 	let events: EventAdvance[] = [];
 
-	// Modal state
 	let showEditModal = false;
 	let selectedEvent: EventAdvance | null = null;
 	let showAddModal = false;
 
-	// Update the onMount function
+	// 👇 This tracks if we've successfully restored the scroll so it only happens once
+	let hasRestoredScroll = false; 
+
 	onMount(async () => {
-		// Read filters from URL params FIRST
 		const params = $page.url.searchParams;
 
-		if (params.has('live')) {
-			showLive = params.get('live') === 'true';
-		}
-		if (params.has('local')) {
-			showLocalOnly = params.get('local') === 'true';
-		}
-		if (params.has('filter')) {
-			currentFilter = params.get('filter') as FilterType;
-		}
-		if (params.has('search')) {
-			searchValue = params.get('search') || '';
-		}
+		if (params.has('live')) showLive = params.get('live') === 'true';
+		if (params.has('local')) showLocalOnly = params.get('local') === 'true';
+		if (params.has('filter')) currentFilter = params.get('filter') as FilterType;
+		if (params.has('search')) searchValue = params.get('search') || '';
 
-		// Then load events with the restored filters
 		await loadEvents();
 
-		// Set mounted for animations
-		setTimeout(() => (mounted = true), 150);
+		setTimeout(() => (mounted = true), 10);
 	});
+
+	// 👇 Safely capture the exact pixel right before the router navigates away
+	beforeNavigate(() => {
+		if (scrollContainer) {
+			sessionStorage.setItem('gatheredScrollPos', scrollContainer.scrollTop.toString());
+		}
+	});
+
+	// 👇 Reactive block: Waits until loading is completely done AND cards exist
+	$: if (!loading && scrollContainer && !hasRestoredScroll) {
+		hasRestoredScroll = true; // Ensure this only triggers once per page load
+		
+		// Wait for Svelte to finish drawing the DOM elements
+		tick().then(() => {
+			setTimeout(() => {
+				const savedScroll = sessionStorage.getItem('gatheredScrollPos');
+				if (savedScroll && scrollContainer) {
+					scrollContainer.scrollTop = parseInt(savedScroll, 10);
+				}
+			}, 50); // 50ms buffer for the browser to calculate the final heights
+		});
+	}
 
 	function updateUrlParams() {
 		if (!mounted) return;
@@ -388,7 +397,7 @@
 </svelte:head>
 
 <MainLayout pageTitle="Advance Gathered">
-	<div class="h-full overflow-auto">
+	<div class="h-full overflow-auto pt-12" bind:this={scrollContainer}>
 		<div class="page-container">
 			<!-- Top Controls Bar -->
 			<div class="fade-in {mounted ? 'mounted' : ''} mb-8" style="transition-delay: 0.1s;">
@@ -507,7 +516,7 @@
 							{#each filteredEvents as event, index}
 								<div
 									class="fade-in {mounted ? 'mounted' : ''} event-card-wrapper"
-									style="transition-delay: {0.3 + index * 0.05}s;"
+									style="transition-delay: {0.05 + index * 0.02}s;"
 								>
 									<AdvanceCard
 										event={event as any}
@@ -577,8 +586,8 @@
 		opacity: 0;
 		transform: translateY(20px);
 		transition:
-			opacity 0.6s ease-out,
-			transform 0.6s ease-out;
+			opacity 0.3s ease-out,
+			transform 0.3s ease-out;
 	}
 
 	.fade-in.mounted {
