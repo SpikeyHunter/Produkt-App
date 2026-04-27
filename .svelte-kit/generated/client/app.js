@@ -44,7 +44,8 @@ export const nodes = [
 	() => import('./nodes/40'),
 	() => import('./nodes/41'),
 	() => import('./nodes/42'),
-	() => import('./nodes/43')
+	() => import('./nodes/43'),
+	() => import('./nodes/44')
 ];
 
 export const server_loads = [];
@@ -78,20 +79,21 @@ export const dictionary = {
 		"/marketing/customers": [27],
 		"/marketing/eventsinfo": [28],
 		"/ncgapp/controlcenter": [29],
-		"/production/backline": [~30],
-		"/production/emailtech": [31],
-		"/production/showbudget": [32],
-		"/production/techrider": [33],
-		"/public/invoice/[token]": [34],
-		"/schedules/stagemanager": [35],
-		"/schedules/tech": [36],
-		"/settimes": [37],
-		"/settings": [38],
-		"/sultanshepard/djshow": [39],
-		"/sultanshepard/djshow/[id]": [40],
-		"/sultanshepard/tour": [41],
-		"/wifi/corpo": [42],
-		"/wifi/ncg": [43]
+		"/privacy": [30],
+		"/production/backline": [~31],
+		"/production/emailtech": [32],
+		"/production/showbudget": [33],
+		"/production/techrider": [34],
+		"/public/invoice/[token]": [35],
+		"/schedules/stagemanager": [36],
+		"/schedules/tech": [37],
+		"/settimes": [38],
+		"/settings": [39],
+		"/sultanshepard/djshow": [40],
+		"/sultanshepard/djshow/[id]": [41],
+		"/sultanshepard/tour": [42],
+		"/wifi/corpo": [43],
+		"/wifi/ncg": [44]
 	};
 
 export const hooks = {

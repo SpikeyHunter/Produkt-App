@@ -13,7 +13,8 @@ const PUBLIC_ROUTES = [
   '/login/register',
   '/login/forgot-password',
   '/auth/verify',
-  '/auth/callback'
+  '/auth/callback',
+  '/privacy'
 ];
 
 export const handle: Handle = async ({ event, resolve }) => {

@@ -21,7 +21,14 @@
 		'/sultanshepard'
 	];
 
-	const PUBLIC_ONLY_ROUTES = ['/', '/login', '/login/register', '/login/forgot-password'];
+	// Add /privacy to the allowed public routes [cite: 4]
+	const PUBLIC_ONLY_ROUTES = [
+		'/',
+		'/login',
+		'/login/register',
+		'/login/forgot-password',
+		'/privacy'
+	];
 	const UNPROTECTED_ROUTES = ['/calendar/unsubscribe', '/production/backline'];
 
 	// --- PERMISSION CONFIGURATION ---
@@ -134,7 +141,7 @@
 </script>
 
 <svelte:head>
-	<meta name="apple-itunes-app" content="app-id=6764183004, app-argument=https://app.produkt.ca">
+	<meta name="apple-itunes-app" content="app-id=6764183004, app-argument=https://app.produkt.ca" />
 </svelte:head>
 
 {#if !isAuthInitialized}

@@ -156,6 +156,7 @@
 	"/marketing/customers": [],
 	"/marketing/eventsinfo": [],
 	"/ncgapp/controlcenter": [],
+	"/privacy": [],
 	"/production/backline": [
 		"src/routes/production/backline/+page.server.ts"
 	],
