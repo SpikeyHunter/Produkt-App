@@ -25,4 +25,7 @@ declare module 'svelte-dnd-action' {
 	};
 }
 
+declare module '@pdftron/pdfjs-express';
+
 export {};
+

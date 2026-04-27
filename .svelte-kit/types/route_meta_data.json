@@ -1,5 +1,8 @@
 {
 	"/": [],
+	"/.well-known/apple-app-site-association": [
+		"src/routes/.well-known/apple-app-site-association/+server.ts"
+	],
 	"/advancing/artistliaison": [],
 	"/advancing/gathered": [],
 	"/advancing/gathered/[event_param]": [
@@ -65,6 +68,9 @@
 	"/api/flight-lookup": [
 		"src/routes/api/flight-lookup/+server.ts"
 	],
+	"/api/gdrive": [
+		"src/routes/api/gdrive/+server.ts"
+	],
 	"/api/generate-advance-pdf": [
 		"src/routes/api/generate-advance-pdf/+server.ts"
 	],
@@ -128,6 +134,7 @@
 	"/auth/verify": [],
 	"/bazart": [],
 	"/booking/artistavailability": [],
+	"/booking/contracts": [],
 	"/booking/dailycount": [],
 	"/booking/talentpayments": [],
 	"/boxoffice": [],
