@@ -1,5 +1,5 @@
 // src/hooks.server.ts
-import { redirect } from '@sveltejs/kit';
+import { redirect, json } from '@sveltejs/kit';
 import type { Handle } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 
@@ -19,6 +19,21 @@ const PUBLIC_ROUTES = [
 export const handle: Handle = async ({ event, resolve }) => {
   const { url } = event;
   const pathname = url.pathname;
+
+  // 🍎 Intercept Apple's Universal Link request FIRST
+  if (pathname === '/.well-known/apple-app-site-association') {
+    return json({
+      applinks: {
+        apps: [],
+        details: [
+          {
+            appID: "5FD5K3HAJ7.produktdev.Produkt-App",
+            paths: [ "/calendar/*" ]
+          }
+        ]
+      }
+    });
+  }
 
   // DEVELOPMENT: Skip all authentication if disabled
   if (dev && DISABLE_AUTH_IN_DEV) {

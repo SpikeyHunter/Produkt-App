@@ -1,8 +1,5 @@
 {
 	"/": [],
-	"/.well-known/apple-app-site-association": [
-		"src/routes/.well-known/apple-app-site-association/+server.ts"
-	],
 	"/advancing/artistliaison": [],
 	"/advancing/gathered": [],
 	"/advancing/gathered/[event_param]": [
