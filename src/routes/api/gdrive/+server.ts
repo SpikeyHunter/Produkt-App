@@ -3,9 +3,9 @@ import { google } from 'googleapis';
 import { Readable } from 'stream';
 import { supabase } from '$lib/supabase.js'; // 👈 Added Supabase to backend proxy
 import {
-	GOOGLE_DRIVE_CLIENT_EMAIL,
-	GOOGLE_DRIVE_PRIVATE_KEY,
-	GOOGLE_DRIVE_CONTRACT_FOLDER_ID
+	GOOGLE_P_DRIVE_CLIENT_EMAIL,
+	GOOGLE_P_DRIVE_PRIVATE_KEY,
+	GOOGLE_DRIVE_CONTRACT_FOLDER_ID // 🔴 The build fails here if this is missing in Vercel
 } from '$env/static/private';
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -16,12 +16,12 @@ let cachedAuthClient: any = null;
 async function getAuthClient() {
 	if (cachedAuthClient) return cachedAuthClient;
 
-	let privateKey = GOOGLE_DRIVE_PRIVATE_KEY;
+	let privateKey = GOOGLE_P_DRIVE_PRIVATE_KEY;
 	if (privateKey.startsWith('"') && privateKey.endsWith('"')) privateKey = privateKey.slice(1, -1);
 	privateKey = privateKey.replace(/\\n/g, '\n');
 
 	cachedAuthClient = new google.auth.JWT({
-		email: GOOGLE_DRIVE_CLIENT_EMAIL,
+		email: GOOGLE_P_DRIVE_CLIENT_EMAIL,
 		key: privateKey,
 		scopes: ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/drive.file']
 	});
