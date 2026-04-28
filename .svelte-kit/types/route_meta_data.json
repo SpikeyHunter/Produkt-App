@@ -116,6 +116,9 @@
 	"/api/validate-team-code": [
 		"src/routes/api/validate-team-code/+server.ts"
 	],
+	"/api/w89-ocr": [
+		"src/routes/api/w89-ocr/+server.ts"
+	],
 	"/api/webhooks/sns-inbound": [
 		"src/routes/api/webhooks/sns-inbound/+server.ts"
 	],

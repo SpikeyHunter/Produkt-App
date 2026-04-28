@@ -17,6 +17,26 @@ import type {
 // Re-export the types for other components to use
 export type { EventAdvance, Event, Person, ApiResponse, PassportInfo, HotelInfo, SoundcheckInfo };
 
+export interface EventContract {
+	contract_id: number;
+	event_id: number;
+	advance_id?: number;
+	original_contract_url: string | null;
+	redlined_contract_url?: string | null;
+	signed_contract_url?: string | null; 
+	invoice_url?: string | null;
+	w89_url?: string | null;
+	w_type?: string | null;
+	contract: boolean;
+	contract_status: string | null;
+	gdrive_folder_id: string | null; 
+	gdrive_folder_url: string | null; 
+	agency_id?: number | null;
+	bypass?: boolean;
+	created_at?: string;
+	updated_at?: string;
+}
+
 // --- MODIFIED TYPES FOR JSON-BASED SET TIMES ---
 export interface TimetableEntry {
 	id: string;
@@ -61,6 +81,23 @@ export interface EventWithTimetable {
 	timetable: TimetableEntry[] | null;
 }
 // --- END MODIFIED TYPES ---
+
+// --- NEW CONTRACT LOGIC ---
+export async function updateEventContract(contractId: number, updates: Partial<EventContract>) {
+	const { data, error } = await supabase
+		.from('events_contract')
+		.update(updates)
+		.eq('contract_id', contractId)
+		.select()
+		.single();
+
+	if (error) {
+		console.error('Error updating contract record:', error);
+		throw error;
+	}
+	return data;
+}
+// --------------------------
 
 export async function updateEvent(eventId: number, updates: { [key: string]: any }) {
 	console.log(`Updating event record ${eventId}...`);
@@ -221,16 +258,14 @@ export async function updateEventColumn(
 	}
 }
 
-/**
- * MODIFICATION: The returned object now strictly aligns with your provided schema.
- */
 export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 	try {
 		console.log('Fetching events from Supabase...');
 
+		// Fetch with joined contract table
 		const { data: advanceData, error: advanceError } = await supabase
 			.from('events_advance')
-			.select('*')
+			.select('*, events_contract!events_contract_advance_id_fkey(*)') 
 			.order('created_at', { ascending: false });
 
 		if (advanceError) {
@@ -270,15 +305,31 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 			const eventName = eventData?.event_name || 'Custom Event';
 			const eventDate = eventData?.event_date ? formatEventDate(eventData.event_date) : 'TBD';
 
+			const contractData = row.events_contract?.[0] || row.events_contract;
+
 			return {
 				// Base fields from events_advance
 				id: `${row.event_id}-${row.artist_name}`,
 				event_id: row.event_id,
+				advance_id: row.id,
 				artist_name: row.artist_name,
 				artist_type: row.artist_type,
 				dos: row.dos,
 				main_contact: row.main_contact,
-				contract_url: row.contract_url,
+
+				// MERGED CONTRACT LOGIC
+				contract_id: contractData?.contract_id || null,
+				gdrive_folder_id: contractData?.gdrive_folder_id || null,
+				gdrive_folder_url: contractData?.gdrive_folder_url || null,
+				original_contract_url: contractData?.original_contract_url || null,
+				redlined_contract_url: contractData?.redlined_contract_url || null,
+				signed_contract_url: contractData?.signed_contract_url || null,
+				contract: contractData?.contract || row.contract,
+				bypass: contractData?.bypass || false,
+				invoice_url: contractData?.invoice_url || null,
+				w89_url: contractData?.w89_url || null,
+				w_type: contractData?.w_type || null,
+
 				roles: row.roles,
 				passport_info: row.passport_info,
 				hotel_info: row.hotel_info,
@@ -296,7 +347,6 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				flights_enabled: row.flights_enabled !== null ? row.flights_enabled : true,
 				advance_completed: row.advance_completed,
 				asked: row.asked,
-				contract: row.contract,
 				role_list: row.role_list,
 				ground_enabled: row.ground_enabled !== null ? row.ground_enabled : true,
 				created_at: row.created_at,
@@ -337,12 +387,12 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				event_status: eventData?.event_status,
 				event_genre: eventData?.event_genre,
 				event_tags: eventData?.event_tags || [],
-				timetable: eventData?.timetable || null // ADD THIS LINE
+				timetable: eventData?.timetable || null
 			};
 		});
 
 		console.log('Successfully fetched and transformed events:', transformedEvents.length);
-		return transformedEvents;
+		return transformedEvents as unknown as EventAdvance[];
 	} catch (error) {
 		console.error('Error in fetchEventsAdvance:', error);
 		return [];
@@ -360,11 +410,8 @@ function formatEventDate(dateString: string): string {
 	}
 }
 
-// Add this to the end of src/lib/services/eventsService.ts
-
 export async function fetchSetTimesPdfData(eventId: number, eventDate: string) {
 	try {
-		// 1. Get the headliner from events_advance
 		const { data: advanceData, error: advanceError } = await supabase
 			.from('events_advance')
 			.select('artist_name')
@@ -377,7 +424,6 @@ export async function fetchSetTimesPdfData(eventId: number, eventDate: string) {
 			console.error('Error fetching advance data for PDF:', advanceError);
 		}
 
-		// 2. Get the event type from schedule_techs
 		const { data: techData, error: techError } = await supabase
 			.from('schedule_techs')
 			.select('type')
@@ -391,7 +437,7 @@ export async function fetchSetTimesPdfData(eventId: number, eventDate: string) {
 
 		return {
 			headlinerName: advanceData?.artist_name || 'TBA',
-			eventType: techData?.type || 'Event',
+			eventType: techData?.type || 'Event'
 		};
 	} catch (err) {
 		console.error('Fatal error in fetchSetTimesPdfData:', err);
@@ -441,25 +487,40 @@ export async function createEventAdvance(
 		}
 
 		console.log(`Creating advance record for event ID: ${finalEventId}`);
-		const { data, error } = await supabase
+		const { data: advanceRow, error: advanceError } = await supabase
 			.from('events_advance')
 			.insert({
 				event_id: finalEventId,
 				artist_name: artistName,
 				artist_type: artistType || null,
-				flights_enabled: true, // Default to enabled
+				flights_enabled: true,
 				ground_enabled: true
 			})
 			.select()
 			.single();
 
-		if (error) {
-			console.error('Error creating record in "events_advance" table:', error);
-			throw error;
+		if (advanceError) {
+			console.error('Error creating record in "events_advance" table:', advanceError);
+			throw advanceError;
 		}
 
-		console.log('Successfully created event advance:', data);
-		return data;
+		console.log(`Creating linked contract record for advance ID: ${advanceRow.id}`);
+		const { error: contractError } = await supabase.from('events_contract').insert({
+			advance_id: advanceRow.id,
+			event_id: finalEventId,
+			contract_status: null,
+			gdrive_folder_id: null,
+			gdrive_folder_url: null,
+			bypass: false
+		});
+
+		if (contractError) {
+			console.error('Error creating linked contract row:', contractError);
+			throw contractError;
+		}
+
+		console.log('Successfully created event advance:', advanceRow);
+		return advanceRow;
 	} catch (error) {
 		console.error('Fatal error in createEventAdvance:', error);
 		throw error;
@@ -472,13 +533,14 @@ export async function updateEventAdvance(
 	updates: Record<string, any>
 ) {
 	try {
-		// Define a list of all valid column names in the 'events_advance' table.
-		// This prevents trying to update the DB with computed UI properties.
 		const validColumns = [
 			'artist_type',
+			'artist_name',  
+			'event_id',
 			'dos',
 			'main_contact',
 			'contract_url',
+			'contract_id', 
 			'roles',
 			'passport_info',
 			'hotel_info',
@@ -517,7 +579,6 @@ export async function updateEventAdvance(
 			'liaison_notes'
 		];
 
-		// Create a 'clean' object containing only the keys that are valid columns.
 		const cleanUpdates: Record<string, any> = {};
 		for (const key in updates) {
 			if (validColumns.includes(key)) {
@@ -525,7 +586,6 @@ export async function updateEventAdvance(
 			}
 		}
 
-		// If there's nothing valid to update, we can exit early.
 		if (Object.keys(cleanUpdates).length === 0) {
 			console.warn('Update called with no valid columns to update.');
 			return;
@@ -538,7 +598,7 @@ export async function updateEventAdvance(
 
 		const { data: updateData, error: updateError } = await supabase
 			.from('events_advance')
-			.update(cleanUpdates) // Use the clean, filtered object for the update
+			.update(cleanUpdates)
 			.eq('event_id', originalEventId)
 			.eq('artist_name', artistName)
 			.select()
@@ -556,6 +616,7 @@ export async function updateEventAdvance(
 		throw error;
 	}
 }
+
 export async function deleteEventAdvance(
 	eventId: number,
 	artistName: string,
@@ -564,6 +625,31 @@ export async function deleteEventAdvance(
 ) {
 	try {
 		console.log('Deleting event advance entry and associated files...');
+
+		const { data: advanceRecord } = await supabase
+			.from('events_advance')
+			.select('contract_id')
+			.eq('event_id', eventId)
+			.eq('artist_name', artistName)
+			.single();
+
+		if (advanceRecord?.contract_id) {
+			const { data: contractInfo } = await supabase
+				.from('events_contract')
+				.select('gdrive_folder_id')
+				.eq('contract_id', advanceRecord.contract_id)
+				.single();
+
+			if (contractInfo?.gdrive_folder_id) {
+				console.log('Deleting associated Google Drive folder...');
+				await fetch('/api/gdrive', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ action: 'delete', folderId: contractInfo.gdrive_folder_id })
+				}).catch((e) => console.error('Failed to delete drive folder:', e));
+			}
+		}
+
 		if (contractUrl) {
 			await deleteFileByUrl(contractUrl);
 		}
@@ -582,6 +668,11 @@ export async function deleteEventAdvance(
 			console.error('Error deleting event advance from DB:', deleteAdvanceError);
 			throw deleteAdvanceError;
 		}
+
+		if (advanceRecord?.contract_id) {
+			await supabase.from('events_contract').delete().eq('contract_id', advanceRecord.contract_id);
+		}
+
 		console.log('Successfully deleted advance record.');
 	} catch (error) {
 		console.error('Error in deleteEventAdvance:', error);
@@ -589,9 +680,6 @@ export async function deleteEventAdvance(
 	}
 }
 
-/**
- * MODIFICATION: The returned object now strictly aligns with your provided schema.
- */
 export async function fetchEventById(eventId: string): Promise<EventAdvance | null> {
 	try {
 		console.log('Fetching event with id:', eventId);
@@ -621,7 +709,10 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			eventData = event;
 		}
 
-		let query = supabase.from('events_advance').select('*').eq('event_id', numericEventId);
+		let query = supabase
+			.from('events_advance')
+			.select('*, events_contract!events_contract_advance_id_fkey(*)') 
+			.eq('event_id', numericEventId);
 		if (artistName) {
 			query = query.eq('artist_name', artistName);
 		}
@@ -634,16 +725,28 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 
 		const finalEventName = eventData?.event_name || 'Unnamed Event';
 		const finalEventDate = eventData?.event_date ? formatEventDate(eventData.event_date) : 'TBD';
+		const contractData = advanceData.events_contract;
 
 		const combinedData: EventAdvance = {
-			// Base fields from events_advance
 			id: `${advanceData.event_id}-${advanceData.artist_name}`,
 			event_id: advanceData.event_id,
 			artist_name: advanceData.artist_name,
 			artist_type: advanceData.artist_type,
 			dos: advanceData.dos,
 			main_contact: advanceData.main_contact,
-			contract_url: advanceData.contract_url,
+
+			contract_id: advanceData.contract_id,
+			contract_url: contractData?.contract_file_url || advanceData.contract_url,
+			contract: contractData?.contract || advanceData.contract,
+			contract_status: contractData?.contract_status || null,
+			gdrive_folder_id: contractData?.gdrive_folder_id || null, 
+			gdrive_folder_url: contractData?.gdrive_folder_url || null, 
+			signed_contract_url: contractData?.signed_contract_url || null, 
+			bypass: contractData?.bypass || false,
+			invoice_url: contractData?.invoice_url || advanceData.invoice_url,
+			w89_url: contractData?.w89_url || advanceData.w89_url,
+			w_type: contractData?.w_type || advanceData.w_type, // <-- ADD THIS
+
 			roles: advanceData.roles,
 			passport_info: advanceData.passport_info,
 			hotel_info: advanceData.hotel_info,
@@ -661,7 +764,6 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			flights_enabled: advanceData.flights_enabled !== null ? advanceData.flights_enabled : true,
 			advance_completed: advanceData.advance_completed,
 			asked: advanceData.asked,
-			contract: advanceData.contract,
 			role_list: advanceData.role_list,
 			ground_enabled: advanceData.ground_enabled !== null ? advanceData.ground_enabled : true,
 			created_at: advanceData.created_at,
@@ -682,14 +784,12 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			guestlist: advanceData.guestlist,
 			follow_up: advanceData.follow_up,
 
-			// Computed fields for UI
 			name: finalEventName,
 			date: finalEventDate,
 			progress: calculateDynamicProgress(advanceData),
 			poster: eventData?.event_flyer || null,
 			tags: eventData?.event_tags || [],
 
-			// Joined fields from events table
 			venue: eventData?.event_venue || null,
 			event_venue: eventData?.event_venue || null,
 			event_flyer: eventData?.event_flyer || null,

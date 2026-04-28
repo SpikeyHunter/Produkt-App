@@ -71,7 +71,7 @@
 				daySells,
 				ga: record?.ga || 0,
 				vip: record?.vip || 0,
-				hasData: !!record,
+				hasData: true,
 				isFirstDataPoint,
 				record
 			};
@@ -450,7 +450,7 @@
 									out:fade={{ duration: 300 }}
 								>
 									{#each row.points as p}
-										{#if p.hasData && p.heightCol > 0}
+										{#if p.hasData && p.heightCol >= 0}
 											<text
 												x={p.xColumn + p.barWidth / 2}
 												y={p.y - 5}

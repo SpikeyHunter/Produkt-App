@@ -24,14 +24,14 @@
 	let filterEndDate = '';
 
 	const excludeKeywords = [
-		'test', 'réservations', 'pass', 'event', 'template', 'produktworld', 'piknic', 'oktoberfest'
+		'test', 'réservations', 'pass', 'event', 'template', 'produktworld', 'piknic', 'oktoberfest', 'saison estivale', 'race week'
 	];
 
 	$: eventsWithData = allEvents.filter((e) => {
 		const countsForEvent = dailyCounts.filter((c) => c.event_id === e.event_id);
 		if (countsForEvent.length === 0) return false;
 		const latest = countsForEvent[countsForEvent.length - 1];
-		return latest.total > 0;
+		return latest.total >= 0; 
 	});
 
 	$: activeEvents = mode === 'LIVE'

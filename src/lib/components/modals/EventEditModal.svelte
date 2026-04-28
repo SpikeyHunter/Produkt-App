@@ -260,10 +260,16 @@
 					throw new Error('Could not find original record to clone.');
 				}
 
-				// C. Prepare New Record (Copy everything except ID, update event_id and name)
-				// eslint-disable-next-line no-unused-vars
-				const { id, created_at, updated_at, ...dataToKeep } = oldRecord;
+				// ---> [NEW] Fetch the associated events_contract row using the advance_id
+				const { data: oldContract } = await supabase
+					.from('events_contract')
+					.select('*')
+					.eq('advance_id', oldRecord.id)
+					.single();
 
+				// C. Prepare New Record (Exclude IDs and timestamps)
+				// CRITICAL: We strip out the old `contract_id` so it inserts as NULL. The SQL trigger will populate the new one automatically.
+				const { id, created_at, updated_at, contract_id, ...dataToKeep } = oldRecord;
 				const newRecord = {
 					...dataToKeep,
 					event_id: newId,
@@ -271,15 +277,48 @@
 					artist_type: finalArtistType
 				};
 
-				// D. Insert New Record
-				const { error: insertError } = await supabase.from('events_advance').insert(newRecord);
+				// D. Insert New Advance Record AND grab the newly generated advance ID
+				const { data: newAdvance, error: insertError } = await supabase
+					.from('events_advance')
+					.insert(newRecord)
+					.select()
+					.single();
 
-				if (insertError) throw insertError;
-				console.log('[Save] Cloned record inserted successfully.');
+				if (insertError || !newAdvance) throw insertError;
+				console.log('[Save] Cloned advance record inserted successfully.');
 
-				// E. Update Venue on the NEW Event ID
+				// ---> [NEW] Clone the events_contract row and link it to the new Advance ID
+				if (oldContract) {
+					// Strip out the primary key and timestamps from the old contract
+					const {
+						contract_id: old_cid,
+						created_at: c_at,
+						updated_at: u_at,
+						...contractDataToKeep
+					} = oldContract;
+
+					const newContract = {
+						...contractDataToKeep, // This copies all your GDrive URLs, invoice URLs, etc!
+						advance_id: newAdvance.id, // Point to the newly created advance
+						event_id: newId // Point to the new Tixr event
+					};
+
+					const { error: contractInsertError } = await supabase
+						.from('events_contract')
+						.insert(newContract);
+					if (contractInsertError) throw contractInsertError;
+
+					console.log('[Save] Cloned contract record inserted successfully.');
+				} else {
+					// Fallback: If no contract existed, make a blank one to maintain schema integrity
+					await supabase.from('events_contract').insert({
+						advance_id: newAdvance.id,
+						event_id: newId
+					});
+				}
+
 				// E. Update Venue on the NEW Event ID and force is_custom to FALSE
-				const targetEventUpdates: any = { is_custom: false }; // Ensure it's marked as a real event
+				const targetEventUpdates: any = { is_custom: false };
 
 				if (finalVenue) {
 					targetEventUpdates.event_venue = finalVenue;
@@ -289,6 +328,7 @@
 				await updateEvent(newId, targetEventUpdates);
 
 				// F. Delete Old Record from events_advance
+				// (Because of ON DELETE CASCADE, this will safely clean up the old events_contract row too)
 				await supabase.from('events_advance').delete().eq('id', oldRecord.id);
 
 				console.log('[Save] Old ADVANCE record deleted.');
@@ -312,25 +352,48 @@
 					console.log('[Save] Old EVENT row deleted successfully.');
 				}
 			} else {
-				// === SCENARIO 2: SAME EVENT ID (STANDARD UPDATE) ===
-				console.log('[Save] Updating existing record...');
+                // === SCENARIO 2: STANDARD UPDATE (SAME EVENT ID) ===
+                console.log('[Save] Same Event ID detected. Updating existing records...');
 
-				const updates = {
-					event_id: newId,
-					artist_name: artistName.trim(),
-					artist_type: finalArtistType
-				};
+                // 1. Update the Advance Record (Artist Name & Type)
+                if (originalArtistName !== artistName.trim() || event.artist_type !== finalArtistType) {
+                    await updateEventAdvance(oldId, originalArtistName, {
+                        artist_name: artistName.trim(),
+                        artist_type: finalArtistType
+                    });
+                }
 
-				await updateEventAdvance(oldId, originalArtistName, updates);
+                // 2. Update the Main Event Record (Venue)
+                if (event.venue !== finalVenue || event.event_venue !== finalVenue) {
+                    await updateEvent(oldId, {
+                        event_venue: finalVenue
+                    });
+                }
+            }
 
-				// Update venue on existing ID
-				if (finalVenue && (selectedEvent || oldId !== -1)) {
-					const targetId = selectedEvent ? selectedEvent.event_id : oldId;
-					await updateEvent(targetId, { event_venue: finalVenue });
-				}
-			}
-
-			dispatch('save', {
+			// --- NEW: Rename Google Drive Folder if Artist or Venue changed ---
+            if (event.gdrive_folder_id && (originalArtistName !== artistName.trim() || event.venue !== finalVenue)) {
+                console.log('[Save] Artist or Venue changed. Triggering GDrive folder rename...');
+                
+                // Determine the correct date to use for the folder name
+                const targetDate = selectedEvent ? selectedEvent.event_date : event.event_date;
+                
+                // Fire the rename API request (no need to await and block the UI from closing)
+                fetch('/api/gdrive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'rename',
+                        folderId: event.gdrive_folder_id,
+                        eventDate: targetDate,
+                        artistName: artistName.trim(),
+                        venueName: finalVenue
+                    })
+                }).catch(e => console.error('[Save] GDrive rename failed:', e));
+            }
+            // ------------------------------------------------------------------
+            
+            dispatch('save', {
 				eventId: oldId,
 				originalArtistName: originalArtistName,
 				// We send back the *new* state for the UI
