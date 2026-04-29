@@ -106,8 +106,12 @@
 	function formatEventDate(dateString: string) {
 		if (!dateString) return '';
 		try {
-			const d = new Date(dateString);
+			// Using the same local timezone trick from ArtistListCard
+			const cleanDateStr = dateString.split('T')[0].replace(/-/g, '/');
+			const d = new Date(cleanDateStr);
+
 			if (isNaN(d.getTime())) return '';
+			
 			const month = d.toLocaleDateString('en-US', { month: 'long' });
 			const day = d.getDate();
 			const year = d.getFullYear();
