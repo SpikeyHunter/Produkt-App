@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>Produkt Red Updates</title>
+        <link>https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/Produkt-Red/appcast.xml</link>
+        <description>Most recent updates to Produkt Red</description>
+        <language>en</language>
+        
+        <item>
+            <title>Version 1.1.0</title>
+            <sparkle:releaseNotesLink>https://app.produkt.ca/release-notes</sparkle:releaseNotesLink>
+            <pubDate>Thu, 30 Apr 2026 12:00:00 +0000</pubDate>
+            <enclosure url="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/Produkt-Red/ProduktRed_1.1.0.dmg"
+                       sparkle:version="2"
+                       sparkle:shortVersionString="1.1.0"
+                       length="7388913"
+                       type="application/x-apple-diskimage"
+                       sparkle:edSignature="1DBiNBkjwDykRmjkkQJCjtoUAA1rx8SuQIKYfwCjGLIEPWrX2uN6zbbkeA+nVyDqflYttdapKqwkVJCdMX/wCg==" />
+        </item>
+    </channel>
+</rss>

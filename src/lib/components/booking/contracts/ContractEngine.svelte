@@ -275,7 +275,7 @@
 	function openAppWithFallback(advanceId: any) {
 		const deepLink = `produktred://redline?documentId=${advanceId}`;
 		const downloadUrl =
-			'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/Produkt-Red/ProduktRed_1.0.0.dmg';
+			'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/Produkt-Red/ProduktRed_1.1.0.dmg';
 
 		// 1. Try to open the app
 		window.location.href = deepLink;
@@ -543,7 +543,7 @@
 						<div class="text-xs text-gray3 mt-4">
 							Don't have the app?
 							<a
-								href="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/Produkt-Red/ProduktRed_1.0.0.dmg"
+								href="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/Produkt-Red/ProduktRed_1.1.0.dmg"
 								class="text-problem hover:text-white transition-colors ml-1 font-bold underline"
 								download
 							>

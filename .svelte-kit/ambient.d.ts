@@ -109,6 +109,12 @@ declare module '$env/static/private' {
 	export const _: string;
 	export const __CFBundleIdentifier: string;
 	export const __CF_USER_TEXT_ENCODING: string;
+	export const APPLICATION_INSIGHTS_NO_STATSBEAT: string;
+	export const COPILOT_OTEL_ENABLED: string;
+	export const OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: string;
+	export const COPILOT_OTEL_EXPORTER_TYPE: string;
+	export const COPILOT_OTEL_FILE_EXPORTER_PATH: string;
+	export const VSCODE_L10N_BUNDLE_LOCATION: string;
 	export const ELECTRON_NO_ASAR: string;
 	export const NODE_ENV: string;
 }
@@ -272,6 +278,12 @@ declare module '$env/dynamic/private' {
 		_: string;
 		__CFBundleIdentifier: string;
 		__CF_USER_TEXT_ENCODING: string;
+		APPLICATION_INSIGHTS_NO_STATSBEAT: string;
+		COPILOT_OTEL_ENABLED: string;
+		OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT: string;
+		COPILOT_OTEL_EXPORTER_TYPE: string;
+		COPILOT_OTEL_FILE_EXPORTER_PATH: string;
+		VSCODE_L10N_BUNDLE_LOCATION: string;
 		ELECTRON_NO_ASAR: string;
 		NODE_ENV: string;
 		[key: `PUBLIC_${string}`]: undefined;
