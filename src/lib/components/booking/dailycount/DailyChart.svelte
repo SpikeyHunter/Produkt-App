@@ -6,9 +6,35 @@
 	export let dailyCounts: DailyCount[] = [];
 	export let activeEvents: EventData[] = [];
 	export let dateRange: string[] = [];
-	export let selectedEventForInfo: EventData | null = null;
 
 	const dispatch = createEventDispatcher();
+
+	// Local selection state — owned here, not passed as prop, so Svelte reactivity is guaranteed
+	let selectedEventId: number | null = null;
+	let selectedEventForInfo: EventData | null = null;
+
+	function selectEvent(event: EventData) {
+		// Toggle: clicking the already-selected event unselects it
+		if (selectedEventId === event.event_id) {
+			unselectEvent();
+			return;
+		}
+		selectedEventId = event.event_id;
+		selectedEventForInfo = event;
+		dispatch('eventClicked', event);
+	}
+
+	function unselectEvent() {
+		selectedEventId = null;
+		selectedEventForInfo = null;
+		dispatch('unselectEvent');
+	}
+
+	// Keep selectedEventForInfo in sync if activeEvents list changes (e.g. event removed)
+	$: if (selectedEventId && !activeEvents.some(e => e.event_id === selectedEventId)) {
+		selectedEventId = null;
+		selectedEventForInfo = null;
+	}
 	let chartType: 'LINE' | 'COLUMN' = 'LINE';
 	let viewMode: 'CUMULATIVE' | 'DAILY' = 'CUMULATIVE';
 	let showTotals = false;
@@ -125,14 +151,40 @@
 			return { ...p, xLine, xColumn, y, heightCol, barWidth };
 		});
 
-		return { event: row.event, points };
+		const isSelected = selectedEventId === row.event.event_id;
+		const isFaded = selectedEventId != null && !isSelected;
+		// When something is selected, faded rows go gray. Selected/none-selected keep original color.
+		const uiColor = isFaded ? '#4b5563' : (row.event.color || '#ffffff');
+
+		return { event: row.event, points, isFaded, isSelected, uiColor };
+	});
+
+	// The selected row, rendered separately ON TOP of all base lines.
+	// This avoids reordering the keyed `{#each}` array (which would re-trigger draw animations).
+	$: selectedRow = chartData.find((r) => r.isSelected) || null;
+
+	// Strict reactive array for the sidebar list so Svelte is forced to update styles instantly
+	$: sidebarDisplayData = sortedSidebarEvents.map((event) => {
+		const isSelected = selectedEventId === event.event_id;
+		const isFaded = selectedEventId != null && !isSelected;
+		const baseColor = event.color || '#ffffff';
+		return {
+			...event,
+			originalEvent: event,
+			uiBorderColor: isFaded ? '#374151' : baseColor,
+			uiTextColor: isFaded ? '#6b7280' : baseColor,
+			uiFilter: isFaded ? 'grayscale(1)' : 'none',
+			uiOpacity: isFaded ? 0.45 : 1,
+			uiShadow: isSelected ? `0 0 0 1px ${baseColor}, 0 4px 16px ${baseColor}40` : 'none',
+			uiBg: isSelected ? 'bg-gray1/80' : ''
+		};
 	});
 
 	function getPath(points: any[]) {
 		if (points.length === 0) return '';
 		if (points.length === 1)
 			return `M ${points[0].xLine} ${points[0].y} L ${points[0].xLine + innerWidth} ${points[0].y}`;
-
+		
 		return (
 			`M ${points[0].xLine} ${points[0].y} ` +
 			points
@@ -252,41 +304,30 @@
 	<div class="flex flex-1 min-h-0 gap-6">
 		<div class="w-[240px] shrink-0 overflow-y-auto custom-scrollbar space-y-2 pr-2">
 			<h2 class="text-gray3 font-bold text-sm">Selected Events</h2>
-			{#each sortedSidebarEvents as event}
+			{#each sidebarDisplayData as item (item.event_id)}
 				<div
-					class="flex items-center gap-3 p-2 bg-gray1/40 rounded-xl border-l-4 border-r-4 shadow-sm transition-all outline-none hover:bg-gray1/60 cursor-pointer {selectedEventForInfo &&
-					selectedEventForInfo.event_id === event.event_id
-						? 'bg-gray1/80 shadow-md'
-						: ''}"
-					style="border-color: {event.color}; opacity: {selectedEventForInfo &&
-					selectedEventForInfo.event_id !== event.event_id
-						? 0.4
-						: 1};"
-					on:click={() => dispatch('eventClicked', event)}
+					class="flex items-center gap-3 p-2 bg-gray1/40 rounded-xl border-l-4 border-r-4 shadow-sm outline-none hover:bg-gray1/60 cursor-pointer {item.uiBg}"
+					style="border-left-color: {item.uiBorderColor}; border-right-color: {item.uiBorderColor}; opacity: {item.uiOpacity}; filter: {item.uiFilter}; box-shadow: {item.uiShadow}; transition: border-color 0.3s ease, opacity 0.3s ease, filter 0.3s ease, box-shadow 0.3s ease;"
+					on:click={() => selectEvent(item.originalEvent)}
 					on:keydown={(e) => {
-						if (e.key === 'Enter' || e.key === ' ') dispatch('eventClicked', event);
+						if (e.key === 'Enter' || e.key === ' ') selectEvent(item.originalEvent);
 					}}
 					role="button"
 					tabindex="0"
 				>
 					<div class="w-10 h-10 shrink-0 rounded-md overflow-hidden bg-black">
-						{#if event.event_flyer}
-							<img
-								src={event.event_flyer}
-								alt={event.event_name}
-								class="w-full h-full object-cover"
-							/>
+						{#if item.event_flyer}
+							<img src={item.event_flyer} alt={item.event_name} class="w-full h-full object-cover" />
 						{/if}
 					</div>
 					<div class="flex flex-col min-w-0">
-						<span class="font-bold text-xs truncate" style="color: {event.color}"
-							>{event.event_name}</span
-						>
-						<span class="text-[10px] text-[var(--color-gray3)] truncate mt-0.5"
-							>{event.event_id}{#if event.event_venue}
-								- {event.event_venue}{/if}</span
-						>
-						<span class="text-[10px] text-white truncate mt-0.5">{event.event_date}</span>
+						<span class="font-bold text-xs truncate" style="color: {item.uiTextColor}; transition: color 0.3s ease;">
+							{item.event_name}
+						</span>
+						<span class="text-[10px] text-[var(--color-gray3)] truncate mt-0.5">
+							{item.event_id}{#if item.event_venue} - {item.event_venue}{/if}
+						</span>
+						<span class="text-[10px] text-white truncate mt-0.5">{item.event_date}</span>
 					</div>
 				</div>
 			{/each}
@@ -308,8 +349,8 @@
 							class="cursor-default outline-none focus:outline-none"
 							role="button"
 							tabindex="-1"
-							on:click={() => dispatch('unselectEvent')}
-							on:keydown={(e) => e.key === 'Enter' && dispatch('unselectEvent')}
+							on:click={() => unselectEvent()}
+							on:keydown={(e) => e.key === 'Enter' && unselectEvent()}
 						/>
 						<defs
 							><clipPath id="reveal-clip"
@@ -371,33 +412,27 @@
 						{#if chartType === 'LINE'}
 							<g clip-path="url(#reveal-clip)">
 								{#each chartData as row (row.event.event_id)}
-									{@const isFaded =
-										selectedEventForInfo && selectedEventForInfo.event_id !== row.event.event_id}
-									{@const elementColor = isFaded ? '#6b7280' : row.event.color}
 									<path
 										in:draw={{ duration: 1000 }}
 										out:fade={{ duration: 300 }}
 										d={getPath(row.points)}
 										fill="none"
-										stroke={elementColor}
-										stroke-width={isFaded ? 2 : 3}
+										stroke={row.uiColor}
+										stroke-width={row.isFaded ? 1.5 : 3}
 										stroke-linecap="round"
 										stroke-linejoin="round"
-										style="opacity: {isFaded ? 0.4 : 1}; transition: all 0.3s ease-in-out;"
+										style="opacity: {row.isFaded ? 0.25 : 1}; transition: stroke 0.3s ease-in-out, opacity 0.3s ease-in-out, stroke-width 0.3s ease-in-out;"
 										class="cursor-pointer hover:stroke-[4px] outline-none focus:outline-none"
 										role="button"
 										tabindex="-1"
-										on:click|stopPropagation={() => dispatch('eventClicked', row.event)}
-										on:keydown={(e) => e.key === 'Enter' && dispatch('eventClicked', row.event)}
+										on:click|stopPropagation={() => selectEvent(row.event)}
+										on:keydown={(e) => e.key === 'Enter' && selectEvent(row.event)}
 									/>
 								{/each}
 							</g>
 							{#each chartData as row (row.event.event_id)}
-								{@const isFaded =
-									selectedEventForInfo && selectedEventForInfo.event_id !== row.event.event_id}
-								{@const elementColor = isFaded ? '#6b7280' : row.event.color}
 								<g
-									style="opacity: {isFaded ? 0.4 : 1}; transition: opacity 0.3s ease-in-out;"
+									style="opacity: {row.isFaded ? 0.25 : 1}; transition: opacity 0.3s ease-in-out;"
 									out:fade={{ duration: 300 }}
 								>
 									{#each row.points as p}
@@ -425,7 +460,7 @@
 												cy={p.y}
 												r="4.5"
 												fill="var(--color-navbar)"
-												stroke={elementColor}
+												stroke={row.uiColor}
 												stroke-width="2.5"
 												class="cursor-pointer hover:r-[7px] animated-point transition-colors outline-none focus:outline-none"
 												style="animation-delay: {staggerDelay}s"
@@ -433,20 +468,51 @@
 												tabindex="-1"
 												on:mouseenter={(e) => showTooltip(e, p, row.event)}
 												on:mouseleave={hideTooltip}
-												on:click|stopPropagation={() => dispatch('eventClicked', row.event)}
-												on:keydown={(e) => e.key === 'Enter' && dispatch('eventClicked', row.event)}
+												on:click|stopPropagation={() => selectEvent(row.event)}
+												on:keydown={(e) => e.key === 'Enter' && selectEvent(row.event)}
 											/>
 										{/if}
 									{/each}
 								</g>
 							{/each}
+
+							<!-- TOP LAYER: highlighted selected line + dots, drawn AFTER everything else.
+								 This stays mounted across selection changes (always rendered, just empty when nothing selected),
+								 so no draw-animation re-trigger happens. -->
+							{#if selectedRow}
+								<path
+									d={getPath(selectedRow.points)}
+									fill="none"
+									stroke={selectedRow.event.color || '#ffffff'}
+									stroke-width="4"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									style="pointer-events: none; transition: stroke 0.3s ease-in-out;"
+								/>
+								{#each selectedRow.points as p}
+									{#if p.hasData}
+										<circle
+											cx={p.xLine}
+											cy={p.y}
+											r="5"
+											fill="var(--color-navbar)"
+											stroke={selectedRow.event.color || '#ffffff'}
+											stroke-width="3"
+											class="cursor-pointer outline-none focus:outline-none"
+											role="button"
+											tabindex="-1"
+											on:mouseenter={(e) => showTooltip(e, p, selectedRow.event)}
+											on:mouseleave={hideTooltip}
+											on:click|stopPropagation={() => selectEvent(selectedRow.event)}
+											on:keydown={(e) => e.key === 'Enter' && selectEvent(selectedRow.event)}
+										/>
+									{/if}
+								{/each}
+							{/if}
 						{:else}
 							{#each chartData as row (row.event.event_id)}
-								{@const isFaded =
-									selectedEventForInfo && selectedEventForInfo.event_id !== row.event.event_id}
-								{@const elementColor = isFaded ? '#6b7280' : row.event.color}
 								<g
-									style="opacity: {isFaded ? 0.4 : 1}; transition: opacity 0.3s ease-in-out;"
+									style="opacity: {row.isFaded ? 0.25 : 1}; transition: opacity 0.3s ease-in-out;"
 									out:fade={{ duration: 300 }}
 								>
 									{#each row.points as p}
@@ -462,22 +528,22 @@
 												style="visibility: {showTotals
 													? 'visible'
 													: 'hidden'}; pointer-events: none;"
-												>{viewMode === 'CUMULATIVE' ? p.total : p.daySells}</text
+											>{viewMode === 'CUMULATIVE' ? p.total : p.daySells}</text
 											>
 											<rect
 												x={p.xColumn}
 												y={p.y}
 												width={p.barWidth}
 												height={p.heightCol}
-												fill={elementColor}
+												fill={row.uiColor}
 												rx="2"
 												class="cursor-pointer hover:opacity-80 animated-column transition-colors outline-none focus:outline-none"
 												role="button"
 												tabindex="-1"
 												on:mouseenter={(e) => showTooltip(e, p, row.event)}
 												on:mouseleave={hideTooltip}
-												on:click|stopPropagation={() => dispatch('eventClicked', row.event)}
-												on:keydown={(e) => e.key === 'Enter' && dispatch('eventClicked', row.event)}
+												on:click|stopPropagation={() => selectEvent(row.event)}
+												on:keydown={(e) => e.key === 'Enter' && selectEvent(row.event)}
 											/>
 										{/if}
 									{/each}
@@ -494,8 +560,7 @@
 {#if tooltip.visible}
 	<div
 		class="fixed pointer-events-none z-50 bg-navbar border p-3 rounded-xl shadow-2xl transition-opacity w-[180px]"
-		style="left: {tooltip.x}px; top: {tooltip.y}px; border-color: {tooltip.color};
-		transform: translate(-50%, {tooltip.y < 220 ? '15px' : '-115%'});"
+		style="left: {tooltip.x}px; top: {tooltip.y}px; border-color: {tooltip.color}; transform: translate(-50%, {tooltip.y < 220 ? '15px' : '-115%'});"
 	>
 		<div
 			class="text-[11px] font-bold mb-1 break-words whitespace-normal leading-tight"

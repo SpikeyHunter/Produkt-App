@@ -136,7 +136,25 @@
 	function updateCustomColor() {
 		if (selectedEventForInfo) {
 			const hex = hsvToHex(pickerHue, pickerSat, pickerVal);
-			dispatch('colorChanged', { id: selectedEventForInfo.event_id, color: hex });
+			// FIX: Reassign (not mutate) so Svelte detects the change and updates the UI
+			selectedEventForInfo = { ...selectedEventForInfo, color: hex };
+		}
+	}
+
+	function saveCurrentColor() {
+		if (selectedEventForInfo && selectedEventForInfo.color) {
+			// Ensure the hex code always has a '#' before saving to the database
+			let finalColor = selectedEventForInfo.color.trim();
+			if (!finalColor.startsWith('#')) {
+				finalColor = '#' + finalColor;
+				selectedEventForInfo.color = finalColor; // Update locally
+			}
+			
+			console.log(`[EventInfoPanel] Dispatching save for ID: ${selectedEventForInfo.event_id} | Color: ${finalColor}`);
+			
+			dispatch('colorChanged', { id: selectedEventForInfo.event_id, color: finalColor });
+		} else {
+			console.warn("[EventInfoPanel] Failed to dispatch: Event or color is missing.", selectedEventForInfo);
 		}
 	}
 
@@ -158,8 +176,12 @@
 	let onMove = (e: MouseEvent) => {
 		if (isDraggingWheel) handleWheelInteract(e);
 	};
+
 	let onUp = () => {
-		isDraggingWheel = false;
+		if (isDraggingWheel) {
+			isDraggingWheel = false;
+			saveCurrentColor(); // Save when mouse is released
+		}
 	};
 
 	function setupDragListeners() {
@@ -331,12 +353,14 @@
 						></button>
 						<input
 							type="text"
-							value={selectedEventForInfo.color}
-							on:change={(e) =>
-								dispatch('colorChanged', {
-									id: selectedEventForInfo?.event_id,
-									color: e.currentTarget.value
-								})}
+							bind:value={selectedEventForInfo.color}
+							on:blur={saveCurrentColor}
+							on:keydown={(e) => {
+								if (e.key === 'Enter') {
+									saveCurrentColor();
+									e.currentTarget.blur();
+								}
+							}}
 							class="w-full bg-gray1 text-white rounded-md px-2 py-1.5 text-[11px] outline-none focus:border-lime uppercase font-mono"
 							placeholder="#HEX"
 						/>
@@ -386,6 +410,7 @@
 									max="100"
 									bind:value={pickerVal}
 									on:input={updateCustomColor}
+									on:change={saveCurrentColor}
 									class="w-full h-3 rounded-full appearance-none outline-none cursor-pointer"
 									aria-label="Brightness selector"
 									style="background: linear-gradient(to right, #000, hsl({pickerHue}, {pickerSat}%, 50%));"

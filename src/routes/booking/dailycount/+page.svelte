@@ -3,7 +3,9 @@
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import { supabase } from '$lib/supabase';
 	import type { DailyCount, EventData } from '$lib/types/dailycount';
-	import { extractDominantColor, resolveColorCollisions } from '$lib/utils/color';
+	
+	// FIX: Removed `resolveColorCollisions` from imports so it stops overriding database colors!
+	import { extractDominantColor } from '$lib/utils/color';
 
 	import Header from '$lib/components/booking/dailycount/Header.svelte';
 	import ControlPanel from '$lib/components/booking/dailycount/ControlPanel.svelte';
@@ -22,21 +24,30 @@
 	// Filter dates
 	let filterStartDate = '';
 	let filterEndDate = '';
-
 	const excludeKeywords = [
-		'test', 'réservations', 'pass', 'event', 'template', 'produktworld', 'piknic', 'oktoberfest', 'saison estivale', 'race week'
+		'test',
+		'réservations',
+		'pass',
+		'event',
+		'template',
+		'produktworld',
+		'piknic',
+		'oktoberfest',
+		'saison estivale',
+		'race week'
 	];
 
 	$: eventsWithData = allEvents.filter((e) => {
 		const countsForEvent = dailyCounts.filter((c) => c.event_id === e.event_id);
 		if (countsForEvent.length === 0) return false;
 		const latest = countsForEvent[countsForEvent.length - 1];
-		return latest.total >= 0; 
+		return latest.total >= 0;
 	});
 
-	$: activeEvents = mode === 'LIVE'
-		? eventsWithData.filter((e) => e.event_status === 'LIVE')
-		: eventsWithData.filter((e) => selectedCustomIds.includes(e.event_id));
+	$: activeEvents =
+		mode === 'LIVE'
+			? eventsWithData.filter((e) => e.event_status === 'LIVE')
+			: eventsWithData.filter((e) => selectedCustomIds.includes(e.event_id));
 
 	$: {
 		const activeCounts = dailyCounts.filter((c) =>
@@ -50,7 +61,7 @@
 
 	$: {
 		if (filterStartDate && filterEndDate) {
-			dateRange = fullDateRange.filter(d => d >= filterStartDate && d <= filterEndDate);
+			dateRange = fullDateRange.filter((d) => d >= filterStartDate && d <= filterEndDate);
 		} else {
 			dateRange = fullDateRange;
 		}
@@ -71,9 +82,16 @@
 	});
 
 	async function loadData() {
-		const { data: eventData } = await supabase
+		console.log('[+page.svelte] Fetching events from database on load...');
+		const { data: eventData, error: eventError } = await supabase
 			.from('events')
-			.select('event_id, event_name, event_date, event_status, event_flyer, event_venue, stage_type, color');
+			.select(
+				'event_id, event_name, event_date, event_status, event_flyer, event_venue, stage_type, color'
+			);
+
+		if (eventError) {
+			console.error('[+page.svelte] Failed to fetch events:', eventError);
+		}
 
 		const { data: countData } = await supabase
 			.from('daily_count')
@@ -90,9 +108,10 @@
 
 			const eventsWithColors = await Promise.all(
 				validEvents.map(async (e) => {
-					let finalColor = e.color;
+					// Safely extract and trim the color to prevent empty string bugs
+					let finalColor = e.color ? e.color.trim() : null;
 
-					if (!finalColor) {
+					if (!finalColor || finalColor === '') {
 						if (e.event_flyer) finalColor = await extractDominantColor(e.event_flyer);
 						else finalColor = '#00FFFF';
 
@@ -101,8 +120,11 @@
 					return { ...e, color: finalColor } as EventData;
 				})
 			);
-
-			allEvents = resolveColorCollisions(eventsWithColors);
+			
+			console.log('[+page.svelte] Successfully mapped colors on load.');
+			
+			// FIX: Assign eventsWithColors directly to allEvents without running the collision function
+			allEvents = eventsWithColors;
 		}
 	}
 
@@ -152,19 +174,46 @@
 
 	async function handleColorChange(e: CustomEvent<{ id: number; color: string }>) {
 		const { id, color } = e.detail;
+		console.log(`[+page.svelte] Received color update request. ID: ${id} | Color: ${color}`);
+
+		// 1. Update the local UI immediately
 		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, color } : ev));
+		
+		// FIX: Deep reassignment so Svelte strictly registers the object update
 		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
-			selectedEventForInfo.color = color;
+			selectedEventForInfo = { ...selectedEventForInfo, color };
 		}
-		await supabase.from('events').update({ color }).eq('event_id', id);
+
+		// 2. Save to database and force a return (.select) to verify it actually saved
+		const { data, error } = await supabase
+			.from('events')
+			.update({ color: color })
+			.eq('event_id', id)
+			.select();
+
+		console.log(`[+page.svelte] Supabase Response Data:`, data);
+
+		if (error) {
+			console.error('[+page.svelte] Supabase Error:', error.message);
+			alert(`Database error: ${error.message}`);
+		} else if (!data || data.length === 0) {
+			console.warn(`[+page.svelte] WARNING: Supabase returned no errors, but 0 rows were updated.`);
+			alert(`Update failed silently! Check if Event ID ${id} exists, or if your Supabase Row-Level Security (RLS) policies are blocking UPDATE actions.`);
+		} else {
+			console.log(`[+page.svelte] Success! Database updated to:`, data[0].color);
+		}
 	}
 
 	async function handleStageTypeChange(e: CustomEvent<{ id: number; stage_type: any }>) {
 		const { id, stage_type } = e.detail;
+		
 		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, stage_type } : ev));
+		
+		// FIX: Deep reassignment so Svelte strictly registers the object update
 		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
-			selectedEventForInfo.stage_type = stage_type;
+			selectedEventForInfo = { ...selectedEventForInfo, stage_type };
 		}
+		
 		await supabase.from('events').update({ stage_type }).eq('event_id', id);
 	}
 </script>
@@ -182,7 +231,6 @@
 				{dailyCounts}
 				{activeEvents}
 				{dateRange}
-				{selectedEventForInfo}
 				on:eventClicked={handleEventClicked}
 				on:unselectEvent={() => (selectedEventForInfo = null)}
 			/>

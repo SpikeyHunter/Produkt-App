@@ -43,6 +43,7 @@
 			return currentFilter === 'LIVE' ? dateA - dateB : dateB - dateA;
 		});
 
+	// Strict reactive list to control fading in the Top 3 panel
 	$: top3Shows = activeEvents
 		.map((event) => {
 			const counts = dailyCounts.filter((c) => c.event_id === event.event_id);
@@ -64,7 +65,17 @@
 			return { event, latest, dailyAvg, weeklyAvg };
 		})
 		.sort((a, b) => b.latest.total - a.latest.total)
-		.slice(0, 3);
+		.slice(0, 3)
+		.map((show) => {
+			// Ensures the top 3 list ALSO grays out when interacting with the chart
+			const isSelected = selectedEventForInfo?.event_id === show.event.event_id;
+			const isFaded = selectedEventForInfo != null && !isSelected;
+			return {
+				...show,
+				uiColor: isFaded ? '#6b7280' : (show.event.color || '#ffffff'),
+				uiOpacity: isFaded ? 0.4 : 1
+			};
+		});
 
 	function toggleEvent(id: number) {
 		if (selectedCustomIds.includes(id))
@@ -219,7 +230,10 @@
 											/>{/if}
 									</div>
 									<div class="flex flex-col min-w-0 flex-1">
-										<div class="font-bold text-xs truncate" style="color: {event.color}">
+										<div 
+											class="font-bold text-xs truncate transition-colors duration-200" 
+											style="color: {isSelected ? '#ffffff' : 'var(--color-gray2)'}"
+										>
 											{event.event_name}
 										</div>
 										<div class="text-[var(--color-gray3)] text-[10px] truncate mt-0.5">
@@ -257,7 +271,7 @@
 			<div class="space-y-2">
 				{#each top3Shows as show (show.event.event_id)}
 					{@const isExpanded = expandedTop3Id === show.event.event_id}
-					<div class="bg-gray1/30 rounded-xl overflow-hidden transition-all duration-300">
+					<div class="bg-gray1/30 rounded-xl overflow-hidden" style="opacity: {show.uiOpacity}; transition: opacity 0.3s ease;">
 						<button
 							class="w-full flex items-center gap-3 p-2 text-left outline-none hover:bg-gray1/50 transition-colors border-none bg-transparent cursor-pointer"
 							on:click={() => (expandedTop3Id = isExpanded ? null : show.event.event_id)}
@@ -272,7 +286,7 @@
 							<div class="flex flex-col min-w-0 flex-1">
 								<div
 									class="font-bold text-xs truncate leading-tight"
-									style="color: {show.event.color || '#fff'}"
+									style="color: {show.uiColor}; transition: color 0.3s ease;"
 								>
 									{show.event.event_name}
 								</div>
