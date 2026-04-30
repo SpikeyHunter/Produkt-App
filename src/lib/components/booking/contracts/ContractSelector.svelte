@@ -14,10 +14,10 @@
 	// 🔑 NEW: Watch for realtime updates on the selectedAdvance and patch the main array
 	// so the sidebar instantly reflects the W8/W9 name change
 	$: if (selectedAdvance) {
-		const index = advances.findIndex(a => a.id === selectedAdvance?.id);
+		const index = advances.findIndex((a) => a.id === selectedAdvance?.id);
 		if (index !== -1 && advances[index] !== selectedAdvance) {
 			advances[index] = selectedAdvance;
-			advances = [...advances]; 
+			advances = [...advances];
 		}
 	}
 
@@ -187,19 +187,24 @@
 									<div
 										class="text-[10px] font-semibold font-mono {stats.contractCount === 3
 											? 'text-confirmed'
-											: 'text-gray3'}"
+											: stats.contractCount === 0
+												? 'text-problem'
+												: 'text-proposed'}"
 									>
 										Contract {stats.contractCount}/3
 									</div>
 									<div
 										class="text-[9px] font-medium {stats.hasInvoice
 											? 'text-confirmed'
-											: 'text-gray3'}"
+											: 'text-problem'}"
 									>
 										Invoice: {stats.hasInvoice ? 'YES' : 'NO'}
 									</div>
+
 									<div
-										class="text-[9px] font-medium {stats.hasW89 ? 'text-confirmed' : 'text-gray3'}"
+										class="text-[9px] font-medium {stats.hasW89
+											? 'text-confirmed'
+											: 'text-problem'}"
 									>
 										{stats.wType}: {stats.hasW89 ? 'YES' : 'NO'}
 									</div>

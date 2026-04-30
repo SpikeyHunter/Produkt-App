@@ -543,7 +543,7 @@
 						<div class="text-xs text-gray3 mt-4">
 							Don't have the app?
 							<a
-								href="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/ProduktRed_1.0.0.zip"
+								href="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/Produkt-Red/ProduktRed_1.0.0.dmg"
 								class="text-problem hover:text-white transition-colors ml-1 font-bold underline"
 								download
 							>

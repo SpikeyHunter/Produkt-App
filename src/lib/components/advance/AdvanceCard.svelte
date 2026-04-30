@@ -157,7 +157,10 @@
 			tags.push('DOS');
 		}
 
-		if (!event.contract || !event.contract_url) {
+		// Check the new original_contract_url (from events_contract) or fallback to the old contract_url
+		const hasContractFile = event.original_contract_url || event.contract_url;
+
+		if (!event.contract || !hasContractFile) {
 			tags.push('Contract');
 		}
 

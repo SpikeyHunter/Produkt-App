@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, tick } from 'svelte';
+	import { createEventDispatcher, tick, onMount, onDestroy } from 'svelte';
 	import Modal from './Modal.svelte';
 	import PromoterLetter from '../advance/PromoterLetter.svelte';
 	import PromoterLetterCrew from '../advance/PromoterLetterCrew.svelte';
@@ -14,7 +14,6 @@
 	import { supabase } from '$lib/supabase.js';
 	import { PDFDocument } from 'pdf-lib';
 	import { suggestJobInfo } from '$lib/services/aiService.js';
-	import { onMount } from 'svelte';
 
 	onMount(() => {
 		// Preload fonts to ensure they're ready for PDF generation
@@ -102,7 +101,7 @@
 		const amount = currentImmigrationInfo?.artist_fee;
 		const currency = currentImmigrationInfo?.artist_fee_currency || 'USD';
 		if (amount === null || amount === undefined || amount === '') return '';
-		
+
 		const num = Number(amount);
 		if (isNaN(num)) return amount;
 
@@ -271,11 +270,52 @@
 
 	$: if (isOpen && event) {
 		setTimeout(() => loadEventData(), 50);
+		setupRealtime();
+	} else if (!isOpen && realtimeChannel) {
+		supabase.removeChannel(realtimeChannel);
+		realtimeChannel = null;
 	}
 	$: if (currentPerson && currentImmigrationInfo) {
 		// Load saved custom fields when person changes
 		customJobTitle = currentImmigrationInfo.custom_job_title || '';
 		customJobDescription = currentImmigrationInfo.custom_job_description || '';
+	}
+
+	let realtimeChannel: any;
+
+	function setupRealtime() {
+		if (!event || !event.event_id) return;
+
+		// Clean up existing channel if it exists
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
+		}
+
+		// Listen specifically for updates to this event's contract
+		realtimeChannel = supabase
+			.channel(`immigration-modal-${event.event_id}-${event.artist_name}`)
+			.on(
+				'postgres_changes',
+				{ event: 'UPDATE', schema: 'public', table: 'events_contract' },
+				(payload) => {
+					const newRecord = payload.new;
+					if (
+						event &&
+						(newRecord.contract_id === event.contract_id ||
+							newRecord.advance_id === event.advance_id)
+					) {
+						// Instantly update the event object with the new contract details
+						event.original_contract_url = newRecord.original_contract_url;
+						event.redlined_contract_url = newRecord.redlined_contract_url;
+						event.signed_contract_url = newRecord.signed_contract_url;
+						event.contract = newRecord.contract;
+
+						// Trigger Svelte reactivity
+						event = { ...event };
+					}
+				}
+			)
+			.subscribe();
 	}
 
 	function getBadgeColor(value: boolean | undefined) {
@@ -304,7 +344,7 @@
 		}
 	}
 
-function handleFeeInput(value: string) {
+	function handleFeeInput(value: string) {
 		// Remove all non-alphanumeric characters except numbers AND dots
 		const cleanValue = value.replace(/[^0-9CADcad.]/g, ''); // Added '.' inside the brackets
 
@@ -582,7 +622,8 @@ function handleFeeInput(value: string) {
 
 		const missingDocs: string[] = [];
 		// Check for contract
-		if (!event.contract || !event.contract_url) {
+		const hasContractFile = event.original_contract_url || event.contract_url;
+		if (!event.contract || !hasContractFile) {
 			missingDocs.push('Contract');
 		}
 
@@ -786,10 +827,10 @@ function handleFeeInput(value: string) {
 				}
 			}
 
-			// Add contract
-			if (event.contract_url) {
+			const contractToFetch = event.original_contract_url || event.contract_url;
+			if (contractToFetch) {
 				try {
-					const contractResponse = await fetch(event.contract_url);
+					const contractResponse = await fetch(contractToFetch);
 					if (contractResponse.ok) {
 						const contractBlob = await contractResponse.blob();
 						const contractBase64 = await blobToBase64(contractBlob);
@@ -1193,9 +1234,15 @@ ${att.content}
 		isGeneratingEmail = false;
 		showSendAnyway = false;
 	}
+
+	onDestroy(() => {
+		if (realtimeChannel) {
+			supabase.removeChannel(realtimeChannel);
+		}
+	});
 </script>
 
-[cite_start][cite: 1] <svelte:window on:keydown={handleKeydown} />
+<svelte:window on:keydown={handleKeydown} />
 
 <Modal
 	bind:isOpen

@@ -23,14 +23,14 @@ export interface EventContract {
 	advance_id?: number;
 	original_contract_url: string | null;
 	redlined_contract_url?: string | null;
-	signed_contract_url?: string | null; 
+	signed_contract_url?: string | null;
 	invoice_url?: string | null;
 	w89_url?: string | null;
 	w_type?: string | null;
 	contract: boolean;
 	contract_status: string | null;
-	gdrive_folder_id: string | null; 
-	gdrive_folder_url: string | null; 
+	gdrive_folder_id: string | null;
+	gdrive_folder_url: string | null;
 	agency_id?: number | null;
 	bypass?: boolean;
 	created_at?: string;
@@ -265,7 +265,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 		// Fetch with joined contract table
 		const { data: advanceData, error: advanceError } = await supabase
 			.from('events_advance')
-			.select('*, events_contract!events_contract_advance_id_fkey(*)') 
+			.select('*, events_contract!events_contract_advance_id_fkey(*)')
 			.order('created_at', { ascending: false });
 
 		if (advanceError) {
@@ -535,12 +535,12 @@ export async function updateEventAdvance(
 	try {
 		const validColumns = [
 			'artist_type',
-			'artist_name',  
+			'artist_name',
 			'event_id',
 			'dos',
 			'main_contact',
 			'contract_url',
-			'contract_id', 
+			'contract_id',
 			'roles',
 			'passport_info',
 			'hotel_info',
@@ -711,7 +711,7 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 
 		let query = supabase
 			.from('events_advance')
-			.select('*, events_contract!events_contract_advance_id_fkey(*)') 
+			.select('*, events_contract!events_contract_advance_id_fkey(*)')
 			.eq('event_id', numericEventId);
 		if (artistName) {
 			query = query.eq('artist_name', artistName);
@@ -736,12 +736,13 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			main_contact: advanceData.main_contact,
 
 			contract_id: advanceData.contract_id,
-			contract_url: contractData?.contract_file_url || advanceData.contract_url,
+			original_contract_url: contractData?.original_contract_url || null,
+			redlined_contract_url: contractData?.redlined_contract_url || null,
 			contract: contractData?.contract || advanceData.contract,
 			contract_status: contractData?.contract_status || null,
-			gdrive_folder_id: contractData?.gdrive_folder_id || null, 
-			gdrive_folder_url: contractData?.gdrive_folder_url || null, 
-			signed_contract_url: contractData?.signed_contract_url || null, 
+			gdrive_folder_id: contractData?.gdrive_folder_id || null,
+			gdrive_folder_url: contractData?.gdrive_folder_url || null,
+			signed_contract_url: contractData?.signed_contract_url || null,
 			bypass: contractData?.bypass || false,
 			invoice_url: contractData?.invoice_url || advanceData.invoice_url,
 			w89_url: contractData?.w89_url || advanceData.w89_url,
