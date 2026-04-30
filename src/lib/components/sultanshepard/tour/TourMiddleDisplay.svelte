@@ -8,8 +8,8 @@
     export let selectedDateId: string | null = null;
 </script>
 
-<div class="flex flex-col h-full bg-navbar rounded-2xl overflow-hidden relative">
-    <div class="flex-1 relative bg-gray1/50 flex items-center justify-center min-h-0">
+<div class="flex flex-col flex-1 min-h-0 bg-navbar rounded-2xl overflow-hidden relative">
+    <div class="flex-1 relative flex items-center justify-center min-h-0">
         {#if activeView === 'map' && currentTour}
             {#key currentTour.id}
                 <TourMapView 
@@ -25,6 +25,4 @@
             </div>
         {/if}
     </div>
-
-   
 </div>

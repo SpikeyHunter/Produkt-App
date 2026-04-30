@@ -5,8 +5,8 @@
     export let activeView: 'map' | 'list' = 'map';
 </script>
 
-<div class="flex flex-col h-full bg-navbar rounded-2xl overflow-hidden p-5">
-    <div class="flex items-center justify-between mb-5 border-b border-gray1 pb-4">
+<div class="flex flex-col flex-1 min-h-0 bg-navbar rounded-2xl overflow-hidden p-5">
+    <div class="flex items-center justify-between mb-5 border-b border-gray1 pb-4 shrink-0">
         <h3 class="text-lg font-bold text-white">Tour Settings</h3>
         <button 
             class="text-gray2 hover:text-lime transition-colors cursor-pointer"
@@ -19,7 +19,7 @@
         </button>
     </div>
 
-    <div class="flex-1 flex flex-col gap-2">
+    <div class="flex flex-col gap-2">
         <p class="text-[10px] font-bold text-gray3 uppercase tracking-widest mb-2">Display Mode</p>
         
         <button 

@@ -26,6 +26,9 @@
 	let selectedTourId: string | null = null;
 	let selectedDateId: string | null = null;
 
+	// View State
+	let activeView: 'map' | 'list' = 'map';
+
 	// Modal State
 	let showTourModal = false;
 	let tourToEdit: SSTour | null = null;
@@ -92,17 +95,17 @@
 		tourToEdit = null;
 		showTourModal = true;
 	}
-	
+
 	function openEditTour() {
 		tourToEdit = currentTour;
 		showTourModal = true;
 	}
-	
+
 	function handleTourSaved(event: CustomEvent<{ tour: SSTour }>) {
 		if (event.detail && event.detail.tour) selectedTourId = event.detail.tour.id;
 		loadAllTours();
 	}
-	
+
 	function handleTourDeleted() {
 		selectedTourId = null;
 		loadAllTours();
@@ -113,17 +116,17 @@
 		dateInitialType = event?.detail?.type || 'Tour Date';
 		showDateModal = true;
 	}
-	
+
 	function openEditDate(event: CustomEvent<{ date: SSTourDate }>) {
 		dateToEdit = event.detail.date;
 		dateInitialType = event.detail.date.type || 'Tour Date';
 		showDateModal = true;
 	}
-	
+
 	function handleDateSaved() {
 		if (selectedTourId) loadDatesForTour(selectedTourId);
 	}
-	
+
 	function handleDateDeleted() {
 		selectedDateId = null;
 		if (selectedTourId) loadDatesForTour(selectedTourId);
@@ -135,7 +138,9 @@
 </svelte:head>
 
 <MainLayout pageTitle="Sultan + Shepard Tour">
-	<div class="p-6 flex-1 min-h-0 w-full max-w-[1800px] mx-auto flex flex-col gap-6">
+	<div class="flex flex-col h-full min-h-0 w-full max-w-[1800px] mx-auto p-6 gap-6">
+
+		<!-- Top Bar -->
 		<div class="flex items-center justify-between shrink-0">
 			<Button variant="gray" on:click={() => goto('/sultanshepard/djshow')}>
 				<span class="flex items-center gap-2">
@@ -192,6 +197,7 @@
 			</div>
 		</div>
 
+		<!-- Main Content -->
 		{#if loading}
 			<div class="flex-1 flex justify-center items-center">
 				<div class="animate-spin w-8 h-8 text-lime">
@@ -220,8 +226,10 @@
 				</p>
 			</div>
 		{:else}
-			<div class="flex flex-col md:flex-row gap-6 flex-1 min-h-0">
-				<div class="w-full md:w-[250px] shrink-0 h-full min-h-0">
+			<div class="flex flex-col md:flex-row gap-6 flex-1 min-h-0 overflow-hidden">
+
+				<!-- Left: Dates List -->
+				<div class="w-full md:w-[250px] shrink-0 flex flex-col min-h-0">
 					<TourDatesList
 						dates={tourDates}
 						bind:selectedDateId
@@ -230,15 +238,28 @@
 					/>
 				</div>
 
-				<div class="flex-1 min-w-0 h-full min-h-0">
-					<TourMiddleDisplay {currentTour} {tourDates} bind:selectedDateId />
+				<!-- Center: Map / List Display -->
+				<div class="flex-1 min-w-0 flex flex-col min-h-0">
+					<TourMiddleDisplay
+						{currentTour}
+						{tourDates}
+						{activeView}
+						bind:selectedDateId
+					/>
 				</div>
 
-				<div class="w-full md:w-[220px] shrink-0 h-full min-h-0">
-					<TourToolsPanel on:editSettings={openEditTour} />
+				<!-- Right: Tools Panel -->
+				<div class="w-full md:w-[220px] shrink-0 flex flex-col min-h-0">
+					<TourToolsPanel
+						{activeView}
+						on:editSettings={openEditTour}
+						on:changeView={(e) => (activeView = e.detail)}
+					/>
 				</div>
+
 			</div>
 		{/if}
+
 	</div>
 </MainLayout>
 
@@ -256,7 +277,7 @@
 {#if currentTour}
 	<TourDateModal
 		bind:isOpen={showDateModal}
-		initialType={dateInitialType} 
+		initialType={dateInitialType}
 		tourId={currentTour.id}
 		tourDate={dateToEdit}
 		tourStartDate={currentTour.start_date}
