@@ -92,7 +92,6 @@
 	async function handleModifyConfirm(e: CustomEvent) {
 		isSavingModification = true;
 		const { sendEmail, sendSms, oldDates, newDates } = e.detail;
-
 		const oldHolds = [...activeHolds].sort(
 			(a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
 		);
@@ -110,13 +109,15 @@
 					updates.push({ id: oldHolds[i].id, date: sortedNewDates[i] });
 				}
 			} else if (i < sortedNewDates.length) {
-				// Strip out fields that shouldn't be duplicated or are populated by the DB/Joins
-				const { id, created_at, updated_at, short_id, calendar, date, ...baseEventData } =
-					event as any;
-
+				// STRICT WHITELIST: Only include columns that exist in the 'calendar_events' table schema
 				inserts.push({
-					...baseEventData,
-					date: sortedNewDates[i]
+					group_id: event.group_id,
+					date: sortedNewDates[i],
+					status: event.status,
+					hold_level: event.hold_level,
+					venue: event.venue,
+					time: event.time,
+					event_details: event.event_details
 				});
 			} else if (i < oldHolds.length) {
 				deletes.push(oldHolds[i].id);
@@ -124,20 +125,30 @@
 			}
 		}
 
-		if (updates.length > 0) {
-			for (const u of updates) {
-				await supabase.from('calendar_events').update({ date: u.date }).eq('id', u.id);
+		try {
+			if (updates.length > 0) {
+				for (const u of updates) {
+					const { error } = await supabase.from('calendar_events').update({ date: u.date }).eq('id', u.id);
+					if (error) throw new Error(`Update Error: ${error.message}`);
+				}
 			}
-		}
-		if (inserts.length > 0) {
-			await supabase.from('calendar_events').insert(inserts);
-		}
-		if (deletes.length > 0) {
-			await supabase.from('calendar_events').delete().in('id', deletes);
+			if (inserts.length > 0) {
+				const { error } = await supabase.from('calendar_events').insert(inserts);
+				if (error) throw new Error(`Insert Error: ${error.message}`);
+			}
+			if (deletes.length > 0) {
+				const { error } = await supabase.from('calendar_events').delete().in('id', deletes);
+				if (error) throw new Error(`Delete Error: ${error.message}`);
+			}
+		} catch (err: any) {
+			console.error("🔥 DATABASE ERROR:", err);
+			alert(`Supabase Error:\n${err.message}`);
+			isSavingModification = false;
+			return; // Stops execution on failure
 		}
 
+		// --- Notifications block ---
 		if (sendEmail || sendSms) {
-			// MATCHES EVENTHEADER LOGIC EXACTLY
 			const authUser = $authStore?.profile;
 			const authName = authUser
 				? `${authUser.first_name || ''} ${authUser.last_name || ''}`.trim()
@@ -156,15 +167,9 @@
 
 			try {
 				if (sendEmail)
-					await fetch('/api/calendar-modify-email', {
-						method: 'POST',
-						body: JSON.stringify(payload)
-					});
+					await fetch('/api/calendar-modify-email', { method: 'POST', body: JSON.stringify(payload) });
 				if (sendSms)
-					await fetch('/api/calendar-modify-sms', {
-						method: 'POST',
-						body: JSON.stringify(payload)
-					});
+					await fetch('/api/calendar-modify-sms', { method: 'POST', body: JSON.stringify(payload) });
 			} catch (err) {
 				console.error('Failed to trigger modify notifications', err);
 			}

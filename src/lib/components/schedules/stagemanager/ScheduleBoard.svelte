@@ -19,7 +19,38 @@
 	import { goto } from '$app/navigation';
 
 	export let currentUser: User | null = null;
-	$: canEdit = currentUser !== null;
+	let canEdit = false;
+
+	// Check permissions whenever the currentUser changes
+	$: if (currentUser) {
+		checkPermissions(currentUser.id);
+	} else {
+		canEdit = false;
+	}
+
+	async function checkPermissions(userId: string) {
+		const { data, error } = await supabase
+			.from('user_profiles')
+			.select('main_permission, secondary_permission, role')
+			.eq('id', userId)
+			.single();
+
+		if (data) {
+			const isAdmin = data.role === 'Admin';
+			const isMainProduction = data.main_permission === 'Production';
+			
+			// secondary_permission is natively an array in your DB, so we just ensure it exists
+			const secondaryPerms = Array.isArray(data.secondary_permission) 
+				? data.secondary_permission 
+				: [];
+			const isSecondaryProduction = secondaryPerms.includes('Production');
+
+			// Enable editing if they are Admin OR have Production permission
+			canEdit = isAdmin || isMainProduction || isSecondaryProduction;
+		} else {
+			canEdit = false;
+		}
+	}
 
 	const HEX_COLORS: Record<string, string> = {
 		Bazart: '#e9e9e9',
@@ -251,8 +282,8 @@
 	$: sortedWeeks = (() => {
 		const now = new Date();
 		now.setHours(0, 0, 0, 0);
-		const current = [];
-		const past = [];
+		const current: ScheduleWeek[] = [];
+		const past: ScheduleWeek[] = [];
 		for (const w of weeks) {
 			const weekEnd = new Date(w.start_date);
 			weekEnd.setDate(weekEnd.getDate() + 7);
@@ -571,17 +602,11 @@
 
 			<div class="flex bg-gray2/20 p-1 rounded-full border border-gray2/30 h-10">
 				<button
-					class="px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all {viewMode ===
-					'current'
-						? 'bg-lime text-black font-bold shadow-lg'
-						: 'text-gray2 hover:text-white'}"
+					class={`px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all ${viewMode === 'current' ? 'bg-lime text-black font-bold shadow-lg' : 'text-gray2 hover:text-white'}`}
 					on:click={() => (viewMode = 'current')}>Current</button
 				>
 				<button
-					class="px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all {viewMode ===
-					'past'
-						? 'bg-white text-black font-bold shadow-lg'
-						: 'text-gray2 hover:text-white'}"
+					class={`px-4 rounded-full text-sm hover:cursor-pointer font-medium transition-all ${viewMode === 'past' ? 'bg-white text-black font-bold shadow-lg' : 'text-gray2 hover:text-white'}`}
 					on:click={() => (viewMode = 'past')}>Past</button
 				>
 			</div>
@@ -608,6 +633,7 @@
 		{#each sortedWeeks as week (week.id)}
 			{@const rows = getStaffForWeek(week, staffList)}
 			{@const dailyTotals = calculateDailyTotals(rows)}
+			{@const weekStart = new Date(week.start_date + 'T00:00:00')}
 			<div
 				class="bg-gray2/5 rounded-2xl p-6 border border-gray2/10 relative group/week transition-all hover:border-gray2/20"
 			>
@@ -723,8 +749,7 @@
 									>Staff</th
 								>
 								{#each DAYS_FULL as day, i}
-									{@const date = new Date(week.start_date + 'T00:00:00')}
-									{@const dayDate = new Date(date.setDate(date.getDate() + i))}
+									{@const dayDate = new Date(new Date(weekStart).setDate(weekStart.getDate() + i))}
 									{@const dateString = dayDate.toLocaleDateString('en-US', {
 										day: 'numeric',
 										month: 'short'
@@ -782,16 +807,18 @@
 															}}
 														>
 															{#if isNoTimeShift(shift.shift_type)}
-															<span
-																class="font-bold text-xs"
-																class:text-gray-400={shift.shift_type === 'OFF'}
-																>{shift.shift_type}</span
-															>
-															{#if shift.shift_type === 'OFF' && shift.notes}
-																<span class="text-[10px] text-gray-400/80 w-full text-center mt-0.5 px-1 whitespace-normal break-words leading-tight line-clamp-2">
-																	{shift.notes}
-																</span>
-															{/if}
+																<span
+																	class="font-bold text-xs"
+																	class:text-gray-400={shift.shift_type === 'OFF'}
+																	>{shift.shift_type}</span
+																>
+																{#if shift.shift_type === 'OFF' && shift.notes}
+																	<span
+																		class="text-[10px] text-gray-400/80 w-full text-center mt-0.5 px-1 whitespace-normal break-words leading-tight line-clamp-2"
+																	>
+																		{shift.notes}
+																	</span>
+																{/if}
 															{:else}
 																<span class="font-bold whitespace-nowrap text-xs sm:text-sm"
 																	>{formatTimeDisplay(shift.start_time)} - {formatTimeDisplay(
