@@ -65,6 +65,16 @@
 		const c3 = adv.signed_contract_url || adv.signedContractUrl;
 		const contractCount = [c1, c2, c3].filter((url) => url && url.trim() !== '').length;
 
+		// 🔑 NEW: Evaluate Bypass status
+		const bypass = adv.bypass === true;
+		let bypassName = null;
+
+		if (bypass && contractCount === 1) {
+			if (c3 && c3.trim() !== '') bypassName = 'Signed';
+			else if (c2 && c2.trim() !== '') bypassName = 'Marked-up';
+			else if (c1 && c1.trim() !== '') bypassName = 'Original';
+		}
+
 		// Check root `adv` object for Invoice and W8/9 URLs
 		const invUrl = adv.invoice_url || adv.invoiceUrl;
 		const hasInvoice = !!(invUrl && invUrl.trim() !== '');
@@ -72,10 +82,10 @@
 		const w89Url = adv.w89_url || adv.w89Url;
 		const hasW89 = !!(w89Url && w89Url.trim() !== '');
 
-		// 🔑 NEW: Extract wType safely
+		// Extract wType safely
 		const wType = adv.w_type || adv.wType || 'W8/9';
 
-		return { hasFolder, contractCount, hasInvoice, hasW89, wType };
+		return { hasFolder, contractCount, hasInvoice, hasW89, wType, bypassName };
 	}
 </script>
 
@@ -184,15 +194,28 @@
 								{#if !stats.hasFolder}
 									<div class="text-problem/80 text-[10px] font-bold">No Folder</div>
 								{:else}
-									<div
-										class="text-[10px] font-semibold font-mono {stats.contractCount === 3
-											? 'text-confirmed'
-											: stats.contractCount === 0
-												? 'text-problem'
-												: 'text-proposed'}"
-									>
-										Contract {stats.contractCount}/3
-									</div>
+									{#if stats.bypassName}
+										<div
+											class="text-[10px] font-semibold font-mono {stats.bypassName === 'Signed'
+												? 'text-confirmed'
+												: stats.bypassName === 'Marked-up'
+													? 'text-proposed'
+													: 'text-gray3'}"
+										>
+											{stats.bypassName}
+										</div>
+									{:else}
+										<div
+											class="text-[10px] font-semibold font-mono {stats.contractCount === 3
+												? 'text-confirmed'
+												: stats.contractCount === 0
+													? 'text-problem'
+													: 'text-proposed'}"
+										>
+											Contract {stats.contractCount}/3
+										</div>
+									{/if}
+
 									<div
 										class="text-[9px] font-medium {stats.hasInvoice
 											? 'text-confirmed'

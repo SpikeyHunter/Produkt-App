@@ -622,8 +622,15 @@
 
 		const missingDocs: string[] = [];
 		// Check for contract
-		const hasContractFile = event.original_contract_url || event.contract_url;
-		if (!event.contract || !hasContractFile) {
+		// Check for contract
+		const hasContractFile =
+			event.original_contract_url ||
+			event.redlined_contract_url ||
+			event.signed_contract_url ||
+			event.contract_url;
+
+		// Only flag as missing if ALL file links are empty
+		if (!hasContractFile) {
 			missingDocs.push('Contract');
 		}
 
@@ -827,18 +834,41 @@
 				}
 			}
 
-			const contractToFetch = event.original_contract_url || event.contract_url;
+			const contractToFetch = 
+				event.original_contract_url || 
+				event.redlined_contract_url || 
+				event.signed_contract_url || 
+				event.contract_url;
+
 			if (contractToFetch) {
 				try {
-					const contractResponse = await fetch(contractToFetch);
+					let fetchUrl = contractToFetch;
+
+					// 1. Convert Google Drive viewer links to Direct Download links
+					if (fetchUrl.includes('drive.google.com')) {
+						const match = fetchUrl.match(/\/(?:d|folders|file\/d)\/([a-zA-Z0-9_-]+)/) || fetchUrl.match(/id=([a-zA-Z0-9_-]+)/);
+						if (match && match[1]) {
+							fetchUrl = `https://drive.google.com/uc?export=download&id=${match[1]}`;
+						}
+					}
+
+					const contractResponse = await fetch(fetchUrl);
 					if (contractResponse.ok) {
 						const contractBlob = await contractResponse.blob();
+						
+						// 2. Safety Check: If it still returns HTML, the file isn't public
+						if (contractBlob.type.includes('text/html')) {
+							console.error('Google Drive returned an HTML page instead of a PDF. Make sure the file sharing settings are set to "Anyone with the link".');
+						}
+
 						const contractBase64 = await blobToBase64(contractBlob);
 						attachments.push({
 							filename: `Contract - ${artistName}.pdf`,
 							content: contractBase64.split(',')[1],
 							contentType: 'application/pdf'
 						});
+					} else {
+					    console.warn(`Failed to fetch contract URL. Status: ${contractResponse.status}`);
 					}
 				} catch (e) {
 					console.warn('Error fetching contract:', e);
