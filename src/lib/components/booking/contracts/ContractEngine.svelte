@@ -3,7 +3,7 @@
 	import { updateEventContract, type EventAdvance } from '$lib/services/eventsService';
 	import { portal } from '$lib/utils/portalUtils';
 	import { supabase } from '$lib/supabase.js';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	export let advance: EventAdvance;
 
 	type SubTab = 'Original' | 'Marked-up' | 'Signed';
@@ -271,26 +271,69 @@
 		}
 	}
 
-	// Inside <script lang="ts"> in ContractEngine.svelte
+	// ── App Download URL Logic ───────────────────────────────────────────────
+	// ── App Download URL Logic ───────────────────────────────────────────────
+	let appDownloadUrl = ''; // Starts empty to prevent 404s or downloading the current page
+
+	onMount(() => {
+		fetchLatestAppUrl();
+	});
+
+	async function fetchLatestAppUrl() {
+		try {
+			const { data, error } = await supabase.storage.from('app-updates').list('', { limit: 100 });
+
+			if (error) throw error;
+
+			// Filter for .dmg files
+			const dmgFiles = data?.filter((file) => file.name.endsWith('.dmg')) || [];
+
+			if (dmgFiles.length > 0) {
+				// Safely sort version numbers descending (e.g., 1.1.10 comes before 1.1.2)
+				dmgFiles.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true }));
+				const latestDmg = dmgFiles[0];
+
+				const { data: publicUrlData } = supabase.storage
+					.from('app-updates')
+					.getPublicUrl(latestDmg.name);
+
+				appDownloadUrl = publicUrlData.publicUrl;
+			}
+		} catch (err) {
+			console.error('Failed to fetch the latest app version:', err);
+		}
+	}
+
 	function openAppWithFallback(advanceId: any) {
 		const deepLink = `produktred://redline?documentId=${advanceId}`;
-		const downloadUrl =
-			'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/ProduktRed_1.1.1.dmg';
 
 		// 1. Try to open the app
 		window.location.href = deepLink;
 
-		// 2. Set a timeout to check if the user is still here
+		// 2. Track if the window loses focus (meaning the app or system dialog opened)
+		let appOpened = false;
+		const handleBlur = () => {
+			appOpened = true;
+		};
+		window.addEventListener('blur', handleBlur, { once: true });
+
+		// 3. Check after a delay
 		setTimeout(() => {
-			// If the document is still visible, the app likely isn't installed
-			if (!document.hidden) {
+			window.removeEventListener('blur', handleBlur);
+
+			// If the window NEVER lost focus, the app didn't open
+			if (!appOpened && document.hasFocus() && !document.hidden) {
 				if (
 					confirm("Produkt Red doesn't seem to be installed. Would you like to download it now?")
 				) {
-					window.location.href = downloadUrl;
+					if (appDownloadUrl && appDownloadUrl !== '') {
+						window.location.href = appDownloadUrl;
+					} else {
+						alert('Download link is still loading or unavailable. Please check your connection.');
+					}
 				}
 			}
-		}, 2000);
+		}, 2500);
 	}
 </script>
 
@@ -542,13 +585,17 @@
 
 						<div class="text-xs text-gray3 mt-4">
 							Don't have the app?
-							<a
-								href="https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/app-updates/ProduktRed_1.1.1.dmg"
-								class="text-problem hover:text-white transition-colors ml-1 font-bold underline"
-								download
-							>
-								Click here to install
-							</a>
+							{#if appDownloadUrl}
+								<a
+									href={appDownloadUrl}
+									class="text-problem hover:text-white transition-colors ml-1 font-bold underline"
+									download
+								>
+									Click here to install
+								</a>
+							{:else}
+								<span class="text-gray3 ml-1 font-bold"> Fetching latest version... </span>
+							{/if}
 						</div>
 					</div>
 				</div>
