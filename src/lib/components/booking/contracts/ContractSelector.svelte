@@ -103,6 +103,8 @@
 
 		// Extract wType safely
 		const wType = adv.w_type || adv.wType || 'W8/9';
+		const hasRedlinedOrSigned = (c2 && c2.trim() !== '') || (c3 && c3.trim() !== '');
+		const showRedline = hasAtLeastOneDoc && !(bypass && hasRedlinedOrSigned);
 
 		return {
 			hasFolder,
@@ -112,7 +114,8 @@
 			wType,
 			bypassName,
 			contractStatus,
-			hasAtLeastOneDoc
+			hasAtLeastOneDoc,
+			showRedline
 		};
 	}
 </script>
@@ -244,7 +247,7 @@
 										</div>
 									{/if}
 
-									{#if stats.hasAtLeastOneDoc}
+									{#if stats.showRedline}
 										<div class="flex items-center justify-end gap-1">
 											<span class="line-through text-[9px] text-red-500">Redline:</span>
 											<span class="text-[9px] font-bold {getStatusColor(stats.contractStatus)}">
