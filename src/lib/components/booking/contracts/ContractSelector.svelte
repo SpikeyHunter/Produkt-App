@@ -94,9 +94,12 @@
 			else if (c1 && c1.trim() !== '') bypassName = 'Original';
 		}
 
-		// Check root `adv` object for Invoice and W8/9 URLs
-		const invUrl = adv.invoice_url || adv.invoiceUrl;
-		const hasInvoice = !!(invUrl && invUrl.trim() !== '');
+		const invUrls = adv.invoice_url || adv.invoiceUrl || [];
+		const invoiceCount = Array.isArray(invUrls)
+			? invUrls.length
+			: invUrls && typeof invUrls === 'string' && invUrls.trim() !== ''
+				? 1
+				: 0;
 
 		const w89Url = adv.w89_url || adv.w89Url;
 		const hasW89 = !!(w89Url && w89Url.trim() !== '');
@@ -109,7 +112,7 @@
 		return {
 			hasFolder,
 			contractCount,
-			hasInvoice,
+			invoiceCount,
 			hasW89,
 			wType,
 			bypassName,
@@ -257,11 +260,11 @@
 									{/if}
 
 									<div
-										class="text-[9px] font-medium {stats.hasInvoice
+										class="text-[9px] font-medium {stats.invoiceCount > 0
 											? 'text-confirmed'
 											: 'text-problem'}"
 									>
-										Invoice: {stats.hasInvoice ? 'YES' : 'NO'}
+										Invoice: {stats.invoiceCount > 0 ? stats.invoiceCount : 'NO'}
 									</div>
 
 									<div

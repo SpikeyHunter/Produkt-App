@@ -24,7 +24,7 @@ export interface EventContract {
 	original_contract_url: string | null;
 	redlined_contract_url?: string | null;
 	signed_contract_url?: string | null;
-	invoice_url?: string | null;
+	invoice_url?: string[] | null;
 	w89_url?: string | null;
 	w_type?: string | null;
 	contract: boolean;
