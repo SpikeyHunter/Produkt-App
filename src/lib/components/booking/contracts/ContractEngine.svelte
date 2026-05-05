@@ -67,12 +67,60 @@
 					advance.redlined_contract_url = newRecord.redlined_contract_url;
 					advance.signed_contract_url = newRecord.signed_contract_url;
 					advance.bypass = newRecord.bypass;
+					advance.contract_status = newRecord.contract_status;
 
 					advance = { ...advance };
 				}
 			)
 			.subscribe();
 	}
+
+	function getStatusIndicatorColor(status: string) {
+		switch (status) {
+			case 'To Do':
+				return 'bg-problem';
+			case 'In Progress':
+				return 'bg-proposed';
+			case 'Done':
+				return 'bg-confirmed';
+			case 'Approved':
+				return 'bg-confirmed';
+			default:
+				return 'bg-problem';
+		}
+	}
+
+	// 🔑 NEW: Custom Dropdown State & Click Handler
+    let showStatusDrop = false;
+
+    function handleWindowClick(e: MouseEvent) {
+        if (
+            showStatusDrop &&
+            e.target instanceof Element &&
+            !e.target.closest('.status-dropdown-container')
+        ) {
+            showStatusDrop = false;
+        }
+    }
+
+    async function updateStatus(newStatus: string) {
+        if (advance.contract_status === newStatus || !advance.contract_id) {
+            showStatusDrop = false;
+            return;
+        }
+
+        const oldStatus = advance.contract_status;
+        advance = { ...advance, contract_status: newStatus };
+        showStatusDrop = false; // Close the dropdown
+
+        try {
+            await updateEventContract(advance.contract_id, { contract_status: newStatus });
+        } catch (err) {
+            console.error('Failed to update status:', err);
+            // Revert on failure
+            advance = { ...advance, contract_status: oldStatus }; 
+        }
+    }
 
 	onDestroy(() => {
 		if (realtimeChannel && browser) supabase.removeChannel(realtimeChannel);
@@ -336,6 +384,7 @@
 		}, 2500);
 	}
 </script>
+<svelte:window on:click={handleWindowClick} />
 
 {#if showDeleteModal}
 	<div
@@ -432,7 +481,37 @@
 		{/if}
 
 		<div class="flex items-center gap-2 ml-auto">
-			{#if advance?.gdrive_folder_url}
+            
+            {#if currentTab === 'Marked-up' && advance?.contract_id}
+                <div class="relative status-dropdown-container mr-1">
+                    <button
+                        class="flex items-center gap-2 px-3 py-1.5 rounded-3xl bg-gray1/20 hover:bg-gray1/40 border border-gray1/60 transition-colors cursor-pointer"
+                        on:click={() => (showStatusDrop = !showStatusDrop)}
+                        aria-label="Change contract status"
+                    >
+                        <div class="w-2 h-2 rounded-full {getStatusIndicatorColor(advance.contract_status || 'To Do')}"></div>
+                        <span class="text-[11px] font-bold text-white whitespace-nowrap">
+                            {advance.contract_status || 'To Do'}
+                        </span>
+                        <svg class="w-3.5 h-3.5 text-gray2 ml-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6" /></svg>
+                    </button>
+
+                    {#if showStatusDrop}
+                        <div class="absolute right-0 top-[calc(100%+8px)] w-44 bg-navbar rounded-2xl shadow-xl overflow-hidden py-1.5 z-[60] border border-gray1/40">
+                            {#each ['To Do', 'In Progress', 'Done', 'Approved'] as statusName}
+                                <button
+                                    class="w-full px-4 py-2 flex items-center gap-3 hover:bg-white/5 cursor-pointer text-left transition-colors"
+                                    on:click={() => updateStatus(statusName)}
+                                >
+                                    <div class="w-2 h-2 rounded-full {getStatusIndicatorColor(statusName)}"></div>
+                                    <span class="text-[11px] font-bold text-white">{statusName}</span>
+                                </button>
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
+            {/if}
+            {#if advance?.gdrive_folder_url}
 				<button
 					on:click={toggleBypass}
 					title={advance?.bypass ? 'Lock workflow' : 'Unlock workflow'}

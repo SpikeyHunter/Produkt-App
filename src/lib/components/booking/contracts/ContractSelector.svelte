@@ -53,6 +53,22 @@
 		dispatch('edit', adv);
 	}
 
+	// Add this helper function anywhere in your script tag
+	function getStatusColor(status: string) {
+		switch (status) {
+			case 'To Do':
+				return 'text-problem'; // Red
+			case 'In Progress':
+				return 'text-proposed'; // Orange
+			case 'Done':
+				return 'text-confirmed'; // Green
+			case 'Approved':
+				return 'text-confirmed'; // Green
+			default:
+				return 'text-problem';
+		}
+	}
+
 	// 🔑 Updated Helper to parse contract statuses
 	function getContractStats(adv: any) {
 		// Check root `adv` object for the folder ID
@@ -64,6 +80,9 @@
 		const c2 = adv.redlined_contract_url || adv.redlinedContractUrl;
 		const c3 = adv.signed_contract_url || adv.signedContractUrl;
 		const contractCount = [c1, c2, c3].filter((url) => url && url.trim() !== '').length;
+
+		const contractStatus = adv.contract_status || 'To Do';
+		const hasAtLeastOneDoc = contractCount > 0;
 
 		// 🔑 NEW: Evaluate Bypass status
 		const bypass = adv.bypass === true;
@@ -85,7 +104,16 @@
 		// Extract wType safely
 		const wType = adv.w_type || adv.wType || 'W8/9';
 
-		return { hasFolder, contractCount, hasInvoice, hasW89, wType, bypassName };
+		return {
+			hasFolder,
+			contractCount,
+			hasInvoice,
+			hasW89,
+			wType,
+			bypassName,
+			contractStatus,
+			hasAtLeastOneDoc
+		};
 	}
 </script>
 
@@ -213,6 +241,15 @@
 													: 'text-proposed'}"
 										>
 											Contract {stats.contractCount}/3
+										</div>
+									{/if}
+
+									{#if stats.hasAtLeastOneDoc}
+										<div class="flex items-center justify-end gap-1">
+											<span class="line-through text-[9px] text-red-500">Redline:</span>
+											<span class="text-[9px] font-bold {getStatusColor(stats.contractStatus)}">
+												{stats.contractStatus}
+											</span>
 										</div>
 									{/if}
 
