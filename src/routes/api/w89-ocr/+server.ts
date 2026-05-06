@@ -48,13 +48,86 @@ export const POST: RequestHandler = async ({ request }) => {
 		}
 
 		const fullText = detections.description?.toUpperCase() || '';
-		let detectedType = null;
+		let detectedType: 'W8' | 'W9' | null = null;
 
-		// Check for common W-8 and W-9 formatting
-		if (fullText.includes('W-8') || fullText.includes('W8')) {
-			detectedType = 'W8';
-		} else if (fullText.includes('W-9') || fullText.includes('W9')) {
-			detectedType = 'W9';
+		// 🎯 PRIORITY 1: Top-left corner detection.
+		// Vision returns the full-page text at index 0, followed by individual
+		// word annotations with bounding boxes. The form ID ("W-9", "W-8BEN", etc.)
+		// is always printed in the top-left corner of IRS forms — well above the
+		// FATCA / foreign-person cross-references that appear lower on the page.
+		const annotations = result.textAnnotations as any[];
+		const pageBox = annotations[0]?.boundingPoly?.vertices;
+		if (pageBox && pageBox.length === 4 && annotations.length > 1) {
+			const pageWidth = Math.max(...pageBox.map((v: any) => v.x || 0));
+			const pageHeight = Math.max(...pageBox.map((v: any) => v.y || 0));
+
+			// Top-left region: leftmost ~25% horizontally, topmost ~15% vertically.
+			const xCutoff = pageWidth * 0.25;
+			const yCutoff = pageHeight * 0.15;
+
+			// Walk individual word annotations (skip index 0 — that's the full text).
+			const topLeftWords: string[] = [];
+			for (let i = 1; i < annotations.length; i++) {
+				const ann = annotations[i];
+				const verts = ann?.boundingPoly?.vertices;
+				if (!verts || verts.length === 0) continue;
+				const minX = Math.min(...verts.map((v: any) => v.x || 0));
+				const minY = Math.min(...verts.map((v: any) => v.y || 0));
+				if (minX <= xCutoff && minY <= yCutoff) {
+					topLeftWords.push((ann.description || '').toUpperCase());
+				}
+			}
+			const topLeftText = topLeftWords.join(' ');
+			console.log(`🎯 Top-left region text: "${topLeftText}"`);
+
+			// Vision often splits "W-9" into separate "W", "-", "9" tokens — so
+			// collapse hyphens/spaces before matching.
+			const collapsed = topLeftText.replace(/[-\s]/g, '');
+			if (collapsed.includes('W9')) {
+				detectedType = 'W9';
+				console.log('✅ Top-left match: W9');
+			} else if (collapsed.includes('W8')) {
+				detectedType = 'W8';
+				console.log('✅ Top-left match: W8');
+			}
+		}
+
+		// 📊 PRIORITY 2: Weighted whole-page scoring as fallback.
+		// Only runs if the corner scan came up empty (e.g. heavily skewed scan,
+		// unusual layout, or low-quality OCR).
+		if (!detectedType) {
+			console.log('⚠️ Top-left detection inconclusive — falling back to full-page scoring.');
+
+			const formW8Count = (fullText.match(/FORM\s*W[-\s]?8/g) || []).length;
+			const formW9Count = (fullText.match(/FORM\s*W[-\s]?9/g) || []).length;
+			const bareW8Count = (fullText.match(/W[-\s]?8\b/g) || []).length;
+			const bareW9Count = (fullText.match(/W[-\s]?9\b/g) || []).length;
+
+			// Weighted score: a "Form W-X" mention is worth 5 bare mentions.
+			const w8Score = formW8Count * 5 + bareW8Count;
+			const w9Score = formW9Count * 5 + bareW9Count;
+
+			console.log(
+				`📊 OCR scores — W8: ${w8Score} (form:${formW8Count}, bare:${bareW8Count}), W9: ${w9Score} (form:${formW9Count}, bare:${bareW9Count})`
+			);
+
+			if (w8Score === 0 && w9Score === 0) {
+				detectedType = null;
+			} else if (w9Score > w8Score) {
+				detectedType = 'W9';
+			} else if (w8Score > w9Score) {
+				detectedType = 'W8';
+			} else {
+				// Tie — fall back to whichever appears earlier in the document,
+				// since the form's own title appears at the top of page 1.
+				const firstW8 = fullText.search(/FORM\s*W[-\s]?8|W[-\s]?8\b/);
+				const firstW9 = fullText.search(/FORM\s*W[-\s]?9|W[-\s]?9\b/);
+				if (firstW9 >= 0 && (firstW8 < 0 || firstW9 < firstW8)) {
+					detectedType = 'W9';
+				} else {
+					detectedType = 'W8';
+				}
+			}
 		}
 
 		console.log(`✅ OCR W8/W9 detection complete. Result: ${detectedType}`);
