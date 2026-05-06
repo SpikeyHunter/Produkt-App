@@ -197,7 +197,7 @@ export async function OPTIONS() {
 		headers: {
 			'Access-Control-Allow-Origin': '*',
 			'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-			'Access-Control-Allow-Headers': 'Range, Content-Type, If-None-Match',
+			'Access-Control-Allow-Headers': 'Range, Content-Type, If-None-Match, Authorization, X-Upload-Content-Type',
 			'Access-Control-Max-Age': '86400'
 		}
 	});
@@ -259,6 +259,70 @@ export async function POST({ request }: RequestEvent) {
 				if (deleteErr.code !== 404 && deleteErr.status !== 404) throw deleteErr;
 			}
 			return json({ success: true });
+		}
+
+		// ── GET UPLOAD URL (resumable, bypasses Vercel 4.5MB body limit) ─────
+		if (action === 'getUploadUrl' && folderId && fileName) {
+			// Authorize and pull a fresh access token from the JWT client
+			await authClient.authorize();
+			const accessToken = authClient.credentials.access_token;
+			if (!accessToken) {
+				return json({ error: 'Failed to obtain Google access token' }, { status: 500 });
+			}
+
+			// Ask Google Drive for a resumable upload session
+			const initResponse = await fetch(
+				'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true',
+				{
+					method: 'POST',
+					headers: {
+						Authorization: `Bearer ${accessToken}`,
+						'Content-Type': 'application/json; charset=UTF-8',
+						'X-Upload-Content-Type': mimeType || 'application/pdf'
+					},
+					body: JSON.stringify({ name: fileName, parents: [folderId] })
+				}
+			);
+
+			if (!initResponse.ok) {
+				const errText = await initResponse.text();
+				console.error('Resumable session init failed:', errText);
+				return json(
+					{ error: 'Failed to create upload session', detail: errText },
+					{ status: initResponse.status }
+				);
+			}
+
+			const uploadUrl = initResponse.headers.get('Location');
+			if (!uploadUrl) {
+				return json({ error: 'No upload URL returned by Google' }, { status: 500 });
+			}
+
+			return json({ success: true, uploadUrl });
+		}
+
+		// ── FINALIZE UPLOAD (set permissions + return webViewLink after PUT) ─
+		if (action === 'finalizeUpload' && fileId) {
+			try {
+				await drive.permissions.create({
+					fileId,
+					requestBody: { role: 'reader', type: 'anyone' },
+					supportsAllDrives: true
+				});
+			} catch (permErr) {}
+
+			const meta = await drive.files.get({
+				fileId,
+				fields: 'id, webViewLink',
+				supportsAllDrives: true
+			});
+
+			// Warm the read cache so the next GET is instant
+			try {
+				await getPdfFromCacheOrDrive(drive, fileId);
+			} catch (_) {}
+
+			return json({ success: true, fileId: meta.data.id, fileUrl: meta.data.webViewLink });
 		}
 
 		// ── UPLOAD ─────────────────────────────────────────────────────────────
