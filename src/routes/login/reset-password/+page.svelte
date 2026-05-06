@@ -8,15 +8,13 @@
   import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { supabase } from '$lib/supabase.js'; // Make sure this path is correct for your app
   
   let password: string = '';
   let confirmPassword: string = '';
   let currentYear: number = new Date().getFullYear();
   let isLoaded: boolean = false;
   let isSubmitting: boolean = false;
-  let accessToken: string = '';
-  let refreshToken: string = '';
   
   // Popup notification state
   let showPopup: boolean = false;
@@ -27,20 +25,7 @@
   
   // Trigger animation after component mounts
   onMount(() => {
-    // Extract tokens from URL hash
-    const urlParams = new URLSearchParams(window.location.hash.substring(1));
-    accessToken = urlParams.get('access_token') || '';
-    refreshToken = urlParams.get('refresh_token') || '';
-    
-    // Check if we have the required tokens
-    if (!accessToken) {
-      showPopupNotification('Invalid or expired reset link. Please request a new one.');
-      setTimeout(() => {
-        goto('/login/forgot-password');
-      }, 3000);
-      return;
-    }
-    
+    // We removed the manual token extraction here since Supabase handles it automatically.
     setTimeout(() => {
       isLoaded = true;
     }, 100);
@@ -91,32 +76,30 @@
     try {
       console.log('🔄 Updating password...');
       
-      const response = await fetch('/auth/reset-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          password,
-          accessToken,
-          refreshToken
-        })
+      // Update the password directly using the Supabase client
+      const { error } = await supabase.auth.updateUser({
+        password: password
       });
       
-      const result = await response.json();
-      
-      if (result.success) {
-        showPopupNotification(result.message);
-        // Clear the form
-        password = '';
-        confirmPassword = '';
-        // Redirect to success page after success
-        setTimeout(() => {
-          goto('/login/reset-confirmed');
-        }, 2000);
-      } else {
-        showPopupNotification(result.error || 'An error occurred');
+      if (error) {
+        console.error('💥 Supabase update error:', error);
+        showPopupNotification(error.message || 'Failed to update password');
+        return;
       }
+      
+      showPopupNotification('Password updated successfully!');
+      
+      // Clear the form
+      password = '';
+      confirmPassword = '';
+      
+      // Sign out the user so they are forced to log in with their new password
+      await supabase.auth.signOut();
+      
+      // Redirect to success page after a short delay
+      setTimeout(() => {
+        goto('/login/reset-confirmed');
+      }, 2000);
       
     } catch (error) {
       console.error('💥 Reset password error:', error);
@@ -161,25 +144,19 @@
   }
 </style>
 
-<!-- Full page layout -->
 <div class="min-h-screen bg-white flex flex-col">
-  <!-- Popup Notification -->
   <PopupNotification bind:show={showPopup} message={popupMessage} variant="white" iconType="login" />
   
-  <!-- Header with logo -->
   <header class="p-4 header-fade">
     <div class="flex items-center">
       <img src="/images/ProduktXX_LOGO2.png" alt="ProduktXX" class="h-6" />
     </div>
   </header>
   
-  <!-- Main content - centered -->
   <div class="flex-1 flex items-center justify-center px-4">
     <div class="w-full max-w-xl">
       
-      <!-- Reset Password Form Container Box -->
       <div class="bg-white rounded-2xl p-6 shadow-lg fade-in {isLoaded ? 'loaded' : ''}">
-        <!-- Title Section inside box -->
         <div class="text-center space-y-1 mb-6">
           <h1 class="text-3xl font-bold text-gray1">Reset Password</h1>
           <p class="text-gray2 text-sm">Enter your new password</p>
@@ -187,7 +164,6 @@
         
         <div class="space-y-4">
           
-          <!-- Password Input -->
           <TypebarCredentials 
             variant="password"
             label="New Password"
@@ -196,7 +172,6 @@
             on:blur={handlePasswordBlur}
           />
           
-          <!-- Confirm Password Input -->
           <TypebarCredentials 
             variant="password"
             label="Confirm New Password"
@@ -205,7 +180,6 @@
             on:blur={handleConfirmPasswordBlur}
           />
           
-          <!-- Reset Password Button -->
           <div class="pt-2 flex justify-center">
             <Button 
               variant={!isFormValid ? 'blocked' : (isSubmitting ? 'loading' : 'filled')}
@@ -218,7 +192,6 @@
             </Button>
           </div>
           
-          <!-- Go Back Link -->
           <div class="text-center pt-1">
             <button 
               type="button"
@@ -235,7 +208,6 @@
     </div>
   </div>
   
-  <!-- Footer -->
   <footer class="p-4 footer-fade {isLoaded ? 'loaded' : ''}">
     <p class="text-gray2 text-xs">Copyright©{currentYear} Produkt</p>
   </footer>
