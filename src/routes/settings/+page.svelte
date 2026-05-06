@@ -3,11 +3,13 @@
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import PermissionsModal from '$lib/components/settings/PermissionsModal.svelte';
 	import PushUpdateModal from '$lib/components/settings/PushUpdateModal.svelte';
+	import SendMessageModal from '$lib/components/settings/SendMessageModal.svelte';
 	import { supabase } from '$lib/supabase';
 
 	let mounted = false;
 	let isPermissionsModalOpen = false;
 	let isPushUpdateModalOpen = false;
+	let isSendMessageModalOpen = false;
 
 	// SMS Number State
 	let smsNumber = '';
@@ -127,10 +129,16 @@
 
 				<div class="fade-in {mounted ? 'mounted' : ''}" style="transition-delay: 0.3s;">
 					<div class="bg-navbar rounded-3xl p-6 border border-gray1">
-						<h2 class="text-xl font-bold text-white mb-4">Team Management</h2>
-						<div class="text-gray2 text-sm">
-							<p>Team management features coming soon...</p>
-						</div>
+						<h2 class="text-xl font-bold text-white mb-2">Send Message - Produkt APP</h2>
+						<p class="text-gray2 text-sm mb-6">
+							Send bulk SMS and Email communications directly to calendar users.
+						</p>
+						<button
+							on:click={() => (isSendMessageModalOpen = true)}
+							class="bg-lime text-black font-bold py-2.5 px-6 rounded-3xl cursor-pointer hover:opacity-90 transition-opacity"
+						>
+							Open Message Sender
+						</button>
 					</div>
 				</div>
 
@@ -211,6 +219,7 @@
 
 <PermissionsModal bind:isOpen={isPermissionsModalOpen} />
 <PushUpdateModal bind:isOpen={isPushUpdateModalOpen} />
+<SendMessageModal bind:isOpen={isSendMessageModalOpen} />
 
 <style>
 	.fade-in {

@@ -101,6 +101,12 @@
 	"/api/scrape-saq": [
 		"src/routes/api/scrape-saq/+server.ts"
 	],
+	"/api/send-message-email": [
+		"src/routes/api/send-message-email/+server.ts"
+	],
+	"/api/send-message-sms": [
+		"src/routes/api/send-message-sms/+server.ts"
+	],
 	"/api/sync-drive-rider": [
 		"src/routes/api/sync-drive-rider/+server.ts"
 	],
