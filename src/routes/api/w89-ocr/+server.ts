@@ -30,24 +30,32 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (imageUrl.startsWith('data:image/')) {
 			const base64Data = imageUrl.split(',')[1];
 			if (!base64Data) throw error(400, 'Invalid base64 image format');
+			console.log(`📦 Received base64 image: ${base64Data.length} chars (~${Math.round(base64Data.length * 0.75 / 1024)} KB decoded)`);
 			imageInput = { image: { content: base64Data } };
 		} else {
 			throw error(400, 'Only base64 data URIs are supported for this endpoint.');
 		}
 
-		const response = await client.textDetection(imageInput);
-		const result: any = response;
+		// 🔑 documentTextDetection is tuned for dense, structured forms — gives
+		// better accuracy on tax forms than the generic textDetection.
+		// Note: response is a tuple [result, ...rawResponse], not the result directly.
+		const [result] = await client.documentTextDetection(imageInput);
 
-		if (result.error) {
-			throw error(500, `Vision API error: ${result.error.message}`);
+		if ((result as any).error) {
+			throw error(500, `Vision API error: ${(result as any).error.message}`);
 		}
+
+		// Log image size for debugging — if the request is reaching but text is empty,
+		// the client-side image rendering is the suspect, not the network.
+		console.log(`📥 Vision API received image. textAnnotations: ${result.textAnnotations?.length || 0}, has fullText: ${!!result.fullTextAnnotation}`);
 
 		const detections = result.textAnnotations;
 		if (!detections || detections.length === 0) {
+			console.log('⚠️ Vision returned 0 text annotations — image is likely blank or unreadable.');
 			return json({ success: true, type: null, message: 'No text detected.' });
 		}
 
-		const fullText = detections.description?.toUpperCase() || '';
+		const fullText = (result.fullTextAnnotation?.text || detections[0]?.description || '').toUpperCase();
 		let detectedType: 'W8' | 'W9' | null = null;
 
 		// 🎯 PRIORITY 1: Top-left corner detection.
