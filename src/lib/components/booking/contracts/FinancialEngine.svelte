@@ -12,6 +12,10 @@
 	let isDeleting = false;
 	let isDragging = false;
 	let showDeleteModal = false;
+	
+	// NEW: Invoice Warning State
+	let showInvoiceWarningModal = false;
+	let pendingInvoiceFile: File | null = null;
 
 	let selectedInvoiceIndex = 0;
 
@@ -33,7 +37,6 @@
 
 	function setupRealtime(contractId: number) {
 		if (realtimeChannel) supabase.removeChannel(realtimeChannel);
-
 		realtimeChannel = supabase
 			.channel(`finance-${contractId}`)
 			.on(
@@ -185,6 +188,7 @@
 			const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 			const page = await pdf.getPage(1);
 			const viewport = page.getViewport({ scale: 1.5 });
+
 			const canvas = document.createElement('canvas');
 			canvas.width = viewport.width;
 			canvas.height = viewport.height;
@@ -192,9 +196,11 @@
 			const ctx = canvas.getContext('2d');
 			// FIX: Ensure ctx is not null to satisfy TypeScript
 			if (!ctx) throw new Error('Failed to get 2D context from canvas');
+
 			await page.render({ canvasContext: ctx, viewport } as any).promise;
 
 			const base64Image = canvas.toDataURL('image/jpeg');
+
 			const res = await fetch('/api/w89-ocr', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -208,7 +214,60 @@
 		}
 	}
 
+	async function processInvoiceOcr(file: File): Promise<boolean> {
+		try {
+			const pdfjsLib = await import('pdfjs-dist');
+			const arrayBuffer = await file.arrayBuffer();
+			const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+			const page = await pdf.getPage(1);
+			const viewport = page.getViewport({ scale: 1.5 });
+			
+			const canvas = document.createElement('canvas');
+			canvas.width = viewport.width;
+			canvas.height = viewport.height;
+
+			const ctx = canvas.getContext('2d');
+			if (!ctx) return true; // Fallback
+
+			await page.render({ canvasContext: ctx, viewport } as any).promise;
+			const base64Image = canvas.toDataURL('image/jpeg');
+
+			const res = await fetch('/api/invoice-ocr', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ imageUrl: base64Image })
+			});
+			const data = await res.json();
+			return data.containsCompany ?? true;
+		} catch (error) {
+			console.error('Invoice OCR extraction failed', error);
+			return true; // Fallback
+		}
+	}
+
 	async function uploadFile(file: File) {
+		if (tab === 'Invoice') {
+			isUploading = true;
+			const isValid = await processInvoiceOcr(file);
+			isUploading = false;
+
+			if (!isValid) {
+				pendingInvoiceFile = file;
+				showInvoiceWarningModal = true;
+				return;
+			}
+		}
+		
+		await executeUpload(file);
+	}
+
+	function confirmInvoiceUpload() {
+		showInvoiceWarningModal = false;
+		if (pendingInvoiceFile) executeUpload(pendingInvoiceFile);
+		pendingInvoiceFile = null;
+	}
+
+	async function executeUpload(file: File) {
 		isUploading = true;
 		let detectedType = 'W8_9';
 
@@ -224,7 +283,6 @@
 		const reader = new FileReader();
 		reader.onloadend = async () => {
 			const base64Data = (reader.result as string).split(',')[1];
-
 			try {
 				const res = await fetch('/api/gdrive', {
 					method: 'POST',
@@ -237,7 +295,6 @@
 						mimeType: file.type
 					})
 				});
-
 				const data = await res.json();
 
 				if (data.success && data.fileUrl) {
@@ -251,7 +308,6 @@
 
 					await updateEventContract(advance.contract_id!, updates);
 					advance = { ...advance, ...updates };
-
 					if (tab === 'Invoice') selectedInvoiceIndex = invoiceUrls.length; // Length is the index of the newly added item
 
 					fitWidth();
@@ -271,7 +327,6 @@
 	async function confirmDelete() {
 		if (!currentFileId || !advance.contract_id) return;
 		isDeleting = true;
-
 		try {
 			await fetch('/api/gdrive', {
 				method: 'POST',
@@ -328,6 +383,28 @@
 					on:click={confirmDelete}
 					disabled={isDeleting}>{isDeleting ? 'Deleting…' : 'Delete File'}</button
 				>
+			</div>
+		</div>
+	</div>
+{/if}
+
+{#if showInvoiceWarningModal}
+	<div use:portal class="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
+		<div class="bg-navbar rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-200">
+			<h2 class="text-xl font-bold text-white mb-2">Invalid Addressee</h2>
+			<p class="text-gray3 text-sm mb-6">
+				This invoice is not addressed to <strong class="text-white">4427319 Canada Inc</strong>.<br/><br/>
+				Are you sure you want to upload it anyway?
+			</p>
+			<div class="flex gap-3 justify-end">
+				<button
+					class="px-5 py-2.5 rounded-full text-sm font-bold text-gray2 border border-gray2 hover:bg-gray1 transition-colors cursor-pointer"
+					on:click={() => { showInvoiceWarningModal = false; pendingInvoiceFile = null; }}
+				>No, Cancel</button>
+				<button
+					class="px-5 py-2.5 rounded-full text-sm font-bold bg-problem text-black hover:bg-problem/80 transition-colors cursor-pointer"
+					on:click={confirmInvoiceUpload}
+				>Yes, Upload</button>
 			</div>
 		</div>
 	</div>
@@ -483,9 +560,7 @@
 				>
 					<div
 						class="inline-block text-left whitespace-normal align-top transition-all duration-200"
-						style="width: {zoomLevel === 'fit'
-							? '100%'
-							: zoomLevel + '%'}; max-width: {zoomLevel === 'fit' ? '1000px' : 'none'};"
+						style="width: {zoomLevel === 'fit' ? '100%' : zoomLevel + '%'}; max-width: {zoomLevel === 'fit' ? '1000px' : 'none'};"
 					>
 						<div class="flex flex-col gap-6 w-full">
 							{#each Array(numPages) as _, i}
@@ -507,9 +582,7 @@
 				on:dragover|preventDefault={() => (isDragging = true)}
 				on:dragleave|preventDefault={() => (isDragging = false)}
 				on:drop={handleDrop}
-				class="flex-1 w-full h-full p-8 flex items-center justify-center {isDragging
-					? 'bg-problem/10 border-2 border-dashed border-problem'
-					: 'bg-transparent'}"
+				class="flex-1 w-full h-full p-8 flex items-center justify-center {isDragging ? 'bg-problem/10 border-2 border-dashed border-problem' : 'bg-transparent'}"
 			>
 				{#if isUploading}
 					<div class="flex flex-col items-center gap-4">
@@ -517,7 +590,7 @@
 							class="w-8 h-8 border-4 border-gray2 border-t-problem rounded-full animate-spin"
 						></div>
 						<p class="text-problem font-bold animate-pulse text-sm">
-							{tab === 'W8_9' ? 'Analyzing & Uploading to Drive…' : 'Uploading to Drive…'}
+							{tab === 'W8_9' ? 'Analyzing & Uploading to Drive…' : 'Analyzing & Uploading to Drive…'}
 						</p>
 					</div>
 				{:else}

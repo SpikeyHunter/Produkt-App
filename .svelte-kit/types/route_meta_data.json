@@ -89,6 +89,9 @@
 	"/api/guests": [
 		"src/routes/api/guests/+server.ts"
 	],
+	"/api/invoice-ocr": [
+		"src/routes/api/invoice-ocr/+server.ts"
+	],
 	"/api/latest-commit": [
 		"src/routes/api/latest-commit/+server.ts"
 	],
