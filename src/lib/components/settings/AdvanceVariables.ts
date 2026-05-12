@@ -94,7 +94,7 @@ export const dosContactMap: { [key: string]: ContactPerson } = {
 export const driverContactMap: { [key: string]: string } = {
   'Eddy': '438-821-5937',
   'Reza': '438-985-7833',
-  'Tarek': '438-969-3872',
+  'Tony': '514-690-8669',
   'Charles': '514-805-9313',
   'UBER': 'A Uber voucher link will be given to cover transportation'
 };

@@ -11,7 +11,7 @@ import {
 const oauth2Client = new google.auth.OAuth2(
 	GOOGLE_CLIENT_ID,
 	GOOGLE_CLIENT_SECRET,
-	'http://localhost' 
+	'http://localhost'
 );
 
 oauth2Client.setCredentials({
@@ -20,7 +20,7 @@ oauth2Client.setCredentials({
 
 const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 const CALENDAR_ID = GOOGLE_CALENDAR_ID;
-const TIMEZONE = "America/Montreal"; // Standardized timezone
+const TIMEZONE = 'America/Montreal'; // Standardized timezone
 
 // --- Helper Functions ---
 
@@ -28,7 +28,7 @@ const getGuestEmail = (driver: string): string => {
 	const driverEmails: { [key: string]: string } = {
 		Eddy: 'eddy_baptist@hotmail.ca',
 		Reza: 'rezanarenji@gmail.com',
-		Tarek: 'tarekali2000@hotmail.com',
+		Tony: 'tonytaitt@gmail.com',
 		Charles: 'charles@produkt.ca'
 	};
 	return driverEmails[driver] || '';
@@ -190,7 +190,7 @@ export async function syncToCalendar(
 			const exactStartTime = combineDateAndTime(row.date, row.pickupTime);
 			const roundedStartTime =
 				row.type === 'Arrival' ? roundToNearest15(exactStartTime) : roundUp15(exactStartTime);
-			const endTime = new Date(roundedStartTime.getTime() + 60 * 60000); 
+			const endTime = new Date(roundedStartTime.getTime() + 60 * 60000);
 
 			if (isNaN(exactStartTime.getTime())) {
 				console.warn(`Skipping row with invalid date/time:`, row);
@@ -205,7 +205,7 @@ export async function syncToCalendar(
 				row.flightInfo,
 				row.pickupLocation,
 				row.dropoffLocation,
-				exactStartTime, 
+				exactStartTime,
 				row.flightDepartureTime,
 				row.date
 			);
@@ -215,17 +215,21 @@ export async function syncToCalendar(
 				start: { dateTime: roundedStartTime.toISOString(), timeZone: TIMEZONE },
 				end: { dateTime: endTime.toISOString(), timeZone: TIMEZONE },
 				description: row.contact,
-                extendedProperties: {
-                    private: { syncSource: 'produkt-ground-transport' }
-                },
+				extendedProperties: {
+					private: { syncSource: 'produkt-ground-transport' }
+				},
 				attendees:
 					row.driverName !== 'UBER'
 						? (() => {
 								const attendees = [];
 								const driverEmail = getGuestEmail(row.driverName);
+
+								// ADD THIS: Simply check if an email exists for the driver
 								if (driverEmail) {
 									attendees.push({ email: driverEmail, responseStatus: 'needsAction' });
 								}
+
+								// Keep your special logic for Reza/Eddy if you want Eddy notified for Reza's trips
 								if (row.driverName === 'Reza') {
 									const eddyEmail = getGuestEmail('Eddy');
 									if (eddyEmail && eddyEmail !== driverEmail) {
@@ -244,7 +248,7 @@ export async function syncToCalendar(
 			const existingEventId = eventIds[row.id];
 
 			if (existingEventId && (await findEventById(existingEventId))) {
-                // Using PATCH instead of UPDATE to only alter changed fields natively
+				// Using PATCH instead of UPDATE to only alter changed fields natively
 				await calendar.events.patch({
 					calendarId: CALENDAR_ID,
 					eventId: existingEventId,
@@ -258,12 +262,12 @@ export async function syncToCalendar(
 				if (duplicateEventId) {
 					eventIds[row.id] = duplicateEventId;
 					duplicatesFound++;
-                    await calendar.events.patch({
-                        calendarId: CALENDAR_ID,
-                        eventId: duplicateEventId,
-                        requestBody: eventData,
-                        sendUpdates: 'all'
-                    });
+					await calendar.events.patch({
+						calendarId: CALENDAR_ID,
+						eventId: duplicateEventId,
+						requestBody: eventData,
+						sendUpdates: 'all'
+					});
 				} else {
 					const response = await calendar.events.insert({
 						calendarId: CALENDAR_ID,
