@@ -52,6 +52,7 @@
 		confirmation_phone: boolean;
 		confirmation_exempt: boolean;
 		reset_password?: boolean;
+		ios_permissions: string[];
 	}
 
 	let formData: MemberFormData = {
@@ -64,7 +65,8 @@
 		password: DEFAULT_PASSWORD,
 		confirmation_email: false,
 		confirmation_phone: false,
-		confirmation_exempt: false
+		confirmation_exempt: false,
+		ios_permissions: []
 	};
 
 	$: isFormValid = !!(
@@ -73,6 +75,36 @@
 		formData.job?.trim() &&
 		formData.role?.trim()
 	);
+
+	// --- iOS Permissions State & Logic ---
+	let iosDropdownOpen = false;
+	let isAddingIosPermission = false;
+	let newIosPermission = '';
+
+	// Extract all unique permissions from all members to populate the list
+	$: allIosPermissions = [...new Set(members.flatMap((m) => m.ios_permissions || []))].sort();
+
+	function toggleIosPermission(perm: string) {
+		if (!formData.ios_permissions) formData.ios_permissions = [];
+		if (formData.ios_permissions.includes(perm)) {
+			formData.ios_permissions = formData.ios_permissions.filter((p) => p !== perm);
+		} else {
+			formData.ios_permissions = [...formData.ios_permissions, perm];
+		}
+	}
+
+	function confirmAddIosPermission() {
+		const cleanPerm = newIosPermission.trim();
+		if (cleanPerm) {
+			if (!formData.ios_permissions) formData.ios_permissions = [];
+			if (!formData.ios_permissions.includes(cleanPerm)) {
+				formData.ios_permissions = [...formData.ios_permissions, cleanPerm];
+			}
+		}
+		newIosPermission = '';
+		isAddingIosPermission = false;
+	}
+	// -------------------------------------
 
 	function formatPhone(phone: string) {
 		if (!phone) return '-';
@@ -131,7 +163,8 @@
 			password: DEFAULT_PASSWORD,
 			confirmation_email: true,
 			confirmation_phone: false,
-			confirmation_exempt: false
+			confirmation_exempt: false,
+			ios_permissions: []
 		};
 		showForm = true;
 	}
@@ -140,6 +173,7 @@
 		isEditMode = true;
 		passwordWasReset = false;
 		formData = { ...member };
+		if (!formData.ios_permissions) formData.ios_permissions = []; // <-- ADDED to prevent undefined errors
 		formData.password = '••••••••••••';
 		showForm = true;
 	}
@@ -175,7 +209,8 @@
 					role: formData.role,
 					confirmation_email: formData.confirmation_email,
 					confirmation_phone: formData.confirmation_phone,
-					confirmation_exempt: formData.confirmation_exempt
+					confirmation_exempt: formData.confirmation_exempt,
+					ios_permissions: formData.ios_permissions
 				};
 				if (passwordWasReset) {
 					updates.password = DEFAULT_PASSWORD;
@@ -207,7 +242,8 @@
 							confirmation_exempt: formData.confirmation_exempt,
 							password: formData.password,
 							has_default_password: applyDefaultPassword,
-							invite_status: defaultInviteStatus
+							invite_status: defaultInviteStatus,
+							ios_permissions: formData.ios_permissions
 						}
 					])
 					.select();
@@ -479,6 +515,14 @@
 		if (!target.closest('#custom-role-dropdown')) {
 			dropdownOpen = false;
 		}
+		// <-- ADD THIS BLOCK -->
+		if (!target.closest('#ios-permissions-dropdown')) {
+			iosDropdownOpen = false;
+			isAddingIosPermission = false;
+		}
+	}
+	function focusOnInit(node: HTMLElement) {
+		node.focus();
 	}
 </script>
 
@@ -668,9 +712,197 @@
 							{/if}
 						</div>
 					</div>
+					<div class="flex flex-col gap-2">
+						<label for="password-input" class="text-white font-bold text-xs">Password</label>
+						<input
+							id="password-input"
+							type="text"
+							disabled
+							class="bg-gray2/20 border border-transparent text-gray2 rounded-full px-5 py-3.5 opacity-60 cursor-not-allowed select-none font-mono placeholder:text-gray2"
+							bind:value={formData.password}
+						/>
+						{#if isEditMode}
+							<button
+								type="button"
+								class="text-left text-xs text-lime font-medium pl-4 mt-1 hover:underline w-fit cursor-pointer"
+								on:click={resetPassword}
+							>
+								Reset to default password
+							</button>
+						{/if}
+					</div>
 				</div>
 
 				<div class="flex flex-col gap-5">
+					{#if isEditMode}
+						<div class="flex flex-col gap-2 relative w-full" id="ios-permissions-dropdown">
+							<span id="ios-perms-label" class="text-white font-bold text-xs block"
+								>iOS Permissions</span
+							>
+							<div class="relative w-full">
+								<div
+									role="button"
+									tabindex="0"
+									aria-labelledby="ios-perms-label"
+									aria-expanded={iosDropdownOpen}
+									class="w-full bg-gray2/20 border {iosDropdownOpen
+										? 'border-lime'
+										: 'border-transparent'} text-left text-base rounded-full px-5 py-3.5 focus:outline-none focus:border-lime transition-all cursor-pointer flex flex-wrap gap-2 items-center min-h-[52px]"
+									on:click={() => (iosDropdownOpen = !iosDropdownOpen)}
+									on:keydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											iosDropdownOpen = !iosDropdownOpen;
+										}
+									}}
+								>
+									{#if formData.ios_permissions && formData.ios_permissions.length > 0}
+										{#each formData.ios_permissions as perm}
+											<span
+												class="bg-lime text-black text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5"
+											>
+												{perm}
+												<button
+													type="button"
+													aria-label="Remove {perm} permission"
+													class="w-4 h-4 hover:bg-black/20 rounded-full flex items-center justify-center cursor-pointer transition-colors"
+													on:click|stopPropagation={() => toggleIosPermission(perm)}
+												>
+													<svg
+														class="w-2.5 h-2.5"
+														fill="none"
+														stroke="currentColor"
+														viewBox="0 0 24 24"
+														><path
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															stroke-width="3"
+															d="M6 18L18 6M6 6l12 12"
+														></path></svg
+													>
+												</button>
+											</span>
+										{/each}
+									{:else}
+										<span class="text-gray2 font-bold text-sm">Select or Add Permissions</span>
+									{/if}
+									<svg
+										class="w-4 h-4 text-gray2 transition-transform ml-auto {iosDropdownOpen
+											? 'rotate-180'
+											: ''}"
+										fill="none"
+										stroke="currentColor"
+										viewBox="0 0 24 24"
+										><path
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											stroke-width="2"
+											d="M19 9l-7 7-7-7"
+										/></svg
+									>
+								</div>
+
+								{#if iosDropdownOpen}
+									<div
+										class="absolute top-full left-0 w-full mt-2 bg-[#2a2a2a] border border-[#333333] rounded-2xl shadow-2xl overflow-hidden z-50 flex flex-col"
+									>
+										<div class="p-3 border-b border-[#333333] bg-[#1e1e1e]">
+											{#if isAddingIosPermission}
+												<div class="flex items-center gap-2">
+													<input
+														type="text"
+														use:focusOnInit
+														bind:value={newIosPermission}
+														placeholder="Enter permission name..."
+														class="flex-1 bg-gray2/20 border-none text-white rounded-lg px-3 py-2.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-lime"
+														on:keydown={(e) => {
+															if (e.key === 'Enter') {
+																e.preventDefault();
+																confirmAddIosPermission();
+															}
+														}}
+													/>
+													<button
+														type="button"
+														aria-label="Confirm add permission"
+														class="bg-lime text-black p-2.5 rounded-lg hover:bg-lime/80 transition-colors cursor-pointer shrink-0"
+														on:click|stopPropagation={confirmAddIosPermission}
+													>
+														<svg
+															class="w-4 h-4"
+															fill="none"
+															stroke="currentColor"
+															viewBox="0 0 24 24"
+															><path
+																stroke-linecap="round"
+																stroke-linejoin="round"
+																stroke-width="3"
+																d="M5 13l4 4L19 7"
+															/></svg
+														>
+													</button>
+												</div>
+											{:else}
+												<button
+													type="button"
+													class="w-full text-left px-3 py-2 text-sm text-lime font-bold hover:bg-white/5 rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
+													on:click|stopPropagation={() => (isAddingIosPermission = true)}
+												>
+													<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+														><path
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															stroke-width="2"
+															d="M12 4v16m8-8H4"
+														/></svg
+													>
+													Add New Permission
+												</button>
+											{/if}
+										</div>
+
+										<div class="max-h-[200px] overflow-y-auto">
+											{#each allIosPermissions as perm}
+												<label
+													class="flex items-center gap-3 px-5 py-3 cursor-pointer hover:bg-white/5 border-b border-[#333333] last:border-0"
+												>
+													<div
+														class="relative flex items-center justify-center w-5 h-5 bg-gray2/20 border border-transparent rounded has-[:checked]:bg-lime has-[:checked]:border-lime transition-colors"
+													>
+														<input
+															type="checkbox"
+															class="appearance-none w-full h-full absolute inset-0 cursor-pointer peer"
+															checked={formData.ios_permissions.includes(perm)}
+															on:change={() => toggleIosPermission(perm)}
+														/>
+														<svg
+															class="w-3.5 h-3.5 text-black opacity-0 peer-checked:opacity-100 pointer-events-none z-10"
+															viewBox="0 0 14 10"
+															fill="none"
+															xmlns="http://www.w3.org/2000/svg"
+															><path
+																d="M1 5L4.5 8.5L13 1"
+																stroke="currentColor"
+																stroke-width="2"
+																stroke-linecap="round"
+																stroke-linejoin="round"
+															/></svg
+														>
+													</div>
+													<span class="text-white text-sm font-bold">{perm}</span>
+												</label>
+											{/each}
+											{#if allIosPermissions.length === 0}
+												<div class="px-5 py-4 text-center text-gray3 text-sm">
+													No existing permissions found.
+												</div>
+											{/if}
+										</div>
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/if}
 					<div class="flex flex-col gap-2">
 						<label for="email-input" class="text-white font-bold text-xs">Email *</label>
 						<input
@@ -691,25 +923,7 @@
 							placeholder="Enter phone"
 						/>
 					</div>
-					<div class="flex flex-col gap-2">
-						<label for="password-input" class="text-white font-bold text-xs">Password</label>
-						<input
-							id="password-input"
-							type="text"
-							disabled
-							class="bg-gray2/20 border border-transparent text-gray2 rounded-full px-5 py-3.5 opacity-60 cursor-not-allowed select-none font-mono placeholder:text-gray2"
-							bind:value={formData.password}
-						/>
-						{#if isEditMode}
-							<button
-								type="button"
-								class="text-left text-xs text-lime font-medium pl-4 mt-1 hover:underline w-fit cursor-pointer"
-								on:click={resetPassword}
-							>
-								Reset to default password
-							</button>
-						{/if}
-					</div>
+					
 				</div>
 			</div>
 
