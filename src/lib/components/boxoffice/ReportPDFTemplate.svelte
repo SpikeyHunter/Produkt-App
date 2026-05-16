@@ -29,7 +29,7 @@
     }
 
     // Process table data per category
-    $: categoriesData = BOX_OFFICE_CATEGORIES.map(cat => {
+    $: allCategoriesData = BOX_OFFICE_CATEGORIES.map(cat => {
         const items = (reportData[cat] || []).filter((item: any) => item.ticket || (item.sold && item.sold > 0));
         
         let subSold = 0;
@@ -58,6 +58,10 @@
         return { id: cat, title: cat === 'table_tickets' ? 'Table' : cat.replace('_', ' '), items, subSold, subScanned, subSettle };
     }).filter(c => c.items.length > 0);
 
+    // Split 'other' category out for placing it at the bottom
+    $: categoriesData = allCategoriesData.filter(c => c.id !== 'other');
+    $: otherCategory = allCategoriesData.find(c => c.id === 'other');
+
     // Global Totals
     $: summary = (() => {
         let sold = 0;
@@ -67,8 +71,6 @@
         let onlineScanned = 0;
 
         categoriesData.forEach(c => {
-            if (c.id === 'other') return; // Exclude 'other' from main gross
-
             sold += c.subSold;
             scanned += c.subScanned;
             gross += c.subSettle;
@@ -161,7 +163,7 @@
             <div style="break-before: page; page-break-before: always; clear: both; width: 100%; height: 1px;"></div>
         {/if}
 
-        <div class="p-6 {pageIdx > 0 ? 'pt-8' : ''}">
+        <div class="p-6 {pageIdx > 0 ? 'pt-8' : ''} min-h-[10in] flex flex-col">
             
             {#if pageIdx === 0}
                 <div class="flex justify-between items-center border-b-2 {borderLine} pb-4 mb-5">
@@ -195,7 +197,6 @@
                     
                     <div>
                         <table class="w-full text-left text-[10px] border-collapse table-fixed">
-                            
                             <colgroup>
                                 <col style="width: 30%;" />
                                 <col style="width: 10%;" />
@@ -247,7 +248,6 @@
                                 
                                 {#if cat.showSubtotal}
                                     <tr><td colspan="8" class="h-1"></td></tr>
-
                                     <tr class="{headerBg} font-bold text-[9px] uppercase">
                                         <td colspan="4" class="py-[2.5px] px-2 text-right rounded-l-sm">Subtotal {cat.title}</td>
                                         <td class="py-[2.5px] px-2 text-right">{cat.subSold}</td>
@@ -265,31 +265,84 @@
             </div>
 
             {#if page.hasSummary}
-                <div class="mt-5">
-                    <h3 class="text-xs font-bold uppercase mb-1 {accentText}">Summary</h3>
-                    <table class="w-full text-left text-[10px] border-collapse table-fixed">
-                        <thead>
-                            <tr class="{headerBg} text-[8px] uppercase tracking-wider">
-                                <th class="py-[2.5px] px-2 font-bold rounded-l-sm w-1/5">Total Sold</th>
-                                <th class="py-[2.5px] px-2 font-bold w-1/5">Total Scanned</th>
-                                <th class="py-[2.5px] px-2 font-bold w-1/5">No Show %</th>
-                                <th class="py-[2.5px] px-2 font-bold text-right w-1/5">Total Gross</th>
-                                <th class="py-[2.5px] px-2 font-bold text-right rounded-r-sm w-1/5">Total Net</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr><td colspan="5" class="h-1"></td></tr>
-
-                            <tr class="opacity-90">
-                                <td class="py-[2.5px] px-2 font-bold leading-tight">{summary.sold}</td>
-                                <td class="py-[2.5px] px-2 font-bold leading-tight">{summary.scanned}</td>
-                                <td class="py-[2.5px] px-2 font-bold text-red-500 leading-tight">{summary.noShowPct.toFixed(2)}%</td>
-                                <td class="py-[2.5px] px-2 font-bold text-right leading-tight">{formatCurrency(summary.gross)}</td>
-                                <td class="py-[2.5px] px-2 font-black {accentText} text-right leading-tight">{formatCurrency(summary.net)}</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <div class="mt-8 flex flex-col items-end">
+                    <div class="w-full flex justify-between items-end border-b-2 {borderLine} pb-3 mb-2">
+                        <h3 class="text-sm font-black uppercase {accentText} m-0">Summary</h3>
+                        <div class="flex gap-8 items-end">
+                            <div class="text-right">
+                                <div class="text-[9px] font-bold uppercase tracking-wider opacity-70 mb-0.5">Total Gross</div>
+                                <div class="text-base font-bold leading-none">{formatCurrency(summary.gross)}</div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-[9px] font-bold uppercase tracking-wider opacity-70 mb-0.5">Total Net</div>
+                                <div class="text-base font-bold {accentText} leading-none">{formatCurrency(summary.net)}</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex gap-6 text-xs font-bold text-right justify-end w-full">
+                        <div><span class="opacity-70 uppercase tracking-wider mr-1 text-[10px]">Total Sold:</span> {summary.sold}</div>
+                        <div><span class="opacity-70 uppercase tracking-wider mr-1 text-[10px]">Total Scanned:</span> {summary.scanned}</div>
+                        <div class="text-red-500"><span class="uppercase tracking-wider mr-1 text-[10px]">No Show %:</span> {summary.noShowPct.toFixed(2)}%</div>
+                    </div>
                 </div>
+
+                {#if otherCategory}
+                    <div class="mt-auto pt-8 w-full">
+                        <div>
+                            <table class="w-full text-left text-[10px] border-collapse table-fixed">
+                                <colgroup>
+                                    <col style="width: 30%;" />
+                                    <col style="width: 10%;" />
+                                    <col style="width: 10%;" />
+                                    <col style="width: 10%;" />
+                                    <col style="width: 10%;" />
+                                    <col style="width: 10%;" />
+                                    <col style="width: 8%;" />
+                                    <col style="width: 12%;" />
+                                </colgroup>
+                                <thead>
+                                    <tr class="{headerBg} text-[8px] uppercase tracking-wider">
+                                        <th class="py-[2.5px] px-2 font-bold rounded-l-sm">Ticket</th>
+                                        <th class="py-[2.5px] px-2 font-bold">Category</th>
+                                        <th class="py-[2.5px] px-2 font-bold">Tier</th>
+                                        <th class="py-[2.5px] px-2 font-bold text-center">$ Price</th>
+                                        <th class="py-[2.5px] px-2 font-bold text-right"># Sold</th>
+                                        <th class="py-[2.5px] px-2 font-bold text-right"># Scanned</th>
+                                        <th class="py-[2.5px] px-2 font-bold text-right">% Entry</th>
+                                        <th class="py-[2.5px] px-2 font-bold text-right rounded-r-sm">Settle</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr><td colspan="8" class="h-1"></td></tr>
+                                    {#each otherCategory.items as item}
+                                        {@const safeSold = item.sold || 0}
+                                        {@const safeScanned = item.scanned || 0}
+                                        {@const entryPct = (item.allowEntry !== false && safeSold > 0) ? (safeScanned / safeSold) * 100 : null}
+                                        <tr class="opacity-90">
+                                            <td class="py-[2.5px] px-2 font-semibold leading-tight">{item.ticket}</td>
+                                            <td class="py-[2.5px] px-2 leading-tight">{item.category}</td>
+                                            <td class="py-[2.5px] px-2 leading-tight">{item.tier}</td>
+                                            <td class="py-[2.5px] px-2 text-center leading-tight">{item.price !== null ? formatCurrency(item.price) : '—'}</td>
+                                            <td class="py-[2.5px] px-2 text-right leading-tight">{item.sold ?? '—'}</td>
+                                            <td class="py-[2.5px] px-2 text-right leading-tight">{(item.allowScanned !== false) ? safeScanned : '—'}</td>
+                                            <td class="py-[2.5px] px-2 text-right leading-tight">{entryPct !== null ? `${entryPct.toFixed(1)}%` : '—'}</td>
+                                            <td class="py-[2.5px] px-2 text-right font-bold leading-tight">{formatCurrency((item.price || 0) * safeSold)}</td>
+                                        </tr>
+                                    {/each}
+                                    <tr><td colspan="8" class="h-1"></td></tr>
+                                    <tr class="{headerBg} font-bold text-[9px] uppercase">
+                                        <td colspan="4" class="py-[2.5px] px-2 text-right rounded-l-sm">Subtotal Other</td>
+                                        <td class="py-[2.5px] px-2 text-right">{otherCategory.subSold}</td>
+                                        <td class="py-[2.5px] px-2 text-right">{otherCategory.subScanned}</td>
+                                        <td class="py-[2.5px] px-2 text-right">—</td>
+                                        <td class="py-[2.5px] px-2 text-right rounded-r-sm {accentText}">{formatCurrency(otherCategory.subSettle)}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {/if}
             {/if}
 
         </div>
