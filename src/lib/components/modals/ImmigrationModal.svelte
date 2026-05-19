@@ -88,7 +88,7 @@
 	$: parsedGroundInfo =
 		typeof groundInfoData === 'string' ? JSON.parse(groundInfoData || '{}') : groundInfoData || {};
 	$: currentArrival = parsedGroundInfo.arrivals?.find((a: any) =>
-		a.assignedRoles?.includes(`${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`)
+		a.assignedRoles?.includes(`${currentRole?.firstName} ${currentRole?.lastName}`)
 	);
 	$: currentDeparture = parsedGroundInfo.departures?.find((d: any) =>
 		d.assignedRoles?.includes(`${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`)
@@ -195,19 +195,7 @@
 					? currentImmigrationInfo?.visa_number
 					: '',
 				performanceName: event?.artist_name || '',
-				arrivalDate: currentArrival?.date
-					? new Date(currentArrival.date).toLocaleDateString('en-US', {
-							year: 'numeric',
-							month: 'long',
-							day: 'numeric'
-						})
-					: primaryEventDate
-						? new Date(primaryEventDate).toLocaleDateString('en-US', {
-								year: 'numeric',
-								month: 'long',
-								day: 'numeric'
-							})
-						: '',
+				arrivalDate: currentArrival?.date || (primaryEventDate ? String(primaryEventDate) : ''),
 				performanceDate: primaryEventDate ? String(primaryEventDate) : '', // Send raw date string to component
 				showDuration: 2,
 				paymentCurrency: currentImmigrationInfo?.artist_fee_currency || 'USD',

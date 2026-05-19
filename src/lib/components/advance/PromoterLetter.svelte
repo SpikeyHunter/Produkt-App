@@ -12,7 +12,7 @@
 	$: stayDurationWord = numberToWord(data.stayDurationDays);
 	
 	// FIX: Force arrivalDateFormatted to use performanceDate so they are identical in the letter text
-	$: arrivalDateFormatted = data.performanceDate ? formatDateShort(data.performanceDate) : '';
+	$: arrivalDateFormatted = data.arrivalDate ? formatDateShort(data.arrivalDate) : '';
 	$: performanceDateFormatted = data.performanceDate ? formatDateShort(data.performanceDate) : '';
 </script>
 
