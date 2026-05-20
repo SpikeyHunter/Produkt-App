@@ -87,16 +87,22 @@
 	$: groundInfoData = event?.ground_info;
 	$: parsedGroundInfo =
 		typeof groundInfoData === 'string' ? JSON.parse(groundInfoData || '{}') : groundInfoData || {};
-	$: currentArrival = parsedGroundInfo.arrivals?.find((a: any) =>
-		a.assignedRoles?.includes(`${currentRole?.firstName} ${currentRole?.lastName}`)
+	$: currentArrival = parsedGroundInfo.arrivals?.find(
+		(a: any) =>
+			a.assignedRoles?.includes(
+				`${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`
+			) || a.assignedRoles?.includes(`${currentRole?.firstName} ${currentRole?.lastName}`)
 	);
-	$: currentDeparture = parsedGroundInfo.departures?.find((d: any) =>
-		d.assignedRoles?.includes(`${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`)
+	$: currentDeparture = parsedGroundInfo.departures?.find(
+		(d: any) =>
+			d.assignedRoles?.includes(
+				`${currentPassportInfo?.givenName} ${currentPassportInfo?.lastName}`
+			) || d.assignedRoles?.includes(`${currentRole?.firstName} ${currentRole?.lastName}`)
 	);
+
 	$: hasPromoterLetters = Array.from(immigrationInfos.values()).some(
 		(info) => info.letter_type === 'Promoter Letter'
 	);
-	$: stayDuration = 2;
 	$: formattedFee = (() => {
 		const amount = currentImmigrationInfo?.artist_fee;
 		const currency = currentImmigrationInfo?.artist_fee_currency || 'USD';
@@ -127,8 +133,11 @@
 		return date.toISOString().split('T')[0];
 	})();
 
-	// UPDATED: Prioritize event_date to ensure year is correct
+	// UPDATED: Prioritize ground info arrival date, then event_date
 	$: formattedArrivalDate = (() => {
+		// Use flight arrival date if available
+		if (currentArrival?.date) return currentArrival.date;
+
 		const rawDate = event?.event_date || event?.date;
 		if (!rawDate) return '';
 
@@ -147,16 +156,42 @@
 		return '';
 	})();
 
+	// UPDATED: Prioritize ground info departure date
 	$: formattedDepartureDate = (() => {
+		// Use flight departure date if available
+		if (currentDeparture?.date) return currentDeparture.date;
+
 		if (!formattedArrivalDate) return '';
 
-		// Parse the arrival date and add exactly 1 day
-		const [year, month, day] = formattedArrivalDate.split('-').map((num) => parseInt(num, 10));
+		// Parse the arrival date and add exactly 1 day as a fallback
+		const [year, month, day] = formattedArrivalDate.split('-').map((num: string) => parseInt(num, 10));
 		const arrivalDate = new Date(year, month - 1, day);
 		const departureDate = new Date(arrivalDate);
 		departureDate.setDate(arrivalDate.getDate() + 1);
 
 		return departureDate.toISOString().split('T')[0];
+	})();
+
+
+	// NEW: Dynamically calculate stay duration based on flights (inclusive of both days)
+	$: stayDuration = (() => {
+		if (formattedArrivalDate && formattedDepartureDate) {
+			const arrDate = new Date(formattedArrivalDate);
+			const depDate = new Date(formattedDepartureDate);
+			
+			// Ensure both are valid dates
+			if (!isNaN(arrDate.getTime()) && !isNaN(depDate.getTime())) {
+				const diffTime = depDate.getTime() - arrDate.getTime();
+				
+				// Add 1 to the result to make it inclusive (e.g., May 20 to May 23 = 4 days)
+				const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
+				
+				if (diffDays > 0) {
+					return diffDays;
+				}
+			}
+		}
+		return 2; // Fallback to 2 days if dates are missing or invalid
 	})();
 	$: artistLetterData = isArtist ? (promoterLetterRenderData as PromoterLetterData) : null;
 	$: {
