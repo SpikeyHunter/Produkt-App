@@ -185,6 +185,7 @@
 
 			// 7. Get Public URL & Save to Database
 			const { data: urlData } = supabase.storage.from('documents').getPublicUrl(filePath);
+
 			dispatch('update', { pdf_url: urlData.publicUrl });
 
 			// Close modal and let them use the buttons
@@ -203,9 +204,9 @@
 
 <div bind:this={hiddenPdfContainer} class="hidden"></div>
 
-<div class="h-full bg-navbar flex flex-col overflow-y-auto custom-scrollbar">
+<div class="panel-wrapper h-full bg-navbar flex flex-col overflow-y-auto custom-scrollbar">
 	<div class="p-4 border-b border-gray1/50 flex flex-col gap-3">
-		<h3 class="text-xs font-bold text-gray3 uppercase tracking-wider">Actions</h3>
+
 
 		<button
 			class="w-full py-2 rounded-3xl font-bold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer {reportData
@@ -233,8 +234,7 @@
 
 		<button
 			class="w-full py-2.5 rounded-3xl font-bold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer {!reportData
-				?.completed_by?.length ||
-				isDownloading
+				?.completed_by?.length || isDownloading
 				? 'bg-gray1 text-gray3 cursor-not-allowed'
 				: 'bg-gray1 text-gray3 border-gray1 border-2 hover:border-gray3 hover:text-white'}"
 			disabled={!reportData?.completed_by?.length || isDownloading}
@@ -299,15 +299,14 @@
 		{/if}
 	</div>
 
-	<div class="p-4 flex-1">
+	<div class="p-4 report-info-section flex-1">
 		<h3 class="text-xs font-bold text-gray3 mb-4 uppercase tracking-wider">Report Info</h3>
 
 		<div class="block mb-4 relative completed-by-dropdown">
 			<span class="text-[10px] text-gray2 uppercase font-bold block mb-1">Completed By</span>
 			<button
 				type="button"
-				class="w-full bg-black/40 border border-transparent rounded-3xl px-3 py-2 text-sm flex justify-between items-center focus:outline-none focus:border-lime transition-colors {reportData?.status ===
-				'approved'
+				class="w-full bg-black/40 border border-transparent rounded-3xl px-3 py-2 text-sm flex justify-between items-center focus:outline-none focus:border-lime transition-colors {reportData?.status === 'approved'
 					? 'opacity-50 cursor-not-allowed text-gray2'
 					: 'cursor-pointer text-white'}"
 				on:click={() => {
@@ -381,7 +380,7 @@
 	</div>
 
 	{#if isBookingUser}
-		<div class="p-5 bg-black/10 border-t border-gray1/50 mt-auto">
+		<div class="p-5 bg-black/10 border-t border-gray1/50 report-summary-section mt-auto">
 			<h3 class="text-lg font-bold text-gray3 mb-4 uppercase tracking-wider text-center">
 				Report Summary
 			</h3>
@@ -427,7 +426,7 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="p-5 bg-black/20 border-t border-gray2/20 mt-auto text-center">
+		<div class="p-5 bg-black/20 border-t border-gray2/20 report-summary-section mt-auto text-center">
 			<p class="text-xs text-gray2 italic">Summary details restricted.</p>
 		</div>
 	{/if}
@@ -498,5 +497,18 @@
 	}
 	.custom-scrollbar::-webkit-scrollbar-thumb:hover {
 		background: var(--color-gray2, #666);
+	}
+
+	@media (max-width: 1200px) {
+		.panel-wrapper {
+			height: auto !important;
+			overflow: visible !important;
+		}
+		.report-info-section {
+			flex: none !important;
+		}
+		.report-summary-section {
+			margin-top: 0 !important;
+		}
 	}
 </style>

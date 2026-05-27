@@ -16,7 +16,6 @@
 	let reportData: any = null;
 	let currentUser: any = null;
 	let channel: any;
-
 	let isBookingUser = false;
 	let showTixrModal = false;
 	let showAllEvents = false;
@@ -84,10 +83,8 @@
 			.from('events')
 			.select('*, box_office_reports(*)')
 			.order('event_date', { ascending: false });
-
 		if (error) console.error('Error loading events:', error);
 		events = data || [];
-
 		if (events.length > 0) {
 			const eventIds = events.map((e) => e.event_id);
 			const { data: dcData } = await supabase
@@ -112,7 +109,6 @@
 			.select('*')
 			.eq('event_id', eventId)
 			.maybeSingle();
-
 		if (!data) {
 			const newReport = {
 				event_id: eventId,
@@ -224,6 +220,7 @@
 
 		pendingUpdates = { ...pendingUpdates, ...updates };
 		if (saveTimeout) clearTimeout(saveTimeout);
+
 		saveTimeout = setTimeout(async () => {
 			const payload = { ...pendingUpdates };
 			pendingUpdates = {};
@@ -295,21 +292,38 @@
 </svelte:head>
 
 <MainLayout>
-	<div class="p-4 h-[calc(100vh-64px)] box-border">
+	<div class="p-4 max-[1200px]:pr-0 h-[calc(100vh-64px)] box-border">
 		<div class="liaison-container">
-			<div class="selector-column overflow-visible flex-shrink-0">
-				<EventSelectorBO
-					{events}
-					{selectedEvent}
-					{isBookingUser}
-					{currentUser}
-					isViewingAllEvents={showAllEvents}
-					on:select={handleEventSelect}
-					on:approve={handleApprove}
-					on:statusChange={handleStatusChange}
-					on:resetReport={handleResetReport}
-					on:toggleAllEvents={() => (showAllEvents = !showAllEvents)}
-				/>
+			<div class="left-sidebar-wrapper custom-scrollbar">
+				<div class="selector-column overflow-visible flex-shrink-0">
+					<EventSelectorBO
+						{events}
+						{selectedEvent}
+						{isBookingUser}
+						{currentUser}
+						isViewingAllEvents={showAllEvents}
+						on:select={handleEventSelect}
+						on:approve={handleApprove}
+						on:statusChange={handleStatusChange}
+						on:resetReport={handleResetReport}
+						on:toggleAllEvents={() => (showAllEvents = !showAllEvents)}
+					/>
+				</div>
+
+				{#if !showAllEvents && selectedEvent && reportData}
+					<div
+						class="export-column rounded-xl overflow-hidden shadow-lg bg-navbar/50 backdrop-blur"
+					>
+						<ReportRightPanel
+							{reportData}
+							{selectedEvent}
+							{isBookingUser}
+							on:update={handleUpdate}
+							on:openTixrImport={() => (showTixrModal = true)}
+							on:viewPdf={() => (showPdfPreview = true)}
+						/>
+					</div>
+				{/if}
 			</div>
 
 			{#if showAllEvents}
@@ -330,35 +344,22 @@
 						</div>
 					{/if}
 				</div>
-
-				<div class="export-column rounded-xl overflow-hidden shadow-lg bg-navbar/50 backdrop-blur">
-					{#if selectedEvent && reportData}
-						<ReportRightPanel
-							{reportData}
-							{selectedEvent}
-							{isBookingUser}
-							on:update={handleUpdate}
-							on:openTixrImport={() => (showTixrModal = true)}
-							on:viewPdf={() => (showPdfPreview = true)}
-						/>
-					{/if}
-				</div>
 			{/if}
 		</div>
 	</div>
 </MainLayout>
 
 {#if showPdfPreview && reportData?.pdf_url}
-    <PreviewModal
-        isOpen={showPdfPreview}
-        fileName={`${selectedEvent?.event_date}_Scan-Report_${selectedEvent?.event_name || 'Event'}.pdf`}
-        fileUrl={reportData.pdf_url}
-        isDeleting={isDeletingPdf}
-        showDeleteButton={true}
-        showDownloadButton={true}
-        on:close={() => (showPdfPreview = false)}
-        on:delete={handleDeletePdf}
-    />
+	<PreviewModal
+		isOpen={showPdfPreview}
+		fileName={`${selectedEvent?.event_date}_Scan-Report_${selectedEvent?.event_name || 'Event'}.pdf`}
+		fileUrl={reportData.pdf_url}
+		isDeleting={isDeletingPdf}
+		showDeleteButton={true}
+		showDownloadButton={true}
+		on:close={() => (showPdfPreview = false)}
+		on:delete={handleDeletePdf}
+	/>
 {/if}
 
 {#if showTixrModal}
@@ -372,20 +373,85 @@
 
 <style>
 	.liaison-container {
-		display: grid;
-		grid-template-columns: 280px 1fr 280px;
+		display: flex;
 		gap: 16px;
 		height: 100%;
+		width: 100%;
+		overflow: hidden;
 	}
-	.selector-column,
+
+	.left-sidebar-wrapper {
+		display: contents;
+	}
+
+	.selector-column {
+		width: 280px;
+		height: 100%;
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		order: 1;
+	}
+
 	.details-column,
-	.export-column {
-		height: 100%;
-		overflow: hidden;
-	}
 	.all-events-column {
-		grid-column: 2 / span 2;
+		flex: 1;
+		min-width: 0;
 		height: 100%;
-		overflow: hidden;
+		order: 2;
+	}
+
+	.export-column {
+		width: 280px;
+		height: 100%;
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		order: 3;
+	}
+
+	@media (max-width: 1200px) {
+		.left-sidebar-wrapper {
+			display: flex;
+			flex-direction: column;
+			gap: 16px;
+			width: 240px;
+			height: 100%;
+			overflow-y: auto;
+			flex-shrink: 0;
+			/* Change this to 0 or remove it completely */
+			padding-right: -10px;
+			order: 1;
+		}
+		/* ... rest of your styles ... */
+
+		/* Apply standardized scrollbar to wrapper */
+		.left-sidebar-wrapper::-webkit-scrollbar {
+			width: 6px;
+		}
+		.left-sidebar-wrapper::-webkit-scrollbar-track {
+			background: transparent;
+		}
+		.left-sidebar-wrapper::-webkit-scrollbar-thumb {
+			background: var(--color-gray1, #333);
+			border-radius: 3px;
+		}
+		.left-sidebar-wrapper::-webkit-scrollbar-thumb:hover {
+			background: var(--color-gray2, #666);
+		}
+
+		.selector-column {
+			width: 100%;
+			height: auto;
+			flex-shrink: 0;
+			order: 1;
+		}
+
+		.export-column {
+			width: 100%;
+			height: auto;
+			flex-shrink: 0;
+			order: 2;
+		}
 	}
 </style>
