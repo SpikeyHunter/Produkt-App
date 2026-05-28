@@ -38,11 +38,13 @@
 		<table class="w-full text-xs text-white border-collapse min-w-[1000px]">
 			<thead class="text-xs tracking-wider text-gray2 font-bold bg-navbar border-b border-gray1">
 				<tr>
-					<th class="px-4 py-4 text-left sticky left-0 bg-navbar z-10 border-r border-gray1/30 min-w-[160px]">
+					<th
+						class="px-4 py-4 text-left sticky left-0 bg-navbar z-10 border-r border-gray1/30 min-w-[160px]"
+					>
 						Line Item
 					</th>
 					{#each columns as col}
-						<th class="px-4 py-4 text-right whitespace-nowrap">
+						<th class="px-4 py-2 text-right whitespace-pre-line">
 							{col.label}
 						</th>
 					{/each}
@@ -51,7 +53,11 @@
 			<tbody class="divide-y divide-gray1 bg-gray1/20">
 				{#each rows as row}
 					<tr class="transition-colors hover:bg-gray2/5">
-						<td class="px-4 py-3 text-left sticky left-0 bg-navbar z-10 border-r border-gray1/30 {row.isBold ? 'font-bold text-white' : 'text-gray2'}">
+						<td
+							class="px-4 py-3 text-left sticky left-0 bg-navbar z-10 border-r border-gray1/30 {row.isBold
+								? 'font-bold text-white'
+								: 'text-gray2'}"
+						>
 							{row.label}
 						</td>
 						{#each columns as col}

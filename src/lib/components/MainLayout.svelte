@@ -142,10 +142,12 @@
 			icon: icons.marketing,
 			requiredPermission: 'Marketing',
 			subItems: [
-				{ label: 'Events Info', route: '/marketing/eventsinfo', requiredPermission: 'EventsInfo' },
-				{ label: 'Comp Tickets', route: '/marketing/comptickets', requiredPermission: 'CompTickets' },
-				{ label: 'Compare Hub', route: '/marketing/comparehub', requiredPermission: 'CompareHub' },
-				{ label: 'Customers Database', route: '/marketing/customers', requiredPermission: 'CustomersDB' }
+				//{ label: 'Events Info', route: '/marketing/eventsinfo', requiredPermission: 'EventsInfo' },
+				
+				{ label: 'Calendar', route: '/marketing/calendar', requiredPermission: 'Marketing' },
+				{ label: 'Comp Tickets', route: '/marketing/comptickets', requiredPermission: 'CompTickets' }
+				
+				//{ label: 'Customers Database', route: '/marketing/customers', requiredPermission: 'CustomersDB' }
 			]
 		},
 		{
@@ -154,10 +156,11 @@
 			icon: icons.booking,
 			requiredPermission: 'Booking',
 			subItems: [
-				{ label: 'Contracts', route: '/booking/contracts', requiredPermission: 'Booking' },	
+				//{ label: 'Contracts', route: '/booking/contracts', requiredPermission: 'Booking' },	
 				{ label: 'Daily Count', route: '/booking/dailycount', requiredPermission: 'Booking' },
 				{ label: 'Talent Payments', route: '/booking/talentpayments', requiredPermission: 'Booking' },
-				{ label: 'Artist Availability', route: '/booking/artistavailability', requiredPermission: 'Booking' }
+				{ label: 'Compare Hub', route: '/booking/comparehub', requiredPermission: 'CompareHub' }
+				//{ label: 'Artist Availability', route: '/booking/artistavailability', requiredPermission: 'Booking' }
 			]
 		},
 		{

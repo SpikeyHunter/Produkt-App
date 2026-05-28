@@ -120,6 +120,18 @@
 	// Custom action to replace "autofocus" and satisfy a11y rules
 	function focusOnMount(node: HTMLInputElement) {
 		node.focus();
+		node.select();
+	}
+
+	// Action to auto-select all content when an input gains focus
+	function selectOnFocus(node: HTMLInputElement) {
+		const handler = () => requestAnimationFrame(() => node.select());
+		node.addEventListener('focus', handler);
+		return {
+			destroy() {
+				node.removeEventListener('focus', handler);
+			}
+		};
 	}
 
 	function checkEmpty(e: Event, field: string, idx: number) {
@@ -468,6 +480,7 @@
 						<td class="px-3 py-2 border-r border-gray1">
 							<input
 								type="text"
+								use:selectOnFocus
 								bind:value={row.name}
 								on:blur={(e) => checkEmpty(e, 'name', index)}
 								class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none truncate text-left"
@@ -476,6 +489,7 @@
 						<td class="px-2 py-2 border-r border-gray1">
 							<input
 								type="number"
+								use:selectOnFocus
 								bind:value={row.qty}
 								on:blur={(e) => checkEmpty(e, 'qty', index)}
 								class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-center"
@@ -612,6 +626,7 @@
 						<td class="px-3 py-2 border-r border-gray1">
 							<input
 								type="text"
+								use:selectOnFocus
 								bind:value={row.internalNotes}
 								on:change={triggerSave}
 								class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none truncate text-left text-gray3 focus:text-white"
@@ -620,6 +635,7 @@
 						<td class="px-3 py-2 border-r border-gray1">
 							<input
 								type="text"
+								use:selectOnFocus
 								bind:value={row.externalNotes}
 								on:change={triggerSave}
 								class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none truncate text-left text-gray3 focus:text-white"

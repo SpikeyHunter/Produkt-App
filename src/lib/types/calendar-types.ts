@@ -1,4 +1,11 @@
-export type EventStatus = 'HOLD' | 'CONFIRMED' | 'PENDING' | 'CANCELED' | 'HIDDEN';
+export type EventStatus =
+	| 'HOLD'
+	| 'CONFIRMED'
+	| 'PENDING'
+	| 'CANCELED'
+	| 'HIDDEN'
+	| 'IN SETTLEMENT' // <-- Add this
+	| 'SETTLED';
 export type HoldLevel =
 	| 'P'
 	| 'H1'
@@ -94,11 +101,11 @@ export interface CalendarEvent {
 		is_priority?: boolean;
 	};
 	// 🚀 UPDATED: Removed the `| null` from the end since it will always be an object now
-    event_deal?: {
-        headliner_name: string | null;
-        headliner_id: string | null;
-        headliner_pic: string | null;
-    };
+	event_deal?: {
+		headliner_name: string | null;
+		headliner_id: string | null;
+		headliner_pic: string | null;
+	};
 	event_revenue?: any;
 	event_cost?: any;
 	event_details?: {

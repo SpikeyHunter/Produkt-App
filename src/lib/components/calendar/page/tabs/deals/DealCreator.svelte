@@ -6,11 +6,13 @@
 	import DealType from './DealType.svelte';
 	import DealDescription from './DealDescription.svelte';
 	import DealDetails from './DealDetails.svelte';
+	import { supabase } from '$lib/supabase';
 
 	export let event_date: string = '';
 	export let eventCost: any = null;
 	export let venueCurrency: string = 'CAD';
 	export let existingDeal: any = null;
+
 
 	$: computedTotalCost = (() => {
 		try {
@@ -44,6 +46,13 @@
 	const depositTypes: DepositType[] = ['Percent', 'Flat'];
 	const dueDateTypes: DueDateType[] = ['Relative', 'Specific'];
 
+	$: isFormValid =
+		newDeal.artistName &&
+		newDeal.artistName.trim() !== '' &&
+		newDeal.dealType &&
+		(newDeal.dealType === 'Door Deal' ||
+			(newDeal.guaranteeAmount !== undefined && newDeal.guaranteeAmount > 0));
+
 	let showDetails = true;
 
 	let newDeal = {
@@ -60,9 +69,9 @@
 		description: {
 			hotels: {
 				enabled: true,
-				nights: 0,
 				rooms: 0,
 				suites: 0,
+				nights: 0,
 				custom_room: false,
 				custom_name: '',
 				custom_amount: 0
@@ -90,12 +99,20 @@
 	};
 	let displayAmount = '';
 
-	onMount(() => {
+	
+
+	onMount(async () => {
+
 		if (existingDeal) {
 			newDeal = JSON.parse(JSON.stringify(existingDeal));
 
-			// Handle legacy deals that might not have w_tax defined yet
-			if (newDeal.w_tax === undefined) newDeal.w_tax = true;
+			// --- ADD THESE LINES TO FIX THE NaN ISSUE ---
+			if (newDeal.description && newDeal.description.hotels) {
+				newDeal.description.hotels.nights = newDeal.description.hotels.nights || 0;
+				newDeal.description.hotels.rooms = newDeal.description.hotels.rooms || 0;
+				newDeal.description.hotels.suites = newDeal.description.hotels.suites || 0;
+			}
+			// --------------------------------------------
 			if (newDeal.w_tax_amount === undefined) newDeal.w_tax_amount = 24;
 
 			// Handle legacy deals for retroactive bonuses
@@ -234,6 +251,8 @@
 
 		payload.artistId = selectedArtist?.id || 'NULL';
 		payload.artistPic = selectedArtist?.picture || 'NULL';
+
+
 		const formattedGuarantee = new Intl.NumberFormat('en-US', {
 			minimumFractionDigits: 2,
 			maximumFractionDigits: 2
@@ -246,6 +265,14 @@
 			delete payload.details;
 		} else if (payload.dealType === 'Door Deal') {
 			payload.guaranteeAmount = 0;
+		}
+		// Safely disable without wiping out the default 0 values
+		if (
+			payload.description.hotels.nights === 0 &&
+			payload.description.hotels.rooms === 0 &&
+			payload.description.hotels.suites === 0
+		) {
+			payload.description.hotels.enabled = false;
 		}
 
 		if (!payload.description.hotels.enabled) payload.description.hotels = { enabled: false };
@@ -718,8 +745,12 @@
 		>
 		<button
 			on:click={handleSave}
-			class="px-8 py-3 bg-lime text-black font-bold rounded-full hover:opacity-90 transition-opacity cursor-pointer"
-			>{existingDeal ? 'Update Deal' : 'Save Deal'}</button
+			disabled={!isFormValid}
+			class="px-8 py-3 font-bold rounded-full transition-opacity {isFormValid
+				? 'bg-lime text-black hover:opacity-90 cursor-pointer'
+				: 'bg-gray2 text-black/50 cursor-not-allowed opacity-50'}"
 		>
+			{existingDeal ? 'Update Deal' : 'Save Deal'}
+		</button>
 	</div>
 </div>

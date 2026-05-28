@@ -225,6 +225,17 @@
 		setTimeout(() => node.focus(), 10);
 	}
 
+	// Action to auto-select all content when an input gains focus
+	function selectOnFocus(node: HTMLInputElement) {
+		const handler = () => requestAnimationFrame(() => node.select());
+		node.addEventListener('focus', handler);
+		return {
+			destroy() {
+				node.removeEventListener('focus', handler);
+			}
+		};
+	}
+
 	function handleFocus(idx: number, field: string) {
 		if (tickets[idx][field] === 0 || tickets[idx][field] === '0') {
 			tickets[idx][field] = null; 
@@ -331,16 +342,16 @@
 						</td>
 
 						<td class="px-2 py-2 border border-gray1">
-							<input type="text" bind:value={tickets[row.originalIndex].name} on:blur={(e) => checkEmpty(e, 'name', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none truncate text-left" />
+							<input type="text" use:selectOnFocus bind:value={tickets[row.originalIndex].name} on:blur={(e) => checkEmpty(e, 'name', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none truncate text-left" />
 						</td>
 						<td class="px-2 py-2 border border-gray1">
-							<input type="number" bind:value={tickets[row.originalIndex].allotment} on:focus={() => handleFocus(row.originalIndex, 'allotment')} on:blur={(e) => checkEmpty(e, 'allotment', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
+							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].allotment} on:focus={() => handleFocus(row.originalIndex, 'allotment')} on:blur={(e) => checkEmpty(e, 'allotment', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
 						</td>
 						<td class="px-2 py-2 border border-gray1">
-							<input type="number" bind:value={tickets[row.originalIndex].comps} on:focus={() => handleFocus(row.originalIndex, 'comps')} on:blur={(e) => checkEmpty(e, 'comps', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
+							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].comps} on:focus={() => handleFocus(row.originalIndex, 'comps')} on:blur={(e) => checkEmpty(e, 'comps', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
 						</td>
 						<td class="px-2 py-2 border border-gray1">
-							<input type="number" bind:value={tickets[row.originalIndex].kills} on:focus={() => handleFocus(row.originalIndex, 'kills')} on:blur={(e) => checkEmpty(e, 'kills', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
+							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].kills} on:focus={() => handleFocus(row.originalIndex, 'kills')} on:blur={(e) => checkEmpty(e, 'kills', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
 						</td>
 						<td class="px-2 py-2 text-white bg-gray2/5 font-medium truncate text-right border border-gray1">{row.sellable}</td>
 						
@@ -348,6 +359,7 @@
 							{#if editingCell === `${row.id}-price`}
 								<input 
 									use:focusInput
+									use:selectOnFocus
 									type="number" 
 									step="0.01" 
 									bind:value={tickets[row.originalIndex].price} 
@@ -361,10 +373,10 @@
 						</td>
 
 						<td class="px-2 py-2 border border-gray1">
-							<input type="number" bind:value={tickets[row.originalIndex].estSold} on:focus={() => handleFocus(row.originalIndex, 'estSold')} on:blur={(e) => checkEmpty(e, 'estSold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
+							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].estSold} on:focus={() => handleFocus(row.originalIndex, 'estSold')} on:blur={(e) => checkEmpty(e, 'estSold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
 						</td>
 						<td class="px-2 py-2 border border-gray1">
-							<input type="number" bind:value={tickets[row.originalIndex].sold} on:focus={() => handleFocus(row.originalIndex, 'sold')} on:blur={(e) => checkEmpty(e, 'sold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
+							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].sold} on:focus={() => handleFocus(row.originalIndex, 'sold')} on:blur={(e) => checkEmpty(e, 'sold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
 						</td>
 						
 						<td class="px-2 py-2 text-gray2 font-medium truncate bg-gray2/5 text-right border border-gray1">{formatCurrency(row.actualGross, currency)}</td>

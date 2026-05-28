@@ -1,9 +1,9 @@
 <script lang="ts">
 	import MainLayout from '$lib/components/MainLayout.svelte';
-	import CompEvent from '$lib/components/marketing/comptickets/CompEvent.svelte';
-	import CompList from '$lib/components/marketing/comptickets/CompList.svelte';
-	import CompStatus from '$lib/components/marketing/comptickets/CompStatus.svelte';
-	import CompDownload from '$lib/components/marketing/comptickets/CompDownload.svelte';
+	import CompEvent from '$lib/components/booking/comptickets/CompEvent.svelte';
+	import CompList from '$lib/components/booking/comptickets/CompList.svelte';
+	import CompStatus from '$lib/components/booking/comptickets/CompStatus.svelte';
+	import CompDownload from '$lib/components/booking/comptickets/CompDownload.svelte';
 	import { writable } from 'svelte/store';
 	import type { CompTicketData, CompEntry } from '$lib/types/comptickets';
 	import { supabase } from '$lib/supabase';

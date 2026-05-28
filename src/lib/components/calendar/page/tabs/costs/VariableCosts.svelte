@@ -19,14 +19,17 @@
     $: tickets = eventRevenue?.tickets || [];
     $: financials = eventRevenue?.financials || { taxRate: 0, taxType: 'Divisor', facilityFee: 0 };
 
-    function calculateMetrics(qtyField: 'allotment' | 'estSold' | 'sold') {
+    function calculateMetrics(qtyField: 'allotment' | 'estSold' | 'sold', netComps = false) {
         let totalTickets = 0;
         let gross = 0;
         let taxes = 0;
         let fees = 0;
 
         for (const t of tickets) {
-            const qty = Number(t[qtyField]) || 0;
+            let qty = Number(t[qtyField]) || 0;
+            if (netComps) {
+                qty = qty - (Number(t.comps) || 0) - (Number(t.kills) || 0);
+            }
             totalTickets += qty;
             const tierGross = qty * (Number(t.price) || 0);
             gross += tierGross;
@@ -46,7 +49,7 @@
         return { totalTickets, gross, netGross };
     }
 
-    $: sellableMetrics = calculateMetrics('allotment');
+    $: sellableMetrics = calculateMetrics('allotment', true);
     $: estMetrics = calculateMetrics('estSold');
     $: actualMetrics = calculateMetrics('sold');
 
@@ -64,11 +67,12 @@
 
     // Auto-calculate row fields
     $: enrichedCosts = variableCosts.map(row => {
+        const offerBudget = calcValue(row.type, row.externalAmount, sellableMetrics);
         const estimatedInternal = calcValue(row.type, row.internalAmount, estMetrics);
         const actualInternal = calcValue(row.type, row.internalAmount, actualMetrics);
         const externalSettlement = calcValue(row.type, row.externalAmount, actualMetrics);
         
-        return { ...row, estimatedInternal, actualInternal, externalSettlement };
+        return { ...row, offerBudget, estimatedInternal, actualInternal, externalSettlement };
     });
 
     // Calculate Footers
@@ -77,12 +81,13 @@
         acc.estimated += c.estimatedInternal;
         acc.actual += c.actualInternal;
 
-        // ONLY sum Settlement if toggled on
+        // ONLY sum Offer Budget and Settlement if toggled on
         if (c.reported) {
+            acc.offerBudget += c.offerBudget;
             acc.settlement += c.externalSettlement;
         }
         return acc;
-    }, { estimated: 0, actual: 0, settlement: 0 });
+    }, { offerBudget: 0, estimated: 0, actual: 0, settlement: 0 });
 
     $: totalActualDiff = totals.estimated - totals.actual;
     $: totalExternalDiff = totals.estimated - totals.settlement;
@@ -162,7 +167,18 @@
         }
         handleAmountSync(rowId, field, value);
     }
-    function focusOnMount(node: HTMLInputElement) { node.focus(); }
+    function focusOnMount(node: HTMLInputElement) { node.focus(); node.select(); }
+
+    // Action to auto-select all content when an input gains focus
+    function selectOnFocus(node: HTMLInputElement) {
+        const handler = () => requestAnimationFrame(() => node.select());
+        node.addEventListener('focus', handler);
+        return {
+            destroy() {
+                node.removeEventListener('focus', handler);
+            }
+        };
+    }
 
     // --- COLUMNS & RESIZING LOGIC ---
     let columns = [
@@ -279,7 +295,8 @@
         </div>
         
         <div class="flex items-center gap-6 text-sm font-bold text-gray2">
-            <div>Estimated: <span class="text-white">{formatCurrency(totals.estimated, currency)}</span></div>
+            <div>Offer Budget: <span class="text-white">{formatCurrency(totals.offerBudget, currency)}</span></div>
+            <div>/ Estimated: <span class="text-white">{formatCurrency(totals.estimated, currency)}</span></div>
             <div>/ Actual: <span class="text-white">{formatCurrency(totals.actual, currency)}</span></div>
         </div>
     </div>
@@ -336,7 +353,7 @@
                                 </td>
 
                                 <td class="px-3 py-2 border-r border-gray1">
-                                    <input type="text" bind:value={row.name} on:blur={triggerSave} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none truncate text-left" />
+                                    <input type="text" use:selectOnFocus bind:value={row.name} on:blur={triggerSave} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none truncate text-left" />
                                 </td>
 
                                 <td class="px-2 py-2 border-r border-gray1 text-right">

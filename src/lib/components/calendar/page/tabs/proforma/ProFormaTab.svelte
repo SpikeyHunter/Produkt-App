@@ -19,6 +19,14 @@
 	let eventCost: any = {};
 	let eventDeal: any = {};
 
+	// Settlement-aware: only the ACTUAL column reacts to this. Projections stay budgeted.
+	$: isSettlementMode = ['IN SETTLEMENT', 'SETTLED'].includes(event?.status);
+
+	// Regenerate the ACTUAL column when status flips between budgeted/actual modes.
+	$: if (isInitialized && isSettlementMode !== undefined) {
+		generateProFormaData();
+	}
+
 	// UI States
 	let isExpanded = true;
 	let goalInput: number | null = null;
@@ -118,7 +126,11 @@
 	}
 
 	// --- MATHEMATICAL ALGORITHM ENGINE (PRISM MATCHED) ---
-	function calculateScenario(percentage: number, isActual: boolean = false) {
+	function calculateScenario(
+		percentage: number,
+		isActual: boolean = false,
+		useActualSupport: boolean = false
+	) {
 		const tickets = Array.isArray(eventRevenue?.tickets) ? eventRevenue.tickets : [];
 		const financials = eventRevenue?.financials || {
 			taxRate: 0,
@@ -206,9 +218,14 @@
 		const headlinerDeal = eventDeal?.headliner_deal || {};
 		let artistPayout = 0;
 
-		// Apply Exchange Rate (e.g., USD -> CAD). Defaulting to 1.3765 because it perfectly matches the PRISM file.
-		// If you have a dynamic field for this, hook it here.
-		const exchangeRate = Number(headlinerDeal?.exchangeRate) || 1.3765;
+		// Exchange rate: prefer the deal's customRate (when useCustomRate is on), then any explicit
+		// exchangeRate field, then the raw customRate, then 1. The DB stores customRate at the
+		// eventDeal level (not inside headliner_deal), e.g. customRate: 1.3844, useCustomRate: true.
+		const exchangeRate =
+			(eventDeal?.useCustomRate && Number(eventDeal?.customRate)) ||
+			Number(headlinerDeal?.exchangeRate) ||
+			Number(eventDeal?.customRate) ||
+			1;
 
 		const dealType = headlinerDeal.dealType || 'Flat';
 		const guarantee = (Number(headlinerDeal.guaranteeAmount) || 0) * exchangeRate;
@@ -238,8 +255,26 @@
 			artistPayout = guarantee; // Flat
 		}
 
+		// Additional Support (separate from the artist guarantee in the offer model).
+		// Budgeted by default; switch to actual when the show is in settlement.
+		// If actual hasn't been filled in yet, fall back to the budgeted figure.
+		const additionalSupportBudgeted = Number(eventDeal?.additional_support_budgeted) || 0;
+		// Distinguish "actual not entered" (null/undefined) from "actual is genuinely 0".
+		const hasActualSupport =
+			eventDeal?.additional_support_actual !== null &&
+			eventDeal?.additional_support_actual !== undefined &&
+			eventDeal?.additional_support_actual !== '';
+		const additionalSupportActual = hasActualSupport
+			? Number(eventDeal.additional_support_actual) || 0
+			: 0;
+		// ACTUAL column: use actual support if it exists, otherwise NO support (not budgeted).
+		// Projection columns: always budgeted.
+		const additionalSupport = useActualSupport
+			? additionalSupportActual
+			: additionalSupportBudgeted;
+
 		// 5. Final Calculations
-		const totalExpenses = expensesBeforeArtist + artistPayout;
+		const totalExpenses = expensesBeforeArtist + artistPayout + additionalSupport;
 		const netProfit = netGross + additionalRevenue - totalExpenses;
 
 		return {
@@ -254,9 +289,8 @@
 	}
 
 	function findBreakeven() {
-		let p0 = calculateScenario(0, false).netProfit;
-		let p100 = calculateScenario(100, false).netProfit;
-
+		let p0 = calculateScenario(0, false, false).netProfit;
+		let p100 = calculateScenario(100, false, false).netProfit;
 		if (p0 === 0 && p100 === 0) return 0;
 		let isIncreasing = p100 > p0;
 
@@ -265,7 +299,7 @@
 
 		for (let i = 0; i < 50; i++) {
 			let mid = (low + high) / 2;
-			let sim = calculateScenario(mid, false);
+			let sim = calculateScenario(mid, false, false);
 
 			if (isIncreasing) {
 				if (sim.netProfit > 0) high = mid;
@@ -286,16 +320,19 @@
 		const columns = [];
 
 		basePercentages.forEach((p) => {
-			columns.push({ label: `${p}%`, data: calculateScenario(p, false) });
+			columns.push({ label: `${p}%`, data: calculateScenario(p, false, false) });
 		});
 
 		if (goalInput !== null && goalInput > 0) {
-			columns.push({ label: `GOAL (${goalInput}%)`, data: calculateScenario(goalInput, false) });
+			columns.push({
+				label: `GOAL (${goalInput}%)`,
+				data: calculateScenario(goalInput, false, false)
+			});
 		}
 		if (forecastInput !== null && forecastInput > 0) {
 			columns.push({
 				label: `FORECAST (${forecastInput}%)`,
-				data: calculateScenario(forecastInput, false)
+				data: calculateScenario(forecastInput, false, false)
 			});
 		}
 
@@ -316,15 +353,16 @@
 		const actualPercentage = totalSellable > 0 ? (totalSold / totalSellable) * 100 : 0;
 		columns.push({
 			label: `ACTUAL (${actualPercentage.toFixed(2)}%)`,
-			// Send true so the ACTUAL column uses actual internals + actual sold numbers
-			data: calculateScenario(actualPercentage, true)
+			// Only this column reacts to status: actual support when IN SETTLEMENT / SETTLED,
+			// otherwise budgeted (CONFIRMED / HOLD).
+			data: calculateScenario(actualPercentage, true, isSettlementMode)
 		});
 
 		const breakeven = findBreakeven();
 		breakevenDisplay = breakeven.toFixed(2);
 		columns.push({
-			label: `PRODUKT BREAKEVEN (${breakevenDisplay}%)`,
-			data: calculateScenario(breakeven, false)
+			label: `PRODUKT BREAKEVEN\n(${breakevenDisplay}%)`,
+			data: calculateScenario(breakeven, false, false)
 		});
 
 		proFormaColumns = [...columns];
@@ -368,9 +406,7 @@
 		<p class="text-gray2 font-bold text-lg">You do not have permission to view this.</p>
 	</div>
 {:else}
-	<div
-		class="p-6 flex-1 overflow-y-auto overflow-x-hidden  flex flex-col gap-6 bg-navbar"
-	>
+	<div class="p-6 flex-1 overflow-y-auto overflow-x-hidden flex flex-col gap-6 bg-navbar">
 		{#if isInitialized}
 			<section class="flex flex-col">
 				<div
@@ -488,8 +524,8 @@
 
 	/* Hide scrollbar for IE, Edge and Firefox */
 	:global(.hide-scrollbar) {
-		-ms-overflow-style: none;  /* IE and Edge */
-		scrollbar-width: none;  /* Firefox */
+		-ms-overflow-style: none; /* IE and Edge */
+		scrollbar-width: none; /* Firefox */
 	}
 
 	input[type='number']::-webkit-outer-spin-button,

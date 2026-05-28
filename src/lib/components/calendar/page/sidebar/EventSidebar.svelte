@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/supabase';
+	import { slide } from 'svelte/transition';
+	import { computeArtistPayout } from '$lib/components/calendar/page/tabs/deals/dealEngine';
 
 	export let isSidebarOpen: boolean;
 	export let userRole: string;
@@ -8,137 +10,390 @@
 
 	let channel: any;
 
-	// Permission check
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 
-	// Safe Currency Formatter
-	const formatCurrency = (amount: number, currencyCode: string = 'CAD') => {
+	// Right-hand column label follows the active Budget Summary tab (Prism: Internal -> ACTUAL, External -> SETTLEMENT)
+	let budgetTab: 'Internal' | 'External' = 'External';
+	const budgetTabs: Array<'Internal' | 'External'> = ['Internal', 'External'];
+
+	// Collapsible sections (mirror Prism's accordions)
+	let openSections: Record<string, boolean> = {
+		gross: true,
+		taxes: false,
+		expenses: true,
+		breakeven: true
+	};
+	const toggle = (key: string) => (openSections[key] = !openSections[key]);
+
+	// ---------- Formatters ----------
+	const fmt = (amount: number, code: string = 'CAD') => {
 		try {
 			const num = new Intl.NumberFormat('en-US', {
 				style: 'currency',
-				currency: currencyCode,
+				currency: code,
 				currencyDisplay: 'narrowSymbol'
-			}).format(amount || 0);
-			return `${currencyCode} ${num}`;
+			}).format(Math.abs(amount) || 0);
+			const s = `${code}${num}`;
+			return amount < 0 ? `(${s})` : s; // Prism shows expenses/negatives in parentheses
 		} catch (e) {
-			return `CAD $${amount || 0}`;
+			return `CAD$${amount || 0}`;
 		}
 	};
+	const fmtPlain = (amount: number, code: string = 'CAD') => {
+		try {
+			const num = new Intl.NumberFormat('en-US', {
+				style: 'currency',
+				currency: code,
+				currencyDisplay: 'narrowSymbol'
+			}).format(amount || 0);
+			return `${code}${num}`;
+		} catch (e) {
+			return `CAD$${amount || 0}`;
+		}
+	};
+	const fmtInt = (n: number) =>
+		new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(n || 0);
 
-	// --- BULLETPROOF REACTIVITY ---
-	// We track real-time updates separately.
-	let realtimeRevenue: any = undefined;
-	let realtimeCost: any = undefined;
+	// Negative values render in the `problem` color, otherwise white.
+	const valColor = (n: number) => (n < 0 ? 'text-problem' : 'text-white');
 
-	$: currentRevenue =
-		realtimeRevenue !== undefined
-			? realtimeRevenue
-			: event?.calendar?.event_revenue || event?.event_revenue;
-	$: currentCost =
-		realtimeCost !== undefined ? realtimeCost : event?.calendar?.event_cost || event?.event_cost;
-
-	// Reactively trigger the math WHENEVER currentRevenue or currentCost changes.
-	$: calculateHealth(currentRevenue, currentCost);
-
-	// --- MATH STATE ---
-	let currency = 'CAD';
-	let potentialGross = 0;
-	let actualGross = 0;
-	let expenses = 0;
-	let flagValue = 0;
-	let flagIsPositive = true;
-	let maxBarValue = 1;
-	let actualPercentage = 0;
-	let expensePercentage = 0;
-
-	// The calculation function
-	function calculateHealth(revenueData: any, costData: any) {
-		// 1. Safely parse and extract Expenses
-		let parsedCost = costData;
-		if (typeof parsedCost === 'string') {
+	function parseJSON(val: any) {
+		if (!val) return {};
+		if (typeof val === 'object') return val;
+		let p = val,
+			i = 0;
+		while (typeof p === 'string' && i < 3) {
 			try {
-				parsedCost = JSON.parse(parsedCost);
+				p = JSON.parse(p);
 			} catch (e) {
-				parsedCost = {};
+				break;
 			}
+			i++;
 		}
-		// Grab the first item in the cost array, default to 0 if missing
-		expenses = Number(parsedCost?.total_cost?.[0]) || 0;
+		return typeof p === 'object' && p !== null ? p : {};
+	}
 
-		// 2. Safely parse revenue
-		let revenue = revenueData;
-		if (typeof revenue === 'string') {
-			try {
-				revenue = JSON.parse(revenue);
-			} catch (e) {
-				revenue = {};
-			}
+	// ---------- Data sources ----------
+	// The financial data lives in the `calendar_data` table (keyed by calendar_id + version).
+	// The page (+page.ts) already loads it and attaches it as event.calendar_data, and refreshes
+	// it via invalidateAll(). We react to that prop first, fall back to our own fetch, and also
+	// subscribe to realtime DB changes so edits in other tabs reflect instantly.
+	let currentRevenue: any = {};
+	let currentCost: any = {};
+	let currentDeal: any = {};
+	let lastSig = '';
+
+	$: eventId = event?.id || event?.group_id;
+
+	// Whenever the event prop (and thus its attached calendar_data) changes, refresh.
+	// This is what makes invalidateAll() in the page propagate to the sidebar.
+	$: applyData(event?.calendar_data, eventId);
+
+	function applyData(calData: any, _id: any) {
+		// Build a cheap signature so we don't loop on identical data.
+		const sig = calData
+			? JSON.stringify([calData.event_revenue, calData.event_cost, calData.event_deal])
+			: '';
+		if (calData && sig && sig !== lastSig) {
+			lastSig = sig;
+			currentRevenue = calData.event_revenue;
+			currentCost = calData.event_cost;
+			currentDeal = calData.event_deal;
+		} else if (!calData && eventId) {
+			// Page didn't attach calendar_data — fetch it ourselves.
+			loadData();
 		}
+	}
 
-		const tickets = revenue?.tickets || [];
+	async function loadData() {
+		const targetId = event?.group_id || event?.id;
+		const currentVersion = event?.calendar?.current_version || 1;
+		if (!targetId) return;
 
-		if (revenue?.financials?.currency) {
-			currency = revenue.financials.currency;
+		const { data: dbData, error } = await supabase
+			.from('calendar_data')
+			.select('event_revenue, event_cost, event_deal')
+			.eq('calendar_id', targetId)
+			.eq('version_number', currentVersion)
+			.single();
+
+		if (error) {
+			console.warn('EventSidebar: calendar_data fetch failed', error);
+			return;
 		}
+		if (dbData) {
+			lastSig = JSON.stringify([dbData.event_revenue, dbData.event_cost, dbData.event_deal]);
+			currentRevenue = dbData.event_revenue;
+			currentCost = dbData.event_cost;
+			currentDeal = dbData.event_deal;
+		}
+	}
 
-		// 3. Calculate Grosses based on tickets
-		let tempPotential = 0;
-		let tempActual = 0;
+	$: model = computeModel(currentRevenue, currentCost, currentDeal, budgetTab);
 
-		if (Array.isArray(tickets)) {
-			tickets.forEach((t: any) => {
+	// Settlement vs Actual wording on the right column.
+	// Internal tab -> "ACTUAL"; External tab -> "SETTLEMENT" (matches your screenshots).
+	$: rightLabel = budgetTab === 'Internal' ? 'ACTUAL' : 'SETTLEMENT';
+
+	// ---------- Core computation ----------
+	function computeModel(revenueData: any, costData: any, dealData: any, tab: 'Internal' | 'External') {
+		const revenue = parseJSON(revenueData);
+		const cost = parseJSON(costData);
+		const deal = parseJSON(dealData);
+
+		const currency = revenue?.financials?.currency || 'CAD';
+		const financials = revenue?.financials || { taxRate: 0, taxType: 'Divisor', facilityFee: 0 };
+		const tickets: any[] = Array.isArray(revenue?.tickets) ? revenue.tickets : [];
+
+		// FX rate: prefer the deal's custom rate (matches the Pro Forma engine)
+		const exchangeRate =
+			(deal?.useCustomRate && Number(deal?.customRate)) || Number(deal?.customRate) || 1;
+
+		// --- Per-ticket rows: estimated vs actual gross + breakeven counts ---
+		const ticketRows = tickets
+			.filter((t) => Number(t.price) > 0) // skip comps row in the priced breakdown
+			.map((t) => {
 				const price = Number(t.price) || 0;
 				const allotment = Number(t.allotment) || 0;
 				const comps = Number(t.comps) || 0;
 				const kills = Number(t.kills) || 0;
-				const sold = Number(t.sold) || 0;
-
 				const sellable = allotment - comps - kills;
-
-				tempPotential += sellable * price;
-				tempActual += sold * price;
+				const estSold = t.estSold != null ? Number(t.estSold) : sellable;
+				const sold = Number(t.sold) || 0;
+				return {
+					name: t.name,
+					price,
+					estimated: estSold * price,
+					actual: sold * price
+				};
 			});
-		}
 
-		potentialGross = tempPotential;
-		actualGross = tempActual;
+		// --- Gross totals ---
+		let estGross = 0,
+			actGross = 0,
+			potentialGross = 0;
+		let estTicketFees = 0,
+			actTicketFees = 0;
+		tickets.forEach((t) => {
+			const price = Number(t.price) || 0;
+			const allotment = Number(t.allotment) || 0;
+			const comps = Number(t.comps) || 0;
+			const kills = Number(t.kills) || 0;
+			const sellable = allotment - comps - kills;
+			const estSold = t.estSold != null ? Number(t.estSold) : sellable;
+			const sold = Number(t.sold) || 0;
+			const fees = (Number(t.ticketFees) || 0) + (Number(financials.facilityFee) || 0);
 
-		// 4. Progress Bar Calculations
-		flagValue = actualGross - expenses;
-		flagIsPositive = flagValue >= 0;
+			estGross += estSold * price;
+			actGross += sold * price;
+			potentialGross += sellable * price;
+			estTicketFees += estSold * fees;
+			actTicketFees += sold * fees;
+		});
 
-		maxBarValue = Math.max(potentialGross, actualGross, expenses, 1);
-		actualPercentage = Math.min((actualGross / maxBarValue) * 100, 100) || 0;
-		expensePercentage = Math.min((expenses / maxBarValue) * 100, 100) || 0;
+		// --- Taxes (same logic as the Pro Forma engine) ---
+		const taxRate = Number(financials.taxRate) || 0;
+		const computeTax = (gross: number, fees: number) => {
+			const taxable = gross - fees;
+			let tax = 0;
+			if (taxRate > 0) {
+				tax =
+					financials.taxType === 'Multiplier'
+						? taxable * (taxRate / 100)
+						: taxable - taxable / (1 + taxRate / 100);
+			}
+			return fees + tax; // taxes & fees combined
+		};
+		const estTaxesFees = computeTax(estGross, estTicketFees);
+		const actTaxesFees = computeTax(actGross, actTicketFees);
+
+		const estNetGross = estGross - estTaxesFees;
+		const actNetGross = actGross - actTaxesFees;
+
+		// --- Expenses ---
+		// Artist payout is computed below via the shared deal engine, AFTER costs
+		// are known (Versus/Plus backends depend on costs).
+		const hd = deal?.headliner_deal || {};
+		const headlinerName = deal?.headliner_name || 'Headliner';
+
+		// Fixed costs: Internal tab -> actualInternal; External tab -> externalSettlement
+		const fixedCosts = Array.isArray(cost?.fixedCosts) ? cost.fixedCosts : [];
+		let estFixed = 0,
+			actFixed = 0;
+		fixedCosts.forEach((g: any) => {
+			const arr = Array.isArray(g.costs) ? g.costs : [];
+			arr.forEach((c: any) => {
+				estFixed += Number(c.estimatedInternal) || 0;
+				actFixed +=
+					Number(tab === 'Internal' ? c.actualInternal : c.externalSettlement) || 0;
+			});
+		});
+
+		// Variable costs
+		const variableCosts = Array.isArray(cost?.variableCosts) ? cost.variableCosts : [];
+		const sumVariable = (gross: number, net: number, paid: number, useActual: boolean) => {
+			let total = 0;
+			variableCosts.forEach((v: any) => {
+				const m = Number(v.internalAmount) || 0;
+				switch (v.type) {
+					case 'Flat':
+						total += useActual
+							? Number(tab === 'Internal' ? v.actualInternal : v.externalSettlement) || m
+							: m;
+						break;
+					case '% of Gross':
+						total += (m / 100) * gross;
+						break;
+					case '% of Net Gross':
+						total += (m / 100) * net;
+						break;
+					case '$ per Paid Ticket':
+					case '$ per Attendee':
+						total += m * paid;
+						break;
+				}
+			});
+			return total;
+		};
+		const estPaid = tickets.reduce((s, t) => {
+			const a = Number(t.allotment) || 0,
+				c = Number(t.comps) || 0,
+				k = Number(t.kills) || 0;
+			const est = t.estSold != null ? Number(t.estSold) : a - c - k;
+			return s + est;
+		}, 0);
+		const actPaid = tickets.reduce((s, t) => s + (Number(t.sold) || 0), 0);
+		const estVariable = sumVariable(estGross, estNetGross, estPaid, false);
+		const actVariable = sumVariable(actGross, actNetGross, actPaid, true);
+
+		// Additional support: budgeted always shown as ESTIMATED; right column uses actual
+		// (fall back to 0 when actual not entered, matching the Pro Forma rule).
+		const supportBudgeted = Number(deal?.additional_support_budgeted) || 0;
+		const hasActualSupport =
+			deal?.additional_support_actual !== null &&
+			deal?.additional_support_actual !== undefined &&
+			deal?.additional_support_actual !== '';
+		const supportActual = hasActualSupport ? Number(deal.additional_support_actual) || 0 : 0;
+
+		const estCosts = estFixed + estVariable + supportBudgeted;
+		const actCosts = actFixed + actVariable + supportActual;
+
+		const totalAllotment = tickets.reduce((s, t) => s + (Number(t.allotment) || 0), 0);
+		const estPayout = computeArtistPayout(hd, {
+			gross: estGross,
+			netGross: estNetGross,
+			costs: estCosts,
+			paidTickets: estPaid,
+			totalAllotment,
+			exchangeRate
+		});
+		const actPayout = computeArtistPayout(hd, {
+			gross: actGross,
+			netGross: actNetGross,
+			costs: actCosts,
+			paidTickets: actPaid,
+			totalAllotment,
+			exchangeRate
+		});
+
+		const estExpenses = estPayout + estCosts;
+		const actExpenses = actPayout + actCosts;
+
+		const estNet = estNetGross - estExpenses;
+		const actNet = actNetGross - actExpenses;
+
+		// --- Break Even per ticket type ---
+		// Prism divides expenses by the NET ticket price (price after backing out tax),
+		// not the gross price. For a divisor tax: netPrice = price / (1 + taxRate/100).
+		const netPrice = (price: number) => {
+			if (taxRate <= 0) return price;
+			return financials.taxType === 'Multiplier'
+				? price / (1 + taxRate / 100) // multiplier adds tax on top; net is still gross/(1+r)
+				: price / (1 + taxRate / 100);
+		};
+		const breakevenBudgeted = estExpenses;
+		const breakevenActual = actExpenses;
+		const beRows = ticketRows.map((r) => {
+			const np = netPrice(r.price);
+			return {
+				name: r.name,
+				price: r.price,
+				budgeted: np > 0 ? Math.ceil(breakevenBudgeted / np) : 0,
+				actual: np > 0 ? Math.ceil(breakevenActual / np) : 0
+			};
+		});
+		// Ticket average row: average price = potential gross / total sellable
+		const totalSellable = tickets.reduce((s, t) => {
+			const a = Number(t.allotment) || 0,
+				c = Number(t.comps) || 0,
+				k = Number(t.kills) || 0;
+			return s + (a - c - k);
+		}, 0);
+		const avgPrice = totalSellable > 0 ? potentialGross / totalSellable : 0;
+		const avgNet = netPrice(avgPrice);
+		const beAverage = {
+			name: 'Ticket Average',
+			price: avgPrice,
+			budgeted: avgNet > 0 ? Math.ceil(breakevenBudgeted / avgNet) : 0,
+			actual: avgNet > 0 ? Math.ceil(breakevenActual / avgNet) : 0
+		};
+
+		// --- Show Health bar ---
+		const maxBar = Math.max(potentialGross, actGross, estExpenses, 1);
+		const flagPositive = actGross - estExpenses >= 0;
+
+		return {
+			currency,
+			headlinerName,
+			potentialGross,
+			ticketRows,
+			gross: { est: estGross, act: actGross },
+			taxes: { est: estTaxesFees, act: actTaxesFees },
+			netGross: { est: estNetGross, act: actNetGross },
+			expenses: { est: estExpenses, act: actExpenses },
+			guaranteeRow: { est: estPayout, act: actPayout },
+			variableRow: { est: estVariable, act: actVariable },
+			supportRow: { est: supportBudgeted, act: supportActual },
+			net: { est: estNet, act: actNet },
+			breakeven: [...beRows, beAverage],
+			health: {
+				actualGross: actGross,
+				expenses: estExpenses,
+				actualPct: Math.min((actGross / maxBar) * 100, 100) || 0,
+				expensePct: Math.min((estExpenses / maxBar) * 100, 100) || 0,
+				flagPositive
+			}
+		};
 	}
 
-	// --- REALTIME SYNC ---
+	// ---------- Realtime ----------
 	onMount(() => {
 		const targetId = event?.group_id || event?.id;
 		if (!targetId) return;
-
-		// Listen for changes made by the Revenue/Cost tabs in the background
+		const currentVersion = event?.calendar?.current_version || 1;
 		channel = supabase
 			.channel(`sidebar-health-${targetId}`)
 			.on(
 				'postgres_changes',
 				{
-					event: 'UPDATE',
+					event: '*', // INSERT or UPDATE
 					schema: 'public',
-					table: 'calendar',
-					filter: `id=eq.${targetId}`
+					table: 'calendar_data',
+					filter: `calendar_id=eq.${targetId}`
 				},
 				(payload) => {
-					if (payload.new) {
-						// This instantly updates the UI because of the $: currentRevenue block above!
-						realtimeRevenue = payload.new.event_revenue;
-						realtimeCost = payload.new.event_cost;
-					}
+					const row: any = payload.new;
+					if (!row) return;
+					// Ignore other versions of the same calendar.
+					if (row.version_number != null && row.version_number !== currentVersion) return;
+					lastSig = JSON.stringify([row.event_revenue, row.event_cost, row.event_deal]);
+					currentRevenue = row.event_revenue;
+					currentCost = row.event_cost;
+					currentDeal = row.event_deal;
 				}
 			)
 			.subscribe();
 	});
-
 	onDestroy(() => {
 		if (channel) supabase.removeChannel(channel);
 	});
@@ -146,65 +401,363 @@
 
 <div
 	class="transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] overflow-hidden shrink-0 {isSidebarOpen
-		? 'w-[320px] opacity-100'
+		? 'w-[340px] opacity-100'
 		: 'w-0 opacity-0'}"
 >
 	<div
-		class="w-[320px] h-full bg-navbar border-l border-gray2/10 shadow-sm flex flex-col overflow-hidden rounded-xl"
+		class="w-[340px] h-full bg-navbar border-l border-gray2/10 shadow-sm flex flex-col overflow-hidden rounded-xl"
 	>
-		<div class="px-6 py-8 border-b border-gray2/10 shrink-0">
-			<h3 class="text-xs font-black text-gray2 uppercase tracking-widest mb-6">Show Health</h3>
+		<div class="flex-1 overflow-y-auto custom-scrollbar">
+			<!-- ===== SHOW HEALTH ===== -->
+			<div class="px-4 py-7 border-b border-gray2/10">
+				<h3 class="text-xs font-black text-lime uppercase tracking-widest mb-6">Show Health</h3>
 
-			<div class="text-[12px] text-center text-gray2 mb-10 font-medium">
-				<strong class="text-white">Total Gross (Act.)</strong> out of
-				<span class="text-white font-bold">{formatCurrency(potentialGross, currency)}</span>
-				Potential Gross
+				<div class="text-[12px] text-center text-gray2 mb-10 font-medium leading-relaxed">
+					<strong class="text-white">Total Gross (Act.)</strong> out of
+					<span class="text-white font-bold">{fmtPlain(model.potentialGross, model.currency)}</span>
+					Potential Gross
+				</div>
+
+				<div class="relative w-full h-2 bg-white/10 rounded-full mb-4 mt-8">
+					<div
+						class="absolute top-0 left-0 h-full {model.health.flagPositive
+							? 'bg-confirmed'
+							: 'bg-problem'} rounded-full transition-all duration-300"
+						style="width: {model.health.actualPct}%;"
+					></div>
+
+					<div class="absolute bottom-full" style="left: {model.health.actualPct}%; z-index: 10;">
+						<div
+							class="w-[4px] h-8 absolute bottom-0 left-0 -translate-x-1 translate-y-2 rounded-full {model
+								.health.flagPositive
+								? 'bg-confirmed'
+								: 'bg-problem'}"
+						></div>
+						<div
+							class="absolute bottom-2 left-0 whitespace-nowrap"
+							style="transform: translateX(-{model.health.actualPct}%);"
+						>
+							<div
+								class="text-[11px] font-extrabold px-1.5 py-0.5 rounded {model.health.flagPositive
+									? 'bg-confirmed text-black'
+									: 'bg-problem text-black'}"
+							>
+								{fmtPlain(model.health.actualGross, model.currency)}
+							</div>
+						</div>
+					</div>
+
+					<div class="absolute top-full" style="left: {model.health.expensePct}%; z-index: 10;">
+						<div
+							class="w-[2px] h-4 absolute top-0 left-0 -translate-x-1 -translate-y-2 rounded-full bg-white"
+						></div>
+						<div
+							class="absolute top-2 left-0 whitespace-nowrap"
+							style="transform: translateX(-{model.health.expensePct}%);"
+						>
+							<div class="text-gray2 text-[10px] font-bold">
+								<span class="text-white">{fmtPlain(model.health.expenses, model.currency)}</span>
+								Expenses (Est.)
+							</div>
+						</div>
+					</div>
+				</div>
 			</div>
 
-			<div class="relative w-full h-2 bg-white/10 rounded-full mb-4 mt-8">
-				<div
-					class="absolute top-0 left-0 h-full {flagIsPositive
-						? 'border-confirmed bg-confirmed text-black'
-						: 'border-problem bg-problem text-black'} rounded-full transition-all duration-300"
-					style="width: {actualPercentage}%;"
-				></div>
+			<!-- ===== BUDGET SUMMARY ===== -->
+			<div class="px-4 py-7 border-b border-gray2/10">
+				<h3 class="text-xs font-black text-lime uppercase tracking-widest mb-5">Budget Summary</h3>
 
-				<div class="absolute bottom-full" style="left: {actualPercentage}%; z-index: 10;">
-					<div
-						class="w-[4px] h-8 absolute bottom-0 left-0 -translate-x-1 translate-y-2 rounded-full {flagIsPositive
-							? 'bg-confirmed'
-							: 'bg-problem'}"
-					></div>
-					<div
-						class="absolute bottom-2 left-0 whitespace-nowrap"
-						style="transform: translateX(-{actualPercentage}%);"
-					>
-						<div
-							class="bg-black text-[11px] font-extrabold px-1.5 py-0.5 rounded border {flagIsPositive
-								? 'border-confirmed bg-confirmed text-black'
-								: 'border-problem bg-problem text-black'} transition-colors"
+				<!-- Internal / External tabs -->
+				<div class="flex border-b border-gray1 mb-4">
+					{#each budgetTabs as tab}
+						<button
+							class="flex-1 pb-3 text-sm font-bold transition-colors relative cursor-pointer {budgetTab ===
+							tab
+								? 'text-lime'
+								: 'text-gray2 hover:text-white'}"
+							on:click={() => (budgetTab = tab)}
 						>
-							{formatCurrency(actualGross, currency)}
+							{tab}
+							{#if budgetTab === tab}
+								<div class="absolute bottom-0 left-0 w-full h-[2px] bg-lime rounded-t-full"></div>
+							{/if}
+						</button>
+					{/each}
+				</div>
+
+				<!-- Gross Ticket Revenue (collapsible) -->
+				<div class="bg-gray1/30 rounded-lg mb-3 overflow-hidden">
+					<button
+						class="w-full flex items-center justify-between px-3 py-3 text-left cursor-pointer"
+						on:click={() => toggle('gross')}
+					>
+						<span class="text-sm font-bold text-lime">Gross Ticket Revenue</span>
+						<svg
+							class="w-4 h-4 text-gray2 transition-transform {openSections.gross ? 'rotate-180' : ''}"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
+						>
+					</button>
+
+					<div class="px-3 pb-3">
+						<div class="grid grid-cols-2 gap-2 pb-3">
+							<div class="text-center">
+								<div class="text-sm font-bold {valColor(model.gross.est)}">
+									{fmt(model.gross.est, model.currency)}
+								</div>
+								<div class="text-[10px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+							</div>
+							<div class="text-center">
+								<div class="text-sm font-bold {valColor(model.gross.act)}">
+									{fmt(model.gross.act, model.currency)}
+								</div>
+								<div class="text-[10px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
+							</div>
+						</div>
+
+						{#if openSections.gross}
+							<div transition:slide|local class="flex flex-col gap-3 pt-1">
+								{#each model.ticketRows as r}
+									<div>
+										<div class="text-[12px] text-lime font-semibold mb-1">
+											{r.name} | {fmtPlain(r.price, model.currency)}
+										</div>
+										<div class="grid grid-cols-2 gap-2">
+											<div class="text-center">
+												<div class="text-sm font-bold {valColor(r.estimated)}">
+													{fmt(r.estimated, model.currency)}
+												</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+											</div>
+											<div class="text-center">
+												<div class="text-sm font-bold {valColor(r.actual)}">
+													{fmt(r.actual, model.currency)}
+												</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
+											</div>
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Taxes and Fees -->
+				<div class="px-3 py-3 mb-3">
+					<div class="text-sm font-bold text-lime mb-2">Taxes and Fees</div>
+					<div class="grid grid-cols-2 gap-2">
+						<div class="text-center">
+							<div class="text-sm font-bold {valColor(-model.taxes.est)}">
+								{fmt(-model.taxes.est, model.currency)}
+							</div>
+							<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+						</div>
+						<div class="text-center">
+							<div class="text-sm font-bold {valColor(-model.taxes.act)}">
+								{fmt(-model.taxes.act, model.currency)}
+							</div>
+							<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
 						</div>
 					</div>
 				</div>
 
-				<div class="absolute top-full" style="left: {expensePercentage}%; z-index: 10;">
-					<div
-						class="w-[2px] h-4 absolute top-0 left-0 -translate-x-1 -translate-y-2 rounded-full bg-white"
-					></div>
-					<div
-						class="absolute top-2 left-0 whitespace-nowrap"
-						style="transform: translateX(-{expensePercentage}%);"
-					>
-						<div class="text-gray2 text-[10px] font-bold">
-							<span class="text-white">{formatCurrency(expenses, currency)}</span> Expenses (Est.)
+				<!-- Net Gross -->
+				<div class="px-3 py-3 mb-3 border-t border-gray1/40">
+					<div class="text-sm font-bold text-lime mb-2">Net Gross</div>
+					<div class="grid grid-cols-2 gap-2">
+						<div class="text-center">
+							<div class="text-sm font-bold {valColor(model.netGross.est)}">
+								{fmt(model.netGross.est, model.currency)}
+							</div>
+							<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+						</div>
+						<div class="text-center">
+							<div class="text-sm font-bold {valColor(model.netGross.act)}">
+								{fmt(model.netGross.act, model.currency)}
+							</div>
+							<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
 						</div>
 					</div>
+				</div>
+
+				<!-- Expenses (collapsible) -->
+				<div class="bg-gray1/30 rounded-lg mb-3 overflow-hidden">
+					<button
+						class="w-full flex items-center justify-between px-3 py-3 text-left cursor-pointer"
+						on:click={() => toggle('expenses')}
+					>
+						<span class="text-sm font-bold text-lime">Expenses</span>
+						<svg
+							class="w-4 h-4 text-gray2 transition-transform {openSections.expenses
+								? 'rotate-180'
+								: ''}"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
+						>
+					</button>
+
+					<div class="px-3 pb-3">
+						<div class="grid grid-cols-2 gap-2 pb-3">
+							<div class="text-center">
+								<div class="text-sm font-bold {valColor(-model.expenses.est)}">
+									{fmt(-model.expenses.est, model.currency)}
+								</div>
+								<div class="text-[10px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+							</div>
+							<div class="text-center">
+								<div class="text-sm font-bold {valColor(-model.expenses.act)}">
+									{fmt(-model.expenses.act, model.currency)}
+								</div>
+								<div class="text-[10px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
+							</div>
+						</div>
+
+						{#if openSections.expenses}
+							<div transition:slide|local class="flex flex-col gap-3 pt-1">
+								<!-- Headliner guarantee -->
+								<div>
+									<div class="text-[12px] text-lime font-semibold mb-1">{model.headlinerName}</div>
+									<div class="grid grid-cols-2 gap-2">
+										<div class="text-center">
+											<div class="text-sm font-bold {valColor(-model.guaranteeRow.est)}">
+												{fmt(-model.guaranteeRow.est, model.currency)}
+											</div>
+											<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+										</div>
+										<div class="text-center">
+											<div class="text-sm font-bold {valColor(-model.guaranteeRow.act)}">
+												{fmt(-model.guaranteeRow.act, model.currency)}
+											</div>
+											<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
+										</div>
+									</div>
+								</div>
+								<!-- Variable Costs -->
+								<div>
+									<div class="text-[12px] text-lime font-semibold mb-1">Variable Costs</div>
+									<div class="grid grid-cols-2 gap-2">
+										<div class="text-center">
+											<div class="text-sm font-bold {valColor(-model.variableRow.est)}">
+												{fmt(-model.variableRow.est, model.currency)}
+											</div>
+											<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+										</div>
+										<div class="text-center">
+											<div class="text-sm font-bold {valColor(-model.variableRow.act)}">
+												{fmt(-model.variableRow.act, model.currency)}
+											</div>
+											<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
+										</div>
+									</div>
+								</div>
+								<!-- Additional Support -->
+								<div>
+									<div class="text-[12px] text-lime font-semibold mb-1">Additional Support</div>
+									<div class="grid grid-cols-2 gap-2">
+										<div class="text-center">
+											<div class="text-sm font-bold {valColor(-model.supportRow.est)}">
+												{fmt(-model.supportRow.est, model.currency)}
+											</div>
+											<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+										</div>
+										<div class="text-center">
+											<div class="text-sm font-bold {valColor(-model.supportRow.act)}">
+												{fmt(-model.supportRow.act, model.currency)}
+											</div>
+											<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						{/if}
+					</div>
+				</div>
+
+				<!-- NET -->
+				<div class="px-3 py-3 border-t border-gray1/40">
+					<div class="text-sm font-black text-lime mb-2 tracking-wide">NET</div>
+					<div class="grid grid-cols-2 gap-2">
+						<div class="text-center">
+							<div class="text-sm font-black {model.net.est >= 0 ? 'text-confirmed' : 'text-problem'}">
+								{fmt(model.net.est, model.currency)}
+							</div>
+							<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+						</div>
+						<div class="text-center">
+							<div class="text-sm font-black {model.net.act >= 0 ? 'text-confirmed' : 'text-problem'}">
+								{fmt(model.net.act, model.currency)}
+							</div>
+							<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- ===== BREAK EVEN ===== -->
+			<div class="px-4 py-7">
+				<div class="bg-gray1/30 rounded-lg overflow-hidden">
+					<button
+						class="w-full flex items-center justify-between px-3 py-3 text-left cursor-pointer"
+						on:click={() => toggle('breakeven')}
+					>
+						<span class="text-sm font-bold text-lime">Break Even</span>
+						<svg
+							class="w-4 h-4 text-gray2 transition-transform {openSections.breakeven
+								? 'rotate-180'
+								: ''}"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
+						>
+					</button>
+
+					{#if openSections.breakeven}
+						<div transition:slide|local class="px-3 pb-3 flex flex-col">
+							{#each model.breakeven as be, i}
+								<div class="py-3 {i > 0 ? 'border-t border-gray1/40' : ''}">
+									<div class="text-[12px] text-lime font-semibold mb-1">
+										{be.name} | {fmtPlain(be.price, model.currency)}
+									</div>
+									<div class="grid grid-cols-2 gap-2">
+										<div class="text-center">
+											<div class="text-sm font-bold text-white">{fmtInt(be.budgeted)}</div>
+											<div class="text-[9px] font-bold text-gray2 tracking-wider">BUDGETED</div>
+										</div>
+										<div class="text-center">
+											<div class="text-sm font-bold text-white">{fmtInt(be.actual)}</div>
+											<div class="text-[9px] font-bold text-gray2 tracking-wider">ACTUAL</div>
+										</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>
-
-		
 	</div>
 </div>
+
+<style>
+	.custom-scrollbar {
+		scrollbar-width: thin;
+		scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+	}
+	:global(.custom-scrollbar::-webkit-scrollbar) {
+		width: 3px;
+	}
+	:global(.custom-scrollbar::-webkit-scrollbar-track) {
+		background: transparent;
+	}
+	:global(.custom-scrollbar::-webkit-scrollbar-thumb) {
+		background: rgba(255, 255, 255, 0.12);
+		border-radius: 999px;
+	}
+</style>

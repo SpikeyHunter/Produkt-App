@@ -1,4 +1,3 @@
-<!-- /src/lib/components/marketing/comptickets/CompEvent.svelte -->
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { supabase } from '$lib/supabase';
@@ -8,23 +7,30 @@
 	let events: any[] = [];
 	let loading = true;
 	let searchTerm = '';
+	let eventFilter: 'LIVE' | 'PAST' = 'LIVE';
+	
 	const excludedWords = ['test', 'réservations', 'pass', 'event', 'template', 'produktworld', 'piknic', 'oktoberfest'];
 
-	onMount(async () => {
+	async function loadEvents(status: 'LIVE' | 'PAST') {
+		loading = true;
 		const { data, error } = await supabase
 			.from('events')
 			.select('event_id, event_name, event_date, event_flyer, event_status, timetable_active')
-			.eq('event_status', 'LIVE')
+			.eq('event_status', status)
 			.eq('timetable_active', true)
-			.order('event_date', { ascending: true });
+			.order('event_date', { ascending: status === 'LIVE' });
 
 		if (error) {
-			console.error('Error fetching events:', error);
+			console.error(`Error fetching ${status} events:`, error);
 		} else if (data) {
 			events = data;
-			console.log('Loaded events:', events.length);
+			console.log(`Loaded ${status} events:`, events.length);
 		}
 		loading = false;
+	}
+
+	onMount(() => {
+		loadEvents(eventFilter);
 	});
 
 	$: filteredEvents = events.filter((event) => {
@@ -73,12 +79,25 @@
 </script>
 
 <div class="h-full flex flex-col bg-navbar border border-gray1 rounded-xl overflow-hidden">
-	<!-- Header -->
-	<div class="p-4 border-b border-gray1 flex-shrink-0">
+	<div class="p-4 border-b border-gray1 flex-shrink-0 flex justify-between items-center">
 		<h2 class="text-white text-sm font-bold">Select Event</h2>
+		
+		<div class="flex bg-gray1 rounded-3xl cursor-pointer p-0.5">
+			<button 
+				class="px-3 py-1 text-xs rounded-3xl cursor-pointer font-medium transition-colors {eventFilter === 'LIVE' ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
+				on:click={() => { if(eventFilter !== 'LIVE') { eventFilter = 'LIVE'; loadEvents('LIVE'); } }}
+			>
+				Live
+			</button>
+			<button 
+				class="px-3 py-1 text-xs rounded-3xl cursor-pointer font-medium transition-colors {eventFilter === 'PAST' ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
+				on:click={() => { if(eventFilter !== 'PAST') { eventFilter = 'PAST'; loadEvents('PAST'); } }}
+			>
+				Past
+			</button>
+		</div>
 	</div>
 
-	<!-- Search Bar -->
 	<div class="p-4 border-b border-gray1 flex-shrink-0">
 		<div class="relative">
 			<input 
@@ -100,7 +119,6 @@
 		</div>
 	</div>
 
-	<!-- Event List -->
 	<div class="flex-1 overflow-y-auto p-4 comp-scroll">
 		{#if loading}
 			<div class="space-y-3">
@@ -156,7 +174,7 @@
 					<line x1="8" y1="2" x2="8" y2="6" />
 					<line x1="3" y1="10" x2="21" y2="10" />
 				</svg>
-				<p class="text-gray2 text-sm">{searchTerm ? 'No matching LIVE events found' : 'No LIVE events available'}</p>
+				<p class="text-gray2 text-sm">{searchTerm ? `No matching ${eventFilter} events found` : `No ${eventFilter} events available`}</p>
 			</div>
 		{/if}
 	</div>

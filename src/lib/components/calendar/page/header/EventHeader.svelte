@@ -9,16 +9,19 @@
 	import VenueSelector from './VenueSelector.svelte';
 	import TypeSelector from '$lib/components/calendar/page/header/TypeSelector.svelte';
 	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
-	import HeaderActions from './HeaderActions.svelte'; // <-- NEW IMPORT
+	import HeaderActions from './HeaderActions.svelte';
 	import VersionSelector from './VersionSelector.svelte';
 	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
+	import OffersModal from '$lib/components/calendar/page/modals/OffersModal.svelte'; // <-- NEW IMPORT
 
 	type ExtendedEvent = CalendarEvent & {
 		calendar?: {
 			title?: string;
 			details?: CalendarEvent['details'];
 		};
+		calendar_data?: any; // <-- ADD THIS
+		event_deal?: any; // <-- ADD THIS
 		short_id?: number;
 	};
 
@@ -41,13 +44,13 @@
 
 	let isEditingTitle = false;
 	let editTitle = event.calendar?.title || 'Unnamed Event';
-
 	// New error state variables
 	let titleError = false;
 	let titleErrorTimeout: ReturnType<typeof setTimeout>;
 
 	// Dropdown states
 	let showStatusDrop = false;
+	let showOffersModal = false; // <-- NEW MODAL STATE
 
 	// Confirm Modal State
 	let showConfirmModal = false;
@@ -55,13 +58,12 @@
 	let isSavingConfirm = false;
 	let sameEventOtherRoomsCount = 0;
 	let otherEventsOnDayCount = 0;
-	let otherEventsSameRoomCount = 0; // NEW
+	let otherEventsSameRoomCount = 0;
 	let defaultEmailForVenue = false;
 
 	// Safely extract and parse details
 	$: rawDetails = event.calendar?.details || event.details || {};
 	$: parsedDetails = typeof rawDetails === 'string' ? JSON.parse(rawDetails) : rawDetails;
-
 	const statuses = [
 		{ value: 'CANCELED', label: 'Canceled', color: 'bg-problem' },
 		{ value: 'HOLD', label: 'Hold', color: 'bg-tentatif' },
@@ -69,7 +71,6 @@
 		{ value: 'IN SETTLEMENT', label: 'In Settlement', color: 'bg-info' },
 		{ value: 'SETTLED', label: 'Settled', color: 'bg-gray2' }
 	];
-
 	$: currentStatusObj = statuses.find((s) => s.value === event.status) || statuses[0];
 
 	async function saveTitle() {
@@ -101,14 +102,13 @@
 		if (hasForbiddenWord) {
 			// Revert the title back to what it was
 			editTitle = event.calendar?.title || 'Unnamed Event';
-			isEditingTitle = false; // Close the input
+			isEditingTitle = false;
+			// Close the input
 
 			// Trigger the error state UI
 			titleError = true;
-
 			// Clear any existing timeout to prevent overlapping timers
 			if (titleErrorTimeout) clearTimeout(titleErrorTimeout);
-
 			// Remove the error state after 4 seconds
 			titleErrorTimeout = setTimeout(() => {
 				titleError = false;
@@ -126,9 +126,11 @@
 		showStatusDrop = false;
 		if (newStatus === event.status) return;
 
-		// Trigger modal for Confirm (from ANY state), Hold (from Confirmed), OR Canceled
+		// Trigger modal for Confirm (unless from Settlement), Hold (from Confirmed), OR Canceled
 		if (
-			newStatus === 'CONFIRMED' ||
+			(newStatus === 'CONFIRMED' &&
+				event.status !== 'IN SETTLEMENT' &&
+				event.status !== 'SETTLED') ||
 			(newStatus === 'HOLD' && event.status === 'CONFIRMED') ||
 			newStatus === 'CANCELED'
 		) {
@@ -136,7 +138,7 @@
 			await setupConfirmData();
 			showConfirmModal = true;
 		} else {
-			// All other simple status changes (In Settlement, Settled, etc.) happen instantly
+			// All other simple status changes happen instantly
 			await supabase.from('calendar_events').update({ status: newStatus }).eq('id', event.id);
 			invalidateAll();
 		}
@@ -150,12 +152,10 @@
 				.select('id, group_id, venue')
 				.eq('date', event.date)
 				.in('status', ['HOLD', 'PENDING']);
-
 			if (data) {
 				sameEventOtherRoomsCount = data.filter(
 					(d) => d.group_id === event.group_id && d.id !== event.id
 				).length;
-
 				const otherEvents = data.filter((d) => d.group_id !== event.group_id);
 				otherEventsOnDayCount = otherEvents.length;
 
@@ -163,7 +163,6 @@
 					typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
 				const currentCategory = venueParsed.category || '';
 				const currentRoom = venueParsed.room || '';
-
 				// NEW: Filter down to holds that are explicitly in the exact same room
 				otherEventsSameRoomCount = otherEvents.filter((d) => {
 					try {
@@ -173,7 +172,6 @@
 						return false;
 					}
 				}).length;
-
 				defaultEmailForVenue = currentCategory === 'New City Gas';
 			}
 		} catch (err) {
@@ -213,7 +211,6 @@
 					.from('calendar_events')
 					.select('id, date, status, hold_level, venue')
 					.eq('date', event.date);
-
 				if (allDayEvents) {
 					const shiftUpdates = calculateHoldShifts({
 						targetEventId: event.id,
@@ -224,7 +221,6 @@
 						room: vRoom,
 						existingEvents: allDayEvents
 					});
-
 					for (const update of shiftUpdates) {
 						await supabase
 							.from('calendar_events')
@@ -241,7 +237,6 @@
 						.select('date')
 						.eq('group_id', event.group_id)
 						.in('status', ['HOLD', 'PENDING']);
-
 					if (!confirmAllRooms) {
 						fetchQuery = fetchQuery.eq('venue->>category', vCat).eq('venue->>room', vRoom);
 					}
@@ -256,7 +251,6 @@
 						.update({ status: 'CONFIRMED', hold_level: null })
 						.eq('group_id', event.group_id)
 						.in('status', ['HOLD', 'PENDING']);
-
 					if (!confirmAllRooms) {
 						query = query.eq('venue->>category', vCat).eq('venue->>room', vRoom);
 					}
@@ -267,7 +261,6 @@
 						.from('calendar_events')
 						.update({ status: 'CONFIRMED', hold_level: null })
 						.eq('id', event.id);
-
 					if (sameEventOtherRoomsCount > 0) {
 						if (confirmAllRooms) {
 							await supabase
@@ -306,7 +299,6 @@
 				} else if (clearSameRoomHolds && otherEventsSameRoomCount > 0) {
 					const venueParsed =
 						typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
-
 					await supabase
 						.from('calendar_events')
 						.update({ status: 'HIDDEN', hold_level: null })
@@ -321,7 +313,6 @@
 					.from('calendar_events')
 					.select('*')
 					.eq('group_id', event.group_id);
-
 				let currentCategory = '';
 				let currentRoom = '';
 				try {
@@ -337,7 +328,6 @@
 					.eq('date', event.date)
 					.eq('status', 'HIDDEN')
 					.neq('group_id', event.group_id);
-
 				const rowsToProcess = [...(allGroupRows || []), ...(otherHiddenRows || [])];
 
 				rowsToProcess.sort((a, b) => {
@@ -347,10 +337,8 @@
 					if (b.status === 'CONFIRMED' && a.status !== 'CONFIRMED') return 1;
 					return 0;
 				});
-
 				const virtualHolds: Pick<CalendarEvent, 'date' | 'status' | 'hold_level' | 'venue'>[] = [];
 				const processingIds = rowsToProcess.map((r) => r.id);
-
 				for (const row of rowsToProcess) {
 					let vCat = '',
 						vRoom = '';
@@ -365,10 +353,8 @@
 						.select('id, date, status, hold_level, venue')
 						.eq('date', row.date)
 						.eq('status', 'HOLD');
-
 					const validDbHolds = (dbHolds || []).filter((h) => !processingIds.includes(h.id));
 					const combinedHolds = [...validDbHolds, ...virtualHolds];
-
 					const nextAvailable = getNextAvailableHold({
 						date: row.date,
 						category: vCat,
@@ -377,7 +363,6 @@
 						isPriority: false, // Default to false when demoting from confirmed
 						venues: venues
 					});
-
 					virtualHolds.push({
 						date: row.date,
 						status: 'HOLD',
@@ -401,18 +386,15 @@
 					.eq('status', 'HIDDEN');
 			} else if (newStatus === 'CANCELED') {
 				await supabase.from('calendar_events').update({ status: 'CANCELED' }).eq('id', event.id);
-
 				if (oldStatus === 'CONFIRMED') {
 					const { data: hiddenHolds } = await supabase
 						.from('calendar_events')
 						.select('*')
 						.eq('date', event.date)
 						.eq('status', 'HIDDEN');
-
 					if (hiddenHolds && hiddenHolds.length > 0) {
 						const virtualHolds: Pick<CalendarEvent, 'date' | 'status' | 'hold_level' | 'venue'>[] =
 							[];
-
 						for (const row of hiddenHolds) {
 							let vCat = '',
 								vRoom = '';
@@ -428,7 +410,6 @@
 								.select('id, date, status, hold_level, venue')
 								.eq('date', row.date)
 								.eq('status', 'HOLD');
-
 							const combinedHolds = [...(dbHolds || []), ...virtualHolds];
 
 							const nextAvailable = getNextAvailableHold({
@@ -439,7 +420,6 @@
 								isPriority: false,
 								venues: venues
 							});
-
 							virtualHolds.push({
 								date: row.date,
 								status: 'HOLD',
@@ -464,7 +444,6 @@
 				.from('calendar_events')
 				.select('id, date, status, hold_level, venue')
 				.eq('group_id', event.group_id);
-
 			if (currentEvents && currentEvents.length > 0) {
 				currentEvents.sort((a, b) => {
 					if (a.id === event.id) return -1;
@@ -475,14 +454,12 @@
 					const bLevel = b.hold_level ? parseInt(b.hold_level.replace('H', '')) || 999 : 999;
 					return aLevel - bLevel;
 				});
-
 				const seenKeys = new Set();
 				const idsToDelete = [];
 
 				for (const row of currentEvents) {
 					let vCat = '',
 						vRoom = '';
-
 					try {
 						const vParsed = typeof row.venue === 'string' ? JSON.parse(row.venue) : row.venue || {};
 						vCat = vParsed.category || '';
@@ -510,7 +487,6 @@
 					status: pendingStatus,
 					details: parsedDetails
 				} as CalendarEvent;
-
 				await syncEventToTechSchedule(updatedEventToSync, pendingStatus);
 			} catch (syncErr) {
 				console.error('Tech Schedule Sync Failed:', syncErr);
@@ -524,7 +500,6 @@
 				: 'An Admin';
 			const venueParsed =
 				typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
-
 			const payload = {
 				eventId: event.short_id || event.id,
 				eventTitle: event.calendar?.title || event.title || 'Unnamed Event',
@@ -694,10 +669,7 @@
 						class="absolute right-0 top-[calc(100%+8px)] w-56 bg-navbar rounded-2xl shadow-xl overflow-hidden py-2 z-50 border border-gray2/10"
 					>
 						{#each statuses as status}
-							{@const isLocked =
-								status.value === 'IN SETTLEMENT' ||
-								status.value === 'SETTLED' ||
-								(event.status === 'HOLD' && status.value === 'CANCELED')}
+							{@const isLocked = event.status === 'HOLD' && status.value === 'CANCELED'}
 							{@const isDisabled = status.value === event.status || isLocked}
 							<button
 								class="w-full px-5 py-3 flex items-center gap-3 text-left transition-colors {isDisabled
@@ -715,14 +687,17 @@
 			</div>
 
 			<button
-				class="text-gray2 transition-colors {isEditor
+				class="text-gray2 transition-colors {isAdmin
 					? 'hover:text-white cursor-pointer'
 					: 'opacity-50'}"
-				style="cursor: {!isEditor ? 'not-allowed' : 'pointer'};"
-				disabled={!isEditor}
-				aria-disabled={!isEditor}
+				style="cursor: {!isAdmin ? 'not-allowed' : 'pointer'};"
+				disabled={!isAdmin}
+				aria-disabled={!isAdmin}
 				aria-label="Settings"
-				title={!isEditor ? 'You do not have permission to change settings' : 'Settings'}
+				title={!isAdmin ? 'You do not have permission to change settings' : 'Settings'}
+				on:click={() => {
+					if (isAdmin) showOffersModal = true;
+				}}
 			>
 				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 					><circle cx="12" cy="12" r="3"></circle><path
@@ -814,5 +789,16 @@
 		{otherEventsOnDayCount}
 		{otherEventsSameRoomCount}
 		on:confirm={executeConfirmChange}
+	/>
+{/if}
+
+{#if isAdmin}
+	<OffersModal
+		bind:isOpen={showOffersModal}
+		{event}
+		eventDealData={Array.isArray(event?.calendar_data)
+			? event.calendar_data[0]?.event_deal
+			: event?.calendar_data?.event_deal || event?.event_deal || {}}
+		on:success={() => invalidateAll()}
 	/>
 {/if}

@@ -41,14 +41,7 @@
 				{#if description.hotels.enabled}
 					<div class="col-start-1 row-start-1" transition:slide={{ duration: 300 }}>
 						<div class="flex flex-col gap-2 pb-2">
-							<div class="flex items-center justify-between text-white font-bold pb-4">
-								<span>Nights</span>
-								<div class="flex items-center gap-2 rounded-xl p-1">
-									<button on:click={() => decrement('hotels', 'nights')} class="w-7 h-7 bg-gray1 rounded-lg hover:text-lime flex items-center justify-center cursor-pointer text-lg leading-none">-</button>
-									<span class="w-5 text-center text-sm">{description.hotels.nights}</span>
-									<button on:click={() => increment('hotels', 'nights')} class="w-7 h-7 bg-gray1 rounded-lg hover:text-lime flex items-center justify-center cursor-pointer text-lg leading-none">+</button>
-								</div>
-							</div>
+							
 
 							<div class="flex items-center justify-between text-white font-bold">
 								<span>Rooms</span>
@@ -59,12 +52,20 @@
 								</div>
 							</div>
 
-							<div class="flex items-center justify-between text-white font-bold mt-4">
+							<div class="flex items-center justify-between text-white font-bold pb-2">
 								<span>Suites</span>
 								<div class="flex items-center gap-2 rounded-xl p-1">
 									<button on:click={() => decrement('hotels', 'suites')} class="w-7 h-7 bg-gray1 rounded-lg hover:text-lime flex items-center justify-center cursor-pointer text-lg leading-none">-</button>
 									<span class="w-5 text-center text-sm">{description.hotels.suites}</span>
 									<button on:click={() => increment('hotels', 'suites')} class="w-7 h-7 bg-gray1 rounded-lg hover:text-lime flex items-center justify-center cursor-pointer text-lg leading-none">+</button>
+								</div>
+							</div>
+							<div class="flex items-center justify-between text-white font-bold pb-2">
+								<span>Nights</span>
+								<div class="flex items-center gap-2 rounded-xl p-1">
+									<button on:click={() => decrement('hotels', 'nights')} class="w-7 h-7 bg-gray1 rounded-lg hover:text-lime flex items-center justify-center cursor-pointer text-lg leading-none">-</button>
+									<span class="w-5 text-center text-sm">{description.hotels.nights}</span>
+									<button on:click={() => increment('hotels', 'nights')} class="w-7 h-7 bg-gray1 rounded-lg hover:text-lime flex items-center justify-center cursor-pointer text-lg leading-none">+</button>
 								</div>
 							</div>
 
