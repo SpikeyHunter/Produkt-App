@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import InfoCardTemplate from '$lib/components/marketing/eventsinfo/InfoCardTemplate.svelte';
+	import InfoCardTemplate from '$lib/components/booking/eventsinfo/InfoCardTemplate.svelte';
 
 	// Types for sales data structure
 	interface EventSalesData {

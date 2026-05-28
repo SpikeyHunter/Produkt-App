@@ -1,7 +1,7 @@
 <script lang="ts">
 	// 1. Import createEventDispatcher
 	import { createEventDispatcher } from 'svelte';
-	import InfoCardTemplate from '$lib/components/marketing/eventsinfo/InfoCardTemplate.svelte';
+	import InfoCardTemplate from '$lib/components/booking/eventsinfo/InfoCardTemplate.svelte';
 	import Button from '$lib/components/buttons/Button.svelte';
 	import type { EventAdvance } from '$lib/services/eventsService';
 
