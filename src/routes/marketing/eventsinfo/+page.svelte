@@ -2,10 +2,10 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import MainLayout from '$lib/components/MainLayout.svelte';
-	import EventsInfoCard from '$lib/components/marketing/eventsinfo/EventsInfoCard.svelte';
+	import EventsInfoCard from '$lib/components/booking/eventsinfo/EventsInfoCard.svelte';
 	// Import the new component
-	import EventSalesCard from '$lib/components/marketing/eventsinfo/EventSalesCard.svelte';
-	import EventsInfoSearch from '$lib/components/marketing/eventsinfo/EventsInfoSearch.svelte';
+	import EventSalesCard from '$lib/components/booking/eventsinfo/EventSalesCard.svelte';
+	import EventsInfoSearch from '$lib/components/booking/eventsinfo/EventsInfoSearch.svelte';
 	import Button from '$lib/components/buttons/Button.svelte';
 	import { GENRE_OPTIONS } from '$lib/services/constants.js';
 	import {
