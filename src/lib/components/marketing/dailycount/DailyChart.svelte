@@ -8,13 +8,11 @@
 	export let dateRange: string[] = [];
 
 	const dispatch = createEventDispatcher();
-
-	// Local selection state — owned here, not passed as prop, so Svelte reactivity is guaranteed
+	
 	let selectedEventId: number | null = null;
 	let selectedEventForInfo: EventData | null = null;
 
 	function selectEvent(event: EventData) {
-		// Toggle: clicking the already-selected event unselects it
 		if (selectedEventId === event.event_id) {
 			unselectEvent();
 			return;
@@ -30,7 +28,6 @@
 		dispatch('unselectEvent');
 	}
 
-	// Keep selectedEventForInfo in sync if activeEvents list changes (e.g. event removed)
 	$: if (selectedEventId && !activeEvents.some(e => e.event_id === selectedEventId)) {
 		selectedEventId = null;
 		selectedEventForInfo = null;
@@ -40,6 +37,7 @@
 	let showTotals = false;
 	let chartWidth = 0;
 	let chartHeight = 0;
+
 	const padding = { top: 30, right: 30, bottom: 70, left: 50 };
 	const animationDuration = 1.0;
 
@@ -47,17 +45,19 @@
 	$: innerHeight = Math.max(0, chartHeight - padding.top - padding.bottom);
 
 	$: sortedSidebarEvents = [...activeEvents].sort((a, b) => {
+		if (a.pinned && !b.pinned) return -1;
+		if (!a.pinned && b.pinned) return 1;
+
 		const dateA = new Date(a.event_date || 0).getTime();
 		const dateB = new Date(b.event_date || 0).getTime();
 		return dateA - dateB;
 	});
 
 	$: activeCounts = dailyCounts.filter((c) => activeEvents.some((e) => e.event_id === c.event_id));
-
+	
 	$: chartDataPrep = activeEvents.map((event, eventIdx) => {
 		const counts = dailyCounts.filter((c) => c.event_id === event.event_id);
 
-		// Math fix: Determine if there were sales BEFORE our filtered dateRange
 		let lastTotal = 0;
 		let firstRecordFound = false;
 
@@ -65,10 +65,9 @@
 			const firstVisibleDate = dateRange[0];
 			const priorRecords = counts.filter((c) => c.report_date < firstVisibleDate);
 			if (priorRecords.length > 0) {
-				// Sort to find the most recent one before the range
 				priorRecords.sort((a, b) => a.report_date.localeCompare(b.report_date));
 				lastTotal = priorRecords[priorRecords.length - 1].total;
-				firstRecordFound = true; // Record already happened before
+				firstRecordFound = true; 
 			}
 		}
 
@@ -153,17 +152,14 @@
 
 		const isSelected = selectedEventId === row.event.event_id;
 		const isFaded = selectedEventId != null && !isSelected;
-		// When something is selected, faded rows go gray. Selected/none-selected keep original color.
+		
 		const uiColor = isFaded ? '#4b5563' : (row.event.color || '#ffffff');
-
+		
 		return { event: row.event, points, isFaded, isSelected, uiColor };
 	});
 
-	// The selected row, rendered separately ON TOP of all base lines.
-	// This avoids reordering the keyed `{#each}` array (which would re-trigger draw animations).
 	$: selectedRow = chartData.find((r) => r.isSelected) || null;
 
-	// Strict reactive array for the sidebar list so Svelte is forced to update styles instantly
 	$: sidebarDisplayData = sortedSidebarEvents.map((event) => {
 		const isSelected = selectedEventId === event.event_id;
 		const isFaded = selectedEventId != null && !isSelected;
@@ -184,7 +180,7 @@
 		if (points.length === 0) return '';
 		if (points.length === 1)
 			return `M ${points[0].xLine} ${points[0].y} L ${points[0].xLine + innerWidth} ${points[0].y}`;
-		
+
 		return (
 			`M ${points[0].xLine} ${points[0].y} ` +
 			points
@@ -251,62 +247,26 @@
 				on:click={() => (showTotals = !showTotals)}
 			>
 				{#if showTotals}
-					<svg
-						class="w-4 h-4"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle
-							cx="12"
-							cy="12"
-							r="3"
-						/></svg
-					>
+					<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
 					Hide {viewMode === 'CUMULATIVE' ? 'Total' : 'Daily'}
 				{:else}
-					<svg
-						class="w-4 h-4"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						><path
-							d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
-						/><line x1="1" y1="1" x2="23" y2="23" /></svg
-					>
+					<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
 					View {viewMode === 'CUMULATIVE' ? 'Total' : 'Daily'}
 				{/if}
 			</button>
 			<div class="flex bg-gray1 rounded-3xl p-1 border border-gray2/20">
-				<button
-					class="px-4 py-1.5 text-xs rounded-3xl outline-none hover:cursor-pointer font-bold transition-colors {chartType ===
-					'LINE'
-						? 'bg-lime text-black'
-						: 'text-gray2 hover:text-white'}"
-					on:click={() => (chartType = 'LINE')}>Line</button
-				>
-				<button
-					class="px-4 py-1.5 text-xs rounded-3xl outline-none hover:cursor-pointer font-bold transition-colors {chartType ===
-					'COLUMN'
-						? 'bg-lime text-black'
-						: 'text-gray2 hover:text-white'}"
-					on:click={() => (chartType = 'COLUMN')}>Columns</button
-				>
+				<button class="px-4 py-1.5 text-xs rounded-3xl outline-none hover:cursor-pointer font-bold transition-colors {chartType === 'LINE' ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}" on:click={() => (chartType = 'LINE')}>Line</button>
+				<button class="px-4 py-1.5 text-xs rounded-3xl outline-none hover:cursor-pointer font-bold transition-colors {chartType === 'COLUMN' ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}" on:click={() => (chartType = 'COLUMN')}>Columns</button>
 			</div>
 		</div>
 	</div>
 
 	<div class="flex flex-1 min-h-0 gap-6">
-		<div class="w-[240px] shrink-0 overflow-y-auto custom-scrollbar space-y-2 pr-2">
-			<h2 class="text-gray3 font-bold text-sm">Selected Events</h2>
+		<div class="w-[240px] shrink-0 overflow-y-auto custom-scrollbar space-y-2 pr-2 pt-2">
+			<h2 class="text-gray3 font-bold text-sm mb-2">Selected Events</h2>
 			{#each sidebarDisplayData as item (item.event_id)}
 				<div
-					class="flex items-center gap-3 p-2 bg-gray1/40 rounded-xl border-l-4 border-r-4 shadow-sm outline-none hover:bg-gray1/60 cursor-pointer {item.uiBg}"
+					class="relative flex items-center gap-3 p-2 bg-gray1/40 rounded-xl border-l-4 border-r-4 shadow-sm outline-none hover:bg-gray1/60 cursor-pointer {item.uiBg}"
 					style="border-left-color: {item.uiBorderColor}; border-right-color: {item.uiBorderColor}; opacity: {item.uiOpacity}; filter: {item.uiFilter}; box-shadow: {item.uiShadow}; transition: border-color 0.3s ease, opacity 0.3s ease, filter 0.3s ease, box-shadow 0.3s ease;"
 					on:click={() => selectEvent(item.originalEvent)}
 					on:keydown={(e) => {
@@ -315,12 +275,20 @@
 					role="button"
 					tabindex="0"
 				>
+					{#if item.pinned}
+						<div class="absolute -top-2 -right-1 z-10 drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)] pointer-events-none">
+							<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 text-lime rotate-[45deg]">
+								<path d="M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z" />
+							</svg>
+						</div>
+					{/if}
+
 					<div class="w-10 h-10 shrink-0 rounded-md overflow-hidden bg-black">
 						{#if item.event_flyer}
 							<img src={item.event_flyer} alt={item.event_name} class="w-full h-full object-cover" />
 						{/if}
 					</div>
-					<div class="flex flex-col min-w-0">
+					<div class="flex flex-col min-w-0 pr-2">
 						<span class="font-bold text-xs truncate" style="color: {item.uiTextColor}; transition: color 0.3s ease;">
 							{item.event_name}
 						</span>
@@ -352,199 +320,58 @@
 							on:click={() => unselectEvent()}
 							on:keydown={(e) => e.key === 'Enter' && unselectEvent()}
 						/>
-						<defs
-							><clipPath id="reveal-clip"
-								><rect
-									x={padding.left}
-									y="0"
-									width={innerWidth}
-									height={chartHeight}
-									class="clip-rect"
-								/></clipPath
-							></defs
-						>
+						<defs><clipPath id="reveal-clip"><rect x={padding.left} y="0" width={innerWidth} height={chartHeight} class="clip-rect" /></clipPath></defs>
 
 						{#each yTicks as tick}
-							<text
-								x={padding.left - 30}
-								y={padding.top + innerHeight - (tick / yMax) * innerHeight + 4}
-								fill="var(--color-gray3)"
-								font-size="14"
-								font-weight="bold"
-								text-anchor="end">{tick}</text
-							>
-							<line
-								x1={padding.left}
-								y1={padding.top + innerHeight - (tick / yMax) * innerHeight}
-								x2={padding.left + innerWidth}
-								y2={padding.top + innerHeight - (tick / yMax) * innerHeight}
-								stroke="var(--color-gray1)"
-								stroke-dasharray="4"
-								pointer-events="none"
-							/>
+							<text x={padding.left - 30} y={padding.top + innerHeight - (tick / yMax) * innerHeight + 4} fill="var(--color-gray3)" font-size="14" font-weight="bold" text-anchor="end">{tick}</text>
+							<line x1={padding.left} y1={padding.top + innerHeight - (tick / yMax) * innerHeight} x2={padding.left + innerWidth} y2={padding.top + innerHeight - (tick / yMax) * innerHeight} stroke="var(--color-gray1)" stroke-dasharray="4" pointer-events="none" />
 						{/each}
 
 						{#each dateRange as date, i}
 							{@const slotWidth = innerWidth / Math.max(1, dateRange.length)}
-							{@const xCentered =
-								chartType === 'LINE'
-									? padding.left + (i / Math.max(1, dateRange.length - 1)) * innerWidth
-									: padding.left + i * slotWidth + slotWidth / 2}
+							{@const xCentered = chartType === 'LINE' ? padding.left + (i / Math.max(1, dateRange.length - 1)) * innerWidth : padding.left + i * slotWidth + slotWidth / 2}
 							{@const angle = slotWidth < 25 ? -90 : slotWidth < 50 ? -45 : 0}
-							<text
-								x={xCentered}
-								y={chartHeight - (angle === -90 ? 30 : angle === -45 ? 20 : 12)}
-								fill="var(--color-gray3)"
-								font-size={slotWidth < 20 ? 10 : 12}
-								font-weight="bold"
-								text-anchor={angle === 0 ? 'middle' : 'end'}
-								transform="rotate({angle}, {xCentered}, {chartHeight - 12})"
-								pointer-events="none"
-							>
-								{new Date(date).toLocaleDateString('en-US', {
-									month: 'short',
-									day: 'numeric',
-									timeZone: 'UTC'
-								})}
+							<text x={xCentered} y={chartHeight - (angle === -90 ? 30 : angle === -45 ? 20 : 12)} fill="var(--color-gray3)" font-size={slotWidth < 20 ? 10 : 12} font-weight="bold" text-anchor={angle === 0 ? 'middle' : 'end'} transform="rotate({angle}, {xCentered}, {chartHeight - 12})" pointer-events="none">
+								{new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
 							</text>
 						{/each}
 
 						{#if chartType === 'LINE'}
 							<g clip-path="url(#reveal-clip)">
 								{#each chartData as row (row.event.event_id)}
-									<path
-										in:draw={{ duration: 1000 }}
-										out:fade={{ duration: 300 }}
-										d={getPath(row.points)}
-										fill="none"
-										stroke={row.uiColor}
-										stroke-width={row.isFaded ? 1.5 : 3}
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										style="opacity: {row.isFaded ? 0.25 : 1}; transition: stroke 0.3s ease-in-out, opacity 0.3s ease-in-out, stroke-width 0.3s ease-in-out;"
-										class="cursor-pointer hover:stroke-[4px] outline-none focus:outline-none"
-										role="button"
-										tabindex="-1"
-										on:click|stopPropagation={() => selectEvent(row.event)}
-										on:keydown={(e) => e.key === 'Enter' && selectEvent(row.event)}
-									/>
+									<path in:draw={{ duration: 1000 }} out:fade={{ duration: 300 }} d={getPath(row.points)} fill="none" stroke={row.uiColor} stroke-width={row.isFaded ? 1.5 : 3} stroke-linecap="round" stroke-linejoin="round" style="opacity: {row.isFaded ? 0.25 : 1}; transition: stroke 0.3s ease-in-out, opacity 0.3s ease-in-out, stroke-width 0.3s ease-in-out;" class="cursor-pointer hover:stroke-[4px] outline-none focus:outline-none" role="button" tabindex="-1" on:click|stopPropagation={() => selectEvent(row.event)} on:keydown={(e) => e.key === 'Enter' && selectEvent(row.event)} />
 								{/each}
 							</g>
 							{#each chartData as row (row.event.event_id)}
-								<g
-									style="opacity: {row.isFaded ? 0.25 : 1}; transition: opacity 0.3s ease-in-out;"
-									out:fade={{ duration: 300 }}
-								>
+								<g style="opacity: {row.isFaded ? 0.25 : 1}; transition: opacity 0.3s ease-in-out;" out:fade={{ duration: 300 }}>
 									{#each row.points as p}
 										{#if p.hasData}
 											{@const percentX = innerWidth > 0 ? (p.xLine - padding.left) / innerWidth : 0}
 											{@const staggerDelay = percentX * animationDuration}
-											<foreignObject
-												x={p.xLine - 20}
-												y={p.y - 24}
-												width="40"
-												height="16"
-												class="animated-point"
-												style="animation-delay: {staggerDelay}s; overflow: visible; visibility: {showTotals
-													? 'visible'
-													: 'hidden'}; pointer-events: none;"
-											>
-												<div
-													class="bg-gray1 rounded-full text-[9px] font-bold text-gray3 w-full h-full flex items-center justify-center"
-												>
-													{viewMode === 'CUMULATIVE' ? p.total : p.daySells}
-												</div>
+											<foreignObject x={p.xLine - 20} y={p.y - 24} width="40" height="16" class="animated-point" style="animation-delay: {staggerDelay}s; overflow: visible; visibility: {showTotals ? 'visible' : 'hidden'}; pointer-events: none;">
+												<div class="bg-gray1 rounded-full text-[9px] font-bold text-gray3 w-full h-full flex items-center justify-center">{viewMode === 'CUMULATIVE' ? p.total : p.daySells}</div>
 											</foreignObject>
-											<circle
-												cx={p.xLine}
-												cy={p.y}
-												r="4.5"
-												fill="var(--color-navbar)"
-												stroke={row.uiColor}
-												stroke-width="2.5"
-												class="cursor-pointer hover:r-[7px] animated-point transition-colors outline-none focus:outline-none"
-												style="animation-delay: {staggerDelay}s"
-												role="button"
-												tabindex="-1"
-												on:mouseenter={(e) => showTooltip(e, p, row.event)}
-												on:mouseleave={hideTooltip}
-												on:click|stopPropagation={() => selectEvent(row.event)}
-												on:keydown={(e) => e.key === 'Enter' && selectEvent(row.event)}
-											/>
+											<circle cx={p.xLine} cy={p.y} r="4.5" fill="var(--color-navbar)" stroke={row.uiColor} stroke-width="2.5" class="cursor-pointer hover:r-[7px] animated-point transition-colors outline-none focus:outline-none" style="animation-delay: {staggerDelay}s" role="button" tabindex="-1" on:mouseenter={(e) => showTooltip(e, p, row.event)} on:mouseleave={hideTooltip} on:click|stopPropagation={() => selectEvent(row.event)} on:keydown={(e) => e.key === 'Enter' && selectEvent(row.event)} />
 										{/if}
 									{/each}
 								</g>
 							{/each}
 
-							<!-- TOP LAYER: highlighted selected line + dots, drawn AFTER everything else.
-								 This stays mounted across selection changes (always rendered, just empty when nothing selected),
-								 so no draw-animation re-trigger happens. -->
 							{#if selectedRow}
-								<path
-									d={getPath(selectedRow.points)}
-									fill="none"
-									stroke={selectedRow.event.color || '#ffffff'}
-									stroke-width="4"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									style="pointer-events: none; transition: stroke 0.3s ease-in-out;"
-								/>
+								<path d={getPath(selectedRow.points)} fill="none" stroke={selectedRow.event.color || '#ffffff'} stroke-width="4" stroke-linecap="round" stroke-linejoin="round" style="pointer-events: none; transition: stroke 0.3s ease-in-out;" />
 								{#each selectedRow.points as p}
 									{#if p.hasData}
-										<circle
-											cx={p.xLine}
-											cy={p.y}
-											r="5"
-											fill="var(--color-navbar)"
-											stroke={selectedRow.event.color || '#ffffff'}
-											stroke-width="3"
-											class="cursor-pointer outline-none focus:outline-none"
-											role="button"
-											tabindex="-1"
-											on:mouseenter={(e) => showTooltip(e, p, selectedRow.event)}
-											on:mouseleave={hideTooltip}
-											on:click|stopPropagation={() => selectEvent(selectedRow.event)}
-											on:keydown={(e) => e.key === 'Enter' && selectEvent(selectedRow.event)}
-										/>
+										<circle cx={p.xLine} cy={p.y} r="5" fill="var(--color-navbar)" stroke={selectedRow.event.color || '#ffffff'} stroke-width="3" class="cursor-pointer outline-none focus:outline-none" role="button" tabindex="-1" on:mouseenter={(e) => showTooltip(e, p, selectedRow.event)} on:mouseleave={hideTooltip} on:click|stopPropagation={() => selectEvent(selectedRow.event)} on:keydown={(e) => e.key === 'Enter' && selectEvent(selectedRow.event)} />
 									{/if}
 								{/each}
 							{/if}
 						{:else}
 							{#each chartData as row (row.event.event_id)}
-								<g
-									style="opacity: {row.isFaded ? 0.25 : 1}; transition: opacity 0.3s ease-in-out;"
-									out:fade={{ duration: 300 }}
-								>
+								<g style="opacity: {row.isFaded ? 0.25 : 1}; transition: opacity 0.3s ease-in-out;" out:fade={{ duration: 300 }}>
 									{#each row.points as p}
 										{#if p.hasData && p.heightCol >= 0}
-											<text
-												x={p.xColumn + p.barWidth / 2}
-												y={p.y - 5}
-												fill="var(--color-gray3)"
-												font-size="10"
-												font-weight="bold"
-												text-anchor="middle"
-												class="animated-column-text"
-												style="visibility: {showTotals
-													? 'visible'
-													: 'hidden'}; pointer-events: none;"
-											>{viewMode === 'CUMULATIVE' ? p.total : p.daySells}</text
-											>
-											<rect
-												x={p.xColumn}
-												y={p.y}
-												width={p.barWidth}
-												height={p.heightCol}
-												fill={row.uiColor}
-												rx="2"
-												class="cursor-pointer hover:opacity-80 animated-column transition-colors outline-none focus:outline-none"
-												role="button"
-												tabindex="-1"
-												on:mouseenter={(e) => showTooltip(e, p, row.event)}
-												on:mouseleave={hideTooltip}
-												on:click|stopPropagation={() => selectEvent(row.event)}
-												on:keydown={(e) => e.key === 'Enter' && selectEvent(row.event)}
-											/>
+											<text x={p.xColumn + p.barWidth / 2} y={p.y - 5} fill="var(--color-gray3)" font-size="10" font-weight="bold" text-anchor="middle" class="animated-column-text" style="visibility: {showTotals ? 'visible' : 'hidden'}; pointer-events: none;">{viewMode === 'CUMULATIVE' ? p.total : p.daySells}</text>
+											<rect x={p.xColumn} y={p.y} width={p.barWidth} height={p.heightCol} fill={row.uiColor} rx="2" class="cursor-pointer hover:opacity-80 animated-column transition-colors outline-none focus:outline-none" role="button" tabindex="-1" on:mouseenter={(e) => showTooltip(e, p, row.event)} on:mouseleave={hideTooltip} on:click|stopPropagation={() => selectEvent(row.event)} on:keydown={(e) => e.key === 'Enter' && selectEvent(row.event)} />
 										{/if}
 									{/each}
 								</g>
@@ -558,36 +385,14 @@
 </div>
 
 {#if tooltip.visible}
-	<div
-		class="fixed pointer-events-none z-50 bg-navbar border p-3 rounded-xl shadow-2xl transition-opacity w-[180px]"
-		style="left: {tooltip.x}px; top: {tooltip.y}px; border-color: {tooltip.color}; transform: translate(-50%, {tooltip.y < 220 ? '15px' : '-115%'});"
-	>
-		<div
-			class="text-[11px] font-bold mb-1 break-words whitespace-normal leading-tight"
-			style="color: {tooltip.color}"
-		>
-			{tooltip.eventName}
-		</div>
-		<div class="text-white font-bold text-xs border-b border-gray2/20 pb-2 mb-2">
-			{tooltip.title}
-		</div>
+	<div class="fixed pointer-events-none z-50 bg-navbar border p-3 rounded-xl shadow-2xl transition-opacity w-[180px]" style="left: {tooltip.x}px; top: {tooltip.y}px; border-color: {tooltip.color}; transform: translate(-50%, {tooltip.y < 220 ? '15px' : '-115%'});">
+		<div class="text-[11px] font-bold mb-1 break-words whitespace-normal leading-tight" style="color: {tooltip.color}">{tooltip.eventName}</div>
+		<div class="text-white font-bold text-xs border-b border-gray2/20 pb-2 mb-2">{tooltip.title}</div>
 		<div class="flex flex-col text-xs space-y-1">
-			<div class="flex justify-between">
-				<span class="text-gray2">Total:</span><span class="text-white font-bold"
-					>{tooltip.total}</span
-				>
-			</div>
-			<div class="flex justify-between pl-3">
-				<span class="text-gray2">GA:</span><span class="text-white font-bold">{tooltip.ga}</span>
-			</div>
-			<div class="flex justify-between pl-3">
-				<span class="text-gray2">VIP:</span><span class="text-white font-bold">{tooltip.vip}</span>
-			</div>
-			<div class="flex justify-between mt-1 pt-2 border-t border-gray2/20">
-				<span class="text-gray2">Day sells:</span><span class="font-bold text-lime"
-					>{tooltip.daySells >= 0 ? '+' : ''}{tooltip.daySells}</span
-				>
-			</div>
+			<div class="flex justify-between"><span class="text-gray2">Total:</span><span class="text-white font-bold">{tooltip.total}</span></div>
+			<div class="flex justify-between pl-3"><span class="text-gray2">GA:</span><span class="text-white font-bold">{tooltip.ga}</span></div>
+			<div class="flex justify-between pl-3"><span class="text-gray2">VIP:</span><span class="text-white font-bold">{tooltip.vip}</span></div>
+			<div class="flex justify-between mt-1 pt-2 border-t border-gray2/20"><span class="text-gray2">Day sells:</span><span class="font-bold text-lime">{tooltip.daySells >= 0 ? '+' : ''}{tooltip.daySells}</span></div>
 		</div>
 	</div>
 {/if}
@@ -604,35 +409,10 @@
 	.clip-rect {
 		animation: revealLine 1s linear forwards;
 	}
-	@keyframes revealLine {
-		0% {
-			width: 0;
-		}
-		100% {
-			width: 100%;
-		}
-	}
-	.animated-point {
-		opacity: 0;
-		animation: popIn 0.01s linear forwards;
-	}
-	@keyframes popIn {
-		to {
-			opacity: 1;
-		}
-	}
-	.animated-column {
-		transform: scaleY(0);
-		transform-origin: bottom;
-		animation: growUp 0.3s ease-out forwards;
-	}
-	.animated-column-text {
-		opacity: 0;
-		animation: popIn 0.01s linear 0.3s forwards;
-	}
-	@keyframes growUp {
-		to {
-			transform: scaleY(1);
-		}
-	}
+	@keyframes revealLine { 0% { width: 0; } 100% { width: 100%; } }
+	.animated-point { opacity: 0; animation: popIn 0.01s linear forwards; }
+	@keyframes popIn { to { opacity: 1; } }
+	.animated-column { transform: scaleY(0); transform-origin: bottom; animation: growUp 0.3s ease-out forwards; }
+	.animated-column-text { opacity: 0; animation: popIn 0.01s linear 0.3s forwards; }
+	@keyframes growUp { to { transform: scaleY(1); } }
 </style>

@@ -143,7 +143,7 @@
 			requiredPermission: 'Marketing',
 			subItems: [
 				//{ label: 'Events Info', route: '/marketing/eventsinfo', requiredPermission: 'EventsInfo' },
-				
+				{ label: 'Daily Count', route: '/marketing/dailycount', requiredPermission: 'Marketing' },
 				{ label: 'Calendar', route: '/marketing/calendar', requiredPermission: 'Marketing' },
 				{ label: 'Comp Tickets', route: '/marketing/comptickets', requiredPermission: 'CompTickets' }
 				
@@ -157,7 +157,7 @@
 			requiredPermission: 'Booking',
 			subItems: [
 				//{ label: 'Contracts', route: '/booking/contracts', requiredPermission: 'Booking' },	
-				{ label: 'Daily Count', route: '/booking/dailycount', requiredPermission: 'Booking' },
+				
 				{ label: 'Talent Payments', route: '/booking/talentpayments', requiredPermission: 'Booking' },
 				{ label: 'Compare Hub', route: '/booking/comparehub', requiredPermission: 'CompareHub' }
 				//{ label: 'Artist Availability', route: '/booking/artistavailability', requiredPermission: 'Booking' }

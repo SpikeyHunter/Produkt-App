@@ -17,7 +17,6 @@
 	let imgWidth = 0,
 		imgHeight = 0;
 	let showMag = false;
-
 	let pickerHue = 0,
 		pickerSat = 100,
 		pickerVal = 100;
@@ -33,7 +32,6 @@
 		{ name: 'NCG 360', color: '#fa7a90', ga: 1850, vip: 400 },
 		{ name: 'DSTRKT', color: '#afd3e9', ga: 2000, vip: 250 }
 	];
-
 	let localStageType: {
 		name: string;
 		capacity: { GA: number; VIP: number };
@@ -136,22 +134,18 @@
 	function updateCustomColor() {
 		if (selectedEventForInfo) {
 			const hex = hsvToHex(pickerHue, pickerSat, pickerVal);
-			// FIX: Reassign (not mutate) so Svelte detects the change and updates the UI
 			selectedEventForInfo = { ...selectedEventForInfo, color: hex };
 		}
 	}
 
 	function saveCurrentColor() {
 		if (selectedEventForInfo && selectedEventForInfo.color) {
-			// Ensure the hex code always has a '#' before saving to the database
 			let finalColor = selectedEventForInfo.color.trim();
 			if (!finalColor.startsWith('#')) {
 				finalColor = '#' + finalColor;
-				selectedEventForInfo.color = finalColor; // Update locally
+				selectedEventForInfo.color = finalColor;
 			}
-			
 			console.log(`[EventInfoPanel] Dispatching save for ID: ${selectedEventForInfo.event_id} | Color: ${finalColor}`);
-			
 			dispatch('colorChanged', { id: selectedEventForInfo.event_id, color: finalColor });
 		} else {
 			console.warn("[EventInfoPanel] Failed to dispatch: Event or color is missing.", selectedEventForInfo);
@@ -176,11 +170,10 @@
 	let onMove = (e: MouseEvent) => {
 		if (isDraggingWheel) handleWheelInteract(e);
 	};
-
 	let onUp = () => {
 		if (isDraggingWheel) {
 			isDraggingWheel = false;
-			saveCurrentColor(); // Save when mouse is released
+			saveCurrentColor(); 
 		}
 	};
 
@@ -266,6 +259,15 @@
 		const opt = stageOptions.find((o) => o.name === name);
 		return opt ? opt.color : 'var(--color-gray2)';
 	}
+
+	function togglePin() {
+		if (!selectedEventForInfo) return;
+		const newPinned = !selectedEventForInfo.pinned;
+		// Optimistic UI update in the panel
+		selectedEventForInfo = { ...selectedEventForInfo, pinned: newPinned };
+		// Dispatch event to page.svelte to execute the DB change and re-sort list
+		dispatch('pinToggled', { id: selectedEventForInfo.event_id, pinned: newPinned });
+	}
 </script>
 
 {#if selectedEventForInfo}
@@ -273,12 +275,31 @@
 		class="flex flex-col z-20 h-full overflow-y-auto custom-scrollbar pr-1 absolute inset-0 bg-navbar p-5"
 		transition:fly={{ x: 340, duration: 300, opacity: 1 }}
 	>
-		<button
-			class="rounded-3xl bg-[var(--color-gray3)] text-black hover:bg-lime px-3 py-1.5 flex items-center gap-1.5 cursor-pointer text-xs font-bold transition-colors w-max mb-6 outline-none"
-			on:click={() => dispatch('closeInfoPanel')}
-		>
-			&larr; Go Back
-		</button>
+		<div class="flex justify-between items-center w-full mb-6">
+			<button
+				class="rounded-3xl bg-[var(--color-gray3)] text-black hover:bg-lime px-3 py-1.5 flex items-center gap-1.5 cursor-pointer text-xs font-bold transition-colors outline-none"
+				on:click={() => dispatch('closeInfoPanel')}
+			>
+				&larr; Go Back
+			</button>
+
+			<button
+				class="rounded-3xl px-3 py-1.5 flex items-center gap-1.5 cursor-pointer text-xs font-bold transition-all outline-none border {selectedEventForInfo.pinned ? 'bg-lime text-black border-lime shadow-[0_0_10px_rgba(196,239,155,0.3)]' : 'bg-transparent text-gray2 border-gray2 hover:text-white hover:border-white'}"
+				on:click={togglePin}
+			>
+				{#if selectedEventForInfo.pinned}
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5 rotate-[45deg]">
+						<path d="M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z" />
+					</svg>
+					Event Pinned
+				{:else}
+					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5">
+						<path d="M16,12V4H17V2H7V4H8V12L6,14V16H11.2V22H12.8V16H18V14L16,12Z" />
+					</svg>
+					Pin Event
+				{/if}
+			</button>
+		</div>
 
 		<div class="mb-5 mt-2">
 			<h2 class="text-xl font-bold text-lime leading-tight mb-1">
@@ -314,18 +335,13 @@
 						{#if isPickingColor && showMag}
 							<div
 								class="fixed pointer-events-none rounded-full border-[3px] border-white shadow-2xl z-50 overflow-hidden bg-navbar"
-								style="width: 80px; height: 80px; left: {clientX}px; top: {clientY -
-									60}px; transform: translate(-50%, -50%);"
+								style="width: 80px; height: 80px; left: {clientX}px; top: {clientY - 60}px; transform: translate(-50%, -50%);"
 							>
 								<div
 									class="w-full h-full"
-									style="background-image: url({selectedEventForInfo.event_flyer}); background-size: {imgWidth *
-										4}px {imgHeight * 4}px; background-position: -{magX * 4 - 40}px -{magY * 4 -
-										40}px;"
+									style="background-image: url({selectedEventForInfo.event_flyer}); background-size: {imgWidth * 4}px {imgHeight * 4}px; background-position: -{magX * 4 - 40}px -{magY * 4 - 40}px;"
 								></div>
-								<div
-									class="absolute inset-0 flex items-center justify-center text-lime font-bold text-2xl drop-shadow-md"
-								>
+								<div class="absolute inset-0 flex items-center justify-center text-lime font-bold text-2xl drop-shadow-md">
 									+
 								</div>
 							</div>
@@ -391,13 +407,7 @@
 							>
 								<div
 									class="w-3.5 h-3.5 border-2 border-black rounded-full absolute shadow-sm pointer-events-none"
-									style="left: calc(50% + {wheelR *
-										Math.cos(wheelRad)}% - 7px); top: calc(50% + {wheelR *
-										Math.sin(wheelRad)}% - 7px); background-color: {hsvToHex(
-										pickerHue,
-										pickerSat,
-										100
-									)};"
+									style="left: calc(50% + {wheelR * Math.cos(wheelRad)}% - 7px); top: calc(50% + {wheelR * Math.sin(wheelRad)}% - 7px); background-color: {hsvToHex(pickerHue, pickerSat, 100)};"
 								></div>
 							</button>
 							<div class="w-full">
@@ -429,19 +439,7 @@
 						showCustomPicker = false;
 					}}
 				>
-					<svg
-						width="14"
-						height="14"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						><path d="m2 22 1-1h3l9-9" /><path d="M3 21v-3l9-9" /><path d="m15 6 3 3" /><path
-							d="M19.3 9.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0l-2.8 2.8 8.6 8.6z"
-						/></svg
-					>
+					<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 22 1-1h3l9-9" /><path d="M3 21v-3l9-9" /><path d="m15 6 3 3" /><path d="M19.3 9.3a2.4 2.4 0 0 0 0-3.4l-2.6-2.6a2.4 2.4 0 0 0-3.4 0l-2.8 2.8 8.6 8.6z" /></svg>
 					{isPickingColor ? 'Select on Image' : 'Pick from Flyer'}
 				</button>
 
@@ -458,20 +456,7 @@
 							></div>
 							<span>{localStageType.name}</span>
 						</div>
-						<svg
-							class="w-3 h-3 transition-transform duration-200 {showStageDropdown
-								? 'rotate-180'
-								: ''}"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
-							><path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M19 9l-7 7-7-7"
-							></path></svg
-						>
+						<svg class="w-3 h-3 transition-transform duration-200 {showStageDropdown ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
 					</button>
 
 					{#if showStageDropdown}
@@ -481,18 +466,13 @@
 							on:click={() => (showStageDropdown = false)}
 							aria-label="Close stage dropdown"
 						></button>
-						<div
-							class="absolute top-full left-0 w-full mt-1 bg-navbar rounded-xl shadow-xl z-50 overflow-hidden py-1"
-						>
+						<div class="absolute top-full left-0 w-full mt-1 bg-navbar rounded-xl shadow-xl z-50 overflow-hidden py-1">
 							{#each stageOptions as opt}
 								<button
 									class="w-full text-left px-3 py-2 text-[11px] text-white hover:bg-gray1 transition-colors flex items-center gap-2 outline-none border-none cursor-pointer bg-transparent"
 									on:click={() => selectStageOption(opt)}
 								>
-									<div
-										class="w-3 h-3 rounded-full border border-black/50 shrink-0"
-										style="background-color: {opt.color}"
-									></div>
+									<div class="w-3 h-3 rounded-full border border-black/50 shrink-0" style="background-color: {opt.color}"></div>
 									{opt.name}
 								</button>
 							{/each}
@@ -506,21 +486,11 @@
 			<div class="bg-gray1/40 rounded-xl p-3 mb-4 flex gap-3" transition:slide={{ duration: 200 }}>
 				<div class="flex-1 flex flex-col gap-1.5">
 					<span class="text-[11px] font-bold text-gray2 uppercase tracking-wide">GA Capacity</span>
-					<input
-						type="number"
-						bind:value={localStageType.capacity.GA}
-						on:blur={saveStageType}
-						class="w-full bg-gray1 text-white rounded-md px-2 py-1 text-xs outline-none focus:border-lime no-spinners"
-					/>
+					<input type="number" bind:value={localStageType.capacity.GA} on:blur={saveStageType} class="w-full bg-gray1 text-white rounded-md px-2 py-1 text-xs outline-none focus:border-lime no-spinners" />
 				</div>
 				<div class="flex-1 flex flex-col gap-1.5">
 					<span class="text-[11px] font-bold text-gray2 uppercase tracking-wide">VIP Capacity</span>
-					<input
-						type="number"
-						bind:value={localStageType.capacity.VIP}
-						on:blur={saveStageType}
-						class="w-full bg-gray1 text-white rounded-md px-2 py-1 text-xs outline-none focus:border-lime no-spinners"
-					/>
+					<input type="number" bind:value={localStageType.capacity.VIP} on:blur={saveStageType} class="w-full bg-gray1 text-white rounded-md px-2 py-1 text-xs outline-none focus:border-lime no-spinners" />
 				</div>
 			</div>
 		{/if}
@@ -528,28 +498,14 @@
 		<div class="bg-gray1/40 rounded-xl p-4 mb-4">
 			<h3 class="text-sm font-bold uppercase text-gray3 mb-3">Ticket Count Summary</h3>
 			<div class="space-y-2 text-sm">
-				<div class="flex justify-between border-b border-gray2/10 pb-2">
-					<span class="text-lime">TOTAL</span><span class="font-bold text-lime"
-						>{latestCountForSelected?.total || 0}</span
-					>
-				</div>
-				<div class="flex justify-between pl-2">
-					<span class="text-gray2">GA</span><span class="font-bold text-white"
-						>{latestCountForSelected?.ga || 0}</span
-					>
-				</div>
-				<div class="flex justify-between pl-2">
-					<span class="text-gray2">VIP</span><span class="font-bold text-white"
-						>{latestCountForSelected?.vip || 0}</span
-					>
-				</div>
+				<div class="flex justify-between border-b border-gray2/10 pb-2"><span class="text-lime">TOTAL</span><span class="font-bold text-lime">{latestCountForSelected?.total || 0}</span></div>
+				<div class="flex justify-between pl-2"><span class="text-gray2">GA</span><span class="font-bold text-white">{latestCountForSelected?.ga || 0}</span></div>
+				<div class="flex justify-between pl-2"><span class="text-gray2">VIP</span><span class="font-bold text-white">{latestCountForSelected?.vip || 0}</span></div>
 			</div>
 		</div>
 
 		<div class="text-[13px] font-bold text-gray2 text-center w-full mb-4">
-			Last update -<span class="text-lime ml-1"
-				>{formatToEasternTime(latestCountForSelected?.report_generated_at)}</span
-			>
+			Last update -<span class="text-lime ml-1">{formatToEasternTime(latestCountForSelected?.report_generated_at)}</span>
 		</div>
 	</div>
 {/if}
@@ -564,7 +520,6 @@
 		border-radius: 4px;
 	}
 
-	/* Fix for hiding number input spinners */
 	input[type='number'].no-spinners::-webkit-inner-spin-button,
 	input[type='number'].no-spinners::-webkit-outer-spin-button {
 		-webkit-appearance: none;

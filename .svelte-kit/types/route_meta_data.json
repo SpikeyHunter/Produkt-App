@@ -53,6 +53,9 @@
 	"/api/calendar": [
 		"src/routes/api/calendar/+server.ts"
 	],
+	"/api/contract-analyze": [
+		"src/routes/api/contract-analyze/+server.ts"
+	],
 	"/api/deezer/search": [
 		"src/routes/api/deezer/search/+server.ts"
 	],
@@ -145,7 +148,6 @@
 	"/booking/artistavailability": [],
 	"/booking/comparehub": [],
 	"/booking/contracts": [],
-	"/booking/dailycount": [],
 	"/booking/talentpayments": [],
 	"/boxoffice": [],
 	"/calendar": [
@@ -166,6 +168,7 @@
 	"/login/reset-password": [],
 	"/marketing/comptickets": [],
 	"/marketing/customers": [],
+	"/marketing/dailycount": [],
 	"/marketing/eventsinfo": [],
 	"/ncgapp/controlcenter": [],
 	"/privacy": [],

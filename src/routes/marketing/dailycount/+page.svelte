@@ -3,20 +3,23 @@
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import { supabase } from '$lib/supabase';
 	import type { DailyCount, EventData } from '$lib/types/dailycount';
-	
+
 	// FIX: Removed `resolveColorCollisions` from imports so it stops overriding database colors!
 	import { extractDominantColor } from '$lib/utils/color';
 
-	import Header from '$lib/components/booking/dailycount/Header.svelte';
-	import ControlPanel from '$lib/components/booking/dailycount/ControlPanel.svelte';
-	import DailyChart from '$lib/components/booking/dailycount/DailyChart.svelte';
+	import Header from '$lib/components/marketing/dailycount/Header.svelte';
+	import ControlPanel from '$lib/components/marketing/dailycount/ControlPanel.svelte';
+	import DailyChart from '$lib/components/marketing/dailycount/DailyChart.svelte';
 
 	let allEvents: EventData[] = [];
 	let dailyCounts: DailyCount[] = [];
 	let fullDateRange: string[] = [];
-	let dateRange: string[] = []; // Sub-filtered range passed to the chart
+	let dateRange: string[] = [];
+
+	// Sub-filtered range passed to the chart
 	let mode: 'LIVE' | 'CUSTOM' = 'LIVE';
 	let selectedCustomIds: number[] = [];
+
 	let realtimeChannel: any;
 	let selectedEventForInfo: EventData | null = null;
 	let latestCountForSelected: DailyCount | null = null;
@@ -45,8 +48,8 @@
 
 	$: activeEvents =
 		mode === 'LIVE'
-			? eventsWithData.filter((e) => e.event_status === 'LIVE')
-			: eventsWithData.filter((e) => selectedCustomIds.includes(e.event_id));
+			? eventsWithData.filter((e) => e.event_status === 'LIVE' || e.pinned)
+			: eventsWithData.filter((e) => selectedCustomIds.includes(e.event_id) || e.pinned);
 
 	$: {
 		const activeCounts = dailyCounts.filter((c) =>
@@ -82,10 +85,11 @@
 
 	async function loadData() {
 		console.log('[+page.svelte] Fetching events from database on load...');
+
 		const { data: eventData, error: eventError } = await supabase
 			.from('events')
 			.select(
-				'event_id, event_name, event_date, event_status, event_flyer, event_venue, stage_type, color'
+				'event_id, event_name, event_date, event_status, event_flyer, event_venue, stage_type, color, pinned'
 			);
 
 		if (eventError) {
@@ -101,13 +105,14 @@
 
 		if (eventData) {
 			const validEvents = eventData.filter((e) => {
+				if (e.pinned) return true; // ALWAYS keep pinned events
+
 				const nameLower = e.event_name.toLowerCase();
 				return !excludeKeywords.some((kw) => nameLower.includes(kw));
 			});
 
 			const eventsWithColors = await Promise.all(
 				validEvents.map(async (e) => {
-					// Safely extract and trim the color to prevent empty string bugs
 					let finalColor = e.color ? e.color.trim() : null;
 
 					if (!finalColor || finalColor === '') {
@@ -119,10 +124,8 @@
 					return { ...e, color: finalColor } as EventData;
 				})
 			);
-			
+
 			console.log('[+page.svelte] Successfully mapped colors on load.');
-			
-			// FIX: Assign eventsWithColors directly to allEvents without running the collision function
 			allEvents = eventsWithColors;
 		}
 	}
@@ -138,6 +141,7 @@
 
 		const range = [];
 		let current = new Date(minDate);
+
 		while (current <= maxDate) {
 			range.push(current.toISOString().split('T')[0]);
 			current.setDate(current.getDate() + 1);
@@ -171,48 +175,61 @@
 		filterEndDate = e.detail.endDate;
 	}
 
+	async function handlePinToggle(e: CustomEvent<{ id: number; pinned: boolean }>) {
+		const { id, pinned } = e.detail;
+
+		// 1. Update UI instantly
+		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, pinned } : ev));
+
+		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
+			selectedEventForInfo = { ...selectedEventForInfo, pinned };
+		}
+
+		// 2. Save to database
+		const { error } = await supabase.from('events').update({ pinned }).eq('event_id', id);
+
+		if (error) {
+			console.error('[+page.svelte] Failed to toggle pin:', error.message);
+			alert(`Failed to pin event: ${error.message}`);
+			// Revert if it failed
+			allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, pinned: !pinned } : ev));
+		}
+	}
+
 	async function handleColorChange(e: CustomEvent<{ id: number; color: string }>) {
 		const { id, color } = e.detail;
-		console.log(`[+page.svelte] Received color update request. ID: ${id} | Color: ${color}`);
 
-		// 1. Update the local UI immediately
 		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, color } : ev));
-		
-		// FIX: Deep reassignment so Svelte strictly registers the object update
+
 		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
 			selectedEventForInfo = { ...selectedEventForInfo, color };
 		}
 
-		// 2. Save to database and force a return (.select) to verify it actually saved
 		const { data, error } = await supabase
 			.from('events')
 			.update({ color: color })
 			.eq('event_id', id)
 			.select();
 
-		console.log(`[+page.svelte] Supabase Response Data:`, data);
-
 		if (error) {
 			console.error('[+page.svelte] Supabase Error:', error.message);
 			alert(`Database error: ${error.message}`);
 		} else if (!data || data.length === 0) {
 			console.warn(`[+page.svelte] WARNING: Supabase returned no errors, but 0 rows were updated.`);
-			alert(`Update failed silently! Check if Event ID ${id} exists, or if your Supabase Row-Level Security (RLS) policies are blocking UPDATE actions.`);
-		} else {
-			console.log(`[+page.svelte] Success! Database updated to:`, data[0].color);
+			alert(
+				`Update failed silently! Check if Event ID ${id} exists, or if your Supabase Row-Level Security (RLS) policies are blocking UPDATE actions.`
+			);
 		}
 	}
 
 	async function handleStageTypeChange(e: CustomEvent<{ id: number; stage_type: any }>) {
 		const { id, stage_type } = e.detail;
-		
 		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, stage_type } : ev));
-		
-		// FIX: Deep reassignment so Svelte strictly registers the object update
+
 		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
 			selectedEventForInfo = { ...selectedEventForInfo, stage_type };
 		}
-		
+
 		await supabase.from('events').update({ stage_type }).eq('event_id', id);
 	}
 </script>
@@ -249,6 +266,7 @@
 				on:colorChanged={handleColorChange}
 				on:stageTypeChanged={handleStageTypeChange}
 				on:dateRangeFilterChanged={handleDateRangeChanged}
+				on:pinToggled={handlePinToggle}
 			/>
 		</div>
 	</div>

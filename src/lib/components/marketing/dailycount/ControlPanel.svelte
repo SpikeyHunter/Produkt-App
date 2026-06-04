@@ -8,6 +8,7 @@
 	export let events: EventData[] = [];
 	export let activeEvents: EventData[] = [];
 	export let dailyCounts: DailyCount[] = [];
+
 	export let mode: 'LIVE' | 'CUSTOM' = 'LIVE';
 	export let selectedCustomIds: number[] = [];
 
@@ -30,7 +31,9 @@
 
 	$: filteredEvents = events
 		.filter((e) => {
-			if (e.event_status !== currentFilter) return false;
+			// Hide if status doesn't match, UNLESS it's pinned
+			if (e.event_status !== currentFilter && !e.pinned) return false; 
+			
 			if (searchQuery) {
 				const query = searchQuery.toLowerCase();
 				return e.event_name.toLowerCase().includes(query) || e.event_id.toString().includes(query);
@@ -70,6 +73,7 @@
 			// Ensures the top 3 list ALSO grays out when interacting with the chart
 			const isSelected = selectedEventForInfo?.event_id === show.event.event_id;
 			const isFaded = selectedEventForInfo != null && !isSelected;
+
 			return {
 				...show,
 				uiColor: isFaded ? '#6b7280' : (show.event.color || '#ffffff'),
@@ -362,6 +366,7 @@
 		on:closeInfoPanel
 		on:colorChanged
 		on:stageTypeChanged
+		on:pinToggled
 	/>
 </aside>
 
