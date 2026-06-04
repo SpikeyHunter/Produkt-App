@@ -45,9 +45,9 @@ const RESPONSE_SCHEMA = {
 
 export const POST: RequestHandler = async ({ request }) => {
   try {
-    const apiKey = env.PUBLIC_OPENAI_API_KEY;
+    const apiKey = env.OPENAI_API_KEY;
     if (!apiKey) {
-      return json({ error: 'PUBLIC_OPENAI_API_KEY is not set on the server' }, { status: 500 });
+      return json({ error: 'OPENAI_API_KEY is not set on the server' }, { status: 500 });
     }
 
     const { agency, pages, rules } = (await request.json()) as AnalyzeBody;
