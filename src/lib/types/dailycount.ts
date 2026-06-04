@@ -20,4 +20,5 @@ export interface EventData {
 	event_venue: string;
 	stage_type?: any;
 	color?: string; 
+	pinned?: boolean;
 }
