@@ -6,36 +6,40 @@
 
 	export let userRole: string = 'Email Only';
 	export let event: any = null;
+	export let viewedVersionNum: number = 1;
 
 	$: hasAccess = ['Editor', 'Admin'].includes(userRole);
 	$: eventId = event?.id || event?.group_id;
 
+	// View Only Mode evaluates to true ONLY if viewing an alternate version
+	$: currentVersionNum = event?.calendar?.current_version || 1;
+	$: isAlternateVersion = viewedVersionNum > 0 && viewedVersionNum !== currentVersionNum;
+	$: isViewOnly = isAlternateVersion;
+
 	let financials: any = null;
 	let tickets: any[] = [];
 	let currency: string = 'CAD';
-
 	let saveTimeout: ReturnType<typeof setTimeout>;
 	let isSaving = false;
 	let isInitialized = false;
 	let currencyChannel: any;
 
 	function triggerSave() {
+		if (isViewOnly) return;
 		if (!isInitialized || !hasAccess || !eventId) return;
 
 		clearTimeout(saveTimeout);
-		// Changed from 1000 to 300 for significantly faster UI updates
 		saveTimeout = setTimeout(async () => {
 			isSaving = true;
 			const payload = { financials, tickets };
 
 			try {
 				const targetId = event?.group_id || event?.id;
-				const currentVersion = event?.calendar?.current_version || 1;
 				await supabase
 					.from('calendar_data')
 					.update({ event_revenue: payload })
 					.eq('calendar_id', targetId)
-					.eq('version_number', currentVersion);
+					.eq('version_number', viewedVersionNum);
 			} catch (error) {
 				console.error('Error saving revenue data:', error);
 			} finally {
@@ -44,7 +48,7 @@
 		}, 300);
 	}
 
-	let venueFinancials: any = null; // Store venue defaults
+	let venueFinancials: any = null; 
 
 	async function syncVenueSettings() {
 		if (!eventId) return;
@@ -81,7 +85,6 @@
 							? JSON.parse(settingData.setting_params)
 							: settingData.setting_params;
 
-					// Store the full venue financials
 					venueFinancials = params?.financials || null;
 
 					if (venueFinancials?.currency) {
@@ -95,7 +98,7 @@
 	}
 
 	function resetToVenueSettings() {
-		if (!venueFinancials) return;
+		if (!venueFinancials || isViewOnly) return;
 		financials = {
 			...financials,
 			taxRate: venueFinancials.taxRate || 0,
@@ -104,27 +107,21 @@
 		};
 	}
 
-	onMount(async () => {
+	async function loadRevenue() {
 		if (!eventId) return;
 
-		// 1. Fetch Venue Settings (Currency, Tax, Fees)
-		await syncVenueSettings();
-
-		// 2. Fetch the Revenue DB Data directly based on the event
 		const targetId = event?.group_id || event?.id;
-		const currentVersion = event?.calendar?.current_version || 1;
 
 		const { data: dbData } = await supabase
 			.from('calendar_data')
 			.select('event_revenue')
 			.eq('calendar_id', targetId)
-			.eq('version_number', currentVersion)
+			.eq('version_number', viewedVersionNum)
 			.single();
 
 		if (dbData?.event_revenue) {
 			tickets = dbData.event_revenue.tickets || [];
 
-			// Only populate with Venue Settings if the DB has no financials configured yet
 			if (!dbData.event_revenue.financials) {
 				financials = venueFinancials
 					? {
@@ -133,14 +130,12 @@
 							facilityFee: venueFinancials.facilityFee || 0
 						}
 					: { taxRate: 0, taxType: 'Divisor', facilityFee: 0 };
-				// Save this initial state
-				triggerSave();
+				if (!isViewOnly) triggerSave();
 			} else {
 				financials = dbData.event_revenue.financials;
 			}
 		} else {
 			tickets = [];
-			// Initialize a completely new event with Venue Settings
 			financials = venueFinancials
 				? {
 						taxRate: venueFinancials.taxRate || 0,
@@ -148,12 +143,16 @@
 						facilityFee: venueFinancials.facilityFee || 0
 					}
 				: { taxRate: 0, taxType: 'Divisor', facilityFee: 0 };
-			triggerSave();
+			if (!isViewOnly) triggerSave();
 		}
 
 		isInitialized = true;
+	}
 
-		// 3. Realtime Venue Updates
+	onMount(async () => {
+		await syncVenueSettings();
+		await loadRevenue();
+
 		currencyChannel = supabase
 			.channel('venue-currency-updates')
 			.on(
@@ -168,7 +167,6 @@
 		if (currencyChannel) supabase.removeChannel(currencyChannel);
 	});
 
-	// Save whenever user interacts with tickets/financials
 	$: if (isInitialized && (financials || tickets)) triggerSave();
 </script>
 

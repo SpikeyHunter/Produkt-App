@@ -7,6 +7,7 @@
 
 	export let isOpen = false;
 	export let tour: SSTour | null = null;
+	
 
 	const dispatch = createEventDispatcher();
 

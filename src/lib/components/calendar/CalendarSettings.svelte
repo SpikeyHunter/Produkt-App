@@ -55,6 +55,20 @@
 	let techSyncTypes: string[] = [];
 	let isTogglingTechSync = false;
 
+	// Contacts State (stored as a single global CONFIG setting)
+	interface ContactRow {
+		id: string;
+		role: string;
+		fullName: string;
+		email: string;
+		phone: string;
+		enabled: boolean;
+	}
+	let contacts: ContactRow[] = [];
+	let contactsSettingId: string | null = null;
+	let isSavingContacts = false;
+	let contactsSavedState = false;
+
 	async function fetchSettings() {
 		loading = true;
 
@@ -78,7 +92,8 @@
 				.in('setting_name', [
 					'Default Email Confirmation',
 					'Default SMS Confirmation',
-					'Schedule Tech Sync'
+					'Schedule Tech Sync',
+					'Contacts'
 				])
 		]);
 
@@ -118,6 +133,25 @@
 				techSyncEnabled = params.enabled ?? false;
 				techSyncVenues = params.venues ?? [];
 				techSyncTypes = params.types ?? [];
+			}
+
+			const contactsSetting = configRes.data.find((s) => s.setting_name === 'Contacts');
+			if (contactsSetting) {
+				contactsSettingId = contactsSetting.id;
+				const rows = contactsSetting.setting_params?.contacts;
+				contacts = Array.isArray(rows)
+					? rows.map((c: any) => ({
+							id: c.id || crypto.randomUUID(),
+							role: c.role || '',
+							fullName: c.fullName || '',
+							email: c.email || '',
+							phone: c.phone || '',
+							enabled: c.enabled !== false
+						}))
+					: [];
+			} else {
+				contactsSettingId = null;
+				contacts = [];
 			}
 		}
 
@@ -262,6 +296,47 @@
 		saveTechSyncState({ types: techSyncTypes });
 	}
 
+	function addContact() {
+		contacts = [
+			...contacts,
+			{ id: crypto.randomUUID(), role: '', fullName: '', email: '', phone: '', enabled: true }
+		];
+	}
+
+	function removeContact(id: string) {
+		contacts = contacts.filter((c) => c.id !== id);
+	}
+
+	function toggleContact(id: string) {
+		contacts = contacts.map((c) => (c.id === id ? { ...c, enabled: !c.enabled } : c));
+	}
+
+	async function saveContacts() {
+		isSavingContacts = true;
+		contactsSavedState = false;
+
+		const payload = {
+			setting_type: 'CONFIG',
+			setting_name: 'Contacts',
+			setting_params: { contacts }
+		};
+
+		if (contactsSettingId) {
+			await supabase.from('calendar_settings').update(payload).eq('id', contactsSettingId);
+		} else {
+			const { data, error } = await supabase
+				.from('calendar_settings')
+				.insert([payload])
+				.select()
+				.single();
+			if (!error && data) contactsSettingId = data.id;
+		}
+
+		isSavingContacts = false;
+		contactsSavedState = true;
+		setTimeout(() => (contactsSavedState = false), 1500);
+	}
+
 	function closeModal() {
 		isOpen = false;
 	}
@@ -357,6 +432,120 @@
 							{/each}
 						</div>
 					{/if}
+				</section>
+
+				<section class="space-y-4">
+					<div class="flex items-center justify-between">
+						<h3 class="text-sm font-black text-lime uppercase tracking-widest">Contacts</h3>
+						<button
+							class="px-4 py-2 bg-lime text-black font-bold text-xs rounded-full hover:bg-lime/90 transition-all cursor-pointer"
+							on:click={addContact}
+						>
+							+ Add Contact
+						</button>
+					</div>
+
+					<div class="bg-black/30 rounded-2xl p-4 space-y-3">
+						{#if contacts.length === 0}
+							<div class="p-6 border border-dashed border-gray2/30 rounded-2xl text-center">
+								<p class="text-gray2 text-sm font-bold">No contacts added yet.</p>
+							</div>
+						{:else}
+							<!-- Column headers (md+ only) -->
+							<div
+								class="hidden md:grid md:grid-cols-[1fr_1fr_1.4fr_1fr_auto_auto] gap-2 px-1 text-[10px] font-bold text-gray2 uppercase tracking-widest"
+							>
+								<span>Role</span>
+								<span>Full Name</span>
+								<span>Email</span>
+								<span>Phone</span>
+								<span class="text-center">On</span>
+								<span></span>
+							</div>
+
+							{#each contacts as contact (contact.id)}
+								<div
+									class="grid grid-cols-1 md:grid-cols-[1fr_1fr_1.4fr_1fr_auto_auto] gap-2 items-center {contact.enabled
+										? ''
+										: 'opacity-50'}"
+								>
+									<input
+										type="text"
+										bind:value={contact.role}
+										placeholder="Role"
+										class="w-full min-w-0 bg-black/20 rounded-xl px-3 py-2 text-sm font-bold text-white placeholder-gray2/50 focus:ring-1 focus:ring-lime outline-none"
+									/>
+									<input
+										type="text"
+										bind:value={contact.fullName}
+										placeholder="Full Name"
+										class="w-full min-w-0 bg-black/20 rounded-xl px-3 py-2 text-sm font-bold text-white placeholder-gray2/50 focus:ring-1 focus:ring-lime outline-none"
+									/>
+									<input
+										type="email"
+										bind:value={contact.email}
+										placeholder="Email"
+										class="w-full min-w-0 bg-black/20 rounded-xl px-3 py-2 text-sm font-bold text-white placeholder-gray2/50 focus:ring-1 focus:ring-lime outline-none"
+									/>
+									<input
+										type="tel"
+										bind:value={contact.phone}
+										placeholder="Phone"
+										class="w-full min-w-0 bg-black/20 rounded-xl px-3 py-2 text-sm font-bold text-white placeholder-gray2/50 focus:ring-1 focus:ring-lime outline-none"
+									/>
+									<button
+										type="button"
+										class="relative w-11 h-6 rounded-full transition-colors duration-200 justify-self-center shrink-0 {contact.enabled
+											? 'bg-lime'
+											: 'bg-gray2/30'} cursor-pointer"
+										on:click={() => toggleContact(contact.id)}
+										aria-label="Toggle contact"
+										aria-pressed={contact.enabled}
+									>
+										<div
+											class="absolute top-1 left-1 w-4 h-4 rounded-full transition-transform duration-200 shadow-sm {contact.enabled
+												? 'translate-x-5 bg-black'
+												: 'translate-x-0 bg-white'}"
+										></div>
+									</button>
+									<button
+										type="button"
+										class="text-gray2 hover:text-red-500 transition-colors p-2 justify-self-center cursor-pointer"
+										on:click={() => removeContact(contact.id)}
+										aria-label="Remove contact"
+									>
+										<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<polyline points="3 6 5 6 21 6"></polyline>
+											<path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+										</svg>
+									</button>
+								</div>
+							{/each}
+
+							<div class="flex justify-end pt-1">
+								<button
+									class="px-5 py-2.5 font-bold text-xs rounded-full transition-all duration-300 flex items-center justify-center min-w-[140px] cursor-pointer disabled:cursor-not-allowed {contactsSavedState
+										? 'bg-gray3 text-black'
+										: 'bg-lime text-black hover:bg-lime/90'} {isSavingContacts ? 'opacity-50' : ''}"
+									on:click={saveContacts}
+									disabled={isSavingContacts || contactsSavedState}
+								>
+									{#if isSavingContacts}
+										<div in:fade={{ duration: 150 }}>Saving...</div>
+									{:else if contactsSavedState}
+										<div in:fade={{ duration: 150 }} class="flex items-center">
+											<svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+											</svg>
+											Saved!
+										</div>
+									{:else}
+										<div in:fade={{ duration: 150 }}>Save Contacts</div>
+									{/if}
+								</button>
+							</div>
+						{/if}
+					</div>
 				</section>
 
 				<section class="space-y-4">

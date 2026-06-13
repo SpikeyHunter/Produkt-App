@@ -8,26 +8,32 @@
 	export let userRole: string = 'Email Only';
 	export let event: any = null;
 
+	export let viewedVersionNum: number = 1;
+
 	$: hasAccess = ['Editor', 'Admin'].includes(userRole);
 	$: eventId = event?.id || event?.group_id;
+
+	// View Only Mode evaluates to true ONLY if viewing an alternate version
+	$: currentVersionNum = event?.calendar?.current_version || 1;
+	$: isAlternateVersion = viewedVersionNum > 0 && viewedVersionNum !== currentVersionNum;
+	$: isViewOnly = isAlternateVersion;
 
 	let eventCosts: { fixedCosts: any[]; variableCosts: any[] } = {
 		fixedCosts: [],
 		variableCosts: []
 	};
-	let eventRevenue: any = {}; // Added to hold revenue data for variable calculations
+	let eventRevenue: any = {};
 	let currency: string = 'CAD';
-
 	let saveTimeout: ReturnType<typeof setTimeout>;
 	let isSaving = false;
 	let isInitialized = false;
 	let currencyChannel: any;
 
-	// Expanded states
 	let fixedExpanded = true;
 	let variableExpanded = false;
 
 	export function triggerSave() {
+		if (isViewOnly) return;
 		if (!isInitialized || !hasAccess || !eventId) return;
 
 		clearTimeout(saveTimeout);
@@ -35,12 +41,11 @@
 			isSaving = true;
 			try {
 				const targetId = event?.group_id || event?.id;
-				const currentVersion = event?.calendar?.current_version || 1;
 				await supabase
 					.from('calendar_data')
 					.update({ event_cost: eventCosts })
 					.eq('calendar_id', targetId)
-					.eq('version_number', currentVersion);
+					.eq('version_number', viewedVersionNum);
 			} catch (error) {
 				console.error('Error saving cost data:', error);
 			} finally {
@@ -92,19 +97,16 @@
 		}
 	}
 
-	onMount(async () => {
+	async function loadCosts() {
 		if (!eventId) return;
 
-		await syncVenueSettings();
-
 		const targetId = event?.group_id || event?.id;
-		const currentVersion = event?.calendar?.current_version || 1;
 
 		const { data: dbData } = await supabase
 			.from('calendar_data')
 			.select('event_cost, event_revenue')
 			.eq('calendar_id', targetId)
-			.eq('version_number', currentVersion)
+			.eq('version_number', viewedVersionNum)
 			.single();
 
 		if (dbData?.event_cost) {
@@ -114,7 +116,7 @@
 			};
 		} else {
 			eventCosts = { fixedCosts: [], variableCosts: [] };
-			triggerSave();
+			if (!isViewOnly) triggerSave();
 		}
 
 		if (dbData?.event_revenue) {
@@ -122,6 +124,11 @@
 		}
 
 		isInitialized = true;
+	}
+
+	onMount(async () => {
+		await syncVenueSettings();
+		await loadCosts();
 
 		currencyChannel = supabase
 			.channel('venue-currency-updates-costs')

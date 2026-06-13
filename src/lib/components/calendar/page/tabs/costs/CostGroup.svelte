@@ -4,23 +4,19 @@
 	export let onRemove: () => void;
 	export let triggerSave: () => void;
 
-	const categories = ['General', 'Marketing', 'Production', 'Talent'];
+	const categories = ['General', 'Production','Marketing', 'Talent', 'Sponsor', 'Additional'];
 	const types = [
 		'(No Type)',
 		'General',
 		'Venue',
-		'Promoter',
 		'Talent',
 		'Hospitality',
 		'Travel',
-		'Lodging',
-		'Equipment',
-		'Staffing',
-		'Advertising',
 		'Additional',
-		'Partner',
-		'Merch Expenses',
-		'Bar Expenses'
+		'Brand',
+		'Sponsor',
+		'Merch',
+		'Bar'
 	];
 
 	// Custom Dropdowns logic

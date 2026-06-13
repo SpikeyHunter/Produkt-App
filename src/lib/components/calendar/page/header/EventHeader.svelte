@@ -11,17 +11,18 @@
 	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
 	import HeaderActions from './HeaderActions.svelte';
 	import VersionSelector from './VersionSelector.svelte';
+	import CalendarLink from '$lib/components/calendar/page/header/CalendarLink.svelte'; // <-- NEW IMPORT
 	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
-	import OffersModal from '$lib/components/calendar/page/modals/OffersModal.svelte'; // <-- NEW IMPORT
+	import OffersModal from '$lib/components/calendar/page/modals/OffersModal.svelte'; 
 
 	type ExtendedEvent = CalendarEvent & {
 		calendar?: {
 			title?: string;
 			details?: CalendarEvent['details'];
 		};
-		calendar_data?: any; // <-- ADD THIS
-		event_deal?: any; // <-- ADD THIS
+		calendar_data?: any;
+		event_deal?: any; 
 		short_id?: number;
 	};
 
@@ -35,13 +36,11 @@
 
 	export let isDeployed: boolean = false;
 	export let deployedAppTabs: string[] = [];
-
 	const dispatch = createEventDispatcher();
 
 	// --- PERMISSION LOGIC ---
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 	$: isAdmin = $authStore?.profile?.role === 'Admin';
-
 	let isEditingTitle = false;
 	let editTitle = event.calendar?.title || 'Unnamed Event';
 	// New error state variables
@@ -50,7 +49,7 @@
 
 	// Dropdown states
 	let showStatusDrop = false;
-	let showOffersModal = false; // <-- NEW MODAL STATE
+	let showOffersModal = false;
 
 	// Confirm Modal State
 	let showConfirmModal = false;
@@ -60,7 +59,7 @@
 	let otherEventsOnDayCount = 0;
 	let otherEventsSameRoomCount = 0;
 	let defaultEmailForVenue = false;
-
+	
 	// Safely extract and parse details
 	$: rawDetails = event.calendar?.details || event.details || {};
 	$: parsedDetails = typeof rawDetails === 'string' ? JSON.parse(rawDetails) : rawDetails;
@@ -72,7 +71,7 @@
 		{ value: 'SETTLED', label: 'Settled', color: 'bg-gray2' }
 	];
 	$: currentStatusObj = statuses.find((s) => s.value === event.status) || statuses[0];
-
+	
 	async function saveTitle() {
 		// Exit early if empty or unchanged
 		if (editTitle.trim() === '' || editTitle === event.calendar?.title) {
@@ -98,7 +97,6 @@
 		const hasForbiddenWord = forbiddenWords.some((word) =>
 			word === '360' ? /\b360\b/.test(titleLower) : titleLower.includes(word)
 		);
-
 		if (hasForbiddenWord) {
 			// Revert the title back to what it was
 			editTitle = event.calendar?.title || 'Unnamed Event';
@@ -125,7 +123,6 @@
 	async function setStatus(newStatus: string) {
 		showStatusDrop = false;
 		if (newStatus === event.status) return;
-
 		// Trigger modal for Confirm (unless from Settlement), Hold (from Confirmed), OR Canceled
 		if (
 			(newStatus === 'CONFIRMED' &&
@@ -134,7 +131,8 @@
 			(newStatus === 'HOLD' && event.status === 'CONFIRMED') ||
 			newStatus === 'CANCELED'
 		) {
-			pendingStatus = newStatus as 'CONFIRMED' | 'HOLD' | 'CANCELED';
+			pendingStatus = newStatus as 'CONFIRMED' |
+			'HOLD' | 'CANCELED';
 			await setupConfirmData();
 			showConfirmModal = true;
 		} else {
@@ -633,6 +631,11 @@
 		</div>
 
 		<div class="flex items-center gap-4">
+			
+			{#if isEditor && ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status)}
+				<CalendarLink {event} on:success={() => invalidateAll()} />
+			{/if}
+
 			<VersionSelector {event} {isEditor} />
 
 			<div class="relative status-dropdown-container">
@@ -701,7 +704,8 @@
 			>
 				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
 					><circle cx="12" cy="12" r="3"></circle><path
-						d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
+						d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 
+0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"
 					></path></svg
 				>
 			</button>

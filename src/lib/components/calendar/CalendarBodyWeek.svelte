@@ -6,9 +6,11 @@
 	export let weekViewDays: CalendarDay[] = [];
 	export let weekDayNames: string[];
 	export let activeDates: string[] = [];
+
 	export let stages: StageConfig[] = [];
 	export let isAddingEvent: boolean = false;
 	export let deletedIds: string[] = [];
+
 	export let managingGroupId: string | null = null;
 	export let canEdit: boolean;
 	export let canViewHolds: boolean;
@@ -32,9 +34,12 @@
 		return [...events]
 			.filter((e) => e.status !== 'HIDDEN' && !deletedIds.includes(e.id))
 			.sort((a, b) => {
-				// 1. CONFIRMED always goes at the absolute top, no matter what
-				if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
-				if (a.status !== 'CONFIRMED' && b.status === 'CONFIRMED') return 1;
+				const isConfirmedA = ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(a.status);
+				const isConfirmedB = ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(b.status);
+
+				// 1. CONFIRMED/SETTLED always goes at the absolute top, no matter what
+				if (isConfirmedA && !isConfirmedB) return -1;
+				if (!isConfirmedA && isConfirmedB) return 1;
 
 				// 2. Keep NOTES at the top of the REMAINING unconfirmed events
 				const aIsNotes = a.venue?.room === 'NOTES' && a.venue?.category === 'NOTES';
@@ -58,7 +63,7 @@
 				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
 
 				// 5. HOLD LEVELS (H1 before H2, etc.)
-				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
+				if (!isConfirmedA && !isConfirmedB) {
 					const numA =
 						a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
 					const numB =
@@ -101,7 +106,8 @@
 		dispatch('dayClick', { day, clickedDate: day.date });
 	}
 	function handleEventClick(event: CalendarEvent, e: MouseEvent | KeyboardEvent) {
-		dispatch('eventClick', { event, e });
+		const forceOpenPage = ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status);
+		dispatch('eventClick', { event, e, forceOpenPage });
 	}
 	function handleKeydown(e: KeyboardEvent, callback: Function) {
 		if (e.key === 'Enter' || e.key === ' ') {
@@ -122,15 +128,16 @@
 
 		// 2. Original logic: If it's a Hold/Pending (and not the Corpo exception above),
 		// return just the title without prefix/suffix
-		if (event.status !== 'CONFIRMED') {
+		if (!['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status)) {
 			return title;
 		}
 
 		if (!eventType) return title;
 
 		// 3. Only Confirmed events reach this point (other than Corpo which was handled)
-		const prefixTypes = ['NCG 360', 'DSTRKT']; // Removed Corpo from here as it's handled in step 1
+		const prefixTypes = ['NCG 360', 'DSTRKT'];
 
+		// Removed Corpo from here as it's handled in step 1
 		if (prefixTypes.includes(eventType)) {
 			const displayType = eventType === 'NCG 360' ? 'NCG360' : eventType;
 			return `${displayType} - ${title}`;
@@ -210,13 +217,20 @@
 											stroke="currentColor"
 											stroke-width="4"
 											stroke-linecap="round"
-											stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg
+											stroke-linejoin="round"
+											><line x1="18" y1="6" x2="6" y2="18"></line><line
+												x1="6"
+												y1="6"
+												x2="18"
+												y2="18"
+											></line></svg
 										>
-										<span class="truncate font-bold text-sm leading-none max-w-[14vw] line-through opacity-80"
+										<span
+											class="truncate font-bold text-sm leading-none max-w-[14vw] line-through opacity-80"
 											>{formatEventTitle(event)}</span
 										>
 									</div>
-								{:else if event.status === 'CONFIRMED'}
+								{:else if ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status)}
 									<div
 										class="flex items-center gap-2 px-2 py-2.5 rounded-lg min-h-[30px] transition-transform active:scale-95 shadow-md overflow-hidden text-black {isDimmed
 											? 'opacity-40'

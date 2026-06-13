@@ -7,7 +7,6 @@
 	export let isSidebarOpen: boolean;
 	export let userRole: string;
 	export let event: any = null;
-
 	let channel: any;
 
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
@@ -20,8 +19,7 @@
 	let openSections: Record<string, boolean> = {
 		gross: true,
 		taxes: false,
-		expenses: true,
-		breakeven: true
+		expenses: true
 	};
 	const toggle = (key: string) => (openSections[key] = !openSections[key]);
 
@@ -34,7 +32,8 @@
 				currencyDisplay: 'narrowSymbol'
 			}).format(Math.abs(amount) || 0);
 			const s = `${code}${num}`;
-			return amount < 0 ? `(${s})` : s; // Prism shows expenses/negatives in parentheses
+			return amount < 0 ? `(${s})` : s;
+			// Prism shows expenses/negatives in parentheses
 		} catch (e) {
 			return `CAD$${amount || 0}`;
 		}
@@ -73,21 +72,35 @@
 		return typeof p === 'object' && p !== null ? p : {};
 	}
 
-	// ---------- Data sources ----------
-	// The financial data lives in the `calendar_data` table (keyed by calendar_id + version).
-	// The page (+page.ts) already loads it and attaches it as event.calendar_data, and refreshes
-	// it via invalidateAll(). We react to that prop first, fall back to our own fetch, and also
-	// subscribe to realtime DB changes so edits in other tabs reflect instantly.
+	// ---------- Version & Data Management ----------
+	let viewedVersionNum = 0;
+	let overrideData: any = null;
+	let _currentEventId: number | string | null = null;
+	$: eventId = event?.id || event?.group_id;
+
+	// Safely initialize viewedVersionNum matching currentVersionNum without glitching
+	$: currentVersionNum = event?.calendar?.current_version || 1;
+	$: if (viewedVersionNum === 0 && currentVersionNum !== 0) {
+		viewedVersionNum = currentVersionNum;
+	}
+
+	// Reset when navigating to a new event
+	$: if (eventId && String(eventId) !== String(_currentEventId)) {
+		_currentEventId = eventId;
+		viewedVersionNum = currentVersionNum;
+		overrideData = null;
+		if (typeof window !== 'undefined') setupRealtime();
+	}
+
 	let currentRevenue: any = {};
 	let currentCost: any = {};
 	let currentDeal: any = {};
 	let lastSig = '';
 
-	$: eventId = event?.id || event?.group_id;
-
-	// Whenever the event prop (and thus its attached calendar_data) changes, refresh.
-	// This is what makes invalidateAll() in the page propagate to the sidebar.
-	$: applyData(event?.calendar_data, eventId);
+	// Whenever the event prop changes, apply it ONLY if we aren't previewing an alternate version
+	$: if (!overrideData) {
+		applyData(event?.calendar_data, eventId);
+	}
 
 	function applyData(calData: any, _id: any) {
 		// Build a cheap signature so we don't loop on identical data.
@@ -107,14 +120,13 @@
 
 	async function loadData() {
 		const targetId = event?.group_id || event?.id;
-		const currentVersion = event?.calendar?.current_version || 1;
-		if (!targetId) return;
+		if (!targetId || !viewedVersionNum) return;
 
 		const { data: dbData, error } = await supabase
 			.from('calendar_data')
 			.select('event_revenue, event_cost, event_deal')
 			.eq('calendar_id', targetId)
-			.eq('version_number', currentVersion)
+			.eq('version_number', viewedVersionNum) // Fetch the viewed version specifically
 			.single();
 
 		if (error) {
@@ -129,13 +141,35 @@
 		}
 	}
 
+	function handleSwitchVersion(e: Event) {
+		const customEvent = e as CustomEvent<{ versionNum: number | string; calendarData: any; isGlobalChange?: boolean }>;
+		viewedVersionNum = Number(customEvent.detail.versionNum);
+
+		if (customEvent.detail.isGlobalChange) {
+			// Permanent change, drop override and fetch the new base
+			overrideData = null;
+			loadData();
+		} else if (customEvent.detail.calendarData) {
+			// Previewing an alternate version
+			overrideData = customEvent.detail.calendarData;
+			applyData(overrideData, eventId);
+		} else {
+			// Fallback: Drop override and fetch specifically
+			overrideData = null;
+			loadData();
+		}
+		
+		// Setup realtime for the newly viewed version
+		setupRealtime();
+	}
+
+	// ---------- Core computation ----------
 	$: model = computeModel(currentRevenue, currentCost, currentDeal, budgetTab);
 
 	// Settlement vs Actual wording on the right column.
 	// Internal tab -> "ACTUAL"; External tab -> "SETTLEMENT" (matches your screenshots).
 	$: rightLabel = budgetTab === 'Internal' ? 'ACTUAL' : 'SETTLEMENT';
 
-	// ---------- Core computation ----------
 	function computeModel(revenueData: any, costData: any, dealData: any, tab: 'Internal' | 'External') {
 		const revenue = parseJSON(revenueData);
 		const cost = parseJSON(costData);
@@ -174,6 +208,7 @@
 			potentialGross = 0;
 		let estTicketFees = 0,
 			actTicketFees = 0;
+
 		tickets.forEach((t) => {
 			const price = Number(t.price) || 0;
 			const allotment = Number(t.allotment) || 0;
@@ -206,7 +241,6 @@
 		};
 		const estTaxesFees = computeTax(estGross, estTicketFees);
 		const actTaxesFees = computeTax(actGross, actTicketFees);
-
 		const estNetGross = estGross - estTaxesFees;
 		const actNetGross = actGross - actTaxesFees;
 
@@ -220,6 +254,7 @@
 		const fixedCosts = Array.isArray(cost?.fixedCosts) ? cost.fixedCosts : [];
 		let estFixed = 0,
 			actFixed = 0;
+
 		fixedCosts.forEach((g: any) => {
 			const arr = Array.isArray(g.costs) ? g.costs : [];
 			arr.forEach((c: any) => {
@@ -295,48 +330,11 @@
 			totalAllotment,
 			exchangeRate
 		});
-
 		const estExpenses = estPayout + estCosts;
 		const actExpenses = actPayout + actCosts;
 
 		const estNet = estNetGross - estExpenses;
 		const actNet = actNetGross - actExpenses;
-
-		// --- Break Even per ticket type ---
-		// Prism divides expenses by the NET ticket price (price after backing out tax),
-		// not the gross price. For a divisor tax: netPrice = price / (1 + taxRate/100).
-		const netPrice = (price: number) => {
-			if (taxRate <= 0) return price;
-			return financials.taxType === 'Multiplier'
-				? price / (1 + taxRate / 100) // multiplier adds tax on top; net is still gross/(1+r)
-				: price / (1 + taxRate / 100);
-		};
-		const breakevenBudgeted = estExpenses;
-		const breakevenActual = actExpenses;
-		const beRows = ticketRows.map((r) => {
-			const np = netPrice(r.price);
-			return {
-				name: r.name,
-				price: r.price,
-				budgeted: np > 0 ? Math.ceil(breakevenBudgeted / np) : 0,
-				actual: np > 0 ? Math.ceil(breakevenActual / np) : 0
-			};
-		});
-		// Ticket average row: average price = potential gross / total sellable
-		const totalSellable = tickets.reduce((s, t) => {
-			const a = Number(t.allotment) || 0,
-				c = Number(t.comps) || 0,
-				k = Number(t.kills) || 0;
-			return s + (a - c - k);
-		}, 0);
-		const avgPrice = totalSellable > 0 ? potentialGross / totalSellable : 0;
-		const avgNet = netPrice(avgPrice);
-		const beAverage = {
-			name: 'Ticket Average',
-			price: avgPrice,
-			budgeted: avgNet > 0 ? Math.ceil(breakevenBudgeted / avgNet) : 0,
-			actual: avgNet > 0 ? Math.ceil(breakevenActual / avgNet) : 0
-		};
 
 		// --- Show Health bar ---
 		const maxBar = Math.max(potentialGross, actGross, estExpenses, 1);
@@ -355,7 +353,6 @@
 			variableRow: { est: estVariable, act: actVariable },
 			supportRow: { est: supportBudgeted, act: supportActual },
 			net: { est: estNet, act: actNet },
-			breakeven: [...beRows, beAverage],
 			health: {
 				actualGross: actGross,
 				expenses: estExpenses,
@@ -367,12 +364,14 @@
 	}
 
 	// ---------- Realtime ----------
-	onMount(() => {
+	function setupRealtime() {
+		if (channel) supabase.removeChannel(channel);
+		
 		const targetId = event?.group_id || event?.id;
-		if (!targetId) return;
-		const currentVersion = event?.calendar?.current_version || 1;
+		if (!targetId || !viewedVersionNum) return;
+
 		channel = supabase
-			.channel(`sidebar-health-${targetId}`)
+			.channel(`sidebar-health-${targetId}-${viewedVersionNum}`)
 			.on(
 				'postgres_changes',
 				{
@@ -385,7 +384,7 @@
 					const row: any = payload.new;
 					if (!row) return;
 					// Ignore other versions of the same calendar.
-					if (row.version_number != null && row.version_number !== currentVersion) return;
+					if (row.version_number != null && row.version_number !== viewedVersionNum) return;
 					lastSig = JSON.stringify([row.event_revenue, row.event_cost, row.event_deal]);
 					currentRevenue = row.event_revenue;
 					currentCost = row.event_cost;
@@ -393,8 +392,19 @@
 				}
 			)
 			.subscribe();
+	}
+
+	onMount(() => {
+		if (typeof window !== 'undefined') {
+			window.addEventListener('switchViewedVersion', handleSwitchVersion);
+		}
+		setupRealtime();
 	});
+
 	onDestroy(() => {
+		if (typeof window !== 'undefined') {
+			window.removeEventListener('switchViewedVersion', handleSwitchVersion);
+		}
 		if (channel) supabase.removeChannel(channel);
 	});
 </script>
@@ -408,7 +418,6 @@
 		class="w-[340px] h-full bg-navbar border-l border-gray2/10 shadow-sm flex flex-col overflow-hidden rounded-xl"
 	>
 		<div class="flex-1 overflow-y-auto custom-scrollbar">
-			<!-- ===== SHOW HEALTH ===== -->
 			<div class="px-4 py-7 border-b border-gray2/10">
 				<h3 class="text-xs font-black text-lime uppercase tracking-widest mb-6">Show Health</h3>
 
@@ -464,11 +473,9 @@
 				</div>
 			</div>
 
-			<!-- ===== BUDGET SUMMARY ===== -->
 			<div class="px-4 py-7 border-b border-gray2/10">
 				<h3 class="text-xs font-black text-lime uppercase tracking-widest mb-5">Budget Summary</h3>
 
-				<!-- Internal / External tabs -->
 				<div class="flex border-b border-gray1 mb-4">
 					{#each budgetTabs as tab}
 						<button
@@ -486,7 +493,6 @@
 					{/each}
 				</div>
 
-				<!-- Gross Ticket Revenue (collapsible) -->
 				<div class="bg-gray1/30 rounded-lg mb-3 overflow-hidden">
 					<button
 						class="w-full flex items-center justify-between px-3 py-3 text-left cursor-pointer"
@@ -546,7 +552,6 @@
 					</div>
 				</div>
 
-				<!-- Taxes and Fees -->
 				<div class="px-3 py-3 mb-3">
 					<div class="text-sm font-bold text-lime mb-2">Taxes and Fees</div>
 					<div class="grid grid-cols-2 gap-2">
@@ -565,7 +570,6 @@
 					</div>
 				</div>
 
-				<!-- Net Gross -->
 				<div class="px-3 py-3 mb-3 border-t border-gray1/40">
 					<div class="text-sm font-bold text-lime mb-2">Net Gross</div>
 					<div class="grid grid-cols-2 gap-2">
@@ -584,7 +588,6 @@
 					</div>
 				</div>
 
-				<!-- Expenses (collapsible) -->
 				<div class="bg-gray1/30 rounded-lg mb-3 overflow-hidden">
 					<button
 						class="w-full flex items-center justify-between px-3 py-3 text-left cursor-pointer"
@@ -592,9 +595,7 @@
 					>
 						<span class="text-sm font-bold text-lime">Expenses</span>
 						<svg
-							class="w-4 h-4 text-gray2 transition-transform {openSections.expenses
-								? 'rotate-180'
-								: ''}"
+							class="w-4 h-4 text-gray2 transition-transform {openSections.expenses ? 'rotate-180' : ''}"
 							viewBox="0 0 24 24"
 							fill="none"
 							stroke="currentColor"
@@ -620,7 +621,6 @@
 
 						{#if openSections.expenses}
 							<div transition:slide|local class="flex flex-col gap-3 pt-1">
-								<!-- Headliner guarantee -->
 								<div>
 									<div class="text-[12px] text-lime font-semibold mb-1">{model.headlinerName}</div>
 									<div class="grid grid-cols-2 gap-2">
@@ -638,7 +638,6 @@
 										</div>
 									</div>
 								</div>
-								<!-- Variable Costs -->
 								<div>
 									<div class="text-[12px] text-lime font-semibold mb-1">Variable Costs</div>
 									<div class="grid grid-cols-2 gap-2">
@@ -656,7 +655,6 @@
 										</div>
 									</div>
 								</div>
-								<!-- Additional Support -->
 								<div>
 									<div class="text-[12px] text-lime font-semibold mb-1">Additional Support</div>
 									<div class="grid grid-cols-2 gap-2">
@@ -679,7 +677,6 @@
 					</div>
 				</div>
 
-				<!-- NET -->
 				<div class="px-3 py-3 border-t border-gray1/40">
 					<div class="text-sm font-black text-lime mb-2 tracking-wide">NET</div>
 					<div class="grid grid-cols-2 gap-2">
@@ -696,49 +693,6 @@
 							<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
 						</div>
 					</div>
-				</div>
-			</div>
-
-			<!-- ===== BREAK EVEN ===== -->
-			<div class="px-4 py-7">
-				<div class="bg-gray1/30 rounded-lg overflow-hidden">
-					<button
-						class="w-full flex items-center justify-between px-3 py-3 text-left cursor-pointer"
-						on:click={() => toggle('breakeven')}
-					>
-						<span class="text-sm font-bold text-lime">Break Even</span>
-						<svg
-							class="w-4 h-4 text-gray2 transition-transform {openSections.breakeven
-								? 'rotate-180'
-								: ''}"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
-						>
-					</button>
-
-					{#if openSections.breakeven}
-						<div transition:slide|local class="px-3 pb-3 flex flex-col">
-							{#each model.breakeven as be, i}
-								<div class="py-3 {i > 0 ? 'border-t border-gray1/40' : ''}">
-									<div class="text-[12px] text-lime font-semibold mb-1">
-										{be.name} | {fmtPlain(be.price, model.currency)}
-									</div>
-									<div class="grid grid-cols-2 gap-2">
-										<div class="text-center">
-											<div class="text-sm font-bold text-white">{fmtInt(be.budgeted)}</div>
-											<div class="text-[9px] font-bold text-gray2 tracking-wider">BUDGETED</div>
-										</div>
-										<div class="text-center">
-											<div class="text-sm font-bold text-white">{fmtInt(be.actual)}</div>
-											<div class="text-[9px] font-bold text-gray2 tracking-wider">ACTUAL</div>
-										</div>
-									</div>
-								</div>
-							{/each}
-						</div>
-					{/if}
 				</div>
 			</div>
 		</div>

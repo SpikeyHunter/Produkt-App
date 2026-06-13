@@ -8,7 +8,7 @@
     export let variant = 'input'; 
     export let disabled = false;
 
-    // Tour-specific props
+    // Tour-specific  props
     export let tourStartDate = '';
     export let tourEndDate = '';
     export let bookedDates: string[] = []; 

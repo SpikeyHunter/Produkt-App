@@ -1,5 +1,11 @@
 // src/lib/services/warningService.ts
-import type { EmailTechEvent, CrewAssignments, SoundcheckInfo } from '$lib/types/emailtech';
+import type { EmailTechEvent, CrewAssignments } from '$lib/types/emailtech';
+
+interface SoundcheckInfo {
+	status: 'no' | 'yes';
+	start_time?: string;
+	end_time?: string;
+}
 
 // Helper to safely parse JSON data from the database
 function parseJson<T>(data: any, defaultValue: T): T {

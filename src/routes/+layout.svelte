@@ -6,6 +6,7 @@
 	import { authStore } from '$lib/stores/authStore';
 	import { themeStore } from '$lib/stores/themeStore';
 	import { hasPermission } from '$lib/utils/permissions';
+	import { initUserSettings } from '$lib/stores/userSettings';
 	import '../app.css';
 
 	// Routes that require a logged-in user to access.
@@ -106,6 +107,10 @@
 		}
 	}
 
+	onMount(async () => {
+		await initUserSettings();
+	});
+	
 	onMount(() => {
 		authStore.initialize().then(() => {
 			isAuthInitialized = true;

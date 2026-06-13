@@ -12,7 +12,7 @@
     let showPicker = false;
     let containerElement: HTMLDivElement;
 
-    // View state
+    // View state a
     let currentMonth = new Date().getMonth();
     let currentYear = new Date().getFullYear();
 

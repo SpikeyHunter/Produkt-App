@@ -12,12 +12,15 @@
 	export let listEventsGrouped: GroupedEvents = {};
 	export let listDates: string[] = [];
 	export let monthNames: string[];
+
 	export let stages: StageConfig[] = [];
 	export let venues: VenueSettings[] = [];
 	export let layoutMode: 'list' | 'grid' = 'list';
+
 	export let isAddingEvent: boolean = false;
 	export let deletedIds: string[] = [];
 	export let currentViewDate: Date = new Date();
+
 	export let managingGroupId: string | null = null;
 	export let canViewHolds: boolean;
 
@@ -82,6 +85,7 @@
 
 	// Automatically triggers smooth scrolling when 'Today' is clicked and changes the date
 	let prevDateForScroll = '';
+
 	$: {
 		if (currentViewDate) {
 			const cvdStr = currentViewDate.toISOString().split('T')[0];
@@ -90,6 +94,7 @@
 			// Detect when the date specifically jumps back to today
 			if (cvdStr !== prevDateForScroll) {
 				prevDateForScroll = cvdStr;
+
 				if (cvdStr === todayStr) {
 					// Add small delay to let DOM render first
 					setTimeout(() => scrollToNearestToday(), 150);
@@ -155,6 +160,7 @@
 
 	function handleMonthSelect(idx: number | 'ALL') {
 		selectedMonth = idx;
+
 		if (idx !== 'ALL' && currentViewDate) {
 			const newDate = new Date(currentViewDate);
 			newDate.setMonth(idx);
@@ -214,15 +220,16 @@
 
 		// 2. Original logic: If it's a Hold/Pending (and not the Corpo exception above),
 		// return just the title without prefix/suffix
-		if (event.status !== 'CONFIRMED') {
+		if (!['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status)) {
 			return title;
 		}
 
 		if (!eventType) return title;
 
 		// 3. Only Confirmed events reach this point (other than Corpo which was handled)
-		const prefixTypes = ['NCG 360', 'DSTRKT']; // Removed Corpo from here as it's handled in step 1
+		const prefixTypes = ['NCG 360', 'DSTRKT'];
 
+		// Removed Corpo from here as it's handled in step 1
 		if (prefixTypes.includes(eventType)) {
 			const displayType = eventType === 'NCG 360' ? 'NCG360' : eventType;
 			return `${displayType} - ${title}`;
@@ -248,9 +255,12 @@
 		return [...events]
 			.filter((e) => e.status !== 'HIDDEN' && !deletedIds.includes(e.id))
 			.sort((a, b) => {
-				// 1. CONFIRMED always goes at the absolute top, no matter what
-				if (a.status === 'CONFIRMED' && b.status !== 'CONFIRMED') return -1;
-				if (a.status !== 'CONFIRMED' && b.status === 'CONFIRMED') return 1;
+				const isConfirmedA = ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(a.status);
+				const isConfirmedB = ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(b.status);
+
+				// 1. CONFIRMED/SETTLED always goes at the absolute top, no matter what
+				if (isConfirmedA && !isConfirmedB) return -1;
+				if (!isConfirmedA && isConfirmedB) return 1;
 
 				// 2. Keep NOTES at the top of the REMAINING unconfirmed events
 				const aIsNotes = a.venue?.room === 'NOTES' && a.venue?.category === 'NOTES';
@@ -274,7 +284,7 @@
 				if (aIsPrio !== bIsPrio) return bIsPrio - aIsPrio;
 
 				// 5. HOLD LEVELS (H1 before H2, etc.)
-				if (a.status !== 'CONFIRMED' && b.status !== 'CONFIRMED') {
+				if (!isConfirmedA && !isConfirmedB) {
 					const numA =
 						a.hold_level === 'P' ? 0 : parseInt((a.hold_level || '').replace(/\D/g, '')) || 100;
 					const numB =
@@ -317,8 +327,9 @@
 					if (!matchName && !matchType && !matchDate && !matchHold) return false;
 				}
 
-				if (!showStatusConfirmed && e.status === 'CONFIRMED') return false;
-				if (e.status !== 'CONFIRMED') {
+				const isConfirmed = ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(e.status);
+				if (!showStatusConfirmed && isConfirmed) return false;
+				if (!isConfirmed) {
 					if (!showStatusHold) return false;
 					const hLvl =
 						e.hold_level === 'P' ? 0 : parseInt((e.hold_level || '').replace(/\D/g, '')) || 0;
@@ -443,12 +454,12 @@
 												>
 													✕ CANCELED
 												</span>
-											{:else if event.status === 'CONFIRMED'}
+											{:else if ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status)}
 												<span
 													class="px-3 py-1 rounded-full text-xs font-bold shadow-sm"
 													style="background-color: {color}; color: #000;"
 												>
-													✓ CONFIRMED
+													✓ {event.status}
 												</span>
 											{:else}
 												<span
@@ -516,12 +527,12 @@
 										<h3 class="font-black text-xl leading-tight text-white">
 											{formatEventTitle(event)}
 										</h3>
-										{#if event.status === 'CONFIRMED'}
+										{#if ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status)}
 											<span
 												class="px-3 py-1 rounded-full text-[10px] font-bold shadow-sm"
 												style="background-color: {color}; color: #000;"
 											>
-												CONFIRMED ✓
+												{event.status} ✓
 											</span>
 										{:else}
 											<span

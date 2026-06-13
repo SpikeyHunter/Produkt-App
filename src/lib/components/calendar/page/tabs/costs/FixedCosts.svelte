@@ -8,7 +8,7 @@
 	export let expanded: boolean = true;
 
 	let showGroupDropdown = false;
-	const categories = ['General', 'Marketing', 'Production', 'Talent'];
+	const categories = ['General', 'Production','Marketing', 'Talent', 'Sponsor', 'Additional'];
 
 	$: totals = fixedCosts.reduce(
 		(acc, group) => {
@@ -43,12 +43,14 @@
 	const formatCurrency = (amount: number, currencyCode: string) => {
 		try {
 			const safeCode = currencyCode || 'CAD';
+
 			const num = new Intl.NumberFormat('en-US', {
 				style: 'currency',
 				currency: safeCode,
 				currencyDisplay: 'narrowSymbol'
 			}).format(amount || 0);
 			return `${safeCode} ${num}`;
+
 		} catch (e) {
 			return `CAD $${amount || 0}`;
 		}
@@ -61,6 +63,7 @@
 			type: '(No Type)',
 			costs: []
 		};
+
 		fixedCosts = [...fixedCosts, newGroup];
 		showGroupDropdown = false;
 		triggerSave();
@@ -69,12 +72,14 @@
 	function removeGroup(id: string) {
 		fixedCosts = fixedCosts.filter((g) => g.id !== id);
 		triggerSave();
+
 	}
 
 	function handleWindowClick(e: MouseEvent) {
 		const target = e.target as HTMLElement;
 		if (!target.closest('.new-group-dropdown')) {
 			showGroupDropdown = false;
+
 		}
 	}
 </script>
@@ -83,7 +88,7 @@
 
 <section class="flex flex-col">
 	<div
-		class="flex flex-wrap items-center justify-between gap-4 cursor-pointer select-none px-4 py-3 rounded-t-xl transition-colors {expanded
+		class="flex flex-wrap items-center justify-between gap-4 cursor-pointer select-none px-4 py-3 rounded-t-xl transition-colors view-only-exception {expanded
 			? 'bg-gray1/80'
 			: 'hover:bg-gray1'}"
 		role="button"

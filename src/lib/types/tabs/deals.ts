@@ -34,6 +34,20 @@ export interface DealDescription {
 		enabled: boolean;
 		notes: string;
 	};
+	// Stored-only fields (not displayed in the Deals tab); off by default.
+	setTimes: {
+		enabled: boolean;
+		from: string; // 24h "HH:MM" from the native time input
+		to: string;
+	};
+	billing: {
+		enabled: boolean;
+		notes: string;
+	};
+	bookingNotes: {
+		enabled: boolean;
+		notes: string;
+	};
 }
 
 export type DealBaseMetric = '% of Net' | '% of Net Gross' | 'Per Ticket' | 'Flat';

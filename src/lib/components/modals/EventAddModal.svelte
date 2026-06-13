@@ -15,6 +15,7 @@
 	let availableEvents: any[] = [];
 	let filteredEvents: any[] = [];
 	let addedEventIds: Set<number> = new Set();
+	let showPastEvents = false; // <-- NEW TOGGLE STATE
 
 	// Artists management
 	let artists: Array<{
@@ -64,19 +65,24 @@
 
 			if (advanceError) {
 				console.error('Error loading event advances:', advanceError);
-				// We can proceed without this data; the "Added" tag just won't show
 			}
 
 			if (advances) {
 				addedEventIds = new Set(advances.map((a) => a.event_id));
 			}
 
-			// Fetch all LIVE events (existing logic)
-			const { data, error } = await supabase
+			// Fetch events based on live/past toggle
+			let query = supabase
 				.from('events')
-				.select('event_id, event_name, event_date, event_flyer, event_venue')
-				.eq('event_status', 'LIVE')
-				.order('event_date', { ascending: true });
+				.select('event_id, event_name, event_date, event_flyer, event_venue, is_custom');
+			
+			if (showPastEvents) {
+				query = query.in('event_status', ['LIVE', 'PAST']).order('event_date', { ascending: false });
+			} else {
+				query = query.eq('event_status', 'LIVE').order('event_date', { ascending: true });
+			}
+
+			const { data, error } = await query;
 
 			if (error) {
 				console.error('Error loading events:', error);
@@ -94,6 +100,7 @@
 				'piknic',
 				'oktoberfest'
 			];
+
 			const filteredData = (data || []).filter(
 				(event) =>
 					!excludeKeywords.some((keyword) => event.event_name.toLowerCase().includes(keyword))
@@ -136,7 +143,7 @@
 		selectedEvent = event;
 		searchValue = event.event_name;
 		showEventDropdown = false;
-		isCustomEvent = false;
+		isCustomEvent = event.is_custom || false;
 
 		// If the selected event has a venue, pre-populate the venue fields.
 		if (event.event_venue) {
@@ -218,14 +225,10 @@
 			customVenue = '';
 		}
 	}
-
-	function toggleEventDropdown() {
-		showEventDropdown = !showEventDropdown;
-	}
-
+	
 	function toggleVenueDropdown() {
-		showVenueDropdown = !showVenueDropdown;
-	}
+    showVenueDropdown = !showVenueDropdown;
+}
 
 	function closeModal() {
 		dispatch('close');
@@ -247,7 +250,6 @@
 
 	async function handleSubmit() {
 		if (!isFormValid || isSubmitting) return;
-
 		isSubmitting = true;
 		try {
 			const finalVenue = venue === 'Other' ? customVenue.trim() : venue;
@@ -290,11 +292,12 @@
 			// With the event ID secured (either new or existing), create an advance record for each artist.
 			for (const artist of validArtists) {
 				const artistType = artist.type === 'Other' ? artist.customType.trim() : artist.type;
+
 				await createEventAdvance(
 					currentEventId,
 					artist.name.trim(),
 					artistType || undefined,
-					undefined, // The venue is now stored on the event table, so it's not needed here.
+					undefined, 
 					undefined,
 					undefined
 				);
@@ -312,11 +315,13 @@
 	$: validArtists = artists.filter(
 		(artist) => artist.name.trim() && (artist.type !== 'Other' || artist.customType.trim())
 	);
+
 	$: isFormValid =
 		(selectedEvent || (isCustomEvent && searchValue.trim() && customEventDate.trim())) &&
 		validArtists.length > 0 &&
 		(venue !== 'Other' || customVenue.trim()) &&
 		venue.trim();
+
 </script>
 
 <svelte:window on:click={handleClickOutside} />
@@ -330,11 +335,18 @@
 	on:close={closeModal}
 >
 	<div class="space-y-6">
-		<!-- Event Search/Selection or Custom Event -->
 		{#if !isCustomEvent}
-			<!-- Normal Event Search -->
 			<div class="dropdown-container relative">
-				<p class="font-normal text-lime mb-2">Search Events</p>
+				<div class="flex items-center justify-between mb-2">
+					<p class="font-normal text-lime">Search Events</p>
+					<label class="flex items-center gap-2 cursor-pointer relative z-10">
+						<span class="text-xs text-gray2 font-bold uppercase tracking-wider">Show Past</span>
+						<div class="relative w-8 h-4 bg-gray1 rounded-full transition-colors duration-200" class:bg-lime={showPastEvents}>
+							<div class="absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200" class:translate-x-4={showPastEvents}></div>
+						</div>
+						<input type="checkbox" class="sr-only" bind:checked={showPastEvents} on:change={loadEvents} />
+					</label>
+				</div>
 				<div class="relative">
 					<input
 						type="text"
@@ -400,7 +412,6 @@
 					<div
 						class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-lime rounded-lg shadow-lg z-20 max-h-80 overflow-y-auto"
 					>
-						<!-- Custom Event Option -->
 						<button
 							type="button"
 							class="w-full px-4 py-3 text-left text-white hover:bg-lime hover:text-black transition-colors cursor-pointer border-b border-gray1"
@@ -426,7 +437,6 @@
 							</div>
 						</button>
 
-						<!-- Event Options -->
 						{#each filteredEvents as event}
 							<button
 								type="button"
@@ -481,9 +491,7 @@
 				{/if}
 			</div>
 		{:else}
-			<!-- Custom Event Fields -->
 			<div class="space-y-4">
-				<!-- Go Back Button and Title -->
 				<div class="flex items-center gap-3 mb-4">
 					<button
 						type="button"
@@ -492,6 +500,7 @@
 							isCustomEvent = false;
 							searchValue = '';
 							customEventDate = '';
+							selectedEvent = null;
 						}}
 						aria-label="Back to search"
 					>
@@ -509,7 +518,6 @@
 					<h3 class="text-lg font-bold text-white">Create a Custom Event</h3>
 				</div>
 
-				<!-- Event Name -->
 				<div>
 					<p class="font-normal text-lime mb-2">Event Name</p>
 					<input
@@ -520,25 +528,22 @@
 					/>
 				</div>
 
-				<!-- Event Date -->
 				<div>
 					<p class="font-normal text-lime mb-2">Event Date</p>
 					<DatePicker
 						bind:value={customEventDate}
 						placeholder="Select event date"
 						variant="slim"
-						width="w-64"
-						height="h-10"
+						width="w-full"
+						height="h-12"
 						on:change={(e: CustomEvent) => console.log('Date selected:', e.detail)}
 					/>
 				</div>
 			</div>
 		{/if}
 
-		<!-- Event Details (when event is selected) -->
 		{#if selectedEvent || isCustomEvent}
 			<div class="flex gap-6">
-				<!-- Left Column (1/3) - Poster -->
 				<div class="w-1/3">
 					<div class="w-full aspect-[3/4] rounded-xl overflow-hidden bg-gray1">
 						{#if selectedEvent?.event_flyer}
@@ -561,9 +566,7 @@
 					</div>
 				</div>
 
-				<!-- Right Column (2/3) - Event Info and Artists -->
 				<div class="w-2/3 space-y-6">
-					<!-- Event Info -->
 					<div>
 						<div class="flex items-center gap-3 mb-2">
 							<h3 class="text-xl font-bold text-white">
@@ -584,7 +587,6 @@
 						{/if}
 					</div>
 
-					<!-- Artists Section -->
 					<div>
 						<div class="flex items-center justify-between mb-4">
 							<h4 class="text-lg font-bold text-white">Artists</h4>
@@ -601,7 +603,6 @@
 						<div class="space-y-4">
 							{#each artists as artist, index}
 								<div class="flex gap-3 items-center">
-									<!-- Artist Name -->
 									<div class="flex-1">
 										<input
 											type="text"
@@ -611,10 +612,8 @@
 										/>
 									</div>
 
-									<!-- Artist Type Dropdown -->
 									<div class="dropdown-container relative w-48">
 										{#if artist.type === 'Other'}
-											<!-- Editable input for Other type -->
 											<div class="relative">
 												<input
 													type="text"
@@ -642,7 +641,6 @@
 												</button>
 											</div>
 										{:else}
-											<!-- Regular dropdown button -->
 											<button
 												type="button"
 												class="w-full bg-transparent border border-lime rounded-full px-4 py-2 text-white focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime flex items-center justify-between cursor-pointer"
@@ -682,7 +680,6 @@
 										{/if}
 									</div>
 
-									<!-- Remove Artist Button -->
 									<button
 										type="button"
 										class="flex items-center justify-center w-8 h-8 text-red-500 hover:bg-red-500 hover:text-white rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
@@ -709,7 +706,6 @@
 						</div>
 					</div>
 
-					<!-- Venue Selection -->
 					<div class="dropdown-container relative">
 						<p class="font-normal text-lime mb-2">Venue</p>
 						<button
@@ -753,7 +749,6 @@
 							</div>
 						{/if}
 
-						<!-- Custom Venue Input (inline when Other is selected) -->
 						{#if venue === 'Other'}
 							<input
 								type="text"

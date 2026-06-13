@@ -5,8 +5,8 @@
 	import { portal } from '$lib/utils/portalUtils';
 
 	export let isOpen = false;
-    export let event: any = null;          // <-- ADD THIS
-	export let eventDealData: any = {};    // <-- ADD THIS
+	export let event: any = null; // <-- ADD THIS
+	export let eventDealData: any = {}; // <-- ADD THIS
 
 	const dispatch = createEventDispatcher();
 	let saving = false;
@@ -16,6 +16,12 @@
 	let useCustomRate = false;
 	let customRate: number | null = 1.3832;
 
+	// FX offer markup: a buffer added on top of the FX rate when generating an
+	// offer sheet (event-level). Defaults to 5%, optionally 10%.
+	let fxMarkupEnabled = true;
+	let fxMarkupPercent: 5 | 10 = 5;
+	const fxMarkupOptions: (5 | 10)[] = [5, 10];
+
 	$: if (isOpen) {
 		loadSettings();
 	}
@@ -24,18 +30,24 @@
 		// Read directly from the passed-in event_deal data
 		useCustomRate = eventDealData?.useCustomRate === true;
 		customRate = eventDealData?.customRate || 1.3832;
+
+		// Default ON at 5% for events that have never saved the setting.
+		fxMarkupEnabled = eventDealData?.fxMarkupEnabled !== false;
+		fxMarkupPercent = eventDealData?.fxMarkupPercent === 10 ? 10 : 5;
 	}
 
 	async function saveSettings() {
 		saving = true;
-		
+
 		const targetId = event?.calendar?.id || event?.group_id || event?.id;
 		const currentVersion = event?.calendar?.current_version || 1;
 
 		// 1. SAFELY PARSE THE DATA FIRST
 		let parsedData = {};
 		if (typeof eventDealData === 'string') {
-			try { parsedData = JSON.parse(eventDealData); } catch (e) {}
+			try {
+				parsedData = JSON.parse(eventDealData);
+			} catch (e) {}
 		} else {
 			parsedData = eventDealData || {};
 		}
@@ -44,7 +56,9 @@
 		const updatedDealData = {
 			...parsedData,
 			useCustomRate,
-			customRate
+			customRate,
+			fxMarkupEnabled,
+			fxMarkupPercent
 		};
 
 		if (targetId) {
@@ -84,34 +98,44 @@
 					aria-label="Close"
 				>
 					<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="2"
+							d="M6 18L18 6M6 6l12 12"
+						/>
 					</svg>
 				</button>
 			</div>
 
 			<div class="p-8 space-y-8 flex-1">
-				
 				<div>
-					
 					<div class="space-y-2">
-						
 						<div class="flex items-center justify-between">
-							<span class="text-[15px] font-bold text-white ">Custom Exchange Rate</span>
-							
- 							<button
+							<span class="text-[15px] font-bold text-white">Custom Exchange Rate</span>
+
+							<button
 								type="button"
 								aria-label="Toggle Custom Exchange Rate"
 								aria-pressed={useCustomRate}
-								class="w-11 h-6 rounded-full relative transition-colors duration-200 ease-in-out cursor-pointer flex items-center px-1 {useCustomRate ? 'bg-lime' : 'bg-gray1'}"
+								class="w-11 h-6 rounded-full relative transition-colors duration-200 ease-in-out cursor-pointer flex items-center px-1 {useCustomRate
+									? 'bg-lime'
+									: 'bg-gray1'}"
 								on:click={() => (useCustomRate = !useCustomRate)}
 							>
 								<div
-									class="w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out {useCustomRate ? 'translate-x-5 bg-black' : 'translate-x-0 bg-gray2'}"
+									class="w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out {useCustomRate
+										? 'translate-x-5 bg-black'
+										: 'translate-x-0 bg-gray2'}"
 								></div>
 							</button>
 						</div>
 
-						<div class="transition-all duration-200 {useCustomRate ? 'opacity-100' : 'opacity-40 pointer-events-none'}">
+						<div
+							class="transition-all duration-200 {useCustomRate
+								? 'opacity-100'
+								: 'opacity-40 pointer-events-none'}"
+						>
 							<label
 								for="exchangeRate"
 								class="block text-[11px] font-bold text-gray2 mb-2 ml-1 uppercase tracking-widest"
@@ -140,10 +164,72 @@
 								</p>
 							{/if}
 						</div>
-
 					</div>
 				</div>
 
+				<div class="border-t border-gray2/10 pt-8">
+					<div class="space-y-2">
+						<div class="flex items-center justify-between">
+							<span class="text-[15px] font-bold text-white">FX Offer Markup</span>
+
+							<button
+								type="button"
+								aria-label="Toggle FX Offer Markup"
+								aria-pressed={fxMarkupEnabled}
+								class="w-11 h-6 rounded-full relative transition-colors duration-200 ease-in-out cursor-pointer flex items-center px-1 {fxMarkupEnabled
+									? 'bg-lime'
+									: 'bg-gray1'}"
+								on:click={() => (fxMarkupEnabled = !fxMarkupEnabled)}
+							>
+								<div
+									class="w-4 h-4 rounded-full shadow-sm transform transition-transform duration-200 ease-in-out {fxMarkupEnabled
+										? 'translate-x-5 bg-black'
+										: 'translate-x-0 bg-gray2'}"
+								></div>
+							</button>
+						</div>
+
+						<div
+							class="transition-all duration-200 {fxMarkupEnabled
+								? 'opacity-100'
+								: 'opacity-40 pointer-events-none'}"
+						>
+							<span
+								class="block text-[11px] font-bold text-gray2 mb-2 ml-1 uppercase tracking-widest"
+							>
+								Markup Added to FX Rate
+							</span>
+							<div class="grid grid-cols-2 gap-3">
+								{#each fxMarkupOptions as pct (pct)}
+									<button
+										type="button"
+										disabled={!fxMarkupEnabled}
+										class="py-3 rounded-3xl text-[15px] font-black transition-colors cursor-pointer {fxMarkupPercent ===
+										pct
+											? 'bg-lime text-black'
+											: 'bg-gray1 text-gray2 hover:text-white'}"
+										on:click={() => (fxMarkupPercent = pct)}
+									>
+										+{pct}%
+									</button>
+								{/each}
+							</div>
+						</div>
+
+						<div class="ml-1">
+							{#if fxMarkupEnabled}
+								<p class="text-[13px] text-lime font-bold">
+									A {fxMarkupPercent}% buffer is added to the FX rate when an offer sheet is
+									generated.
+								</p>
+							{:else}
+								<p class="text-[13px] text-gray2 font-bold">
+									Offers use the raw FX rate with no markup.
+								</p>
+							{/if}
+						</div>
+					</div>
+				</div>
 			</div>
 
 			<div class="p-6 flex gap-4 justify-end">

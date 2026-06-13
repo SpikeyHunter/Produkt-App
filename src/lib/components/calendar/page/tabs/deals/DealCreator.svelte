@@ -7,23 +7,36 @@
 	import DealDescription from './DealDescription.svelte';
 	import DealDetails from './DealDetails.svelte';
 	import { supabase } from '$lib/supabase';
+	import { computeEventCosts } from '$lib/components/calendar/page/tabs/deals/dealEngine';
 
 	export let event_date: string = '';
 	export let eventCost: any = null;
+	export let eventRevenue: any = null;
+	export let additionalSupport: number | string = 0;
 	export let venueCurrency: string = 'CAD';
 	export let existingDeal: any = null;
-
+	// Active USD -> venueCurrency rate at the time of deal creation. Stamped onto
+	// the deal payload on save so the rate used for this deal is preserved.
+	export let currentExchangeRate: number = 1;
 
 	$: computedTotalCost = (() => {
 		try {
-			if (!eventCost) return 0;
-			let parsed = typeof eventCost === 'string' ? JSON.parse(eventCost) : eventCost;
-			if (typeof parsed === 'string') parsed = JSON.parse(parsed);
-			return parsed?.total_cost?.[0] || 0;
+			const parse = (raw: any) => {
+				if (!raw) return null;
+				let p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+				if (typeof p === 'string') p = JSON.parse(p);
+				return p;
+			};
+			const cost = parse(eventCost);
+			const revenue = parse(eventRevenue);
+			const support = Number(additionalSupport) || 0;
+			// Use ACTUAL figures so the displayed cost matches the settlement.
+			return computeEventCosts(cost, revenue, support, { useActual: true }).total;
 		} catch (e) {
 			return 0;
 		}
 	})();
+
 	import type {
 		DealRole,
 		DealTypeOption,
@@ -64,8 +77,12 @@
 		role: 'Headliner' as DealRole,
 		dealType: 'Flat' as DealTypeOption,
 		guaranteeAmount: 0,
+		dealCurrency: 'USD' as 'USD' | 'CAD',
 		w_tax: true,
 		w_tax_amount: 24,
+		cad_tax_type: 'Flat' as 'Flat' | 'Taxes',
+		cad_qst: false,
+		cad_gst: false,
 		description: {
 			hotels: {
 				enabled: true,
@@ -78,7 +95,10 @@
 			},
 			groundTransport: { enabled: true, notes: '' },
 			immigration: { enabled: true, notes: '' },
-			other: { enabled: false, notes: '' }
+			other: { enabled: false, notes: '' },
+			setTimes: { enabled: false, from: '', to: '' },
+			billing: { enabled: false, notes: '' },
+			bookingNotes: { enabled: false, notes: '' }
 		} as LogisticsDesc,
 		deposits: [] as Deposit[],
 		details: {
@@ -87,9 +107,8 @@
 			afterType: 'Costs',
 			splitPointAmount: 0,
 			retroactiveBonusEnabled: false,
-			retroactiveSwitchesAt: '% Sell Through', // <-- ADD THIS
+			retroactiveSwitchesAt: '% Sell Through',
 			retroactiveBonuses: [
-				// <-- ADD THIS
 				{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
 			],
 			bonuses: [
@@ -97,63 +116,97 @@
 			]
 		} as DealDetailsInfo
 	};
+
 	let displayAmount = '';
 
-	
-
 	onMount(async () => {
-
 		if (existingDeal) {
-			newDeal = JSON.parse(JSON.stringify(existingDeal));
+			if (existingDeal.isPendingInfoOnly) {
+				// Inject pure basics, leave other newDeal defaults untouched so it doesn't crash Svelte
+				newDeal.id = existingDeal.id || crypto.randomUUID();
+				newDeal.artistName = existingDeal.artistName || '';
+				newDeal.artistId = existingDeal.artistId;
+				newDeal.artistPic = existingDeal.artistPic;
+				newDeal.role = existingDeal.role || 'Headliner';
 
-			// --- ADD THESE LINES TO FIX THE NaN ISSUE ---
-			if (newDeal.description && newDeal.description.hotels) {
-				newDeal.description.hotels.nights = newDeal.description.hotels.nights || 0;
-				newDeal.description.hotels.rooms = newDeal.description.hotels.rooms || 0;
-				newDeal.description.hotels.suites = newDeal.description.hotels.suites || 0;
-			}
-			// --------------------------------------------
-			if (newDeal.w_tax_amount === undefined) newDeal.w_tax_amount = 24;
-
-			// Handle legacy deals for retroactive bonuses
-			if (!newDeal.details) {
-				// Fallback if details is completely missing (e.g. was a Flat deal)
-				newDeal.details = {
-					metricType: '% of Net',
-					metricAmount: 0,
-					afterType: 'Costs',
-					splitPointAmount: 0,
-					retroactiveBonusEnabled: false,
-					retroactiveSwitchesAt: '% Sell Through',
-					retroactiveBonuses: [
-						{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
-					],
-					bonuses: [
-						{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
-					]
-				} as DealDetailsInfo;
+				selectedArtist = {
+					name: newDeal.artistName,
+					id: newDeal.artistId,
+					picture: newDeal.artistPic,
+					isCustom: false
+				};
+				displayAmount = formatMoney(newDeal.guaranteeAmount);
 			} else {
-				if (newDeal.details.retroactiveBonusEnabled === undefined)
-					newDeal.details.retroactiveBonusEnabled = false;
-				if (!newDeal.details.retroactiveSwitchesAt)
-					newDeal.details.retroactiveSwitchesAt = '% Sell Through';
-				if (
-					!newDeal.details.retroactiveBonuses ||
-					newDeal.details.retroactiveBonuses.length === 0
-				) {
-					newDeal.details.retroactiveBonuses = [
-						{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
-					];
-				}
-			}
+				newDeal = JSON.parse(JSON.stringify(existingDeal));
 
-			selectedArtist = {
-				name: newDeal.artistName,
-				id: newDeal.artistId,
-				picture: newDeal.artistPic,
-				isCustom: false
-			};
-			displayAmount = formatMoney(newDeal.guaranteeAmount);
+				// Default deal currency to USD for legacy deals saved before the toggle existed.
+				if (!newDeal.dealCurrency) newDeal.dealCurrency = 'USD';
+
+				// ADD THESE LINES FOR CAD TAX FALLBACKS
+				if (!newDeal.cad_tax_type) newDeal.cad_tax_type = 'Flat';
+				if (newDeal.cad_qst === undefined) newDeal.cad_qst = false;
+				if (newDeal.cad_gst === undefined) newDeal.cad_gst = false;
+
+				// --- ADD THESE LINES TO FIX THE NaN ISSUE ---
+				if (newDeal.description && newDeal.description.hotels) {
+					newDeal.description.hotels.nights = newDeal.description.hotels.nights || 0;
+					newDeal.description.hotels.rooms = newDeal.description.hotels.rooms || 0;
+					newDeal.description.hotels.suites = newDeal.description.hotels.suites || 0;
+				}
+				// --------------------------------------------
+
+				// Legacy fallback for the stored-only fields (added later, so old
+				// deals won't have them — binding undefined would crash Svelte).
+				if (newDeal.description) {
+					if (!newDeal.description.setTimes)
+						newDeal.description.setTimes = { enabled: false, from: '', to: '' };
+					if (!newDeal.description.billing)
+						newDeal.description.billing = { enabled: false, notes: '' };
+					if (!newDeal.description.bookingNotes)
+						newDeal.description.bookingNotes = { enabled: false, notes: '' };
+				}
+				if (newDeal.w_tax_amount === undefined) newDeal.w_tax_amount = 24;
+
+				// Handle legacy deals for retroactive bonuses
+				if (!newDeal.details) {
+					// Fallback if details is completely missing (e.g. was a Flat deal)
+					newDeal.details = {
+						metricType: '% of Net',
+						metricAmount: 0,
+						afterType: 'Costs',
+						splitPointAmount: 0,
+						retroactiveBonusEnabled: false,
+						retroactiveSwitchesAt: '% Sell Through',
+						retroactiveBonuses: [
+							{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
+						],
+						bonuses: [
+							{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
+						]
+					} as DealDetailsInfo;
+				} else {
+					if (newDeal.details.retroactiveBonusEnabled === undefined)
+						newDeal.details.retroactiveBonusEnabled = false;
+					if (!newDeal.details.retroactiveSwitchesAt)
+						newDeal.details.retroactiveSwitchesAt = '% Sell Through';
+					if (
+						!newDeal.details.retroactiveBonuses ||
+						newDeal.details.retroactiveBonuses.length === 0
+					) {
+						newDeal.details.retroactiveBonuses = [
+							{ id: crypto.randomUUID(), switchesAt: '% Sell Through', bonusAmount: 0, atAmount: 0 }
+						];
+					}
+				}
+
+				selectedArtist = {
+					name: newDeal.artistName,
+					id: newDeal.artistId,
+					picture: newDeal.artistPic,
+					isCustom: false
+				};
+				displayAmount = formatMoney(newDeal.guaranteeAmount);
+			}
 		} else {
 			displayAmount = formatMoney(newDeal.guaranteeAmount);
 		}
@@ -180,7 +233,7 @@
 				minimumFractionDigits: 2,
 				maximumFractionDigits: 2
 			});
-		const guar = `$${formatNum(newDeal.guaranteeAmount)}`;
+		const guar = `${newDeal.dealCurrency || 'USD'} $${formatNum(newDeal.guaranteeAmount)}`;
 
 		let prefix = '';
 		if (newDeal.dealType === 'Door Deal') prefix = 'Door Deal of';
@@ -194,8 +247,7 @@
 			if (newDeal.dealType === 'Door Deal') {
 				baseSummary = `${prefix} ${formatNum(amount)}% of Net Revenue after ${venueCurrency}$${formatNum(afterVal)}`;
 			} else {
-				const afterLabel =
-					afterType === 'Costs' ? 'Costs' : `${venueCurrency}$${formatNum(afterVal)}`;
+				const afterLabel = `${venueCurrency}$${formatNum(afterVal)}`;
 				baseSummary = `${prefix} ${formatNum(amount)}% of Net Revenue after ${afterLabel}`;
 			}
 		} else if (newDeal.details.metricType === '% of Net Gross') {
@@ -252,6 +304,13 @@
 		payload.artistId = selectedArtist?.id || 'NULL';
 		payload.artistPic = selectedArtist?.picture || 'NULL';
 
+		// Save the exchange rate at deal creation (Confirmed / Hold workflow).
+		// Editing an existing deal preserves its previously saved rate; the rate
+		// can later be refreshed via the Offer flow in the Deals tab.
+		if (!Number(payload.savedExchangeRate)) {
+			payload.savedExchangeRate = Number(currentExchangeRate) || 1;
+			payload.savedExchangeRateAt = new Date().toISOString();
+		}
 
 		const formattedGuarantee = new Intl.NumberFormat('en-US', {
 			minimumFractionDigits: 2,
@@ -259,7 +318,10 @@
 		}).format(Number(payload.guaranteeAmount || 0));
 
 		payload.summaryText =
-			dealSummary || (payload.dealType === 'Flat' ? `$${formattedGuarantee} Flat Deal` : '');
+			dealSummary ||
+			(payload.dealType === 'Flat'
+				? `${payload.dealCurrency || 'USD'} $${formattedGuarantee} Flat Deal`
+				: '');
 
 		if (payload.dealType === 'Flat') {
 			delete payload.details;
@@ -311,6 +373,7 @@
 	let activeDateId: string | null = null;
 	let calMonth = new Date().getMonth();
 	let calYear = new Date().getFullYear();
+
 	$: calDays = (() => {
 		const firstDay = new Date(calYear, calMonth, 1).getDay();
 		const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
@@ -318,6 +381,7 @@
 			i < firstDay ? null : i - firstDay + 1
 		);
 	})();
+
 	const monthNames = [
 		'January',
 		'February',
@@ -410,9 +474,9 @@
 				<label
 					for="guaranteeAmount"
 					class="block text-xs text-gray2 mb-2 font-bold uppercase tracking-wide"
-					>Guarantee Amount (USD)</label
+					>Guarantee Amount</label
 				>
-				<div class="relative">
+				<div class="relative flex items-center gap-3">
 					<input
 						id="guaranteeAmount"
 						type="text"
@@ -422,6 +486,27 @@
 						on:blur={handleBlur}
 						class="w-150px bg-navbar rounded-3xl pl-5 pr-2 py-2 text-white focus:outline-none focus:ring-2 focus:ring-lime"
 					/>
+					<div class="inline-flex rounded-full bg-navbar p-1 text-xs font-bold">
+						<button
+							type="button"
+							on:click={() => (newDeal.dealCurrency = 'USD')}
+							class="px-3 py-2.5 rounded-full transition-colors cursor-pointer {newDeal.dealCurrency ===
+							'USD'
+								? 'bg-lime text-black'
+								: 'text-gray2 hover:text-white'}"
+						>
+							USD
+						</button>
+						<button
+							type="button"
+							on:click={() => (newDeal.dealCurrency = 'CAD')}
+							class="px-3 py-2.5 rounded-full transition-colors {newDeal.dealCurrency === 'CAD'
+								? 'bg-lime text-black'
+								: 'text-gray2 hover:text-white'}"
+						>
+							CAD
+						</button>
+					</div>
 				</div>
 				{#if newDeal.guaranteeAmount < 0}
 					<div class="text-problem text-xs mt-2 ml-2 font-medium">Amount cannot be negative</div>
@@ -431,41 +516,153 @@
 	</div>
 
 	<div class="px-2 mt-6">
-		<h3 class="font-bold mb-4 text-gray3">Tax Withholding</h3>
-		<div class="flex flex-col border-b border-[#333] pb-4 bg-navbar py-4 px-4 rounded-2xl">
-			<div class="flex items-center justify-between">
+		<h3 class="font-bold mb-4 text-gray3">Withholding Taxes</h3>
+
+		<div class="flex flex-col border-b border-[#333] pb-4 bg-navbar py-4 px-4 rounded-2xl gap-4">
+			{#if newDeal.dealCurrency === 'USD'}
 				<div class="flex items-center justify-between">
-					<h3 class="font-bold mr-4 py-1 {newDeal.w_tax ? 'text-white' : 'text-gray2/40 italic'}}">
-						{newDeal.w_tax ? 'Subject to Withholding Tax' : 'Not subject to Withholding Tax'}
-					</h3>
-					{#if newDeal.w_tax}
-						<div class="relative w-18">
-							<input
-								id="w_tax_amount"
-								type="number"
-								bind:value={newDeal.w_tax_amount}
-								class="w-full bg-gray1 rounded-3xl pl-4 pr-8 py-1 text-white font-bold focus:outline-none focus:ring-2 focus:ring-lime [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-							/>
-							<span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray2 font-bold">%</span>
+					<div class="flex items-center justify-between w-full">
+						<div class="flex items-center">
+							<h3
+								class="font-bold mr-4 py-1 {newDeal.w_tax ? 'text-white' : 'text-gray2/40 italic'}"
+							>
+								{newDeal.w_tax ? 'Subject to Withholding Tax' : 'Not subject to Withholding Tax'}
+							</h3>
+						</div>
+						<div class="flex items-center gap-4">
+							{#if newDeal.w_tax}
+								<div class="relative w-20">
+									<input
+										id="w_tax_amount"
+										type="number"
+										bind:value={newDeal.w_tax_amount}
+										class="w-full bg-gray1 rounded-3xl pl-4 pr-8 py-1 text-white font-bold focus:outline-none focus:ring-2 focus:ring-lime [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+									/>
+									<span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray2 font-bold"
+										>%</span
+									>
+								</div>
+							{/if}
+							<button
+								type="button"
+								role="switch"
+								aria-checked={newDeal.w_tax}
+								aria-label="Toggle Withholding Tax"
+								on:click={() => (newDeal.w_tax = !newDeal.w_tax)}
+								class="relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-lime {newDeal.w_tax
+									? 'bg-lime'
+									: 'bg-[#444]'}"
+							>
+								<span
+									aria-hidden="true"
+									class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-200 ease-in-out {newDeal.w_tax
+										? 'translate-x-5'
+										: 'translate-x-0'}"
+								></span>
+							</button>
+						</div>
+					</div>
+				</div>
+			{:else}
+				<div class="flex flex-row flex-wrap items-center gap-6">
+					<label class="group flex items-center cursor-pointer relative -ml-2 w-max">
+						<div
+							class="w-10 h-10 rounded-full flex items-center justify-center group-hover:bg-white/5 transition-colors duration-200"
+						>
+							<div
+								class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors duration-200 {newDeal.cad_tax_type ===
+								'Flat'
+									? 'border-lime'
+									: 'border-gray2 group-hover:border-gray-400'}"
+							>
+								{#if newDeal.cad_tax_type === 'Flat'}
+									<div class="w-2.5 h-2.5 bg-lime rounded-full"></div>
+								{/if}
+							</div>
+						</div>
+						<input type="radio" bind:group={newDeal.cad_tax_type} value="Flat" class="hidden" />
+						<span
+							class="ml-1 font-bold {newDeal.cad_tax_type === 'Flat'
+								? 'text-white'
+								: 'text-gray2 group-hover:text-gray-300'} transition-colors duration-200">Flat</span
+						>
+					</label>
+
+					<label class="group flex items-center cursor-pointer relative -ml-2 w-max">
+						<div
+							class="w-10 h-10 rounded-full flex items-center justify-center group-hover:bg-white/5 transition-colors duration-200"
+						>
+							<div
+								class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors duration-200 {newDeal.cad_tax_type ===
+								'Taxes'
+									? 'border-lime'
+									: 'border-gray2 group-hover:border-gray-400'}"
+							>
+								{#if newDeal.cad_tax_type === 'Taxes'}
+									<div class="w-2.5 h-2.5 bg-lime rounded-full"></div>
+								{/if}
+							</div>
+						</div>
+						<input type="radio" bind:group={newDeal.cad_tax_type} value="Taxes" class="hidden" />
+						<span
+							class="ml-1 font-bold {newDeal.cad_tax_type === 'Taxes'
+								? 'text-white'
+								: 'text-gray2 group-hover:text-gray-300'} transition-colors duration-200"
+							>Plus Taxes</span
+						>
+					</label>
+
+					{#if newDeal.cad_tax_type === 'Taxes'}
+						<div class="flex flex-row items-center gap-6" transition:fade={{ duration: 200 }}>
+							<label class="group flex items-center cursor-pointer relative -ml-2 w-max">
+								<div
+									class="w-10 h-10 rounded-full flex items-center justify-center group-hover:bg-white/5 transition-colors duration-200"
+								>
+									<div
+										class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors duration-200 {newDeal.cad_qst
+											? 'border-lime'
+											: 'border-gray2 group-hover:border-gray-400'}"
+									>
+										{#if newDeal.cad_qst}
+											<div class="w-2.5 h-2.5 bg-lime rounded-full"></div>
+										{/if}
+									</div>
+								</div>
+								<input type="checkbox" bind:checked={newDeal.cad_qst} class="hidden" />
+								<span
+									class="ml-1 font-bold {newDeal.cad_qst
+										? 'text-white'
+										: 'text-gray2 group-hover:text-gray-300'} transition-colors duration-200"
+									>+QST 9.975%</span
+								>
+							</label>
+
+							<label class="group flex items-center cursor-pointer relative -ml-2 w-max">
+								<div
+									class="w-10 h-10 rounded-full flex items-center justify-center group-hover:bg-white/5 transition-colors duration-200"
+								>
+									<div
+										class="w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors duration-200 {newDeal.cad_gst
+											? 'border-lime'
+											: 'border-gray2 group-hover:border-gray-400'}"
+									>
+										{#if newDeal.cad_gst}
+											<div class="w-2.5 h-2.5 bg-lime rounded-full"></div>
+										{/if}
+									</div>
+								</div>
+								<input type="checkbox" bind:checked={newDeal.cad_gst} class="hidden" />
+								<span
+									class="ml-1 font-bold {newDeal.cad_gst
+										? 'text-white'
+										: 'text-gray2 group-hover:text-gray-300'} transition-colors duration-200"
+									>+GST 5%</span
+								>
+							</label>
 						</div>
 					{/if}
 				</div>
-				<button
-					type="button"
-					role="switch"
-					aria-checked={newDeal.w_tax}
-					aria-label="Toggle Withholding Tax"
-					on:click={() => (newDeal.w_tax = !newDeal.w_tax)}
-					class="relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-lime
-					{newDeal.w_tax ? 'bg-lime' : 'bg-[#444]'}"
-				>
-					<span
-						aria-hidden="true"
-						class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-200 ease-in-out
-						{newDeal.w_tax ? 'translate-x-5' : 'translate-x-0'}"
-					></span>
-				</button>
-			</div>
+			{/if}
 		</div>
 	</div>
 
@@ -493,6 +690,8 @@
 						bind:details={newDeal.details}
 						dealType={newDeal.dealType}
 						{eventCost}
+						{eventRevenue}
+						{additionalSupport}
 						{venueCurrency}
 					/>
 				</div>
@@ -750,7 +949,7 @@
 				? 'bg-lime text-black hover:opacity-90 cursor-pointer'
 				: 'bg-gray2 text-black/50 cursor-not-allowed opacity-50'}"
 		>
-			{existingDeal ? 'Update Deal' : 'Save Deal'}
+			{existingDeal && !existingDeal.isPendingInfoOnly ? 'Update Deal' : 'Save Deal'}
 		</button>
 	</div>
 </div>

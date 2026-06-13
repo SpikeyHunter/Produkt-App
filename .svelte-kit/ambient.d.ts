@@ -49,6 +49,7 @@ declare module '$env/static/private' {
 	export const TEAM_BOOKING: string;
 	export const TEAM_MARKETING: string;
 	export const TEAM_PRODUCTION: string;
+	export const OPENAI_API_KEY: string;
 	export const AMADEUS_API_KEY: string;
 	export const AMADEUS_API_SECRET: string;
 	export const GOOGLE_CLIENT_ID: string;
@@ -92,6 +93,7 @@ declare module '$env/static/private' {
 	export const npm_config_noproxy: string;
 	export const npm_config_local_prefix: string;
 	export const ENABLE_IDE_INTEGRATION: string;
+	export const COPILOT_DEBUG_NONCE: string;
 	export const USER: string;
 	export const COMMAND_MODE: string;
 	export const npm_config_globalconfig: string;
@@ -240,6 +242,7 @@ declare module '$env/dynamic/private' {
 		TEAM_BOOKING: string;
 		TEAM_MARKETING: string;
 		TEAM_PRODUCTION: string;
+		OPENAI_API_KEY: string;
 		AMADEUS_API_KEY: string;
 		AMADEUS_API_SECRET: string;
 		GOOGLE_CLIENT_ID: string;
@@ -283,6 +286,7 @@ declare module '$env/dynamic/private' {
 		npm_config_noproxy: string;
 		npm_config_local_prefix: string;
 		ENABLE_IDE_INTEGRATION: string;
+		COPILOT_DEBUG_NONCE: string;
 		USER: string;
 		COMMAND_MODE: string;
 		npm_config_globalconfig: string;

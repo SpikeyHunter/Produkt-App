@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition';
+	import { computeEventCosts } from '$lib/components/calendar/page/tabs/deals/dealEngine';
 	import type {
 		DealDetailsInfo,
 		DealTypeOption,
@@ -9,27 +10,24 @@
 	export let details: DealDetailsInfo;
 	export let dealType: DealTypeOption;
 	export let eventCost: any = null;
+	export let eventRevenue: any = null;
+	export let additionalSupport: number | string = 0;
 	export let venueCurrency: string = 'CAD';
 
-	// --- BULLETPROOF DATA PARSING WITH LOGS ---
+	// Calculated total event costs (fixed + variable + support), using ACTUAL
+	// figures so it matches the settlement. Shared with the deal engine.
 	$: totalCost = (() => {
 		try {
-			if (!eventCost) {
-				return 0;
-			}
-
-			let parsed = typeof eventCost === 'string' ? JSON.parse(eventCost) : eventCost;
-
-			// Catch double-stringified JSONB from the database
-			if (typeof parsed === 'string') {
-				parsed = JSON.parse(parsed);
-			}
-
-			const extractedArray = parsed?.total_cost;
-
-			const finalValue = extractedArray?.[0] || 0;
-
-			return finalValue;
+			const parse = (raw: any) => {
+				if (!raw) return null;
+				let p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+				if (typeof p === 'string') p = JSON.parse(p);
+				return p;
+			};
+			const cost = parse(eventCost);
+			const revenue = parse(eventRevenue);
+			const support = Number(additionalSupport) || 0;
+			return computeEventCosts(cost, revenue, support, { useActual: true }).total;
 		} catch (e) {
 			return 0;
 		}

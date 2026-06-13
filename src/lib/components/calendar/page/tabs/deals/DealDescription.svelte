@@ -11,6 +11,28 @@
 	function increment(section: 'hotels', field: 'nights' | 'rooms' | 'suites' | 'custom_amount') {
 		description[section][field]++;
 	}
+
+	// Defensive init so binding never hits an undefined object (legacy deals).
+	$: if (description && !description.setTimes)
+		description.setTimes = { enabled: false, from: '', to: '' };
+	$: if (description && !description.billing)
+		description.billing = { enabled: false, notes: '' };
+	$: if (description && !description.bookingNotes)
+		description.bookingNotes = { enabled: false, notes: '' };
+
+	// Derive set length (in minutes) from the two 24h "HH:MM" time inputs.
+	// Handles sets that cross midnight (e.g. 11:30PM -> 12:30AM).
+	function computeSetLength(from: string, to: string): number | null {
+		if (!from || !to) return null;
+		const [fh, fm] = from.split(':').map(Number);
+		const [th, tm] = to.split(':').map(Number);
+		if ([fh, fm, th, tm].some((n) => Number.isNaN(n))) return null;
+		let mins = th * 60 + tm - (fh * 60 + fm);
+		if (mins < 0) mins += 24 * 60;
+		return mins;
+	}
+
+	$: setLengthMins = computeSetLength(description?.setTimes?.from, description?.setTimes?.to);
 </script>
 
 <div class="mt-8">
@@ -221,6 +243,139 @@
 				{:else}
 					<div class="col-start-1 row-start-1 w-full h-full flex items-center justify-center" transition:fade={{ duration: 200 }}>
 						<span class="text-gray2 font-bold italic pb-12">Not Applicable</span>
+					</div>
+				{/if}
+			</div>
+		</div>
+	</div>
+
+	<div class="flex flex-col lg:flex-row gap-6 text-sm bg-navbar p-4 rounded-2xl items-stretch mt-6">
+		<!-- Set Times -->
+		<div class="w-full lg:w-[240px] flex flex-col min-h-[160px]">
+			<div class="flex items-center justify-between border-b border-[#333] pb-4 mb-4 shrink-0">
+				<h4 class="font-bold text-white whitespace-nowrap">Set Times</h4>
+				<button
+					type="button"
+					role="switch"
+					aria-checked={description.setTimes.enabled}
+					aria-label="Toggle Set Times section"
+					on:click={() => (description.setTimes.enabled = !description.setTimes.enabled)}
+					class="relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-lime
+                    {description.setTimes.enabled ? 'bg-lime' : 'bg-[#444]'}"
+				>
+					<span
+						aria-hidden="true"
+						class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-200 ease-in-out
+                        {description.setTimes.enabled ? 'translate-x-5' : 'translate-x-0'}"
+					></span>
+				</button>
+			</div>
+			<div class="grid items-start flex-1">
+				{#if description.setTimes.enabled}
+					<div class="col-start-1 row-start-1 w-full" transition:slide={{ duration: 300 }}>
+						<div class="flex items-end gap-3">
+							<div class="flex-1">
+								<span class="block text-[11px] font-bold text-gray2 mb-1 uppercase tracking-wide">From</span>
+								<input
+									type="time"
+									bind:value={description.setTimes.from}
+									class="w-full bg-black/20 rounded-xl px-3 py-2 text-sm font-bold text-white focus:ring-1 focus:ring-lime outline-none [color-scheme:dark]"
+								/>
+							</div>
+							<span class="text-gray2 font-bold pb-2">-</span>
+							<div class="flex-1">
+								<span class="block text-[11px] font-bold text-gray2 mb-1 uppercase tracking-wide">To</span>
+								<input
+									type="time"
+									bind:value={description.setTimes.to}
+									class="w-full bg-black/20 rounded-xl px-3 py-2 text-sm font-bold text-white focus:ring-1 focus:ring-lime outline-none [color-scheme:dark]"
+								/>
+							</div>
+						</div>
+						<div class="flex items-center justify-between mt-4 px-1">
+							<span class="text-gray2 font-bold">Length</span>
+							<span class="font-bold {setLengthMins !== null ? 'text-lime' : 'text-gray2/50'}">
+								{setLengthMins !== null ? `${setLengthMins} min` : '—'}
+							</span>
+						</div>
+					</div>
+				{:else}
+					<div class="col-start-1 row-start-1 w-full h-full flex items-center justify-center" transition:fade={{ duration: 200 }}>
+						<span class="text-gray2 font-bold italic pb-8">Not Applicable</span>
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		<!-- Billing -->
+		<div class="w-full lg:w-[260px] flex flex-col min-h-[160px]">
+			<div class="flex items-center justify-between border-b border-[#333] pb-4 mb-4 shrink-0">
+				<h4 class="font-bold text-white whitespace-nowrap">Billing</h4>
+				<button
+					type="button"
+					role="switch"
+					aria-checked={description.billing.enabled}
+					aria-label="Toggle Billing section"
+					on:click={() => (description.billing.enabled = !description.billing.enabled)}
+					class="relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-lime
+                    {description.billing.enabled ? 'bg-lime' : 'bg-[#444]'}"
+				>
+					<span
+						aria-hidden="true"
+						class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-200 ease-in-out
+                        {description.billing.enabled ? 'translate-x-5' : 'translate-x-0'}"
+					></span>
+				</button>
+			</div>
+			<div class="grid items-start w-full flex-1">
+				{#if description.billing.enabled}
+					<div class="col-start-1 row-start-1 w-full h-full" transition:fade={{ duration: 200 }}>
+						<textarea
+							bind:value={description.billing.notes}
+							placeholder="Enter billing notes"
+							class="w-full h-[120px] bg-black/20 placeholder:text-gray2/50 rounded-2xl px-4 py-3 text-sm font-bold text-white focus:ring-1 focus:ring-lime outline-none resize-none"
+						></textarea>
+					</div>
+				{:else}
+					<div class="col-start-1 row-start-1 w-full h-full flex items-center justify-center" transition:fade={{ duration: 200 }}>
+						<span class="text-gray2 font-bold italic pb-8">Not Applicable</span>
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		<!-- Booking Notes -->
+		<div class="w-full lg:flex-1 flex flex-col min-h-[160px]">
+			<div class="flex items-center justify-between border-b border-[#333] pb-4 mb-4 shrink-0">
+				<h4 class="font-bold text-white whitespace-nowrap">Booking Notes</h4>
+				<button
+					type="button"
+					role="switch"
+					aria-checked={description.bookingNotes.enabled}
+					aria-label="Toggle Booking Notes section"
+					on:click={() => (description.bookingNotes.enabled = !description.bookingNotes.enabled)}
+					class="relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-lime
+                    {description.bookingNotes.enabled ? 'bg-lime' : 'bg-[#444]'}"
+				>
+					<span
+						aria-hidden="true"
+						class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-200 ease-in-out
+                        {description.bookingNotes.enabled ? 'translate-x-5' : 'translate-x-0'}"
+					></span>
+				</button>
+			</div>
+			<div class="grid items-start w-full flex-1">
+				{#if description.bookingNotes.enabled}
+					<div class="col-start-1 row-start-1 w-full h-full" transition:fade={{ duration: 200 }}>
+						<textarea
+							bind:value={description.bookingNotes.notes}
+							placeholder="Add booking notes"
+							class="w-full h-[120px] bg-black/20 placeholder:text-gray2/50 rounded-2xl px-4 py-3 text-sm font-bold text-white focus:ring-1 focus:ring-lime outline-none resize-none"
+						></textarea>
+					</div>
+				{:else}
+					<div class="col-start-1 row-start-1 w-full h-full flex items-center justify-center" transition:fade={{ duration: 200 }}>
+						<span class="text-gray2 font-bold italic pb-8">Not Applicable</span>
 					</div>
 				{/if}
 			</div>
