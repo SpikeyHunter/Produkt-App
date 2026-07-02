@@ -10,7 +10,7 @@
       <div>• We will provide exemption letters that allow artists and crew to perform or work in Canada without a work visa.
 These letters do not grant entry to Canada — they only apply after you are admitted at the border.</div>
 <div>• If you normally require an eTA (Electronic Travel Authorization) to fly to Canada, you must obtain one in advance of travel.
-Canadian and U.S. passport holders do not require an eTA.</div>
+Canadian and U.S. passport holders do not require an eTA. !!Please make sure you travel with the passport attached to your eTA!!</div>
       <div>
         • If you are unsure of your eligibility, please confirm with your airline or check the official Canadian government website: 
         <a 

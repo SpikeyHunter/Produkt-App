@@ -86,68 +86,84 @@
 	}
 
 	async function saveChanges() {
-		const addedRooms = draftRooms.filter((r) => !uniqueRooms.includes(r));
-		const removedRooms = uniqueRooms.filter((r) => !draftRooms.includes(r));
+    const addedRooms = draftRooms.filter((r) => !uniqueRooms.includes(r));
+    const removedRooms = uniqueRooms.filter((r) => !draftRooms.includes(r));
 
-		let needsInvalidate = false;
+    let needsInvalidate = false;
+    let redirectShortId = null;
+    let currentEventDeleted = false;
 
-		// 1. Process Removals
-		if (removedRooms.length > 0) {
-			const idsToDelete = groupEvents
-				.filter((e) => removedRooms.includes(`${e.venue.category}:::${e.venue.room}`))
-				.map((e) => e.id);
+    // 1. Process Removals
+    if (removedRooms.length > 0) {
+        const idsToDelete = groupEvents
+            .filter((e) => removedRooms.includes(`${e.venue.category}:::${e.venue.room}`))
+            .map((e) => e.id);
 
-			if (idsToDelete.length > 0) {
-				await supabase.from('calendar_events').delete().in('id', idsToDelete);
-				needsInvalidate = true;
+        if (idsToDelete.length > 0) {
+            await supabase.from('calendar_events').delete().in('id', idsToDelete);
+            needsInvalidate = true;
 
-				if (idsToDelete.includes(event.id)) {
-					const survivor = groupEvents.find((e) => !idsToDelete.includes(e.id));
+            // Check if the row we are currently looking at was just deleted
+            if (idsToDelete.includes(event.id)) {
+                currentEventDeleted = true;
+                // Try to find a sibling room that wasn't deleted to fall back on
+                const survivor = groupEvents.find((e) => !idsToDelete.includes(e.id));
+                if (survivor) {
+                    redirectShortId = survivor.short_id;
+                }
+            }
+        }
+    }
 
-					if (survivor) {
-						goto(`/calendar/${survivor.short_id}`);
-						closeMenu();
-						return;
-					}
-				}
-			}
-		}
+    // 2. Process Additions
+    if (addedRooms.length > 0) {
+        const uniqueDates = Array.from(new Set(groupEvents.map((e) => e.date)));
+        let newRows = [];
 
-		// 2. Process Additions
-		if (addedRooms.length > 0) {
-			const uniqueDates = Array.from(new Set(groupEvents.map((e) => e.date)));
+        for (const roomKey of addedRooms) {
+            const [vName, rName] = roomKey.split(':::');
+            const rowsForRoom = uniqueDates.map((date) => ({
+                group_id: event.group_id,
+                date: date,
+                status: event.status === 'CONFIRMED' ? 'CONFIRMED' : 'HOLD',
+                hold_level: event.status === 'CONFIRMED' ? null : 'P',
+                venue: { category: vName, room: rName },
+                time: event.time,
+                event_details: event.event_details || {}
+            }));
+            newRows.push(...rowsForRoom);
+        }
 
-			let newRows = [];
+        if (newRows.length > 0) {
+            // FIX: Chain .select() to the insert query so Supabase returns the newly generated short_ids
+            const { data: insertedData, error } = await supabase.from('calendar_events').insert(newRows).select();
+            
+            if (error) {
+                console.error('Error inserting rooms:', error);
+            } else {
+                needsInvalidate = true;
+                // If the active row was deleted and we didn't have a survivor, grab the new row's short_id
+                if (currentEventDeleted && !redirectShortId && insertedData && insertedData.length > 0) {
+                    redirectShortId = insertedData[0].short_id;
+                }
+            }
+        }
+    }
 
-			for (const roomKey of addedRooms) {
-				const [vName, rName] = roomKey.split(':::');
+    closeMenu();
 
-				const rowsForRoom = uniqueDates.map((date) => ({
-					group_id: event.group_id,
-					date: date,
-					status: event.status === 'CONFIRMED' ? 'CONFIRMED' : 'HOLD',
-					hold_level: event.status === 'CONFIRMED' ? null : 'P',
-					venue: { category: vName, room: rName },
-					time: event.time,
-					event_details: event.event_details || {}
-				}));
-
-				newRows.push(...rowsForRoom);
-			}
-
-			if (newRows.length > 0) {
-				const { error } = await supabase.from('calendar_events').insert(newRows);
-				if (error) console.error('Error inserting rooms:', error);
-				else needsInvalidate = true;
-			}
-		}
-
-		if (needsInvalidate) {
-			invalidateAll();
-		}
-
-		closeMenu();
-	}
+    // 3. Handle Navigation Safely
+    if (redirectShortId) {
+        // We deleted the active row, navigate away to a valid row (prevents the 404)
+        goto(`/calendar/${redirectShortId}`);
+    } else if (currentEventDeleted) {
+        // Edge case: They deleted all rooms and added none. Fallback to main calendar.
+        goto(`/calendar`); 
+    } else if (needsInvalidate) {
+        // They just added a room without deleting the current one. Safe to refresh in place.
+        invalidateAll();
+    }
+}
 
 	function handleWindowClick(e: MouseEvent) {
 		if (showPopover && popupRef && !popupRef.contains(e.target as Node)) {

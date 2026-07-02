@@ -178,6 +178,10 @@
 							<span class="font-bold text-white">Vehicle:</span>
 							{advanceSettings.vehicle}
 						</div>
+						<div class="text-gray2">
+							<span class="font-bold text-white">Pickup Location:</span>
+							Please text driver when exiting airport. He will meet you at zone D, exit door 26
+						</div>
 						{#if hasUber}
 							<div class="text-gray2 pt-2">
 								<span class="font-bold text-white">UBER:</span>

@@ -390,10 +390,8 @@
 	</div>
 {/if}
 
-<style lang="postcss">
-	@tailwind base;
-	@tailwind components;
-	@tailwind utilities;
+<style lang="">
+	@import "tailwindcss";
 
 	/* Artist highlight styles */
 	.artist-highlight {

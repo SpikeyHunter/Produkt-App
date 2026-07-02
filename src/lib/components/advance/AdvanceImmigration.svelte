@@ -199,7 +199,7 @@
 			
 			<div class="flex items-center gap-3 text-sm">
 				<span class="font-semibold min-w-[120px] text-gray3">Role List</span>
-				<div class="bg-gray2 text-sm text-black rounded-xl px-3 py-1 font-bold text-xs hover:bg-lime hover:text-black transition-all duration-200 cursor-pointer flex items-center justify-between gap-2">
+				<div class="bg-gray2 text-sm text-black rounded-xl px-3 py-1 font-bold hover:bg-lime hover:text-black transition-all duration-200 cursor-pointer flex items-center justify-between gap-2">
                     <span class="text-black">{roleListStatus}</span>
                 </div>
 			</div>

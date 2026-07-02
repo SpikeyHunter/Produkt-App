@@ -51,7 +51,7 @@
 </script>
 
 <button
-	class="relative w-full aspect-[3/4] hover:cursor-pointer rounded-2xl overflow-hidden border transition-all duration-200 group flex flex-col text-left
+	class="artist-card relative w-full min-w-0 min-h-0 hover:cursor-pointer rounded-2xl overflow-hidden border transition-all duration-200 group flex flex-col text-left
     {selected
 		? 'border-lime shadow-[0_0_0_2px_rgba(132,204,22,1)]'
 		: 'border-gray1 hover:border-gray2 hover:shadow-lg'}"
@@ -62,6 +62,8 @@
 			<img
 				src={artist.event_flyer}
 				alt=""
+				loading="lazy"
+				decoding="async"
 				class="w-full h-full object-cover opacity-30 group-hover:opacity-20 transition-opacity"
 			/>
 			<div class="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30"></div>
@@ -135,3 +137,16 @@
 		</div>
 	</div>
 </button>
+
+<style>
+	/* Explicit aspect-ratio defined in CSS (not as a Tailwind arbitrary class) so it
+	   is guaranteed to be present in the stylesheet from the very first paint and
+	   can never be skipped/late due to JIT/purge timing. This, combined with
+	   min-width: 0 / min-height: 0 above, stops the grid item from ever sizing
+	   itself off the <img>'s natural (intrinsic) pixel dimensions before layout
+	   settles - which is what causes a card to "zoom" to near full size on a
+	   first/cold render and only look right after a refresh. */
+	.artist-card {
+		aspect-ratio: 3 / 4;
+	}
+</style>

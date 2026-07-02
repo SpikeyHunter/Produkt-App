@@ -658,7 +658,7 @@
 								</div>
 							{:else}
 								<div
-									class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 items-start auto-rows-max"
+									class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 items-start auto-rows-max min-w-0"
 								>
 									{#each singleEventArtists as artist (artist.ui_id)}
 										<ArtistListCard
@@ -679,7 +679,7 @@
 									</div>
 								{/if}
 								<div
-									class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 mb-8 items-start auto-rows-max"
+									class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 mb-8 items-start auto-rows-max min-w-0"
 								>
 									{#each liveArtists as artist (artist.ui_id)}
 										<ArtistListCard
@@ -702,7 +702,7 @@
 									</div>
 								{/if}
 								<div
-									class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 items-start auto-rows-max"
+									class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 items-start auto-rows-max min-w-0"
 								>
 									{#each pastArtists as artist (artist.ui_id)}
 										<div class="opacity-100 hover:opacity-100 transition-opacity">
