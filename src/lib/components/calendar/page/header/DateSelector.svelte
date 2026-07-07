@@ -4,6 +4,7 @@
 	import { supabase } from '$lib/supabase';
 	import type { CalendarEvent } from '$lib/types/calendar-types';
 	import CalendarModify from '../../CalendarModify.svelte';
+	import { syncLinkedDateFromCalendar } from '$lib/services/calendarEventLink';
 
 	export let event: CalendarEvent;
 	export let groupEvents: CalendarEvent[];
@@ -158,6 +159,8 @@
 			isSavingModification = false;
 			return; // Stops execution on failure
 		}
+		// Push the new confirmed date onto the linked events row (if any)
+		await syncLinkedDateFromCalendar(event.group_id);
 
 		// --- Notifications block ---
 		if (sendEmail || sendSms) {

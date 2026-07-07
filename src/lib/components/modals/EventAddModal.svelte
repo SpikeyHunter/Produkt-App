@@ -75,9 +75,11 @@
 			let query = supabase
 				.from('events')
 				.select('event_id, event_name, event_date, event_flyer, event_venue, is_custom');
-			
+
 			if (showPastEvents) {
-				query = query.in('event_status', ['LIVE', 'PAST']).order('event_date', { ascending: false });
+				query = query
+					.in('event_status', ['LIVE', 'PAST'])
+					.order('event_date', { ascending: false });
 			} else {
 				query = query.eq('event_status', 'LIVE').order('event_date', { ascending: true });
 			}
@@ -144,6 +146,8 @@
 		searchValue = event.event_name;
 		showEventDropdown = false;
 		isCustomEvent = event.is_custom || false;
+		// Pre-fill the date for custom events so it isn't asked for again
+		customEventDate = isCustomEvent ? event.event_date || '' : '';
 
 		// If the selected event has a venue, pre-populate the venue fields.
 		if (event.event_venue) {
@@ -225,10 +229,10 @@
 			customVenue = '';
 		}
 	}
-	
+
 	function toggleVenueDropdown() {
-    showVenueDropdown = !showVenueDropdown;
-}
+		showVenueDropdown = !showVenueDropdown;
+	}
 
 	function closeModal() {
 		dispatch('close');
@@ -297,7 +301,7 @@
 					currentEventId,
 					artist.name.trim(),
 					artistType || undefined,
-					undefined, 
+					undefined,
 					undefined,
 					undefined
 				);
@@ -321,7 +325,6 @@
 		validArtists.length > 0 &&
 		(venue !== 'Other' || customVenue.trim()) &&
 		venue.trim();
-
 </script>
 
 <svelte:window on:click={handleClickOutside} />
@@ -341,10 +344,21 @@
 					<p class="font-normal text-lime">Search Events</p>
 					<label class="flex items-center gap-2 cursor-pointer relative z-10">
 						<span class="text-xs text-gray2 font-bold uppercase tracking-wider">Show Past</span>
-						<div class="relative w-8 h-4 bg-gray1 rounded-full transition-colors duration-200" class:bg-lime={showPastEvents}>
-							<div class="absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200" class:translate-x-4={showPastEvents}></div>
+						<div
+							class="relative w-8 h-4 bg-gray1 rounded-full transition-colors duration-200"
+							class:bg-lime={showPastEvents}
+						>
+							<div
+								class="absolute left-0.5 top-0.5 w-3 h-3 bg-white rounded-full transition-transform duration-200"
+								class:translate-x-4={showPastEvents}
+							></div>
 						</div>
-						<input type="checkbox" class="sr-only" bind:checked={showPastEvents} on:change={loadEvents} />
+						<input
+							type="checkbox"
+							class="sr-only"
+							bind:checked={showPastEvents}
+							on:change={loadEvents}
+						/>
 					</label>
 				</div>
 				<div class="relative">

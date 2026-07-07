@@ -13,6 +13,7 @@
 	import CalendarCopyHold from '$lib/components/calendar/CalendarCopyHold.svelte';
 	import { calculateHoldShifts } from '$lib/utils/holdManager';
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
+	import { syncConfirmedShowToEvents } from '$lib/services/calendarEventLink';
 
 	export let show: boolean;
 	export let event: CalendarEvent | null;
@@ -533,6 +534,17 @@
 				await syncEventToTechSchedule(updatedEventToSync, 'CONFIRMED');
 			} catch (syncErr) {
 				console.error('Tech Schedule Sync Failed:', syncErr);
+			}
+
+			try {
+				await syncConfirmedShowToEvents({
+					groupId: localEvent.group_id,
+					title: localEvent.title,
+					date: localEvent.date,
+					type: localEvent.details?.type
+				});
+			} catch (linkErr) {
+				console.error('Calendar Event Link failed:', linkErr);
 			}
 
 			// 2. Dispatch Emails and SMS

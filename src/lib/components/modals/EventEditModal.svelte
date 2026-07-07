@@ -223,24 +223,84 @@
 		showVenueDropdown = !showVenueDropdown;
 	}
 
-	// 2. TRANSFER FUNCTION (Events Table)
-	async function transferEventData(oldId: number, newId: number) {
-		if (!oldId || !newId || oldId === newId || oldId === -1) return;
+	// 2. TRANSFER FUNCTION (Events Table) — copies content fields + date + link,
+	// but NEVER the flyer or identity fields (those stay Tixr-authoritative).
+	async function transferEventData(oldId: number, newId: number): Promise<boolean> {
+		if (!oldId || !newId || oldId === newId || oldId === -1) return true; // nothing to do
+
 		console.log(`[Transfer] Moving base event data from ${oldId} to ${newId}`);
 		try {
+			// maybeSingle (not single): if the old event_id was never backed by
+			// its own `events` row — it only ever existed via events_advance
+			// references — there is legitimately nothing to transfer. .single()
+			// throws/406s on 0 rows and would wrongly abort the whole save for
+			// what is actually a valid, harmless case.
 			const { data: oldData, error: fetchError } = await supabase
 				.from('events')
-				.select(
-					'event_genre, timetable, timetable_active, event_venue, tech_mail, vj_mail, crew, email_data, calendar_link'
-				)
+				.select('*')
 				.eq('event_id', oldId)
-				.single();
-			if (oldData && !fetchError) {
-				await supabase.from('events').update(oldData).eq('event_id', newId);
-				console.log('[Transfer] Success');
+				.maybeSingle();
+
+			if (fetchError) {
+				console.error('[Transfer] Could not fetch old event row:', fetchError);
+				return false;
 			}
+
+			if (!oldData) {
+				console.log(
+					`[Transfer] No events row found for old event_id ${oldId} — nothing to transfer, continuing.`
+				);
+				return true;
+			}
+
+			// Identity / Tixr-authoritative / audit columns — NEVER copied.
+			// event_flyer explicitly excluded: real Tixr flyer wins over the
+			// custom row's (usually empty) flyer.
+			const {
+				event_id,
+				event_name,
+				event_status,
+				event_flyer,
+				is_custom,
+				event_updated,
+				event_order_updated,
+				event_attendance_updated,
+				event_sales_updated,
+				...carryOver
+			} = oldData;
+			// carryOver now includes: event_date, calendar_link, event_genre,
+			// event_tags, timetable, timetable_active, tech_mail, vj_mail, crew,
+			// email_data, settimes_display, stage_type, color, pinned.
+
+			// 🔑 Free the OLD row's link first — calendar_link is ~1:1, so writing
+			// it onto the new row while the old row still holds it can violate a
+			// unique constraint and silently no-op the whole update.
+			if (carryOver.calendar_link) {
+				const { error: unlinkError } = await supabase
+					.from('events')
+					.update({ calendar_link: null })
+					.eq('event_id', oldId);
+				if (unlinkError) {
+					console.error('[Transfer] Failed to clear old row link:', unlinkError);
+					return false;
+				}
+			}
+
+			const { error: updateError } = await supabase
+				.from('events')
+				.update(carryOver)
+				.eq('event_id', newId);
+
+			if (updateError) {
+				console.error('[Transfer] FAILED to copy fields to new event:', updateError);
+				return false;
+			}
+
+			console.log('[Transfer] Success — date, link, and content fields copied.');
+			return true;
 		} catch (err) {
 			console.error('[Transfer] Error:', err);
+			return false;
 		}
 	}
 
@@ -294,64 +354,106 @@
 			// === SCENARIO 1: MOVING TO A NEW EVENT ID (CLONE STRATEGY) ===
 			if (!isNaN(oldId) && oldId !== -1 && oldId !== newId) {
 				console.log('[Save] Detected Event ID change. Starting Clone Strategy...');
-
-				await transferEventData(oldId, newId);
-
-				const { data: oldRecord, error: fetchError } = await supabase
-					.from('events_advance')
-					.select('*')
-					.eq('event_id', oldId)
-					.eq('artist_name', originalArtistName)
-					.single();
-
-				if (fetchError || !oldRecord) {
-					throw new Error('Could not find original record to clone.');
+				const transferOk = await transferEventData(oldId, newId);
+				if (!transferOk) {
+					throw new Error(
+						'Failed to transfer event data (date/link/fields) to the new event. Aborting before touching the old row.'
+					);
 				}
 
-				const { data: oldContract } = await supabase
-					.from('events_contract')
-					.select('*')
-					.eq('advance_id', oldRecord.id)
-					.single();
-
-				const { id, created_at, updated_at, contract_id, ...dataToKeep } = oldRecord;
-				const newRecord = {
-					...dataToKeep,
-					event_id: newId,
-					artist_name: artistName.trim(),
-					artist_type: finalArtistType
-				};
-
-				const { data: newAdvance, error: insertError } = await supabase
+				// Fetch EVERY advance row tied to the old event — not just the
+				// artist currently being edited. The old `events` row gets
+				// deleted at the end of this block; if a foreign key from
+				// events_advance -> events cascades on delete, any row left
+				// behind here would be silently wiped out along with it. So we
+				// clone all of them up front, then explicitly delete all of them
+				// before ever touching the old events row.
+				const { data: oldRecords, error: fetchAllError } = await supabase
 					.from('events_advance')
-					.insert(newRecord)
-					.select()
-					.single();
+					.select('*')
+					.eq('event_id', oldId);
 
-				if (insertError || !newAdvance) throw insertError;
-				console.log('[Save] Cloned advance record inserted successfully.');
+				if (fetchAllError || !oldRecords || oldRecords.length === 0) {
+					throw new Error('Could not find any advance record(s) to clone for this event.');
+				}
 
-				if (oldContract) {
-					const {
-						contract_id: old_cid,
-						created_at: c_at,
-						updated_at: u_at,
-						...contractDataToKeep
-					} = oldContract;
-					const newContract = {
-						...contractDataToKeep,
-						advance_id: newAdvance.id,
-						event_id: newId
+				console.log(
+					`[Save] Found ${oldRecords.length} advance record(s) tied to event ${oldId}. Cloning all of them to event ${newId}...`
+				);
+
+				for (const record of oldRecords) {
+					// Only the artist actually being edited gets the user's new
+					// name/type — every other artist tied to this event clones
+					// through completely unchanged.
+					const isEditedRow = record.artist_name === originalArtistName;
+
+					const { id, created_at, updated_at, contract_id, ...dataToKeep } = record;
+					const newRecord = {
+						...dataToKeep,
+						event_id: newId,
+						artist_name: isEditedRow ? artistName.trim() : record.artist_name,
+						artist_type: isEditedRow ? finalArtistType : record.artist_type
 					};
-					const { error: contractInsertError } = await supabase
+
+					const { data: newAdvance, error: insertError } = await supabase
+						.from('events_advance')
+						.insert(newRecord)
+						.select()
+						.single();
+
+					if (insertError || !newAdvance) {
+						console.error(
+							`[Save] Failed to clone advance record for "${record.artist_name}":`,
+							insertError
+						);
+						throw (
+							insertError ||
+							new Error(`Failed to clone advance record for "${record.artist_name}".`)
+						);
+					}
+					console.log(
+						`[Save] Cloned advance record for "${record.artist_name}" -> new advance id ${newAdvance.id}`
+					);
+
+					// Clone that artist's contract row, if any.
+					const { data: oldContract } = await supabase
 						.from('events_contract')
-						.insert(newContract);
-					if (contractInsertError) throw contractInsertError;
-					console.log('[Save] Cloned contract record inserted successfully.');
-				} else {
-					await supabase
-						.from('events_contract')
-						.insert({ advance_id: newAdvance.id, event_id: newId });
+						.select('*')
+						.eq('advance_id', record.id)
+						.single();
+
+					if (oldContract) {
+						const {
+							contract_id: old_cid,
+							created_at: c_at,
+							updated_at: u_at,
+							...contractDataToKeep
+						} = oldContract;
+						const { error: contractInsertError } = await supabase.from('events_contract').insert({
+							...contractDataToKeep,
+							advance_id: newAdvance.id,
+							event_id: newId
+						});
+						if (contractInsertError) {
+							console.error(
+								`[Save] Failed to clone contract for "${record.artist_name}":`,
+								contractInsertError
+							);
+							throw contractInsertError;
+						}
+						console.log(`[Save] Cloned contract for "${record.artist_name}".`);
+					} else {
+						const { error: blankContractError } = await supabase
+							.from('events_contract')
+							.insert({ advance_id: newAdvance.id, event_id: newId });
+						if (blankContractError) {
+							console.error(
+								`[Save] Failed to create blank contract for "${record.artist_name}":`,
+								blankContractError
+							);
+							throw blankContractError;
+						}
+					}
 				}
 
 				const targetEventUpdates: any = { is_custom: isCustomEvent }; // keep flag if custom
@@ -360,24 +462,111 @@
 				}
 				await updateEvent(newId, targetEventUpdates);
 
-				await supabase.from('events_advance').delete().eq('id', oldRecord.id);
-				console.log('[Save] Old ADVANCE record deleted.');
-
-				// Ensure old event isn't accidentally custom-retained if no other references
-				await supabase.from('events').update({ is_custom: false }).eq('event_id', oldId);
-
-				const { error: deleteEventError } = await supabase
-					.from('events')
+				// Every advance row now has a cloned counterpart on newId — safe
+				// to delete ALL the old advance rows for oldId (not just the one
+				// being edited).
+				const { error: deleteAdvanceError } = await supabase
+					.from('events_advance')
 					.delete()
 					.eq('event_id', oldId);
-				if (deleteEventError) {
-					console.warn(
-						'[Save] Warning: Could not delete old event row (might have other dependencies):',
-						deleteEventError
+				if (deleteAdvanceError) {
+					console.error('[Save] Failed to delete old ADVANCE record(s):', deleteAdvanceError);
+					throw deleteAdvanceError;
+				}
+				console.log(`[Save] Deleted ${oldRecords.length} old ADVANCE record(s).`);
+
+				// ============================================================
+				// STEP 0: Does the old event_id even have an `events` row?
+				// If it doesn't (it only ever existed via events_advance
+				// references), there's nothing to clear or delete — skip
+				// straight through instead of running Step 1/2/3 against a
+				// row that was never there (which would 406 on the verify
+				// re-read and throw a misleading "still linked" warning).
+				// ============================================================
+				const { data: oldRowExists, error: existsCheckError } = await supabase
+					.from('events')
+					.select('event_id')
+					.eq('event_id', oldId)
+					.maybeSingle();
+
+				if (existsCheckError) {
+					console.error(
+						'[Save] Could not check whether old event row exists — skipping clear/delete to be safe:',
+						existsCheckError
+					);
+				} else if (!oldRowExists) {
+					console.log(
+						`[Save] No events row exists for old event_id ${oldId} — nothing to clear or delete.`
 					);
 				} else {
-					console.log('[Save] Old EVENT row deleted successfully.');
+					// ============================================================
+					// STEP 1: Flip the old event row to is_custom = false and clear
+					// its calendar_link. This MUST land — and be CONFIRMED landed —
+					// before we attempt to delete the row.
+					// ============================================================
+					console.log('[Save] Step 1: Clearing old event row (is_custom -> false, calendar_link -> null)...');
+					const { error: clearError } = await supabase
+						.from('events')
+						.update({ is_custom: false, calendar_link: null })
+						.eq('event_id', oldId);
+
+					if (clearError) {
+						console.error('[Save] Step 1 FAILED — old row not cleared, aborting delete:', clearError);
+						alert(
+							'Warning: could not clear the old event row (is_custom/calendar_link) before deletion. ' +
+								'Data was copied to the new event, but the old row was left in place — please check it manually.\n\n' +
+								clearError.message
+						);
+					} else {
+						// ============================================================
+						// STEP 2: WAIT — re-read the row to confirm the update actually
+						// committed (not just that Supabase returned no error) before
+						// moving on to delete.
+						// ============================================================
+						console.log('[Save] Step 2: Waiting for confirmation the clear committed...');
+						const { data: verifiedRow, error: verifyError } = await supabase
+							.from('events')
+							.select('event_id, is_custom, calendar_link')
+							.eq('event_id', oldId)
+							.maybeSingle();
+
+						const isCleared =
+							!verifyError && verifiedRow && verifiedRow.is_custom === false && verifiedRow.calendar_link === null;
+
+						if (!isCleared) {
+							console.error(
+								'[Save] Step 2 FAILED — old row did not verify as cleared, aborting delete:',
+								verifyError || verifiedRow
+							);
+							alert(
+								'Warning: the old event row still appears custom/linked after clearing — a database rule may be ' +
+									'blocking it. Data was copied to the new event, but the old row was left in place — please check it manually.'
+							);
+						} else {
+							// ============================================================
+							// STEP 3: DELETE — only now, after the clear was confirmed.
+							// ============================================================
+							console.log('[Save] Step 3: Deleting old event row...');
+							const { error: deleteEventError } = await supabase
+								.from('events')
+								.delete()
+								.eq('event_id', oldId);
+
+							if (deleteEventError) {
+								console.error(
+									'[Save] Step 3 FAILED — old row cleared but could not be deleted:',
+									deleteEventError
+								);
+								alert(
+									`Warning: the old event row was cleared but could not be deleted (${deleteEventError.message}). ` +
+										'Please check it manually.'
+								);
+							} else {
+							console.log('[Save] Old EVENT row deleted successfully.');
+						}
+					}
 				}
+			}
 			} else {
 				// === SCENARIO 2: STANDARD UPDATE (SAME EVENT ID) ===
 				console.log('[Save] Same Event ID detected. Updating existing records...');

@@ -15,6 +15,7 @@
 	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
 	import OffersModal from '$lib/components/calendar/page/modals/OffersModal.svelte'; 
+	import { syncConfirmedShowToEvents } from '$lib/services/calendarEventLink';
 
 	type ExtendedEvent = CalendarEvent & {
 		calendar?: {
@@ -488,6 +489,20 @@
 				await syncEventToTechSchedule(updatedEventToSync, pendingStatus);
 			} catch (syncErr) {
 				console.error('Tech Schedule Sync Failed:', syncErr);
+			}
+
+			// 👇 Calendar → events link (shows only) — only on confirm
+			if (pendingStatus === 'CONFIRMED') {
+				try {
+					await syncConfirmedShowToEvents({
+						groupId: event.group_id,
+						title: event.calendar?.title || (event as any).title,
+						date: event.date,
+						type: parsedDetails?.type
+					});
+				} catch (linkErr) {
+					console.error('Calendar Event Link failed:', linkErr);
+				}
 			}
 			// 👆 -------------------------------- 👆
 

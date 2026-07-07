@@ -6,6 +6,7 @@
 	import { syncRowToCalendar } from '$lib/services/calendar';
 	import CalendarModify from '../../CalendarModify.svelte';
 	import { onMount, onDestroy } from 'svelte';
+	import { updateLinkedShowVenue } from '$lib/services/calendarEventLink';
 
 	type ExtendedEvent = CalendarEvent & {
 		calendar?: {
@@ -160,7 +161,7 @@
 			if (event.calendar) event.calendar.details = parsedDetails;
 			event.details = parsedDetails;
 			await supabase.from('calendar').update({ details: parsedDetails }).eq('id', event.group_id);
-
+			await updateLinkedShowVenue(event.group_id, newType);
 			if (event.status === 'CONFIRMED') {
 				const { data: techRows } = await supabase
 					.from('schedule_techs')

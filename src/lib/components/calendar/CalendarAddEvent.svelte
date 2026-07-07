@@ -18,6 +18,7 @@
 	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
 	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
+	import { syncConfirmedShowToEvents } from '$lib/services/calendarEventLink';
 
 	export let isOpen: boolean = false;
 	export let dates: string[] = [];
@@ -785,6 +786,21 @@
 					} catch (syncErr) {
 						console.error('Tech Schedule Sync Failed:', syncErr);
 					}
+				}
+				// 👇 Calendar → events link (shows only) — one link per calendar group
+				try {
+					const groupId = allSavedEvents[0]?.group_id;
+					const groupType =
+						allSavedEvents[0]?.calendar?.details?.type ??
+						buildDetails(priorityHold)?.type;
+					await syncConfirmedShowToEvents({
+						groupId,
+						title: allSavedEvents[0]?.calendar?.title || title,
+						date: allSavedEvents[0]?.date,
+						type: groupType
+					});
+				} catch (linkErr) {
+					console.error('Calendar Event Link failed:', linkErr);
 				}
 			}
 

@@ -167,7 +167,11 @@
 		selectedEvent = e;
 		searchValue = e.event_name || '';
 		showEventDropdown = false;
-		isCustomEvent = e.is_custom || false;
+		// Selecting ANY existing event (custom or real Tixr) means we're going
+		// to LINK it, not create a new one — even if that event happens to be
+		// a custom row itself. isCustomEvent is reserved exclusively for the
+		// "create a brand-new custom event" flow (selectCustomEvent below).
+		isCustomEvent = false;
 		if (e.event_venue) {
 			const knownVenue = venueOptions.find((v) => v.toLowerCase() === e.event_venue.toLowerCase());
 			if (knownVenue) {
@@ -214,6 +218,7 @@
 	}
 
 	async function handleSave() {
+		if (currentlyLinkedEvent) return; // locked — changes only allowed from Advance
 		if (!isFormValid || isSubmitting) return;
 
 		// Without a calendar id the insert would create an orphaned event that
@@ -227,63 +232,41 @@
 		try {
 			const finalVenue = venue === 'Other' ? customVenue.trim() : venue;
 
-			// Unlink old event if changing to a new one
-			if (
-				currentlyLinkedEvent &&
-				currentlyLinkedEvent.event_id !== selectedEvent?.event_id &&
-				(!isCustomEvent || currentlyLinkedEvent.is_custom !== isCustomEvent)
-			) {
-				const { error: unlinkError } = await supabase
-					.from('events')
-					.update({ calendar_link: null })
-					.eq('event_id', currentlyLinkedEvent.event_id);
-				if (unlinkError) throw unlinkError;
-			}
+			// NOTE: handleSave only ever runs when there is NO existing link
+			// (guarded above), so there are exactly two possible actions here:
+			//   1. isCustomEvent   -> create a brand-new custom event, OR
+			//   2. selectedEvent   -> link an existing event (custom or real Tixr)
+			// There is no "update the currently-linked event" case here anymore —
+			// that only happens from Advance (EventEditModal.svelte) once locked.
 
 			if (isCustomEvent) {
-				// Update existing custom linked event
-				if (
-					currentlyLinkedEvent &&
-					currentlyLinkedEvent.is_custom &&
-					(!selectedEvent || selectedEvent.event_id === currentlyLinkedEvent.event_id)
-				) {
-					const { error: updateError } = await supabase
-						.from('events')
-						.update({
+				// Insert new custom linked event (same pattern as EventAddModal,
+				// with .select() so we can verify the row was actually created).
+				const { data: newEventData, error: insertError } = await supabase
+					.from('events')
+					.insert([
+						{
 							event_name: searchValue.trim(),
 							event_date: customEventDate,
-							event_venue: finalVenue
-						})
-						.eq('event_id', currentlyLinkedEvent.event_id);
+							event_venue: finalVenue,
+							event_status: 'LIVE',
+							is_custom: true,
+							calendar_link: calendarId
+						}
+					])
+					.select('event_id');
 
-					if (updateError) throw updateError;
-				} else {
-					// Insert new custom linked event (same pattern as EventAddModal,
-					// with .select() so we can verify the row was actually created).
-					const { data: newEventData, error: insertError } = await supabase
-						.from('events')
-						.insert([
-							{
-								event_name: searchValue.trim(),
-								event_date: customEventDate,
-								event_venue: finalVenue,
-								event_status: 'LIVE',
-								is_custom: true,
-								calendar_link: calendarId
-							}
-						])
-						.select('event_id');
-
-					if (insertError) {
-						console.error('❌ Error creating custom event:', insertError);
-						throw insertError;
-					}
-					if (!newEventData?.[0]?.event_id) {
-						throw new Error('Custom event insert returned no row (check RLS policies).');
-					}
+				if (insertError) {
+					console.error('❌ Error creating custom event:', insertError);
+					throw insertError;
+				}
+				if (!newEventData?.[0]?.event_id) {
+					throw new Error('Custom event insert returned no row (check RLS policies).');
 				}
 			} else if (selectedEvent) {
-				// Update existing Tixr event with the calendar_link
+				// Link an EXISTING event (custom or real Tixr) — just attach
+				// calendar_link. Works the same whether the selected row's own
+				// is_custom flag is true or false; we never re-insert here.
 				const { error: linkError } = await supabase
 					.from('events')
 					.update({
@@ -306,26 +289,11 @@
 		}
 	}
 
-	async function handleUnlink() {
-		if (!currentlyLinkedEvent || isSubmitting) return;
-		isSubmitting = true;
-		try {
-			const { error } = await supabase
-				.from('events')
-				.update({ calendar_link: null })
-				.eq('event_id', currentlyLinkedEvent.event_id);
-			if (error) throw error;
-
-			await checkCurrentLink();
-			dispatch('success');
-			closeModal();
-		} catch (error: any) {
-			console.error('Error unlinking:', error);
-			alert(`Error unlinking event: ${error.message}`);
-		} finally {
-			isSubmitting = false;
-		}
-	}
+	// NOTE: handleUnlink was intentionally removed. Once an event has a
+	// calendar_link, it can no longer be changed or unlinked from this
+	// modal — that can only be done from the Advance edit flow
+	// (EventEditModal.svelte), which is the single source of truth for
+	// reassigning/clearing calendar_link.
 
 	// Safely evaluate validity so it doesn't crash Svelte reactivity if an object is temporarily undefined
 	$: isFormValid =
@@ -391,13 +359,17 @@
 				<div class="relative">
 					<input
 						type="text"
-						class="w-full bg-transparent border border-lime rounded-full px-4 py-3 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime pr-16"
+						class="w-full bg-transparent border border-lime rounded-full px-4 py-3 text-white placeholder-gray2 focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime pr-16 disabled:opacity-60 disabled:cursor-not-allowed"
 						placeholder={selectedEvent
 							? selectedEvent.event_name
 							: 'Search for an event or select custom'}
 						bind:value={searchValue}
-						on:focus={() => (showEventDropdown = true)}
+						disabled={!!currentlyLinkedEvent}
+						on:focus={() => {
+							if (!currentlyLinkedEvent) showEventDropdown = true;
+						}}
 						on:input={() => {
+							if (currentlyLinkedEvent) return;
 							if (selectedEvent) selectedEvent = null;
 							showEventDropdown = true;
 						}}
@@ -558,8 +530,11 @@
 			<p class="font-normal text-lime mb-2">Venue</p>
 			<button
 				type="button"
-				class="w-full h-12 bg-transparent border border-lime rounded-full px-4 text-white focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime flex items-center justify-between cursor-pointer"
-				on:click={() => (showVenueDropdown = !showVenueDropdown)}
+				class="w-full h-12 bg-transparent border border-lime rounded-full px-4 text-white focus:outline-none focus:border-lime focus:ring-1 focus:ring-lime flex items-center justify-between cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+				disabled={!!currentlyLinkedEvent}
+				on:click={() => {
+					if (!currentlyLinkedEvent) showVenueDropdown = !showVenueDropdown;
+				}}
 			>
 				<span class={venue ? 'text-white' : 'text-gray2'}>
 					{#if venue}{venue === 'Other' && customVenue
@@ -601,31 +576,29 @@
 	<div slot="footer" class="flex justify-between">
 		<div>
 			{#if currentlyLinkedEvent}
-				<button
-					class="px-6 py-3 border border-red-500 text-red-500 rounded-full hover:bg-red-500 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
-					disabled={isSubmitting}
-					on:click={handleUnlink}
-				>
-					Unlink Event
-				</button>
+				<p class="text-xs text-gray2 self-center">
+					Linked event can only be changed from Advance.
+				</p>
 			{/if}
 		</div>
 		<div class="flex gap-3">
 			<button
 				class="px-6 py-3 border border-gray2 text-gray2 rounded-full hover:bg-gray2 hover:text-black transition-colors cursor-pointer"
-				on:click={closeModal}>Cancel</button
+				on:click={closeModal}>{currentlyLinkedEvent ? 'Close' : 'Cancel'}</button
 			>
-			<button
-				class="px-6 py-3 rounded-full transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
-				class:bg-lime={isFormValid && !isSubmitting}
-				class:text-black={isFormValid && !isSubmitting}
-				class:bg-gray1={!isFormValid || isSubmitting}
-				class:text-gray2={!isFormValid || isSubmitting}
-				disabled={!isFormValid || isSubmitting}
-				on:click={handleSave}
-			>
-				{isSubmitting ? 'Saving...' : 'Save Link'}
-			</button>
+			{#if !currentlyLinkedEvent}
+				<button
+					class="px-6 py-3 rounded-full transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+					class:bg-lime={isFormValid && !isSubmitting}
+					class:text-black={isFormValid && !isSubmitting}
+					class:bg-gray1={!isFormValid || isSubmitting}
+					class:text-gray2={!isFormValid || isSubmitting}
+					disabled={!isFormValid || isSubmitting}
+					on:click={handleSave}
+				>
+					{isSubmitting ? 'Saving...' : 'Save Link'}
+				</button>
+			{/if}
 		</div>
 	</div>
 </Modal>
