@@ -17,6 +17,8 @@
 	export let bookedDates: string[] = [];
 	// Dates that already have a Tour Break — nothing else can share those
 	export let tourBreakDates: string[] = [];
+	// Full date objects for the tour — used for the Travel Day → Show Date link
+	export let allDates: SSTourDate[] = [];
 
 	const dispatch = createEventDispatcher();
 
@@ -38,25 +40,87 @@
 	let AutocompleteSessionToken: any = null;
 	let sessionToken: any = null;
 
+	// ---- Travel Day → Show Date link ----
+	let linkedDateId: string | null = null;
+	let linkSearch = '';
+	let showLinkDropdown = false;
+
 	// Types that have no location
 	const NO_LOCATION_TYPES = ['Travel Day', 'Tour Break'];
 	$: isNoLocation = NO_LOCATION_TYPES.includes(currentType);
+	$: isTravelDay = currentType === 'Travel Day';
+
+	// Candidate show dates to link to (Tour Date type, never self)
+	$: showDates = (allDates || []).filter(
+		(d) => (d.type || 'Tour Date') === 'Tour Date' && d.id !== tourDate?.id
+	);
+	$: filteredShowDates = (() => {
+		const q = linkSearch.trim().toLowerCase();
+		if (!q) return showDates;
+		return showDates.filter(
+			(d) => (d.venue || '').toLowerCase().includes(q) || (d.date || '').includes(q)
+		);
+	})();
+	$: linkedDate =
+		(allDates || []).find((d) => d.id === linkedDateId) || null;
+
+	// 🔍 DEBUG — remove once fixed
+	$: console.log('[Modal] allDates received:', allDates?.length, allDates?.map(d => `${d.type}: ${d.venue} (${d.date})`));
+	$: console.log('[Modal] showDates (Tour Date type):', showDates?.length, showDates);
+	$: console.log('[Modal] filteredShowDates:', filteredShowDates?.length, 'linkSearch:', linkSearch);
+
+	// Auto-build the Travel Day venue label from the linked show date + relative date.
+	$: if (isTravelDay && linkedDate && date) {
+		venue = travelVenueLabel(date, linkedDate);
+	}
+
+	function travelVenueLabel(travelDate: string, show: SSTourDate): string {
+		// before/same day as the show → Arrival; after → Departure
+		const prefix = travelDate > show.date ? 'Departure' : 'Arrival';
+		return `${prefix} - ${show.venue}`;
+	}
+
+	function fmtDate(d: string): string {
+		if (!d) return '';
+		const dt = new Date(d + 'T00:00:00');
+		if (isNaN(dt.getTime())) return d;
+		const day = String(dt.getDate()).padStart(2, '0');
+		const mon = dt.toLocaleString('en-US', { month: 'short' });
+		return `${day}-${mon}-${dt.getFullYear()}`;
+	}
+
+	function selectShowDate(d: SSTourDate) {
+		linkedDateId = d.id;
+		linkSearch = `${d.venue} — ${fmtDate(d.date)}`;
+		showLinkDropdown = false;
+		if (date) venue = travelVenueLabel(date, d);
+	}
+	function onLinkInput() {
+		// typing invalidates the current selection until they pick again
+		linkedDateId = null;
+		showLinkDropdown = true;
+	}
 
 	// Blocking rules:
 	// - Tour Break: blocked on any day that already has ANY event
 	// - All other types: only blocked on days that already have a Tour Break
-	//   (because nothing can share a day with a Tour Break)
-	// - When editing, exclude the current date from the blocked list so it
-	//   doesn't block itself
+	// - When editing, exclude the current date from the blocked list
 	$: ownDate = tourDate?.date ?? null;
 
 	$: effectiveBookedDates = (() => {
-		if (currentType === 'Tour Break') {
-			// Tour Break can't share with any other date
-			return bookedDates.filter((d) => d !== ownDate);
-		} else {
-			// All other types: only blocked by existing Tour Breaks
-			return tourBreakDates.filter((d) => d !== ownDate);
+		switch (currentType) {
+			case 'Tour Break':
+				// Blocks every other taken date — nothing can share a break day
+				return bookedDates.filter((d) => d !== ownDate);
+			case 'Travel Day':
+				// Travel Days can share dates freely; only hard-block Tour Break days
+				return tourBreakDates.filter((d) => d !== ownDate);
+			case 'Tour Date':
+				// Highlight existing show dates so the user sees what's taken
+				return bookedDates.filter((d) => d !== ownDate);
+			default:
+				// Pickup, Dropoff, Other — only blocked by Tour Break days
+				return tourBreakDates.filter((d) => d !== ownDate);
 		}
 	})();
 
@@ -67,7 +131,11 @@
 		showPredictions = false;
 	}
 
-	$: isFormValid = isNoLocation ? !!(date && venue) : !!(date && venue && addressObj);
+	$: isFormValid = isTravelDay
+		? !!(date && linkedDateId)
+		: isNoLocation
+			? !!(date && venue)
+			: !!(date && venue && addressObj);
 
 	onMount(() => {
 		initUserSettings();
@@ -87,6 +155,13 @@
 			date = tourDate.date;
 			venue = tourDate.venue;
 			currentType = tourDate.type || 'Tour Date';
+			linkedDateId = tourDate.linked_date_id ?? null;
+			if (linkedDateId) {
+				const ld = (allDates || []).find((d) => d.id === linkedDateId);
+				linkSearch = ld ? `${ld.venue} — ${fmtDate(ld.date)}` : '';
+			} else {
+				linkSearch = '';
+			}
 			if (!NO_LOCATION_TYPES.includes(currentType)) {
 				addressObj = typeof tourDate.address === 'object' ? tourDate.address : null;
 				searchInputValue = addressObj?.full_address || tourDate.venue || '';
@@ -215,10 +290,10 @@
 		}
 	}
 
-	function closePredictions(e: MouseEvent) {
-		if (showPredictions && !(e.target as Element).closest('.location-search-container')) {
-			showPredictions = false;
-		}
+	function closeDropdowns(e: MouseEvent) {
+		const t = e.target as Element;
+		if (showPredictions && !t.closest('.location-search-container')) showPredictions = false;
+		if (showLinkDropdown && !t.closest('.link-search-container')) showLinkDropdown = false;
 	}
 
 	function resetForm() {
@@ -228,6 +303,9 @@
 		searchInputValue = '';
 		loading = false;
 		notes = '';
+		linkedDateId = null;
+		linkSearch = '';
+		showLinkDropdown = false;
 	}
 
 	function closeModal() {
@@ -245,6 +323,8 @@
 			? { full_address: '', city: '', country: '', lat: 0, lng: 0, country_code: '' }
 			: addressObj!;
 
+		const linkToSave = isTravelDay ? linkedDateId : null;
+
 		try {
 			loading = true;
 			if (isEditMode && tourDate) {
@@ -253,7 +333,8 @@
 					venue,
 					notes,
 					address: addressToSave,
-					type: currentType
+					type: currentType,
+					linked_date_id: linkToSave
 				});
 				dispatch('save', { date: updatedDate });
 			} else {
@@ -263,7 +344,8 @@
 					venue,
 					notes,
 					address: addressToSave,
-					type: currentType
+					type: currentType,
+					linked_date_id: linkToSave
 				});
 				dispatch('save', { date: newDate });
 			}
@@ -291,7 +373,7 @@
 	}
 </script>
 
-<svelte:window on:click={closePredictions} />
+<svelte:window on:click={closeDropdowns} />
 
 <Modal
 	bind:isOpen
@@ -333,25 +415,70 @@
 		<!-- NAME / INFO + DATE row -->
 		<div class="flex gap-4">
 			<div class="w-1/2">
-				<p class="font-normal text-lime mb-2">
-					{#if currentType === 'Tour Date'}
-						Venue Name
-					{:else if isNoLocation}
-						{currentType} Info
+				{#if isTravelDay}
+					<!-- TRAVEL DAY → linked Show Date (searchable) -->
+					<p class="font-normal text-lime mb-2">Linked Show Date</p>
+					<div class="relative link-search-container">
+						<input
+							type="text"
+							bind:value={linkSearch}
+							on:input={onLinkInput}
+							on:focus={() => (showLinkDropdown = true)}
+							class="w-full bg-gray1 rounded-3xl px-4 h-[50px] text-white placeholder-gray2 outline-none focus:outline-none focus:ring-0 border-2 text-sm transition-colors {linkedDateId
+								? 'border-lime focus:border-lime'
+								: 'border-transparent focus:border-lime'}"
+							placeholder="Search show dates…"
+						/>
+						{#if showLinkDropdown}
+							<div
+								class="absolute top-full mt-2 left-0 w-full bg-[#1a1a1a] border border-gray1 rounded-2xl shadow-xl overflow-hidden z-[60] max-h-60 overflow-y-auto"
+							>
+								{#each filteredShowDates as d (d.id)}
+									<button
+										type="button"
+										class="w-full text-left px-4 py-2.5 hover:bg-white/5 text-white text-sm border-b border-gray1/50 last:border-0 transition-colors cursor-pointer"
+										on:click|preventDefault|stopPropagation={() => selectShowDate(d)}
+									>
+										<div class="font-bold">{d.venue || 'Untitled show'}</div>
+										<div class="text-xs text-gray2">{fmtDate(d.date)}</div>
+									</button>
+								{:else}
+									<div class="px-4 py-3 text-xs text-gray2 italic">No show dates found.</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+					{#if venue}
+						<p class="text-[11px] text-gray2 mt-1.5 ml-2">
+							Saved as: <span class="text-lime font-bold">{venue}</span>
+						</p>
 					{:else}
-						{currentType} Location
+						<p class="text-[11px] text-gray2 mt-1.5 ml-2">
+							Pick a show date — name auto-fills as Arrival/Departure based on the date.
+						</p>
 					{/if}
-				</p>
-				<input
-					type="text"
-					class="w-full bg-gray1 rounded-3xl px-4 h-[50px] text-white placeholder-gray2 outline-none focus:outline-none focus:ring-0 shadow-none m-0 appearance-none border-2 border-transparent"
-					placeholder={currentType === 'Tour Date'
-						? 'Enter venue name'
-						: isNoLocation
-							? `Enter ${currentType.toLowerCase()} details`
-							: `Enter ${currentType.toLowerCase()} location`}
-					bind:value={venue}
-				/>
+				{:else}
+					<p class="font-normal text-lime mb-2">
+						{#if currentType === 'Tour Date'}
+							Venue Name
+						{:else if isNoLocation}
+							{currentType} Info
+						{:else}
+							{currentType} Location
+						{/if}
+					</p>
+					<input
+						type="text"
+						class="w-full bg-gray1 rounded-3xl px-4 h-[50px] text-white placeholder-gray2 outline-none focus:outline-none focus:ring-0 shadow-none m-0 appearance-none border-2 border-transparent"
+						placeholder={currentType === 'Tour Date'
+							? 'Enter venue name'
+							: isNoLocation
+								? `Enter ${currentType.toLowerCase()} details`
+								: `Enter ${currentType.toLowerCase()} location`}
+						bind:value={venue}
+					/>
+				{/if}
+
 				<!-- Full width row: Notes -->
 				<div class="mt-2">
 					<p class="font-normal text-lime mb-2">

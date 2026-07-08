@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { fade, scale } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { supabase } from '$lib/supabase';
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import Button from '$lib/components/buttons/Button.svelte';
@@ -24,16 +27,17 @@
 	// Modals
 	import TourModal from '$lib/components/sultanshepard/tour/TourModal.svelte';
 	import TourDateModal from '$lib/components/sultanshepard/tour/TourDateModal.svelte';
-	import TourBudgetModal from '$lib/components/sultanshepard/tour/TourBudgetModal.svelte';
+	import TourBudget from '$lib/components/sultanshepard/tour/TourBudget.svelte';
+	import ProductionGrid from '$lib/components/sultanshepard/tour/ProductionGrid.svelte';
 	import SettingsModal from '$lib/components/sultanshepard/tour/SettingsModal.svelte';
 
 	// Type order for same-day sorting
 	const TYPE_ORDER: Record<string, number> = {
 		'Travel Day': 0,
-		'Pickup':     1,
-		'Dropoff':    2,
-		'Tour Date':  3,
-		'Other':      4,
+		Pickup: 1,
+		Dropoff: 2,
+		'Tour Date': 3,
+		Other: 4,
 		'Tour Break': 5
 	};
 
@@ -64,21 +68,56 @@
 	let tourToEdit: SSTour | null = null;
 	let showDateModal = false;
 	let dateToEdit: SSTourDate | null = null;
-	let showBudgetModal = false;
 	let showSettingsModal = false;
-
 	let realtimeChannel: any;
+	let productionGrid: ProductionGrid;
+	let pdfDownloading = false;
+
+	async function downloadProductionPdf() {
+		if (!productionGrid || pdfDownloading) return;
+		pdfDownloading = true;
+		try {
+			await productionGrid.downloadPdf();
+		} finally {
+			pdfDownloading = false;
+		}
+	}
+
+	// Full-page views are toggled via the URL (?view=budget | ?view=production)
+	// so a refresh keeps them open. Only one may be active at a time.
+	$: activeView = $page.url.searchParams.get('view');
+	$: budgetOpen = activeView === 'budget';
+	$: productionOpen = activeView === 'production';
+
+	function setView(v: string | null) {
+		const url = new URL($page.url);
+		if (v) url.searchParams.set('view', v);
+		else url.searchParams.delete('view');
+		goto(`${url.pathname}${url.search}`, { keepFocus: true, noScroll: true });
+	}
+	function toggleBudget() {
+		setView(budgetOpen ? null : 'budget');
+	}
+	function toggleProduction() {
+		setView(productionOpen ? null : 'production');
+	}
 
 	$: currentTour = tours.find((t) => t.id === selectedTourId) || null;
 	$: selectedDate = tourDates.find((d) => d.id === selectedDateId) || null;
+
+	// For the map: Travel Days have no pin, so highlight the linked show instead.
+	$: mapSelectedDateId = (() => {
+		if (selectedDate?.type === 'Travel Day' && selectedDate?.linked_date_id) {
+			return selectedDate.linked_date_id;
+		}
+		return selectedDateId;
+	})();
 
 	// All dates for the current tour — passed to modal for blocking logic
 	$: allBookedDates = tourDates.map((d) => d.date);
 
 	// Only Tour Break dates — blocks everything else from sharing that day
-	$: tourBreakDates = tourDates
-		.filter((d) => d.type === 'Tour Break')
-		.map((d) => d.date);
+	$: tourBreakDates = tourDates.filter((d) => d.type === 'Tour Break').map((d) => d.date);
 
 	// Sorted dates: primary = date asc, secondary = TYPE_ORDER for same-day entries
 	$: sortedTourDates = [...tourDates].sort((a, b) => {
@@ -93,7 +132,26 @@
 		loadDatesForTour(selectedTourId, true);
 	}
 
+	// Sync selection state to the browser's memory automatically
+	$: if (typeof window !== 'undefined' && !loading) {
+		if (selectedTourId) localStorage.setItem('ss_saved_tour', selectedTourId);
+		else localStorage.removeItem('ss_saved_tour');
+
+		if (selectedDateId) localStorage.setItem('ss_saved_date', selectedDateId);
+		else localStorage.removeItem('ss_saved_date');
+
+		if (activeTabId) localStorage.setItem('ss_saved_tab', activeTabId);
+		else localStorage.removeItem('ss_saved_tab');
+	}
+
 	onMount(async () => {
+		// Read saved state from the browser before loading
+		if (typeof window !== 'undefined') {
+			selectedTourId = localStorage.getItem('ss_saved_tour');
+			selectedDateId = localStorage.getItem('ss_saved_date');
+			activeTabId = localStorage.getItem('ss_saved_tab') || 'map';
+		}
+
 		await Promise.all([loadAllTours(true), loadGlobals()]);
 
 		realtimeChannel = supabase
@@ -118,7 +176,10 @@
 		if (showSpinner) loading = true;
 		try {
 			tours = await fetchTours();
-			if (tours.length > 0 && !selectedTourId) {
+			// Validate if the loaded tour ID still exists (in case it was deleted by another user)
+			const tourExists = tours.find((t) => t.id === selectedTourId);
+
+			if (tours.length > 0 && (!selectedTourId || !tourExists)) {
 				selectedTourId = tours[0].id;
 			} else if (tours.length === 0) {
 				selectedTourId = null;
@@ -135,6 +196,7 @@
 		try {
 			const dates = await fetchTourDates(tourId);
 			tourDates = [...dates];
+
 			if (selectedDateId && !dates.find((d) => d.id === selectedDateId)) {
 				selectedDateId = null;
 			}
@@ -229,11 +291,16 @@
 
 <MainLayout pageTitle="Sultan + Shepard Tour">
 	<div class="flex flex-col h-full min-h-0 w-full max-w-[1800px] mx-auto p-6 gap-6">
-		<!-- Top Bar -->
 		<div class="flex items-center justify-between shrink-0 gap-4">
 			<Button variant="gray" on:click={() => goto('/sultanshepard/djshow')}>
 				<span class="flex items-center gap-2">
-					<svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						class="w-3 h-3"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<path d="M19 12H5" /><path d="M12 19l-7-7 7-7" />
 					</svg>
 					Go Back
@@ -242,10 +309,40 @@
 
 			<div class="flex items-center gap-3">
 				{#if currentTour}
+					{#if productionOpen}
+						<button
+							class="h-8 w-8 flex items-center justify-center rounded-full border border-white/20 text-white hover:border-lime hover:text-lime transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-wait disabled:hover:border-white/20 disabled:hover:text-white"
+							title="Download PDF"
+							aria-label="Download PDF"
+							disabled={pdfDownloading}
+							on:click={downloadProductionPdf}
+						>
+							{#if pdfDownloading}
+								<svg class="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
+							{:else}
+								<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+							{/if}
+						</button>
+					{/if}
+
 					<button
-						class="h-8 px-4 flex items-center gap-2 rounded-full border border-white/20 text-white text-sm font-bold hover:border-lime hover:text-lime transition-colors cursor-pointer"
-						on:click={() => (showBudgetModal = true)}
-					>Tour Budget  $
+						class="h-8 px-4 flex items-center gap-2 rounded-full border text-sm font-bold transition-colors cursor-pointer {productionOpen
+							? 'bg-lime text-black border-lime'
+							: 'border-white/20 text-white hover:border-lime hover:text-lime'}"
+						on:click={toggleProduction}
+					>
+						<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+						</svg>
+						{productionOpen ? 'Exit Production' : 'Production'}
+					</button>
+
+					<button
+						class="h-8 px-4 flex items-center gap-2 rounded-full border text-sm font-bold transition-colors cursor-pointer {budgetOpen
+							? 'bg-lime text-black border-lime'
+							: 'border-white/20 text-white hover:border-lime hover:text-lime'}"
+						on:click={toggleBudget}
+						>{budgetOpen ? 'Exit Budget' : 'Tour Budget $'}
 					</button>
 				{/if}
 
@@ -258,7 +355,13 @@
 					on:click={openAddTour}
 				>
 					<span class="flex items-center gap-2">
-						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<svg
+							class="w-4 h-4"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
 							<line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
 						</svg>
 						Add Tour
@@ -272,9 +375,17 @@
 						aria-label="Tour settings"
 						on:click={openEditTour}
 					>
-						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<svg
+							class="w-4 h-4"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
 							<circle cx="12" cy="12" r="3" />
-							<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+							<path
+								d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+							/>
 						</svg>
 					</button>
 				{/if}
@@ -285,17 +396,27 @@
 					aria-label="App settings"
 					on:click={() => (showSettingsModal = true)}
 				>
-					<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						class="w-4 h-4"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<line x1="4" y1="21" x2="4" y2="14" /><line x1="4" y1="10" x2="4" y2="3" />
 						<line x1="12" y1="21" x2="12" y2="12" /><line x1="12" y1="8" x2="12" y2="3" />
 						<line x1="20" y1="21" x2="20" y2="16" /><line x1="20" y1="12" x2="20" y2="3" />
-						<line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="17" y1="16" x2="23" y2="16" />
+						<line x1="1" y1="14" x2="7" y2="14" /><line x1="9" y1="8" x2="15" y2="8" /><line
+							x1="17"
+							y1="16"
+							x2="23"
+							y2="16"
+						/>
 					</svg>
 				</button>
 			</div>
 		</div>
 
-		<!-- Main Content -->
 		{#if loading}
 			<div class="flex-1 flex justify-center items-center">
 				<div class="animate-spin w-8 h-8 text-lime">
@@ -305,16 +426,45 @@
 				</div>
 			</div>
 		{:else if tours.length === 0}
-			<div class="flex-1 flex flex-col items-center justify-center text-center p-8 bg-navbar rounded-2xl">
+			<div
+				class="flex-1 flex flex-col items-center justify-center text-center p-8 bg-navbar rounded-2xl"
+			>
 				<h3 class="text-xl font-bold text-white mb-2">No Tours Found</h3>
 				<p class="text-gray2 text-base max-w-md">
 					You haven't created any tours yet. Click "Add Tour" in the top right to get started.
 				</p>
 			</div>
+		{:else if productionOpen && currentTour}
+			<div
+				class="flex-1 min-h-0 overflow-hidden"
+				in:scale={{ start: 0.96, opacity: 0, duration: 240, easing: cubicOut }}
+				out:fade={{ duration: 110 }}
+			>
+				<ProductionGrid
+					bind:this={productionGrid}
+					tour={currentTour}
+					tourDates={sortedTourDates}
+					on:close={toggleProduction}
+				/>
+			</div>
+		{:else if budgetOpen && currentTour}
+			<div
+				class="flex-1 min-h-0 overflow-hidden"
+				in:scale={{ start: 0.96, opacity: 0, duration: 240, easing: cubicOut }}
+				out:fade={{ duration: 110 }}
+			>
+				<TourBudget
+					tour={currentTour}
+					tourDates={sortedTourDates}
+					on:saved={handleBudgetSaved}
+					on:close={toggleBudget}
+				/>
+			</div>
 		{:else}
 			<div class="flex flex-col md:flex-row gap-6 flex-1 min-h-0 overflow-hidden">
-				<!-- Left: Dates List — uses sortedTourDates for same-day ordering -->
-				<div class="w-full md:w-[250px] shrink-0 flex flex-col min-h-0">
+				<div
+					class="w-full md:w-[290px] lg:w-[250px] 2xl:w-[270px] shrink-0 flex flex-col min-h-0 transition-all duration-300"
+				>
 					<TourDatesList
 						dates={sortedTourDates}
 						bind:selectedDateId
@@ -323,13 +473,13 @@
 					/>
 				</div>
 
-				<!-- Center -->
 				<div class="flex-1 min-w-0 flex flex-col min-h-0">
 					<TourMiddleDisplay
 						bind:this={middleDisplay}
 						{currentTour}
 						tourDates={sortedTourDates}
 						bind:selectedDateId
+						{mapSelectedDateId}
 						bind:tourData
 						bind:activeTabId
 						{crew}
@@ -340,8 +490,9 @@
 					/>
 				</div>
 
-				<!-- Right: Tabs panel -->
-				<div class="w-full md:w-[220px] shrink-0 flex flex-col min-h-0">
+				<div
+					class="w-full md:w-[88px] 2xl:w-[220px] shrink-0 flex flex-col min-h-0 transition-all duration-300"
+				>
 					<TourTabsPanel
 						{selectedDate}
 						{tourData}
@@ -375,20 +526,14 @@
 		tourStartDate={currentTour.start_date}
 		tourEndDate={currentTour.end_date}
 		bookedDates={allBookedDates}
-		tourBreakDates={tourBreakDates}
+		{tourBreakDates}
+		allDates={sortedTourDates}
 		on:close={() => {
 			showDateModal = false;
 			dateToEdit = null;
 		}}
 		on:save={handleDateSaved}
 		on:delete={handleDateDeleted}
-	/>
-
-	<TourBudgetModal
-		bind:open={showBudgetModal}
-		tour={currentTour}
-		tourDates={sortedTourDates}
-		on:saved={handleBudgetSaved}
 	/>
 {/if}
 
@@ -398,4 +543,5 @@
 	bind:riders
 	bind:merchDefaults
 	bind:tracklist
+	bind:localCrewTemplate
 />

@@ -21,7 +21,7 @@
 		value={value ?? ''}
 		on:input={onInput}
 		on:change
-		class="w-full bg-gray1 rounded-xl px-3 text-white placeholder-gray2/60 outline-none border border-transparent focus:border-lime/60 transition-colors {small
+		class="w-full bg-gray1 rounded-full px-3 text-white placeholder-gray2/20 outline-none border border-transparent focus:border-lime/60 transition-colors {small
 			? 'h-9 text-sm'
 			: 'h-10 text-sm'}"
 	/>

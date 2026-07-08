@@ -46,6 +46,13 @@
         month: 'long'
     });
 
+    // Returns the most recent (max) date string from bookedDates, or null if empty.
+    // Relies on 'YYYY-MM-DD' format sorting correctly as plain strings.
+    function getLatestBookedDate(): string | null {
+        if (!bookedDates || bookedDates.length === 0) return null;
+        return bookedDates.reduce((latest, d) => (d > latest ? d : latest), bookedDates[0]);
+    }
+
     function handleClickOutside(event: MouseEvent) {
         if (event.target && (event.target as Element).closest) {
             if (!(event.target as Element).closest('.datepicker-container')) {
@@ -56,11 +63,16 @@
 
     function openPicker() {
         showDatePicker = !showDatePicker;
-        
-        if (showDatePicker && !value && tourStartDate) {
-            const start = new Date(tourStartDate + 'T00:00:00');
-            if (!isNaN(start.getTime())) {
-                currentCalendarDate = new Date(start.getFullYear(), start.getMonth(), 1);
+
+        if (showDatePicker && !value) {
+            // Prefer the month of the most recently added date in the DB;
+            // fall back to the tour start date if there are no booked dates yet.
+            const targetDateStr = getLatestBookedDate() || tourStartDate;
+            if (targetDateStr) {
+                const target = new Date(targetDateStr + 'T00:00:00');
+                if (!isNaN(target.getTime())) {
+                    currentCalendarDate = new Date(target.getFullYear(), target.getMonth(), 1);
+                }
             }
         } else if (showDatePicker && value) {
             const initialDate = new Date(value + 'T00:00:00');

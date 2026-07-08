@@ -7,6 +7,7 @@ import type {
 	TourDataTab,
 	TourBudget
 } from '$lib/types/tour';
+import { USD_CAD_RATE_KEY, DEFAULT_USD_CAD_RATE } from '$lib/types/tour';
 
 // ============================================================
 // TOURS
@@ -133,6 +134,22 @@ export async function fetchTourData(tourDateId: string): Promise<SSTourData> {
 	return data as SSTourData;
 }
 
+/**
+ * Fetch every ss_tour_data row for a set of tour-date ids in ONE query.
+ * Used by the Production grid to hydrate all shows at once. Dates without a
+ * row yet are simply absent from the result (the caller fills in blanks).
+ */
+export async function fetchTourDataForDates(tourDateIds: string[]): Promise<SSTourData[]> {
+	if (!tourDateIds.length) return [];
+	const { data, error } = await supabase
+		.from('ss_tour_data')
+		.select('*')
+		.in('tour_date_id', tourDateIds);
+
+	if (error) throw new Error(error.message);
+	return (data || []) as SSTourData[];
+}
+
 /** Upsert a single tab's jsonb cell. Only the given column is written. */
 export async function saveTabData(
 	tourDateId: string,
@@ -194,10 +211,64 @@ export async function getSetting<T = any>(key: string, fallback: T): Promise<T> 
 		.eq('key', key)
 		.maybeSingle();
 	if (error) throw new Error(error.message);
-	return (data?.data as T) ?? fallback;
+
+	let value: any = data?.data ?? fallback;
+
+	// The `data` cell can come back as JSON-encoded text (text column, or a value
+	// that was stringified before insert — e.g. "[{\"qty\":1,\"role\":\"Test\"}]").
+	// Un-stringify it so callers always receive real typed data instead of a
+	// string they'd have to JSON.parse themselves. Genuine plain-string settings
+	// (e.g. "#E1FF00", "dark", "Sunday") aren't valid JSON, so JSON.parse throws
+	// and we leave them untouched. Loop guards against double-stringified values.
+	let guard = 0;
+	while (typeof value === 'string' && guard++ < 5) {
+		const s = value.trim();
+		if (!s) {
+			value = fallback;
+			break;
+		}
+		try {
+			value = JSON.parse(s);
+		} catch {
+			break; // not JSON — a legitimate plain string, keep as-is
+		}
+	}
+
+	// Guard against legacy wrapped rows (e.g. {"items": [...]}) silently
+	// masquerading as T when the caller expects a bare array. If this ever
+	// fires, the DB row is stored in the wrong shape — fix the data, not this check.
+	if (
+		Array.isArray(fallback) &&
+		value !== null &&
+		typeof value === 'object' &&
+		!Array.isArray(value)
+	) {
+		console.error(
+			`getSetting('${key}'): expected an array but got an object (${JSON.stringify(value).slice(0, 80)}). Falling back to default. Check the ss_settings row for this key.`
+		);
+		return fallback;
+	}
+
+	return value as T;
 }
 
 export async function setSetting(key: string, data: unknown): Promise<void> {
 	const { error } = await supabase.from('ss_settings').upsert({ key, data });
 	if (error) throw new Error(error.message);
+}
+
+// ============================================================
+// FX RATE (fixed USD/CAD — stored in ss_settings under USD_CAD_RATE_KEY)
+// ============================================================
+
+/** Fixed USD/CAD rate (CAD per 1 USD). Always returns a positive number. */
+export async function getUsdCadRate(): Promise<number> {
+	const raw = await getSetting<number>(USD_CAD_RATE_KEY, DEFAULT_USD_CAD_RATE);
+	const n = Number(raw);
+	return Number.isFinite(n) && n > 0 ? n : DEFAULT_USD_CAD_RATE;
+}
+
+export async function setUsdCadRate(rate: number): Promise<void> {
+	const n = Number(rate);
+	await setSetting(USD_CAD_RATE_KEY, Number.isFinite(n) && n > 0 ? n : DEFAULT_USD_CAD_RATE);
 }

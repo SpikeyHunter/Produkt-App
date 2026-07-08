@@ -1,10 +1,17 @@
 <script lang="ts">
+	import { getRingColorClass, getRingDashArray, RING_RADIUS } from '../progress';
+
 	export let id: string;
 	export let title: string;
 	export let icon = '';
 	export let progress = 0;
 	export let restricted = false;
 	export let saving = false;
+	export let inactive = false; // grayed "N/A" state, synced with the tab ring
+
+	// Identical logic to TourTabsPanel so the card ring and the tab ring always match.
+	$: ringColorClass = inactive ? 'text-gray2/50' : getRingColorClass(progress);
+	$: ringDashArray = getRingDashArray(inactive ? 0 : progress);
 </script>
 
 <!-- Fills its container; content scrolls internally if needed -->
@@ -28,17 +35,25 @@
 		{/if}
 
 		<!-- progress ring -->
-		<div class="relative w-7 h-7 shrink-0" title="{progress}% complete">
-			<svg viewBox="0 0 36 36" class="w-7 h-7 -rotate-90">
-				<circle cx="18" cy="18" r="15" fill="none" stroke="#2F2F2F" stroke-width="4" />
+		<div class="relative w-7 h-7 shrink-0 flex items-center justify-center" title={inactive ? 'Not in use' : `${progress}% complete`}>
+			<svg viewBox="0 0 36 36" class="absolute inset-0 w-7 h-7 -rotate-90">
+				<circle cx="18" cy="18" r={RING_RADIUS} fill="none" stroke="#2F2F2F" stroke-width="4" />
 				<circle
-					cx="18" cy="18" r="15" fill="none"
-					stroke={progress >= 100 ? '#86EFAC' : '#E1FF00'}
+					cx="18" cy="18" r={RING_RADIUS} fill="none"
+					class={ringColorClass}
+					stroke="currentColor"
 					stroke-width="4" stroke-linecap="round"
-					stroke-dasharray="{(progress / 100) * 94.2} 94.2"
+					stroke-dasharray={ringDashArray}
+					style="transition: stroke-dasharray 0.4s ease, stroke 0.4s ease;"
 				/>
 			</svg>
-			<span class="absolute inset-0 flex items-center justify-center text-[8px] font-black text-gray3">{progress}</span>
+			{#if !inactive && progress >= 100}
+				<svg class="w-3.5 h-3.5 text-confirmed z-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M20 6L9 17l-5-5" />
+				</svg>
+			{:else}
+				<span class="z-10 text-[8px] font-black {ringColorClass}">{inactive ? '–' : progress}</span>
+			{/if}
 		</div>
 	</header>
 

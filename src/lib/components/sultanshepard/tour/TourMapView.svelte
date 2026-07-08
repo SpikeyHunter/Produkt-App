@@ -17,6 +17,9 @@
 
 	export let tourDates: any[] = [];
 	export let selectedDateId: string | null = null;
+	// Travel Days have no location — use the linked show's id for pan/zoom/popup.
+	export let selectedHighlightId: string | null = null;
+	$: mapPinId = selectedHighlightId ?? selectedDateId;
 
 	let mapContainer: HTMLElement;
 	let map: maplibregl.Map;
@@ -86,11 +89,14 @@
 		for (let i = 0; i < coords.length - 1; i++) {
 			const [lon1, lat1] = coords[i];
 			const [lon2, lat2] = coords[i + 1];
-			const dLat = (lat2 - lat1) * Math.PI / 180;
-			const dLon = (lon2 - lon1) * Math.PI / 180;
-			const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-				Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-				Math.sin(dLon / 2) * Math.sin(dLon / 2);
+			const dLat = ((lat2 - lat1) * Math.PI) / 180;
+			const dLon = ((lon2 - lon1) * Math.PI) / 180;
+			const a =
+				Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+				Math.cos((lat1 * Math.PI) / 180) *
+					Math.cos((lat2 * Math.PI) / 180) *
+					Math.sin(dLon / 2) *
+					Math.sin(dLon / 2);
 			const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 			total += R * c;
 		}
@@ -111,11 +117,11 @@
 	}
 
 	// Zoom in when a date is selected
-	$: if (mapReady && selectedDateId) {
+	$: if (mapReady && mapPinId) {
 		if (skipNextZoom) {
 			skipNextZoom = false;
 		} else {
-			const selected = tourDates.find((d) => d.id === selectedDateId);
+			const selected = tourDates.find((d) => d.id === mapPinId);
 			if (selected) {
 				// Don't zoom to no-map types — they have no location
 				if (!NO_MAP_TYPES.includes(selected.type || '')) {
@@ -131,7 +137,7 @@
 	}
 
 	// Zoom out and close popup when date is deselected (selectedDateId === null)
-	$: if (mapReady && selectedDateId === null) {
+	$: if (mapReady && mapPinId === null) {
 		if (currentPopup) {
 			currentPopup.remove();
 			currentPopup = null;
@@ -150,14 +156,35 @@
 		await saveTourTypeColor(type, colorHex);
 	}
 
-	async function fetchRoute(start: [number, number], end: [number, number], cachedRoute?: string, forceFetchAlternatives = false) {
+	async function fetchRoute(
+		start: [number, number],
+		end: [number, number],
+		cachedRoute?: string,
+		forceFetchAlternatives = false
+	) {
 		if (cachedRoute && !forceFetchAlternatives) {
-			const coords = polyline.decode(cachedRoute).map(([lat, lng]: [number, number]) => [lng, lat] as [number, number]);
-			return [{ coords, encoded: cachedRoute, distanceKm: calculateDistance(coords), rawDist: calculateDistanceNum(coords) }];
+			const coords = polyline
+				.decode(cachedRoute)
+				.map(([lat, lng]: [number, number]) => [lng, lat] as [number, number]);
+			return [
+				{
+					coords,
+					encoded: cachedRoute,
+					distanceKm: calculateDistance(coords),
+					rawDist: calculateDistanceNum(coords)
+				}
+			];
 		}
 		if (!GOOGLE_API_KEY) {
 			const rawDist = calculateDistanceNum([start, end] as [number, number][]);
-			return [{ coords: [start, end] as [number, number][], encoded: '', distanceKm: rawDist + ' km', rawDist }];
+			return [
+				{
+					coords: [start, end] as [number, number][],
+					encoded: '',
+					distanceKm: rawDist + ' km',
+					rawDist
+				}
+			];
 		}
 		try {
 			const response = await fetch(`https://routes.googleapis.com/directions/v2:computeRoutes`, {
@@ -178,17 +205,35 @@
 			const data = await response.json();
 			if (!data.routes || data.routes.length === 0) {
 				const rawDist = calculateDistanceNum([start, end] as [number, number][]);
-				return [{ coords: [start, end] as [number, number][], encoded: '', distanceKm: rawDist + ' km', rawDist }];
+				return [
+					{
+						coords: [start, end] as [number, number][],
+						encoded: '',
+						distanceKm: rawDist + ' km',
+						rawDist
+					}
+				];
 			}
 			return data.routes.map((r: any) => {
 				const encoded = r.polyline.encodedPolyline;
-				const coords = polyline.decode(encoded).map(([lat, lng]: [number, number]) => [lng, lat] as [number, number]);
-				const rawDist = r.distanceMeters ? Math.round(r.distanceMeters / 1000) : calculateDistanceNum(coords);
+				const coords = polyline
+					.decode(encoded)
+					.map(([lat, lng]: [number, number]) => [lng, lat] as [number, number]);
+				const rawDist = r.distanceMeters
+					? Math.round(r.distanceMeters / 1000)
+					: calculateDistanceNum(coords);
 				return { coords, encoded, distanceKm: rawDist + ' km', rawDist };
 			});
 		} catch (e) {
 			const rawDist = calculateDistanceNum([start, end] as [number, number][]);
-			return [{ coords: [start, end] as [number, number][], encoded: '', distanceKm: rawDist + ' km', rawDist }];
+			return [
+				{
+					coords: [start, end] as [number, number][],
+					encoded: '',
+					distanceKm: rawDist + ' km',
+					rawDist
+				}
+			];
 		}
 	}
 
@@ -205,18 +250,21 @@
 	async function saveVariantRoute(idx: number) {
 		if (!editingDateId) return;
 		const selectedRoute = alternativeRoutesForEdit[idx];
-		const variantsStr = JSON.stringify(alternativeRoutesForEdit.map(r => r.encoded));
-		const dObj = tourDates.find(d => d.id === editingDateId);
+		const variantsStr = JSON.stringify(alternativeRoutesForEdit.map((r) => r.encoded));
+		const dObj = tourDates.find((d) => d.id === editingDateId);
 		if (dObj) {
 			dObj.cached_route_to_next = selectedRoute.encoded;
 			dObj.route_variants = variantsStr;
 			skipNextZoom = true;
 			tourDates = [...tourDates];
 		}
-		await supabase.from('ss_tour_dates').update({
-			cached_route_to_next: selectedRoute.encoded,
-			route_variants: variantsStr
-		}).eq('id', editingDateId);
+		await supabase
+			.from('ss_tour_dates')
+			.update({
+				cached_route_to_next: selectedRoute.encoded,
+				route_variants: variantsStr
+			})
+			.eq('id', editingDateId);
 		editingDateId = null;
 		alternativeRoutesForEdit = [];
 		updateMapContent();
@@ -227,7 +275,7 @@
 		if (!map) return;
 		const z = map.getZoom();
 		const markers = document.querySelectorAll('.km-marker-inner');
-		markers.forEach(inner => {
+		markers.forEach((inner) => {
 			const el = inner as HTMLElement;
 			if (z < 3.5) {
 				el.style.opacity = '0';
@@ -248,30 +296,36 @@
 	async function updateMapContent() {
 		if (!map || !mapReady) return;
 
-		distanceMarkers.forEach(m => m.remove());
+		distanceMarkers.forEach((m) => m.remove());
 		distanceMarkers = [];
-		variantDistanceMarkers.forEach(m => m.remove());
+		variantDistanceMarkers.forEach((m) => m.remove());
 		variantDistanceMarkers = [];
-		pinMarkers.forEach(m => m.remove());
+		pinMarkers.forEach((m) => m.remove());
 		pinMarkers = [];
 
 		// Exclude Travel Day / Tour Break from pins and routes — no location
 		const sorted = [...tourDates]
 			.map((d) => ({ ...d, geo: parseAddress(d.address) }))
-			.filter((d) => d.geo?.lat != null && d.geo?.lng != null && !NO_MAP_TYPES.includes(d.type || ''))
+			.filter(
+				(d) => d.geo?.lat != null && d.geo?.lng != null && !NO_MAP_TYPES.includes(d.type || '')
+			)
 			.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
 		if (map.getLayer('country-highlight')) {
-			const activeCountryCodes = [...new Set(sorted.map(d => d.geo.country_code?.toUpperCase()).filter(Boolean))];
+			const activeCountryCodes = [
+				...new Set(sorted.map((d) => d.geo.country_code?.toUpperCase()).filter(Boolean))
+			];
 			const matchArray = activeCountryCodes.length > 0 ? activeCountryCodes : ['NONE_PLACEHOLDER'];
 			map.setPaintProperty('country-highlight', 'fill-color', [
 				'case',
-				['in', ['get', 'ISO_A2'], ['literal', matchArray]], TINT_COLOR,
+				['in', ['get', 'ISO_A2'], ['literal', matchArray]],
+				TINT_COLOR,
 				'transparent'
 			]);
 			map.setPaintProperty('country-highlight', 'fill-opacity', [
 				'case',
-				['in', ['get', 'ISO_A2'], ['literal', matchArray]], 0.15,
+				['in', ['get', 'ISO_A2'], ['literal', matchArray]],
+				0.15,
 				0
 			]);
 		}
@@ -285,7 +339,11 @@
 			for (let i = 0; i < sorted.length - 1; i++) {
 				const startData = sorted[i];
 				const endData = sorted[i + 1];
-				const routesArray = await fetchRoute(stops[i], stops[i + 1], startData.cached_route_to_next);
+				const routesArray = await fetchRoute(
+					stops[i],
+					stops[i + 1],
+					startData.cached_route_to_next
+				);
 
 				if (routesArray.length > 0) {
 					const mainRoute = routesArray[0];
@@ -301,8 +359,9 @@
 						const el = document.createElement('div');
 						el.className = 'km-marker-container z-[50]';
 						const inner = document.createElement('div');
-						inner.title = "";
-						inner.className = 'km-marker-inner text-[#1a1a1a] font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow-lg border-2 border-[#1a1a1a] whitespace-nowrap cursor-pointer transition-all duration-300 transform origin-center';
+						inner.title = '';
+						inner.className =
+							'km-marker-inner text-[#1a1a1a] font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow-lg border-2 border-[#1a1a1a] whitespace-nowrap cursor-pointer transition-all duration-300 transform origin-center';
 						inner.style.backgroundColor = LINE_COLOR;
 						inner.innerText = mainRoute.distanceKm;
 
@@ -324,11 +383,13 @@
 
 		const variantsGeoJSON = {
 			type: 'FeatureCollection',
-			features: editingDateId ? alternativeRoutesForEdit.map((r, i) => ({
-				type: 'Feature',
-				geometry: { type: 'LineString', coordinates: r.coords },
-				properties: { variantIndex: i, color: VARIANT_COLORS[i % VARIANT_COLORS.length] }
-			})) : []
+			features: editingDateId
+				? alternativeRoutesForEdit.map((r, i) => ({
+						type: 'Feature',
+						geometry: { type: 'LineString', coordinates: r.coords },
+						properties: { variantIndex: i, color: VARIANT_COLORS[i % VARIANT_COLORS.length] }
+					}))
+				: []
 		};
 
 		if (editingDateId) {
@@ -338,9 +399,10 @@
 				const el = document.createElement('div');
 				el.className = 'km-marker-container z-[100]';
 				const inner = document.createElement('div');
-				inner.title = "";
+				inner.title = '';
 				const bgColor = VARIANT_COLORS[i % VARIANT_COLORS.length];
-				inner.className = 'km-marker-inner text-[#1a1a1a] font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow-lg border-2 border-[#1a1a1a] whitespace-nowrap cursor-pointer transition-all duration-300 transform origin-center';
+				inner.className =
+					'km-marker-inner text-[#1a1a1a] font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow-lg border-2 border-[#1a1a1a] whitespace-nowrap cursor-pointer transition-all duration-300 transform origin-center';
 				inner.style.backgroundColor = bgColor;
 				inner.innerText = r.distanceKm;
 				inner.addEventListener('click', (e) => {
@@ -386,7 +448,8 @@
 			const el = document.createElement('div');
 			el.className = 'z-50';
 			const inner = document.createElement('div');
-			inner.className = 'border-2 border-[#1a1a1a] text-[#1a1a1a] rounded-full flex items-center justify-center font-black cursor-pointer shadow-lg transition-transform hover:scale-110 origin-center';
+			inner.className =
+				'border-2 border-[#1a1a1a] text-[#1a1a1a] rounded-full flex items-center justify-center font-black cursor-pointer shadow-lg transition-transform hover:scale-110 origin-center';
 			inner.style.backgroundColor = getTypeColor(d.type);
 			inner.style.width = '28px';
 			inner.style.height = '28px';
@@ -440,13 +503,19 @@
 		// Only show map-able dates in popup index
 		const sorted = [...tourDates]
 			.map((d) => ({ ...d, geo: parseAddress(d.address) }))
-			.filter((d) => d.geo?.lat != null && d.geo?.lng != null && !NO_MAP_TYPES.includes(d.type || ''))
+			.filter(
+				(d) => d.geo?.lat != null && d.geo?.lng != null && !NO_MAP_TYPES.includes(d.type || '')
+			)
 			.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-		const stopIdx = sorted.findIndex(d => d.id === data.id);
-		const displayIndex = stopIdx !== -1 ? stopIdx + 1 : (data.index || '');
-		const displayCity = stopIdx !== -1 ? (sorted[stopIdx].geo?.city || '') : (data.city || '');
-		const dateStr = new Date(data.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+		const stopIdx = sorted.findIndex((d) => d.id === data.id);
+		const displayIndex = stopIdx !== -1 ? stopIdx + 1 : data.index || '';
+		const displayCity = stopIdx !== -1 ? sorted[stopIdx].geo?.city || '' : data.city || '';
+		const dateStr = new Date(data.date + 'T00:00:00').toLocaleDateString('en-US', {
+			month: 'short',
+			day: 'numeric',
+			year: 'numeric'
+		});
 		const typeColor = getTypeColor(data.type);
 
 		const isEditing = editingDateId === data.id;
@@ -492,10 +561,10 @@
 		if (hasNextStop) {
 			if (isEditing && alternativeRoutesForEdit.length > 0) {
 				const btns = container.querySelectorAll('.route-variant-btn');
-				btns.forEach(btn => {
+				btns.forEach((btn) => {
 					btn.addEventListener('click', async (e) => {
 						const target = e.currentTarget as HTMLElement;
-						target.innerText = "Saving...";
+						target.innerText = 'Saving...';
 						target.style.opacity = '0.5';
 						const idx = parseInt(target.getAttribute('data-idx') || '0');
 						saveVariantRoute(idx);
@@ -504,7 +573,7 @@
 			} else {
 				container.querySelector('#edit-route-btn')?.addEventListener('click', async (e) => {
 					const target = e.currentTarget as HTMLElement;
-					target.innerText = "Fetching routes...";
+					target.innerText = 'Fetching routes...';
 					target.style.opacity = '0.5';
 					target.style.pointerEvents = 'none';
 					const startData = sorted[stopIdx];
@@ -519,10 +588,21 @@
 			.setDOMContent(container)
 			.addTo(map);
 	}
+	let resizeObserver: ResizeObserver;
 
 	onMount(async () => {
 		await initUserSettings();
 		await tick();
+
+		// Wait until the flex layout has given the container a real height
+		await new Promise<void>((resolve) => {
+			const check = () => {
+				if (mapContainer && mapContainer.clientHeight > 0) resolve();
+				else requestAnimationFrame(check);
+			};
+			requestAnimationFrame(check);
+		});
+
 		map = new maplibregl.Map({
 			container: mapContainer,
 			style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
@@ -535,67 +615,122 @@
 			fadeDuration: 0
 		});
 
+		// Keep the canvas matched to the container on any later size change
+		resizeObserver = new ResizeObserver(() => map?.resize());
+		resizeObserver.observe(mapContainer);
+
 		map.on('load', () => {
 			map.addSource('world', {
 				type: 'geojson',
 				data: 'https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson'
 			});
-			map.addLayer({
-				id: 'country-highlight',
-				type: 'fill',
-				source: 'world',
-				paint: { 'fill-color': 'transparent', 'fill-opacity': 0 }
-			}, 'watername_ocean');
+			map.addLayer(
+				{
+					id: 'country-highlight',
+					type: 'fill',
+					source: 'world',
+					paint: { 'fill-color': 'transparent', 'fill-opacity': 0 }
+				},
+				'watername_ocean'
+			);
 			mapReady = true;
+			map.resize(); // correct any too-early initial measurement
 			updateMapContent();
 		});
 	});
 
 	onDestroy(() => {
-		map?.remove();
-		distanceMarkers.forEach(m => m.remove());
-		variantDistanceMarkers.forEach(m => m.remove());
-		pinMarkers.forEach(m => m.remove());
-	});
+    resizeObserver?.disconnect();
+    map?.remove();
+    distanceMarkers.forEach((m) => m.remove());
+    variantDistanceMarkers.forEach((m) => m.remove());
+    pinMarkers.forEach((m) => m.remove());
+});
 </script>
 
 <div class="w-full h-full relative rounded-2xl overflow-hidden" style="min-height: 300px;">
 	<div bind:this={mapContainer} style="position:absolute;inset:0;width:100%;height:100%;"></div>
 
 	{#if !mapReady}
-		<div class="absolute inset-0 z-[1000] bg-[#1a1a1a]/80 backdrop-blur-sm flex flex-col items-center justify-center">
+		<div
+			class="absolute inset-0 z-[1000] bg-[#1a1a1a]/80 backdrop-blur-sm flex flex-col items-center justify-center"
+		>
 			<div class="animate-spin w-8 h-8 text-lime mb-3">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M21 12a9 9 0 11-6.219-8.56" />
 				</svg>
 			</div>
-			<span class="text-[10px] font-bold text-gray2 uppercase tracking-widest animate-pulse">Loading Map...</span>
+			<span class="text-[10px] font-bold text-gray2 uppercase tracking-widest animate-pulse"
+				>Loading Map...</span
+			>
 		</div>
 	{/if}
 
-	<div class="absolute top-4 right-4 z-[999] flex flex-col items-end gap-2">
+	<div class="absolute top-4 right-4 z-[10] flex flex-col items-end gap-2">
 		<!-- Line Color -->
-		<div role="group" aria-label="Line Color Settings" class="flex flex-col items-end gap-2"
-			 on:mouseenter={() => isColorMenuHovered = true}
-			 on:mouseleave={() => { isColorMenuHovered = false; isColorMenuOpen = false; }}>
-			<button class="h-8 bg-[#1a1a1a] border border-[#2F2F2F] rounded-full flex items-center cursor-pointer hover:bg-[#2F2F2F] transition-all duration-300 overflow-hidden box-border"
-					style="width: {isColorMenuHovered || isColorMenuOpen ? '108px' : '32px'}; padding: 0 7px;"
-					on:click={() => isColorMenuOpen = !isColorMenuOpen}>
+		<div
+			role="group"
+			aria-label="Line Color Settings"
+			class="flex flex-col items-end gap-2"
+			on:mouseenter={() => (isColorMenuHovered = true)}
+			on:mouseleave={() => {
+				isColorMenuHovered = false;
+				isColorMenuOpen = false;
+			}}
+		>
+			<button
+				class="h-8 bg-[#1a1a1a] border border-[#2F2F2F] rounded-full flex items-center cursor-pointer hover:bg-[#2F2F2F] transition-all duration-300 overflow-hidden box-border"
+				style="width: {isColorMenuHovered || isColorMenuOpen ? '108px' : '32px'}; padding: 0 7px;"
+				on:click={() => (isColorMenuOpen = !isColorMenuOpen)}
+			>
 				<div class="flex items-center gap-2" style="color: {LINE_COLOR}; width: max-content;">
-					<svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<circle cx="4" cy="12" r="2"></circle><circle cx="20" cy="12" r="2"></circle><line x1="6" y1="12" x2="18" y2="12"></line>
+					<svg
+						class="w-4 h-4 shrink-0"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
+						<circle cx="4" cy="12" r="2"></circle><circle cx="20" cy="12" r="2"></circle><line
+							x1="6"
+							y1="12"
+							x2="18"
+							y2="12"
+						></line>
 					</svg>
-					<span class="text-xs font-bold whitespace-nowrap" style="opacity: {isColorMenuHovered || isColorMenuOpen ? '1' : '0'}; transition: opacity 0.2s;">Line Color</span>
+					<span
+						class="text-xs font-bold whitespace-nowrap"
+						style="opacity: {isColorMenuHovered || isColorMenuOpen
+							? '1'
+							: '0'}; transition: opacity 0.2s;">Line Color</span
+					>
 				</div>
 			</button>
 			{#if isColorMenuOpen}
-				<div transition:slide={{ duration: 200 }} class="bg-[#1a1a1a] border border-[#2F2F2F] rounded-2xl p-2 flex flex-col gap-1 shadow-xl origin-top-right w-[140px]">
+				<div
+					transition:slide={{ duration: 200 }}
+					class="bg-[#1a1a1a] border border-[#2F2F2F] rounded-2xl p-2 flex flex-col gap-1 shadow-xl origin-top-right w-[140px]"
+				>
 					{#each LINE_COLORS_OPTIONS as color}
-						<button class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#2F2F2F] transition-colors w-full text-left cursor-pointer" on:click={() => saveLineColor(color.hex)}>
-							<div class="w-3 h-3 rounded-full border border-gray2 shrink-0" style="background-color: {color.hex};"></div>
+						<button
+							class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#2F2F2F] transition-colors w-full text-left cursor-pointer"
+							on:click={() => saveLineColor(color.hex)}
+						>
+							<div
+								class="w-3 h-3 rounded-full border border-gray2 shrink-0"
+								style="background-color: {color.hex};"
+							></div>
 							<span class="text-xs font-bold text-white whitespace-nowrap">{color.name}</span>
 							{#if LINE_COLOR === color.hex}
-								<svg class="w-3 h-3 text-white ml-auto shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+								<svg
+									class="w-3 h-3 text-white ml-auto shrink-0"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg
+								>
 							{/if}
 						</button>
 					{/each}
@@ -604,43 +739,111 @@
 		</div>
 
 		<!-- Date Type Colors -->
-		<div role="group" aria-label="Date Type Settings" class="flex flex-col items-end gap-2"
-			 on:mouseenter={() => isTypeMenuHovered = true}
-			 on:mouseleave={() => { isTypeMenuHovered = false; isTypeMenuOpen = false; activeTypeForColor = null; }}>
-			<button class="h-8 bg-[#1a1a1a] border border-[#2F2F2F] rounded-full flex items-center cursor-pointer hover:bg-[#2F2F2F] transition-all duration-300 overflow-hidden box-border"
-					style="width: {isTypeMenuHovered || isTypeMenuOpen ? '112px' : '32px'}; padding: 0 7px;"
-					on:click={() => { isTypeMenuOpen = !isTypeMenuOpen; activeTypeForColor = null; }}>
+		<div
+			role="group"
+			aria-label="Date Type Settings"
+			class="flex flex-col items-end gap-2"
+			on:mouseenter={() => (isTypeMenuHovered = true)}
+			on:mouseleave={() => {
+				isTypeMenuHovered = false;
+				isTypeMenuOpen = false;
+				activeTypeForColor = null;
+			}}
+		>
+			<button
+				class="h-8 bg-[#1a1a1a] border border-[#2F2F2F] rounded-full flex items-center cursor-pointer hover:bg-[#2F2F2F] transition-all duration-300 overflow-hidden box-border"
+				style="width: {isTypeMenuHovered || isTypeMenuOpen ? '112px' : '32px'}; padding: 0 7px;"
+				on:click={() => {
+					isTypeMenuOpen = !isTypeMenuOpen;
+					activeTypeForColor = null;
+				}}
+			>
 				<div class="flex items-center gap-2" style="color: #E4E4E4; width: max-content;">
-					<svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-						<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle>
+					<svg
+						class="w-4 h-4 shrink-0"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
+						<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle
+							cx="12"
+							cy="10"
+							r="3"
+						></circle>
 					</svg>
-					<span class="text-xs font-bold whitespace-nowrap" style="opacity: {isTypeMenuHovered || isTypeMenuOpen ? '1' : '0'}; transition: opacity 0.2s;">Date Types</span>
+					<span
+						class="text-xs font-bold whitespace-nowrap"
+						style="opacity: {isTypeMenuHovered || isTypeMenuOpen
+							? '1'
+							: '0'}; transition: opacity 0.2s;">Date Types</span
+					>
 				</div>
 			</button>
 			{#if isTypeMenuOpen}
-				<div transition:slide={{ duration: 200 }} class="bg-[#1a1a1a] border border-[#2F2F2F] rounded-2xl p-2 flex flex-col gap-1 shadow-xl origin-top-right w-[150px]">
+				<div
+					transition:slide={{ duration: 200 }}
+					class="bg-[#1a1a1a] border border-[#2F2F2F] rounded-2xl p-2 flex flex-col gap-1 shadow-xl origin-top-right w-[150px]"
+				>
 					{#if activeTypeForColor}
-						<button class="flex items-center gap-2 px-2 py-1.5 text-gray2 hover:text-white transition-colors mb-1 cursor-pointer rounded-lg hover:bg-[#2F2F2F]" on:click={() => activeTypeForColor = null}>
-							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+						<button
+							class="flex items-center gap-2 px-2 py-1.5 text-gray2 hover:text-white transition-colors mb-1 cursor-pointer rounded-lg hover:bg-[#2F2F2F]"
+							on:click={() => (activeTypeForColor = null)}
+						>
+							<svg
+								class="w-4 h-4"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"><path d="M15 18l-6-6 6-6" /></svg
+							>
 							<span class="text-[10px] font-bold uppercase tracking-wider">Back</span>
 						</button>
 						{#each LINE_COLORS_OPTIONS as color}
-							<button class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#2F2F2F] transition-colors w-full text-left cursor-pointer" on:click={() => saveTypeColor(activeTypeForColor || '', color.hex)}>
-								<div class="w-3 h-3 rounded-full border border-gray2 shrink-0" style="background-color: {color.hex};"></div>
+							<button
+								class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#2F2F2F] transition-colors w-full text-left cursor-pointer"
+								on:click={() => saveTypeColor(activeTypeForColor || '', color.hex)}
+							>
+								<div
+									class="w-3 h-3 rounded-full border border-gray2 shrink-0"
+									style="background-color: {color.hex};"
+								></div>
 								<span class="text-xs font-bold text-white whitespace-nowrap">{color.name}</span>
 								{#if currentTypeColors[activeTypeForColor || ''] === color.hex}
-									<svg class="w-3 h-3 text-white ml-auto shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>
+									<svg
+										class="w-3 h-3 text-white ml-auto shrink-0"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg
+									>
 								{/if}
 							</button>
 						{/each}
 					{:else}
 						{#each TOUR_DATE_TYPES as type}
-							<button class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#2F2F2F] transition-colors w-full text-left cursor-pointer justify-between" on:click={() => activeTypeForColor = type}>
+							<button
+								class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-[#2F2F2F] transition-colors w-full text-left cursor-pointer justify-between"
+								on:click={() => (activeTypeForColor = type)}
+							>
 								<div class="flex items-center gap-3">
-									<div class="w-3 h-3 rounded-full border border-gray2 shrink-0" style="background-color: {currentTypeColors[type]};"></div>
-									<span class="text-xs font-bold text-white whitespace-nowrap truncate max-w-[80px]">{type}</span>
+									<div
+										class="w-3 h-3 rounded-full border border-gray2 shrink-0"
+										style="background-color: {currentTypeColors[type]};"
+									></div>
+									<span class="text-xs font-bold text-white whitespace-nowrap truncate max-w-[80px]"
+										>{type}</span
+									>
 								</div>
-								<svg class="w-3 h-3 text-gray2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+								<svg
+									class="w-3 h-3 text-gray2 shrink-0"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"><path d="M9 18l6-6-6-6" /></svg
+								>
 							</button>
 						{/each}
 					{/if}
@@ -651,10 +854,26 @@
 </div>
 
 <style>
-	:global(.maplibregl-popup) { z-index: 9999 !important; }
-	:global(.maplibregl-popup-content) { background: transparent !important; padding: 0 !important; box-shadow: none !important; border: none !important; }
-	:global(.maplibregl-popup-tip) { border-top-color: #2F2F2F !important; border-bottom-color: #2F2F2F !important; }
-	:global(#edit-route-btn:hover) { background-color: rgba(228, 228, 228, 0.2) !important; }
-	:global(#zoom-to-point:hover) { color: #E4E4E4 !important; }
-	:global(.route-variant-btn:hover) { filter: brightness(1.2); }
+	:global(.maplibregl-popup) {
+		z-index: 9999 !important;
+	}
+	:global(.maplibregl-popup-content) {
+		background: transparent !important;
+		padding: 0 !important;
+		box-shadow: none !important;
+		border: none !important;
+	}
+	:global(.maplibregl-popup-tip) {
+		border-top-color: #2f2f2f !important;
+		border-bottom-color: #2f2f2f !important;
+	}
+	:global(#edit-route-btn:hover) {
+		background-color: rgba(228, 228, 228, 0.2) !important;
+	}
+	:global(#zoom-to-point:hover) {
+		color: #e4e4e4 !important;
+	}
+	:global(.route-variant-btn:hover) {
+		filter: brightness(1.2);
+	}
 </style>

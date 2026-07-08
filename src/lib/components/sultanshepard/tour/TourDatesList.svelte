@@ -28,6 +28,21 @@
 		return c[t] || c['Tour Date'] || '#E1FF00';
 	}
 
+	// For a Travel Day, split into the linked show name + Arrival/Departure.
+	// Prefers the stored link; falls back to parsing the "Arrival - X" venue string.
+	function travelParts(d: SSTourDate): { name: string; dir: string } | null {
+		if ((d.type || 'Tour Date') !== 'Travel Day') return null;
+		if (d.linked_date_id) {
+			const show = dates.find((x) => x.id === d.linked_date_id);
+			if (show) {
+				return { name: show.venue, dir: d.date > show.date ? 'Departure' : 'Arrival' };
+			}
+		}
+		const m = (d.venue || '').match(/^(Arrival|Departure)\s*-\s*(.+)$/i);
+		if (m) return { name: m[2], dir: m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() };
+		return { name: d.venue, dir: '' };
+	}
+
 	function toggleFilter(type: string) {
 		activeFilter = activeFilter === type ? null : type;
 	}
@@ -37,13 +52,25 @@
 		selectedDateId = selectedDateId === id ? null : id;
 	}
 
+	// A linked Travel Day numbers itself by the SHOW it's attached to, so both
+	// travel days (arrival + departure) carry the same number as the tour date.
+	function effectiveDate(d: SSTourDate): string {
+		if ((d.type || 'Tour Date') === 'Travel Day' && d.linked_date_id) {
+			const show = dates.find((x) => x.id === d.linked_date_id);
+			if (show) return show.date;
+		}
+		return d.date;
+	}
+
 	// Add this reactive declaration
 	$: dayNumberMap = (() => {
 		const seen = new Map<string, number>();
 		let counter = 1;
 		for (const d of filteredDates) {
-			if (!seen.has(d.date)) {
-				seen.set(d.date, counter++);
+			if ((d.type || 'Tour Date') === 'Tour Break') continue;
+			const key = effectiveDate(d);
+			if (!seen.has(key)) {
+				seen.set(key, counter++);
 			}
 		}
 		return seen;
@@ -162,6 +189,7 @@
 		{#if filteredDates.length > 0}
 			<div class="space-y-2">
 				{#each filteredDates as date (date.id)}
+					{@const tp = travelParts(date)}
 					<div
 						class="relative group"
 						animate:flip={{ duration: 200 }}
@@ -182,13 +210,28 @@
 									class="w-7 h-7 rounded-full text-[#1a1a1a] flex items-center justify-center text-xs font-black border border-[#1a1a1a] shadow-sm transition-colors duration-300"
 									style="background-color: {getTypeColor(date.type, colors)};"
 								>
-									{dayNumberMap.get(date.date) ?? ''}
+									{#if (date.type || 'Tour Date') === 'Tour Break'}
+									<svg
+										class="w-3.5 h-3.5"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+									>
+										<path d="M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3" />
+									</svg>
+								{:else}
+									{dayNumberMap.get(effectiveDate(date)) ?? ''}
+								{/if}
 								</div>
 							</div>
 
 							<div class="flex-1 min-w-0">
 								<div class="flex items-center gap-2 mb-1">
-									<div class="text-lime text-[11px] font-bold uppercase tracking-wider shrink-0">
+									<div
+										class="text-[11px] font-bold uppercase tracking-wider shrink-0"
+										style="color: {getTypeColor(date.type, colors)};"
+									>
 										{new Date(date.date).toLocaleDateString('en-US', {
 											month: 'short',
 											day: 'numeric',
@@ -205,16 +248,26 @@
 										</span>
 									{/if}
 								</div>
-								<div class="text-white font-bold text-sm truncate pr-8">{date.venue}</div>
-								<div class="text-gray2 text-xs truncate">
-									{#if date.type === 'Travel Day' || date.type === 'Tour Break'}
-										{#if date.notes}
-											{date.notes}
-										{/if}
-									{:else if date.address?.city}
-										{date.address.city}{date.address.country ? `, ${date.address.country}` : ''}
-									{/if}
+								{#if tp && tp.dir}
+									<div
+										class="text-[10px] font-bold uppercase tracking-wider mb-0.5"
+										style="color: {getTypeColor(date.type, colors)};"
+									>
+										{tp.dir}
+									</div>
+								{/if}
+								<div class="text-white font-bold text-sm truncate pr-8">
+									{tp ? tp.name : date.venue}
 								</div>
+								{#if !tp}
+									<div class="text-gray2 text-xs truncate">
+										{#if date.type === 'Tour Break'}
+											{date.notes || ''}
+										{:else if date.address?.city}
+											{date.address.city}{date.address.country ? `, ${date.address.country}` : ''}
+										{/if}
+									</div>
+								{/if}
 							</div>
 						</button>
 
@@ -254,7 +307,7 @@
 	<!-- Footer filter buttons — z-[9999] + overflow-visible so tooltips escape container -->
 	{#if settingsReady}
 		<div
-			class="relative z-[9999] overflow-visible p-3 border-t border-gray1 flex items-center justify-center gap-1.5 bg-gray1/20 shrink-0 rounded-b-2xl"
+			class="relative z-[50] overflow-visible p-3 border-t border-gray1 flex items-center justify-center gap-1.5 bg-gray1/20 shrink-0 rounded-b-2xl"
 		>
 			{#each FILTER_TYPES as f, i}
 				{@const isActive = activeFilter === f.type}

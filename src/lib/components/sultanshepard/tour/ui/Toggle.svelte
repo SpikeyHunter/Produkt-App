@@ -29,6 +29,6 @@
 		></span>
 	</span>
 	{#if label}
-		<span class="text-sm font-bold {checked ? 'text-white' : 'text-gray2'}">{label}</span>
+		<span class="text-[12px] uppercase font-bold {checked ? 'text-gray3' : 'text-gray2/20'}">{label}</span>
 	{/if}
 </button>
