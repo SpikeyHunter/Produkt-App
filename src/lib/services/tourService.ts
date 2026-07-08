@@ -49,8 +49,20 @@ export async function deleteTour(tourId: string): Promise<void> {
 }
 
 export async function saveTourBudget(tourId: string, budget: TourBudget): Promise<void> {
-	const { error } = await supabase.from('ss_tour').update({ budget }).eq('id', tourId);
+	const { data, error } = await supabase
+		.from('ss_tour')
+		.update({ budget })
+		.eq('id', tourId)
+		.select('id');
 	if (error) throw new Error(error.message);
+	// A blocked RLS UPDATE often returns no error and zero affected rows —
+	// without this check that looks like a successful save that silently
+	// did nothing. Surface it as a real failure instead.
+	if (!data || data.length === 0) {
+		throw new Error(
+			`saveTourBudget: update matched no rows for tour ${tourId} — check RLS policies on ss_tour.`
+		);
+	}
 }
 
 // ============================================================

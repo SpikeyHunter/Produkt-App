@@ -4,7 +4,7 @@
 	import Toggle from '../ui/Toggle.svelte';
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
-	import { getAccessToken } from '$lib/stores/auth';
+	import { supabase } from '$lib/supabase';
 
 	export let data: ProductionData = {};
 	export let tourDate: SSTourDate | undefined = undefined;
@@ -206,6 +206,13 @@
 		uploadTarget = target;
 		showUploadModal = true;
 	}
+	// The exact base name this upload will be saved as (no extension) — shown
+	// in the modal's preview so it never lies about the real stored filename.
+	$: pendingUploadName = uploadTarget
+		? `${formatFileDate(tourDate?.date)}_${slugifyVenue(tourDate?.venue)}_${
+				uploadTarget === 'venue_specs_link' ? 'Venue-Specs' : 'Pixel-Map'
+			}`
+		: '';
 
 	function openLink(url: string) {
 		if (url) window.open(url, '_blank');
@@ -217,38 +224,92 @@
 		showPreviewModal = true;
 	}
 
+	// ---- storage helpers (Venue Specs / Pixel Map) ----
+	// Uploads go straight to Supabase Storage from the browser (no app-server
+	// round trip), which avoids request-body size limits (413 errors) on
+	// hosted server routes. Files are named "{DD-Mon}_{Venue-Name}_<Kind>.ext"
+	// and stored at documents/sstour/venuespecs/ or documents/sstour/pixelmaps/.
+	function formatFileDate(dateStr?: string): string {
+		if (!dateStr) return 'Date';
+		try {
+			const dt = new Date(dateStr + 'T00:00:00');
+			const day = String(dt.getDate()).padStart(2, '0');
+			const month = dt.toLocaleDateString('en-US', { month: 'short' });
+			return `${day}-${month}`; // e.g. "26-Feb"
+		} catch {
+			return 'Date';
+		}
+	}
+	function slugifyVenue(venue?: string): string {
+		return (
+			(venue || 'Venue')
+				.trim()
+				.replace(/\s+/g, '-')
+				.replace(/[^a-zA-Z0-9-]/g, '') || 'Venue'
+		);
+	}
+	function buildStoragePath(dir: string, baseName: string, date: SSTourDate | undefined, ext: string): string {
+		const dateLabel = formatFileDate(date?.date);
+		const venueLabel = slugifyVenue(date?.venue);
+		return `sstour/${dir}/${dateLabel}_${venueLabel}_${baseName}.${ext}`;
+	}
+	// Extracts the storage object path (bucket-relative) from a Supabase public URL.
+	function storagePathFromUrl(url: string): string | null {
+		const marker = '/object/public/documents/';
+		const idx = url.indexOf(marker);
+		if (idx === -1) return null;
+		return decodeURIComponent(url.slice(idx + marker.length));
+	}
+	async function deleteStoredFile(url: string): Promise<boolean> {
+		if (!isFile(url)) return true; // pasted (non-uploaded) links have nothing to delete
+		const path = storagePathFromUrl(url);
+		if (!path) return true;
+		try {
+			const { error } = await supabase.storage.from('documents').remove([path]);
+			if (error) {
+				console.error('Failed to delete stored file:', error.message);
+				return false;
+			}
+			return true;
+		} catch (err) {
+			console.error('Failed to delete stored file:', err);
+			return false;
+		}
+	}
+	// The real filename this URL was stored as (the last path segment) — used
+	// so downloads/previews show the actual file, not a generic hardcoded label.
+	function fileNameFromUrl(url: string, fallback: string): string {
+		const path = storagePathFromUrl(url);
+		if (!path) return fallback;
+		const parts = path.split('/');
+		return decodeURIComponent(parts[parts.length - 1] || fallback);
+	}
+
 	async function handleUploadEvent(e: CustomEvent) {
 		if (!uploadTarget) return;
+		const target = uploadTarget;
 		const { file, fileName } = e.detail;
 		isUploading = true;
 
 		try {
-			const token = await getAccessToken();
-			if (!token) throw new Error('Not authenticated.');
+			const dir = target === 'venue_specs_link' ? 'venuespecs' : 'pixelmaps';
+			const baseName = target === 'venue_specs_link' ? 'Venue-Specs' : 'Pixel-Map';
+			const ext = (fileName.split('.').pop() || 'pdf').toLowerCase();
+			const path = buildStoragePath(dir, baseName, tourDate, ext);
 
-			const formData = new FormData();
-			formData.append('file', file);
+			const { error: uploadError } = await supabase.storage
+				.from('documents')
+				.upload(path, file, { upsert: true, cacheControl: '3600' });
+			if (uploadError) throw uploadError;
 
-			const dir = uploadTarget === 'venue_specs_link' ? 'venuespecs' : 'pixelmaps';
-			const safeDate = (tourDate?.date || 'Date').replace(/-/g, '');
-			const safeVenue = (tourDate?.venue || 'Venue').replace(/[^a-zA-Z0-9]/g, '_');
-			const baseName = uploadTarget === 'venue_specs_link' ? 'Venue-Specs' : 'Pixel-Map';
-			const ext = fileName.split('.').pop();
-			const customFileName = `SS_${safeDate}_${safeVenue}_${baseName}.${ext}`;
+			const { data: pub } = supabase.storage.from('documents').getPublicUrl(path);
 
-			formData.append('filePath', `sstour/${dir}/${customFileName}`);
-			formData.append('bucket', 'documents');
+			// Re-uploading (venue/date since changed, new filename) should orphan
+			// whatever file used to be stored here rather than leave it stranded.
+			const prevLink = data[target];
+			if (prevLink && prevLink !== pub.publicUrl) await deleteStoredFile(prevLink);
 
-			const res = await fetch('/api/upload', {
-				method: 'POST',
-				headers: { Authorization: `Bearer ${token}` },
-				body: formData
-			});
-
-			if (!res.ok) throw new Error('Upload failed');
-
-			const json = await res.json();
-			data[uploadTarget] = json.publicUrl;
+			data[target] = pub.publicUrl;
 			changed();
 			showUploadModal = false;
 		} catch (err) {
@@ -535,14 +596,22 @@
 						<button
 							type="button"
 							class="shrink-0 px-3 py-1.5 rounded-xl bg-gray3 text-black text-xs font-bold hover:brightness-110 transition-all cursor-pointer"
-							on:click={() => openPreview(data.venue_specs_link || '', 'Venue Specs')}
+							on:click={() => openPreview(data.venue_specs_link || '', fileNameFromUrl(data.venue_specs_link || '', 'Venue Specs'))}
 						>
 							Preview PDF
 						</button>
 						<button
 							type="button"
 							class="shrink-0 p-1.5 text-gray2 hover:text-problem transition-colors cursor-pointer"
-							on:click={() => {
+							on:click={async () => {
+								const link = data.venue_specs_link;
+								if (link) {
+									const ok = await deleteStoredFile(link);
+									if (!ok) {
+										alert('Failed to delete the file from storage. The link was not removed — please try again.');
+										return;
+									}
+								}
 								data.venue_specs_link = '';
 								changed();
 							}}
@@ -588,7 +657,15 @@
 							<button
 								type="button"
 								class="shrink-0 p-1.5 text-gray2 hover:text-problem transition-colors cursor-pointer"
-								on:click={() => {
+								on:click={async () => {
+									const link = data.venue_specs_link;
+									if (link) {
+										const ok = await deleteStoredFile(link);
+										if (!ok) {
+											alert('Failed to delete the file from storage. The link was not removed — please try again.');
+											return;
+										}
+									}
 									data.venue_specs_link = '';
 									changed();
 								}}
@@ -711,14 +788,22 @@
 								<button
 									type="button"
 									class="shrink-0 px-3 py-1.5 rounded-xl bg-gray3 text-black text-xs font-bold hover:brightness-110 transition-all cursor-pointer"
-									on:click={() => openPreview(data.pixel_map_link || '', 'Pixel Map')}
+									on:click={() => openPreview(data.pixel_map_link || '', fileNameFromUrl(data.pixel_map_link || '', 'Pixel Map'))}
 								>
 									Preview PDF
 								</button>
 								<button
 									type="button"
 									class="shrink-0 p-1.5 text-gray2 hover:text-problem transition-colors cursor-pointer"
-									on:click={() => {
+									on:click={async () => {
+										const link = data.pixel_map_link;
+										if (link) {
+											const ok = await deleteStoredFile(link);
+											if (!ok) {
+												alert('Failed to delete the file from storage. The link was not removed — please try again.');
+												return;
+											}
+										}
 										data.pixel_map_link = '';
 										changed();
 									}}
@@ -764,7 +849,15 @@
 									<button
 										type="button"
 										class="shrink-0 p-1.5 text-gray2 hover:text-problem transition-colors cursor-pointer"
-										on:click={() => {
+										on:click={async () => {
+											const link = data.pixel_map_link;
+											if (link) {
+												const ok = await deleteStoredFile(link);
+												if (!ok) {
+													alert('Failed to delete the file from storage. The link was not removed — please try again.');
+													return;
+												}
+											}
 											data.pixel_map_link = '';
 											changed();
 										}}
@@ -809,7 +902,7 @@
 	{isUploading}
 	title="Upload File"
 	acceptedTypes=".pdf,.jpg,.jpeg,.png,.zip"
-	fileNameTemplate={uploadTarget === 'venue_specs_link' ? 'Venue_Specs' : 'Pixel_Map'}
+	fileNameTemplate={pendingUploadName}
 	on:upload={handleUploadEvent}
 	on:close={() => (showUploadModal = false)}
 />

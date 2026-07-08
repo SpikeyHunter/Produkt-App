@@ -2,12 +2,14 @@
 	// ============================================================
 	// PRODUCTION GRID — full-page spreadsheet of every SHOW date.
 	//
-	// One row per Tour Date. Every cell reads/writes the *same*
-	// jsonb columns the Venue Info + Production tabs use
-	// (ss_tour_data.venue_info / .production), through the same
-	// saveTabData() upsert. A realtime subscription on ss_tour_data
-	// keeps the grid in sync with edits made in those tabs (and
-	// across browsers) live.
+	// One row per Tour Date. Most cells read/write the same jsonb
+	// columns the Venue Info + Production tabs use (ss_tour_data
+	// .venue_info / .production) through saveTabData(), kept live via
+	// a realtime subscription on ss_tour_data. The Capacity column is
+	// different: it's shared with the Tour Budget tab and lives on
+	// ss_tour.budget.grid[dateId].capacity instead, saved through
+	// saveTourBudget() and kept live via a second realtime subscription
+	// on ss_tour (filtered to this tour's id).
 	// ============================================================
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/supabase';
@@ -15,10 +17,10 @@
 		SSTour,
 		SSTourDate,
 		VenueInfoData,
-		ProductionData
+		ProductionData,
+		TourBudget
 	} from '$lib/types/tour';
-	import { fetchTourDataForDates, saveTabData } from '$lib/services/tourService';
-	import { getAccessToken } from '$lib/stores/auth';
+	import { fetchTourDataForDates, saveTabData, saveTourBudget } from '$lib/services/tourService';
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
 
@@ -30,8 +32,8 @@
 
 	const VENUE_TYPES = ['Concert Hall', 'Theatre', 'Festival', 'Club', 'Other'];
 
-	// ---- per-date state (only the two columns this grid touches) ----
-	type Row = { venue_info: VenueInfoData; production: ProductionData };
+	// ---- per-date state ----
+	type Row = { venue_info: VenueInfoData; production: ProductionData; capacity: number };
 	let rows: Record<string, Row> = {};
 	let loading = true;
 
@@ -52,7 +54,7 @@
 	}
 
 	function blankRow(): Row {
-		return { venue_info: {}, production: {} };
+		return { venue_info: {}, production: {}, capacity: 0 };
 	}
 
 	// ---- load / reload when the set of shows changes ----
@@ -73,13 +75,20 @@
 		loading = true;
 		try {
 			const data = await fetchTourDataForDates(ids);
+			const budgetGrid = asObj<TourBudget>(tour?.budget).grid || {};
 			const next: Record<string, Row> = {};
 			for (const id of ids) next[id] = blankRow();
 			for (const r of data) {
 				next[r.tour_date_id] = {
 					venue_info: asObj<VenueInfoData>((r as any).venue_info),
-					production: asObj<ProductionData>((r as any).production)
+					production: asObj<ProductionData>((r as any).production),
+					capacity: 0 // set below, uniformly, from the budget grid
 				};
+			}
+			// Capacity is tracked per-date on the Tour Budget object, independent
+			// of whether an ss_tour_data row exists yet for that date.
+			for (const id of ids) {
+				next[id].capacity = Number(budgetGrid[id]?.capacity) || 0;
 			}
 			rows = next;
 		} catch (e) {
@@ -89,7 +98,8 @@
 		}
 	}
 
-	// ---- realtime sync with the Venue Info / Production tabs ----
+	// ---- realtime sync with the Venue Info / Production tabs, and with
+	// Capacity from the Tour Budget tab (a different table: ss_tour) ----
 	let channel: any;
 	onMount(() => {
 		channel = supabase
@@ -102,6 +112,13 @@
 					const id = (nw || payload.old)?.tour_date_id;
 					if (!id || !(id in rows)) return;
 					applyRemote(id, nw);
+				}
+			)
+			.on(
+				'postgres_changes',
+				{ event: '*', schema: 'public', table: 'ss_tour', filter: `id=eq.${tour.id}` },
+				(payload: any) => {
+					if (payload.new) applyRemoteCapacity(payload.new);
 				}
 			)
 			.subscribe();
@@ -119,12 +136,30 @@
 		const cur = rows[id] || blankRow();
 		const venue = !d || !d.has('venue_info') ? asObj<VenueInfoData>(nw.venue_info) : cur.venue_info;
 		const prod = !d || !d.has('production') ? asObj<ProductionData>(nw.production) : cur.production;
-		rows[id] = { venue_info: venue, production: prod };
+		rows[id] = { ...cur, venue_info: venue, production: prod };
 		rows = { ...rows };
 	}
 
+	// Same clobber-guard as applyRemote, but for the Capacity column sourced
+	// from ss_tour.budget.grid (edits made here OR in the Tour Budget tab).
+	function applyRemoteCapacity(nw: any) {
+		const budgetGrid = asObj<TourBudget>(nw.budget).grid || {};
+		const next: Record<string, Row> = { ...rows };
+		let changed = false;
+		for (const id of Object.keys(next)) {
+			const d = dirty[id];
+			if (d && d.has('capacity')) continue; // an edit here is still saving — don't overwrite it
+			const val = Number(budgetGrid[id]?.capacity) || 0;
+			if (next[id].capacity !== val) {
+				next[id] = { ...next[id], capacity: val };
+				changed = true;
+			}
+		}
+		if (changed) rows = next;
+	}
+
 	// ---- persistence (debounced autosave, per date + per column) ----
-	type Col = 'venue_info' | 'production';
+	type Col = 'venue_info' | 'production' | 'capacity';
 	let saveTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 	let dirty: Record<string, Set<Col>> = {};
 	let savedTimer: ReturnType<typeof setTimeout>;
@@ -139,7 +174,19 @@
 
 	async function flush(id: string, col: Col) {
 		try {
-			await saveTabData(id, col, rows[id][col]);
+			if (col === 'capacity') {
+				// Capacity lives on ss_tour.budget.grid (shared with the Tour Budget
+				// tab), not ss_tour_data — merge into the freshest known budget so
+				// sibling budget data (money columns, sections, other dates) is
+				// never clobbered by this narrower write.
+				const next: TourBudget = structuredClone(tour.budget || {});
+				if (!next.grid) next.grid = {};
+				if (!next.grid[id]) next.grid[id] = {};
+				next.grid[id].capacity = rows[id]?.capacity || 0;
+				await saveTourBudget(tour.id, next);
+			} else {
+				await saveTabData(id, col, rows[id][col]);
+			}
 			dirty[id]?.delete(col);
 			if (!anyDirty()) {
 				status = 'saved';
@@ -166,6 +213,17 @@
 		rows = { ...rows };
 		queueSave(id, 'production');
 	}
+	function setCapacity(id: string, val: number) {
+		const r = rows[id] || blankRow();
+		rows[id] = { ...r, capacity: val || 0 };
+		rows = { ...rows };
+		queueSave(id, 'capacity');
+	}
+	function onCapacityInput(id: string, node: HTMLInputElement) {
+		const cleaned = node.value.replace(/[^0-9]/g, '');
+		setCapacity(id, cleaned === '' ? 0 : Number(cleaned));
+	}
+	const numFmt = (n: number) => (n ? Math.round(n).toLocaleString('en-US') : '');
 
 	// ---- feet/inches formatter (matches ProductionSection) ----
 	function formatFeetInches(val: string): string {
@@ -267,10 +325,72 @@
 
 	// ============================================================
 	// STAGE SPECS — paste a link OR upload a file (venue_specs_link)
+	//
+	// Uploads go straight to Supabase Storage from the browser (no app-server
+	// round trip), which avoids request-body size limits (413 errors) on
+	// hosted server routes. Files are named "{DD-Mon}_{Venue-Name}_Venue-Specs.ext"
+	// and stored at documents/sstour/venuespecs/. Deleting a stored file removes
+	// the object from Storage first, then clears the saved path from the row.
 	// ============================================================
 	const isUrl = (s: string) => /^https?:\/\//.test(s || '');
 	const isFile = (s: string) =>
 		isUrl(s) && (s || '').includes('supabase.co/storage/v1/object/public/documents/sstour/');
+
+	function formatFileDate(dateStr?: string): string {
+		if (!dateStr) return 'Date';
+		try {
+			const dt = new Date(dateStr + 'T00:00:00');
+			const day = String(dt.getDate()).padStart(2, '0');
+			const month = dt.toLocaleDateString('en-US', { month: 'short' });
+			return `${day}-${month}`; // e.g. "26-Feb"
+		} catch {
+			return 'Date';
+		}
+	}
+	function slugifyVenue(venue?: string): string {
+		return (
+			(venue || 'Venue')
+				.trim()
+				.replace(/\s+/g, '-')
+				.replace(/[^a-zA-Z0-9-]/g, '') || 'Venue'
+		);
+	}
+	function buildSpecsPath(date: SSTourDate | undefined, ext: string): string {
+		const dateLabel = formatFileDate(date?.date);
+		const venueLabel = slugifyVenue(date?.venue);
+		return `sstour/venuespecs/${dateLabel}_${venueLabel}_Venue-Specs.${ext}`;
+	}
+	// Extracts the storage object path (bucket-relative) from a Supabase public URL.
+	function storagePathFromUrl(url: string): string | null {
+		const marker = '/object/public/documents/';
+		const idx = url.indexOf(marker);
+		if (idx === -1) return null;
+		return decodeURIComponent(url.slice(idx + marker.length));
+	}
+	async function deleteStoredFile(url: string): Promise<boolean> {
+		if (!isFile(url)) return true; // pasted (non-uploaded) links have nothing to delete
+		const path = storagePathFromUrl(url);
+		if (!path) return true;
+		try {
+			const { error } = await supabase.storage.from('documents').remove([path]);
+			if (error) {
+				console.error('Failed to delete stored file:', error.message);
+				return false;
+			}
+			return true;
+		} catch (err) {
+			console.error('Failed to delete stored file:', err);
+			return false;
+		}
+	}
+	// The real filename this URL was stored as (the last path segment) — used
+	// so downloads/previews show the actual file, not a generic hardcoded label.
+	function fileNameFromUrl(url: string, fallback: string): string {
+		const path = storagePathFromUrl(url);
+		if (!path) return fallback;
+		const parts = path.split('/');
+		return decodeURIComponent(parts[parts.length - 1] || fallback);
+	}
 
 	// While a specs cell is focused we show the text input; on blur, a committed
 	// link/file collapses to a compact chip (so the full URL is never shown).
@@ -281,7 +401,15 @@
 	function onSpecsInput(id: string, node: HTMLInputElement) {
 		setProd(id, { venue_specs_link: node.value });
 	}
-	function clearSpecs(id: string) {
+	async function clearSpecs(id: string) {
+		const prevLink = rows[id]?.production?.venue_specs_link || '';
+		if (prevLink) {
+			const ok = await deleteStoredFile(prevLink);
+			if (!ok) {
+				alert('Failed to delete the file from storage. The link was not removed — please try again.');
+				return;
+			}
+		}
 		setProd(id, { venue_specs_link: '' });
 		setSpecsEditing(id, true);
 	}
@@ -302,6 +430,10 @@
 		uploadForId = id;
 		showUploadModal = true;
 	}
+	// The exact base name this upload will be saved as (no extension) — shown
+	// in the modal's preview so it never lies about the real stored filename.
+	$: pendingUploadDate = uploadForId ? showDates.find((d) => d.id === uploadForId) : undefined;
+	$: pendingSpecsName = `${formatFileDate(pendingUploadDate?.date)}_${slugifyVenue(pendingUploadDate?.venue)}_Venue-Specs`;
 	function openPreview(url: string, name: string) {
 		previewUrl = url;
 		previewName = name;
@@ -314,29 +446,23 @@
 		const { file, fileName } = e.detail;
 		isUploading = true;
 		try {
-			const token = await getAccessToken();
-			if (!token) throw new Error('Not authenticated.');
-
 			const date = showDates.find((d) => d.id === id);
-			const formData = new FormData();
-			formData.append('file', file);
+			const ext = (fileName.split('.').pop() || 'pdf').toLowerCase();
+			const path = buildSpecsPath(date, ext);
 
-			const safeDate = (date?.date || 'Date').replace(/-/g, '');
-			const safeVenue = (date?.venue || 'Venue').replace(/[^a-zA-Z0-9]/g, '_');
-			const ext = fileName.split('.').pop();
-			const customFileName = `SS_${safeDate}_${safeVenue}_Venue-Specs.${ext}`;
+			const { error: uploadError } = await supabase.storage
+				.from('documents')
+				.upload(path, file, { upsert: true, cacheControl: '3600' });
+			if (uploadError) throw uploadError;
 
-			formData.append('filePath', `sstour/venuespecs/${customFileName}`);
-			formData.append('bucket', 'documents');
+			const { data: pub } = supabase.storage.from('documents').getPublicUrl(path);
 
-			const res = await fetch('/api/upload', {
-				method: 'POST',
-				headers: { Authorization: `Bearer ${token}` },
-				body: formData
-			});
-			if (!res.ok) throw new Error('Upload failed');
-			const json = await res.json();
-			setProd(id, { venue_specs_link: json.publicUrl });
+			// Re-uploading (venue/date since changed, new filename) should orphan
+			// whatever file used to be stored here rather than leave it stranded.
+			const prevLink = rows[id]?.production?.venue_specs_link || '';
+			if (prevLink && prevLink !== pub.publicUrl) await deleteStoredFile(prevLink);
+
+			setProd(id, { venue_specs_link: pub.publicUrl });
 			showUploadModal = false;
 		} catch (err) {
 			console.error('File upload failed', err);
@@ -369,7 +495,7 @@
 	// Presence-only, matching the other YES/NO toggle columns.
 	const specsText = (pr: ProductionData) => (pr.venue_specs_link ? 'YES' : 'NO');
 
-	type PdfCol = { header: string; width: number; get: (vi: VenueInfoData, pr: ProductionData) => string };
+	type PdfCol = { header: string; width: number; get: (vi: VenueInfoData, pr: ProductionData, capacity: number) => string };
 	const PDF_COLUMNS: PdfCol[] = [
 		{ header: 'LOCATION', width: 140, get: (vi) => locationLabel(vi.indoor_outdoor) || '—' },
 		{ header: 'TYPE', width: 150, get: (vi) => typeLabel(vi) || '—' },
@@ -383,6 +509,7 @@
 		{ header: 'ELEV', width: 78, get: (_v, pr) => (pr.elevator ? 'YES' : 'NO') },
 		{ header: 'FORK', width: 78, get: (_v, pr) => (pr.forklift ? 'YES' : 'NO') },
 		{ header: 'RIG', width: 70, get: (_v, pr) => (pr.rigging ? 'YES' : 'NO') },
+		{ header: 'CAPACITY', width: 90, get: (_v, _p, cap) => (cap ? cap.toLocaleString('en-US') : '—') },
 		{ header: 'NOTES', width: 260, get: (vi) => (vi.notes || '').replace(/\s+/g, ' ').trim() || '—' }
 	];
 	const PDF_SHOW_COL_WIDTH = 210;
@@ -423,7 +550,7 @@
 				let t = (text || '').replace(/\s+/g, ' ').trim();
 				if (!t) return '—';
 				if (f.widthOfTextAtSize(t, size) <= maxWidth) return t;
-				const ell = '…';
+				const ell = '';
 				while (t.length > 1 && f.widthOfTextAtSize(t + ell, size) > maxWidth) {
 					t = t.slice(0, -1);
 				}
@@ -500,7 +627,7 @@
 				// data columns
 				PDF_COLUMNS.forEach((col, ci) => {
 					const w = colWidths[ci + 1];
-					const raw = col.get(vi, pr);
+					const raw = col.get(vi, pr, rows[d.id]?.capacity || 0);
 					const t = truncate(raw, font, fontSize, w - 6);
 					page.drawText(t, { x: centerX(t, font, fontSize, cx, w), y: rowBottom + (rowH - fontSize) / 2 + 1, size: fontSize, font, color: black });
 					cx += w;
@@ -555,12 +682,12 @@
 	{#if status === 'saving' || status === 'saved' || status === 'error' || pdfBusy || pdfError}
 		<div class="pointer-events-none absolute top-2.5 right-3 z-50 flex items-center gap-3">
 			{#if pdfBusy}
-				<span class="text-[11px] text-gray2 italic">Preparing PDF…</span>
+				<span class="text-[11px] text-gray2 italic">Preparing PDF</span>
 			{:else if pdfError}
 				<span class="text-[11px] text-problem font-bold">PDF failed</span>
 			{/if}
 			{#if status === 'saving'}
-				<span class="text-[11px] text-gray2 italic">Saving…</span>
+				<span class="text-[11px] text-gray2 italic">Saving</span>
 			{:else if status === 'saved'}
 				<span class="text-[11px] text-confirmed font-bold">Saved ✓</span>
 			{:else if status === 'error'}
@@ -580,7 +707,7 @@
 		{:else if showDates.length === 0}
 			<p class="text-sm text-gray2 italic p-6">No Tour Dates yet — add shows to build the grid.</p>
 		{:else}
-			<table class="w-full table-fixed border-collapse text-sm min-w-[1702px]">
+			<table class="w-full table-fixed border-collapse text-sm min-w-[1792px]">
 				<colgroup>
 					<col style="width:210px" />
 					<!-- location -->
@@ -598,6 +725,8 @@
 					<col style="width:78px" />
 					<col style="width:78px" />
 					<col style="width:70px" />
+					<!-- capacity -->
+					<col style="width:90px" />
 					<!-- notes -->
 					<col style="width:260px" />
 				</colgroup>
@@ -609,6 +738,7 @@
 						<th colspan="2" class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Location</th>
 						<th colspan="4" class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Stage</th>
 						<th colspan="6" class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Video &amp; Rigging</th>
+						<th class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Capacity</th>
 						<th class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Notes</th>
 					</tr>
 					<!-- column row -->
@@ -628,6 +758,7 @@
 						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Fork</th>
 						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Rig</th>
 
+						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Capacity</th>
 						<th class="sticky top-7 z-30 bg-navbar px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Notes</th>
 					</tr>
 				</thead>
@@ -636,6 +767,7 @@
 					{#each showDates as d (d.id)}
 						{@const vi = rows[d.id]?.venue_info || {}}
 						{@const pr = rows[d.id]?.production || {}}
+						{@const cap = rows[d.id]?.capacity || 0}
 						<tr class="border-t border-gray1/60 hover:bg-white/[0.02] align-top">
 							<!-- Venue (row generator) -->
 							<td class="sticky left-0 z-10 bg-navbar px-3 py-2">
@@ -651,7 +783,7 @@
 									on:click={(e) => openMenu(e, d.id, 'location')}
 								>
 									<span class="truncate {vi.indoor_outdoor ? 'text-white' : 'text-gray2/50'}">
-										{locationLabel(vi.indoor_outdoor) || 'Select…'}
+										{locationLabel(vi.indoor_outdoor) || 'Select'}
 									</span>
 									<svg class="w-3.5 h-3.5 text-gray2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
 								</button>
@@ -662,7 +794,7 @@
 								{#if vi.venue_type === 'Other'}
 									<input
 										class="w-full bg-black/20 rounded-full px-3 h-8 text-sm text-white placeholder-gray2/40 outline-none border border-lime/60 transition-colors"
-										placeholder="Specify…"
+										placeholder="Specify"
 										use:fieldSync={vi.venue_type_custom || ''}
 										use:autoFocus={focusOtherId === d.id}
 										on:input={(e) => setVenue(d.id, { venue_type_custom: e.currentTarget.value })}
@@ -675,7 +807,7 @@
 										on:click={(e) => openMenu(e, d.id, 'type')}
 									>
 										<span class="truncate {vi.venue_type ? 'text-white' : 'text-gray2/50'}">
-											{typeLabel(vi) || 'Select…'}
+											{typeLabel(vi) || 'Select'}
 										</span>
 										<svg class="w-3.5 h-3.5 text-gray2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
 									</button>
@@ -722,7 +854,7 @@
 											<button
 												type="button"
 												class="shrink-0 px-2 h-6 flex items-center rounded-full bg-gray3 text-black text-[10px] font-bold hover:brightness-110 transition-all cursor-pointer"
-												on:click={() => openPreview(pr.venue_specs_link || '', 'Venue Specs')}
+												on:click={() => openPreview(pr.venue_specs_link || '', fileNameFromUrl(pr.venue_specs_link || '', 'Venue Specs'))}
 											>Preview</button>
 										{:else}
 											<button
@@ -755,7 +887,7 @@
 									<div class="flex items-center gap-1">
 										<input
 											class="min-w-0 flex-1 bg-black/20 rounded-full px-3 h-8 text-xs text-white placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
-											placeholder="Paste link…"
+											placeholder="Paste link"
 											use:fieldSync={pr.venue_specs_link || ''}
 											on:focus={() => setSpecsEditing(d.id, true)}
 											on:input={(e) => onSpecsInput(d.id, e.currentTarget)}
@@ -841,12 +973,24 @@
 								</div>
 							</td>
 
+							<!-- Capacity — linked to the Tour Budget tab (ss_tour.budget.grid) -->
+							<td class="px-1 py-2 border-l-2 border-gray1">
+								<input
+									class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
+									placeholder="—"
+									inputmode="numeric"
+									use:fieldSync={numFmt(cap)}
+									on:input={(e) => onCapacityInput(d.id, e.currentTarget)}
+									on:blur={(e) => (e.currentTarget.value = numFmt(rows[d.id]?.capacity || 0))}
+								/>
+							</td>
+
 							<!-- Notes (typing enables the section; emptying disables it) -->
 							<td class="px-2 py-2 border-l-2 border-gray1">
 								<textarea
 									rows="1"
 									class="w-full bg-black/20 rounded-2xl px-3 py-1.5 text-sm text-white placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors resize-none min-h-[32px]"
-									placeholder="Venue notes…"
+									placeholder="Venue notes"
 									use:fieldSync={vi.notes || ''}
 									on:input={(e) => onNotesInput(d.id, e.currentTarget)}
 								></textarea>
@@ -868,11 +1012,11 @@
 		style="left:{m.x}px; top:{m.y}px; width:{m.w}px"
 	>
 		{#if m.field === 'location'}
-			<button type="button" class="w-full text-left px-3 py-2 text-sm text-gray2 hover:text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, '')}>Select…</button>
+			<button type="button" class="w-full text-left px-3 py-2 text-sm text-gray2 hover:text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, '')}>Select</button>
 			<button type="button" class="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, 'indoor')}>Indoor</button>
 			<button type="button" class="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, 'outdoor')}>Outdoor</button>
 		{:else}
-			<button type="button" class="w-full text-left px-3 py-2 text-sm text-gray2 hover:text-white hover:bg-gray1/60 transition-colors" on:click={() => pickType(m.id, '')}>Select…</button>
+			<button type="button" class="w-full text-left px-3 py-2 text-sm text-gray2 hover:text-white hover:bg-gray1/60 transition-colors" on:click={() => pickType(m.id, '')}>Select</button>
 			{#each VENUE_TYPES as vt}
 				<button type="button" class="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray1/60 transition-colors" on:click={() => pickType(m.id, vt)}>{vt}</button>
 			{/each}
@@ -885,7 +1029,7 @@
 	{isUploading}
 	title="Upload File"
 	acceptedTypes=".pdf,.jpg,.jpeg,.png,.zip"
-	fileNameTemplate="Venue_Specs"
+	fileNameTemplate={pendingSpecsName}
 	on:upload={handleUploadEvent}
 	on:close={() => (showUploadModal = false)}
 />
