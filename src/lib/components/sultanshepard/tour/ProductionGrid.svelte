@@ -678,23 +678,8 @@
 </script>
 
 <section class="relative bg-navbar rounded-2xl h-full flex flex-col min-h-0 overflow-hidden">
-	<!-- subtle autosave + PDF export status (no header bar) -->
-	{#if status === 'saving' || status === 'saved' || status === 'error' || pdfBusy || pdfError}
-		<div class="pointer-events-none absolute top-2.5 right-3 z-50 flex items-center gap-3">
-			{#if pdfBusy}
-				<span class="text-[11px] text-gray2 italic">Preparing PDF</span>
-			{:else if pdfError}
-				<span class="text-[11px] text-problem font-bold">PDF failed</span>
-			{/if}
-			{#if status === 'saving'}
-				<span class="text-[11px] text-gray2 italic">Saving</span>
-			{:else if status === 'saved'}
-				<span class="text-[11px] text-confirmed font-bold">Saved ✓</span>
-			{:else if status === 'error'}
-				<span class="text-[11px] text-problem font-bold">Save failed</span>
-			{/if}
-		</div>
-	{/if}
+
+    
 
 	<!-- body -->
 	<div class="flex-1 min-h-0 overflow-auto custom-scrollbar" on:scroll={closeMenu}>
