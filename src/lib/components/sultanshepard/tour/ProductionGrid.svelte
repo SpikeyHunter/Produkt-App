@@ -833,14 +833,14 @@
 							<!-- Stage Specs (fixed width, no full URL) -->
 							<td class="px-2 py-2">
 								{#if !specsEditing[d.id] && isUrl(pr.venue_specs_link || '')}
-									<div class="flex items-center gap-1 bg-lime/5 border border-lime/40 rounded-full pl-3 pr-1 h-8">
+									<div class="flex items-center gap-1 bg-black/15 rounded-full pl-3 pr-1 h-8">
 										<span class="flex-1 min-w-0 truncate text-xs text-lime font-bold select-none">
 											{isFile(pr.venue_specs_link || '') ? 'Specs File' : 'Specs Link'}
 										</span>
 										{#if isFile(pr.venue_specs_link || '')}
 											<button
 												type="button"
-												class="shrink-0 px-2 h-6 flex items-center rounded-full bg-gray3 text-black text-[10px] font-bold hover:brightness-110 transition-all cursor-pointer"
+												class="shrink-0 px-2 h-6 flex items-center rounded-full bg-lime text-black text-[10px] font-bold hover:brightness-110 transition-all cursor-pointer"
 												on:click={() => openPreview(pr.venue_specs_link || '', fileNameFromUrl(pr.venue_specs_link || '', 'Venue Specs'))}
 											>Preview</button>
 										{:else}
