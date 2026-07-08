@@ -731,9 +731,10 @@
 						<th class="sticky top-7 z-30 bg-navbar px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Location</th>
 						<th class="sticky top-7 z-30 bg-navbar px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Type</th>
 
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Height</th>
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Width</th>
+						
+						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Width</th>
 						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Depth</th>
+                        <th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 ">Height</th>
 						<th class="sticky top-7 z-30 bg-navbar px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Stage Specs</th>
 
 						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">LED Wall</th>
@@ -800,16 +801,8 @@
 							</td>
 
 							<!-- Stage H / W / D -->
-							<td class="px-1 py-2 border-l-2 border-gray1">
-								<input
-									class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
-									placeholder="—"
-									use:fieldSync={pr.stage_height || ''}
-									on:input={(e) => onDimInput(d.id, 'stage_height', e.currentTarget)}
-									on:blur={(e) => onDimBlur(d.id, 'stage_height', e.currentTarget)}
-								/>
-							</td>
-							<td class="px-1 py-2">
+							
+							<td class="px-1 py-2 border-l-2 border-gray1 ">
 								<input
 									class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
 									placeholder="—"
@@ -825,6 +818,15 @@
 									use:fieldSync={pr.stage_depth || ''}
 									on:input={(e) => onDimInput(d.id, 'stage_depth', e.currentTarget)}
 									on:blur={(e) => onDimBlur(d.id, 'stage_depth', e.currentTarget)}
+								/>
+							</td>
+                            <td class="px-1 py-2">
+								<input
+									class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
+									placeholder="—"
+									use:fieldSync={pr.stage_height || ''}
+									on:input={(e) => onDimInput(d.id, 'stage_height', e.currentTarget)}
+									on:blur={(e) => onDimBlur(d.id, 'stage_height', e.currentTarget)}
 								/>
 							</td>
 
