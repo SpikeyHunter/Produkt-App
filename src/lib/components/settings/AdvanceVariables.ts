@@ -23,6 +23,20 @@ export interface GuestlistDefaults {
 	vip: number;
 }
 
+// Options for the PA System / DJ Monitor override dropdowns.
+// 'Other' triggers a free-text, line-by-line custom entry in AdvanceSettings.
+export const paDjOptions = ['NCG', 'Bazart', 'Other'];
+
+// Splits a raw multi-line custom text block into clean bullet lines.
+// Accepts lines with or without a leading "-" and drops empty lines.
+export function parseCustomLines(raw: string | undefined | null): string[] {
+	if (!raw) return [];
+	return raw
+		.split('\n')
+		.map((line) => line.trim().replace(/^-\s*/, ''))
+		.filter((line) => line.length > 0);
+}
+
 export const guestlistSettings: {
 	[venue: string]: {
 		[artistType: string]: GuestlistDefaults;

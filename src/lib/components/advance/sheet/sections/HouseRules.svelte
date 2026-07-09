@@ -2,6 +2,7 @@
 	import Section from '../Section.svelte';
 	import ContentBox from '../ContentBox.svelte';
 	import type { EventAdvance } from '$lib/services/eventsService'; // <-- ADD THIS IMPORT
+	import { parseCustomLines } from '$lib/components/settings/AdvanceVariables';
 
 	// Accept the official EventAdvance type
 	export let event: EventAdvance; // <-- CHANGE THIS LINE
@@ -10,26 +11,36 @@
 	$: event_venue = event.venue;
 
 	// Reactive variable to determine which PA System text to show
+	// Returns 'Bazart', 'Other', or falls through to 'New City Gas' (default)
 	$: paVenueToShow = (() => {
 		// Check if the override is enabled in custom settings
 		if (event.custom_settings?.PA_System_Enabled && event.custom_settings.PA_System) {
-			// Return 'Bazart' or 'New City Gas' based on the custom setting
-			return event.custom_settings.PA_System === 'Bazart' ? 'Bazart' : 'New City Gas';
+			if (event.custom_settings.PA_System === 'Bazart') return 'Bazart';
+			if (event.custom_settings.PA_System === 'Other') return 'Other';
+			return 'New City Gas';
 		}
 		// If no override, fall back to the event's actual venue
 		return event.venue;
 	})();
 
+	// Custom PA System bullet lines, only relevant when paVenueToShow === 'Other'
+	$: paCustomLines = parseCustomLines(event.custom_settings?.PA_System_Custom);
+
 	// Reactive variable to determine which DJ Monitor text to show
+	// Returns 'Bazart', 'Other', or falls through to 'New City Gas' (default)
 	$: djVenueToShow = (() => {
 		// Check if the override is enabled in custom settings
 		if (event.custom_settings?.DJ_Monitor_Enabled && event.custom_settings.DJ_Monitor) {
-			// Return 'Bazart' or 'New City Gas' based on the custom setting
-			return event.custom_settings.DJ_Monitor === 'Bazart' ? 'Bazart' : 'New City Gas';
+			if (event.custom_settings.DJ_Monitor === 'Bazart') return 'Bazart';
+			if (event.custom_settings.DJ_Monitor === 'Other') return 'Other';
+			return 'New City Gas';
 		}
 		// If no override, fall back to the event's actual venue
 		return event.venue;
 	})();
+
+	// Custom DJ Monitor bullet lines, only relevant when djVenueToShow === 'Other'
+	$: djCustomLines = parseCustomLines(event.custom_settings?.DJ_Monitor_Custom);
 </script>
 
 <Section title="HOUSE RULES">
@@ -90,6 +101,13 @@
 					</div>
 					<div>• Kit is fully tuned, calibrated, and phase-aligned for the Lounge environment.</div>
 				</div>
+			{:else if paVenueToShow === 'Other'}
+				<div class="text-confirmed text-sm uppercase tracking-wider mb-1">PA System</div>
+				<div class="text-gray2 text-sm space-y-1">
+					{#each paCustomLines as line}
+						<div>• {line}</div>
+					{/each}
+				</div>
 			{:else}
 				<div class="text-confirmed text-sm uppercase tracking-wider mb-1">
 					PA System – Main Room
@@ -119,6 +137,13 @@
 					<div>
 						• Kit is capable of delivering clean, distortion-free output at professional DJ levels.
 					</div>
+				</div>
+			{:else if djVenueToShow === 'Other'}
+				<div class="text-info text-sm uppercase tracking-wider mb-1">DJ Monitors</div>
+				<div class="text-gray2 text-sm space-y-1">
+					{#each djCustomLines as line}
+						<div>• {line}</div>
+					{/each}
 				</div>
 			{:else}
 				<div class="text-info text-sm uppercase tracking-wider mb-1">DJ Monitors – Main Room</div>

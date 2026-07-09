@@ -365,6 +365,7 @@ export async function fetchEventsAdvance(): Promise<EventAdvance[]> {
 				guestlist: row.guestlist,
 				notes: row.notes,
 				follow_up: row.follow_up,
+				custom_settings: row.custom_settings,
 
 				// Computed fields for UI
 				name: eventName,
@@ -784,6 +785,7 @@ export async function fetchEventById(eventId: string): Promise<EventAdvance | nu
 			notes: advanceData.notes,
 			guestlist: advanceData.guestlist,
 			follow_up: advanceData.follow_up,
+			custom_settings: advanceData.custom_settings,
 
 			name: finalEventName,
 			date: finalEventDate,

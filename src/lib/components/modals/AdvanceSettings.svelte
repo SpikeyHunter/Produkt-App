@@ -3,7 +3,7 @@
 	import { browser } from '$app/environment';
 	import type { EventAdvance } from '$lib/services/eventsService';
 	import { updateEventColumn } from '$lib/services/eventsService';
-	import { productionContactMap } from '$lib/components/settings/AdvanceVariables';
+	import { productionContactMap, paDjOptions } from '$lib/components/settings/AdvanceVariables';
 	import Modal from '$lib/components/modals/Modal.svelte';
 
 	export let isOpen = false;
@@ -16,8 +16,10 @@
 		ProdContact?: string;
 		PA_System_Enabled?: boolean;
 		PA_System?: string;
+		PA_System_Custom?: string;
 		DJ_Monitor_Enabled?: boolean;
 		DJ_Monitor?: string;
+		DJ_Monitor_Custom?: string;
 	} = {};
 
 	let isSaving = false;
@@ -27,11 +29,13 @@
 	$: selectedProdContact = localSettings.ProdContact || '';
 	$: isPaSystemEnabled = localSettings.PA_System_Enabled === true;
 	$: selectedPaSystem = localSettings.PA_System || '';
+	$: isPaSystemCustom = selectedPaSystem === 'Other';
 	$: isDjMonitorEnabled = localSettings.DJ_Monitor_Enabled === true;
 	$: selectedDjMonitor = localSettings.DJ_Monitor || '';
+	$: isDjMonitorCustom = selectedDjMonitor === 'Other';
 
 	const prodContactOptions = Object.keys(productionContactMap);
-	const venueOptions = ['NCG', 'Bazart'];
+	const venueOptions = paDjOptions;
 
 	onMount(() => {
 		// Create a deep copy to work with, preserving the original event object
@@ -79,6 +83,7 @@
 			}
 		} else {
 			delete localSettings.PA_System;
+			delete localSettings.PA_System_Custom;
 		}
 		localSettings = { ...localSettings };
 	}
@@ -86,9 +91,22 @@
 	function handlePaSystemSelect(selectedValue: string) {
 		if (isPaSystemEnabled) {
 			localSettings.PA_System = selectedValue;
+			if (selectedValue === 'Other') {
+				// Make sure the custom field exists so the textarea has something to bind to
+				if (localSettings.PA_System_Custom === undefined) {
+					localSettings.PA_System_Custom = '';
+				}
+			} else {
+				delete localSettings.PA_System_Custom;
+			}
 			localSettings = { ...localSettings };
 		}
 		activeDropdown = null;
+	}
+
+	function handlePaSystemCustomInput(e: Event) {
+		localSettings.PA_System_Custom = (e.target as HTMLTextAreaElement).value;
+		localSettings = { ...localSettings };
 	}
 
 	// DJ Monitor Handlers
@@ -102,6 +120,7 @@
 			}
 		} else {
 			delete localSettings.DJ_Monitor;
+			delete localSettings.DJ_Monitor_Custom;
 		}
 		localSettings = { ...localSettings };
 	}
@@ -109,9 +128,21 @@
 	function handleDjMonitorSelect(selectedValue: string) {
 		if (isDjMonitorEnabled) {
 			localSettings.DJ_Monitor = selectedValue;
+			if (selectedValue === 'Other') {
+				if (localSettings.DJ_Monitor_Custom === undefined) {
+					localSettings.DJ_Monitor_Custom = '';
+				}
+			} else {
+				delete localSettings.DJ_Monitor_Custom;
+			}
 			localSettings = { ...localSettings };
 		}
 		activeDropdown = null;
+	}
+
+	function handleDjMonitorCustomInput(e: Event) {
+		localSettings.DJ_Monitor_Custom = (e.target as HTMLTextAreaElement).value;
+		localSettings = { ...localSettings };
 	}
 
 	// --- Save and Close Handlers ---
@@ -288,6 +319,18 @@
 			</div>
 		</div>
 
+		{#if isPaSystemCustom}
+			<div class="w-full pt-1 pl-[60%]">
+				<textarea
+					rows="4"
+					class="w-full rounded-lg border border-gray2 bg-gray1 px-3 py-2 text-sm text-white placeholder-gray2 focus:border-lime focus:outline-none"
+					placeholder={'One bullet per line, e.g.\n- Custom PA description\n- Another line'}
+					value={localSettings.PA_System_Custom || ''}
+					on:input={handlePaSystemCustomInput}
+				></textarea>
+			</div>
+		{/if}
+
 		<div class="flex min-h-[44px] items-center">
 			<div class="w-3/5">DJ Monitor</div>
 			<div class="w-2/5 flex justify-start">
@@ -344,6 +387,17 @@
 				{/if}
 			</div>
 		</div>
+		{#if isDjMonitorCustom}
+			<div class="w-full pt-1 pl-[60%]">
+				<textarea
+					rows="4"
+					class="w-full rounded-lg border border-gray2 bg-gray1 px-3 py-2 text-sm text-white placeholder-gray2 focus:border-lime focus:outline-none"
+					placeholder={'One bullet per line, e.g.\n- Custom monitor description\n- Another line'}
+					value={localSettings.DJ_Monitor_Custom || ''}
+					on:input={handleDjMonitorCustomInput}
+				></textarea>
+			</div>
+		{/if}
 	</div>
 
 	<div slot="footer" class="flex justify-end gap-3">
