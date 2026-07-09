@@ -145,9 +145,13 @@
 		selectedEvent = event;
 		searchValue = event.event_name;
 		showEventDropdown = false;
-		isCustomEvent = event.is_custom || false;
-		// Pre-fill the date for custom events so it isn't asked for again
-		customEventDate = isCustomEvent ? event.event_date || '' : '';
+		// IMPORTANT: isCustomEvent means "we're creating a brand-new event row",
+		// not "this existing event happens to be flagged is_custom in the DB".
+		// An existing event (whether is_custom or not) already has a real event_id,
+		// so this must stay false here or handleSubmit will insert a duplicate row.
+		isCustomEvent = false;
+		// Pre-fill the date for display purposes if the DB record has one
+		customEventDate = event.is_custom ? event.event_date || '' : '';
 
 		// If the selected event has a venue, pre-populate the venue fields.
 		if (event.event_venue) {
