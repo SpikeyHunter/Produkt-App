@@ -18,7 +18,8 @@
 		SSTourDate,
 		VenueInfoData,
 		ProductionData,
-		TourBudget
+		TourBudget,
+		TriState
 	} from '$lib/types/tour';
 	import { fetchTourDataForDates, saveTabData, saveTourBudget } from '$lib/services/tourService';
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
@@ -265,7 +266,10 @@
 		setProd(id, { led_wall: !rows[id]?.production?.led_wall });
 	}
 	function toggleProdBool(id: string, key: 'elevator' | 'forklift' | 'rigging') {
-		setProd(id, { [key]: !rows[id]?.production?.[key] } as Partial<ProductionData>);
+		const current = rows[id]?.production?.[key] ?? null;
+		const ORDER: TriState[] = [null, true, false];
+		const next = ORDER[(ORDER.indexOf(current) + 1) % ORDER.length];
+		setProd(id, { [key]: next } as Partial<ProductionData>);
 	}
 
 	// ============================================================
@@ -494,6 +498,8 @@
 	// ============================================================
 	// Presence-only, matching the other YES/NO toggle columns.
 	const specsText = (pr: ProductionData) => (pr.venue_specs_link ? 'YES' : 'NO');
+	// Elevator/Forklift/Rig are 3-state (TBD/Yes/No) — render all three in the PDF.
+	const triText = (v: TriState | undefined) => (v === true ? 'YES' : v === false ? 'NO' : 'TBD');
 
 	type PdfCol = { header: string; width: number; get: (vi: VenueInfoData, pr: ProductionData, capacity: number) => string };
 	const PDF_COLUMNS: PdfCol[] = [
@@ -506,9 +512,9 @@
 		{ header: 'LED WALL', width: 105, get: (_v, pr) => (pr.led_wall ? 'YES' : 'NO') },
 		{ header: 'WIDTH', width: 92, get: (_v, pr) => pr.led_width || '—' },
 		{ header: 'HEIGHT', width: 92, get: (_v, pr) => pr.led_height || '—' },
-		{ header: 'ELEV', width: 78, get: (_v, pr) => (pr.elevator ? 'YES' : 'NO') },
-		{ header: 'FORK', width: 78, get: (_v, pr) => (pr.forklift ? 'YES' : 'NO') },
-		{ header: 'RIG', width: 70, get: (_v, pr) => (pr.rigging ? 'YES' : 'NO') },
+		{ header: 'ELEV', width: 78, get: (_v, pr) => triText(pr.elevator) },
+		{ header: 'FORK', width: 78, get: (_v, pr) => triText(pr.forklift) },
+		{ header: 'RIG', width: 70, get: (_v, pr) => triText(pr.rigging) },
 		{ header: 'CAPACITY', width: 90, get: (_v, _p, cap) => (cap ? cap.toLocaleString('en-US') : '—') },
 		{ header: 'NOTES', width: 260, get: (vi) => (vi.notes || '').replace(/\s+/g, ' ').trim() || '—' }
 	];
@@ -692,28 +698,28 @@
 		{:else if showDates.length === 0}
 			<p class="text-sm text-gray2 italic p-6">No Tour Dates yet — add shows to build the grid.</p>
 		{:else}
-			<table class="w-full table-fixed border-collapse text-sm min-w-[1792px]">
+			<table class="w-full table-fixed border-collapse text-sm min-w-[1574px]">
 				<colgroup>
-					<col style="width:210px" />
+					<col style="width:195px" />
 					<!-- location -->
-					<col style="width:140px" />
-					<col style="width:150px" />
+					<col style="width:125px" />
+					<col style="width:135px" />
 					<!-- stage -->
-					<col style="width:88px" />
-					<col style="width:88px" />
-					<col style="width:88px" />
-					<col style="width:190px" />
+					<col style="width:74px" />
+					<col style="width:74px" />
+					<col style="width:74px" />
+					<col style="width:175px" />
 					<!-- video & rigging -->
-					<col style="width:78px" />
-					<col style="width:92px" />
-					<col style="width:92px" />
+					<col style="width:66px" />
 					<col style="width:78px" />
 					<col style="width:78px" />
-					<col style="width:70px" />
+					<col style="width:66px" />
+					<col style="width:66px" />
+					<col style="width:60px" />
 					<!-- capacity -->
-					<col style="width:90px" />
+					<col style="width:78px" />
 					<!-- notes -->
-					<col style="width:260px" />
+					<col style="width:230px" />
 				</colgroup>
 
 				<thead>
@@ -756,7 +762,7 @@
 						{@const cap = rows[d.id]?.capacity || 0}
 						<tr class="border-t border-gray1/60 hover:bg-white/[0.02] align-top">
 							<!-- Venue (row generator) -->
-							<td class="sticky left-0 z-10 bg-navbar px-3 py-2">
+							<td class="sticky left-0 z-10 bg-navbar px-2 py-2">
 								<div class="text-sm font-bold text-white truncate">{d.venue || 'Untitled'}</div>
 								<div class="text-[11px] text-gray2">{fmtDate(d.date)}</div>
 							</td>
@@ -893,8 +899,8 @@
 							</td>
 
 							<!-- LED Wall toggle -->
-							<td class="px-1 py-2 border-l-2 border-gray1">
-								<div class="flex justify-center">
+							<td class="px-1 py-2 border-l-2 border-gray1 align-middle">
+								<div class="h-8 flex items-center justify-center">
 									<button type="button" role="switch" aria-label="LED Wall" title="LED Wall" aria-checked={!!pr.led_wall} on:click={() => toggleLed(d.id)}
 										class="relative inline-flex w-9 h-5 rounded-full transition-colors cursor-pointer {pr.led_wall ? 'bg-lime' : 'bg-gray1 hover:bg-gray1/70'}">
 										<span class="absolute top-0.5 w-4 h-4 rounded-full bg-black transition-all {pr.led_wall ? 'left-[18px]' : 'left-0.5 ring-1 ring-white/10'}"></span>
@@ -903,7 +909,7 @@
 							</td>
 
 							<!-- Wall W / H (locked unless LED wall on) -->
-							<td class="px-1 py-2">
+							<td class="px-1 py-2 align-middle">
 								{#if pr.led_wall}
 									<input
 										class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
@@ -918,7 +924,7 @@
 									</div>
 								{/if}
 							</td>
-							<td class="px-1 py-2">
+							<td class="px-1 py-2 align-middle">
 								{#if pr.led_wall}
 									<input
 										class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
@@ -934,28 +940,49 @@
 								{/if}
 							</td>
 
-							<!-- Elevator / Forklift / Rig toggles -->
-							<td class="px-1 py-2">
-								<div class="flex justify-center">
-									<button type="button" role="switch" aria-label="Elevator" title="Elevator" aria-checked={!!pr.elevator} on:click={() => toggleProdBool(d.id, 'elevator')}
-										class="relative inline-flex w-9 h-5 rounded-full transition-colors cursor-pointer {pr.elevator ? 'bg-lime' : 'bg-gray1 hover:bg-gray1/70'}">
-										<span class="absolute top-0.5 w-4 h-4 rounded-full bg-black transition-all {pr.elevator ? 'left-[18px]' : 'left-0.5 ring-1 ring-white/10'}"></span>
+							<!-- Elevator / Forklift / Rig — 3-state: TBD (proposed) / Yes (confirmed) / No (problem) -->
+							<td class="px-1 py-2 align-middle">
+								<div class="h-8 flex items-center justify-center">
+									<button type="button" aria-label="Elevator"
+										title="Elevator — click to cycle: TBD → Yes → No"
+										on:click={() => toggleProdBool(d.id, 'elevator')}
+										class="px-3 h-6 rounded-full text-[10px] font-black uppercase tracking-wide border flex items-center justify-center transition-colors cursor-pointer
+											{pr.elevator === true
+											? 'bg-confirmed/15 border-confirmed text-confirmed'
+											: pr.elevator === false
+												? 'bg-problem/15 border-problem text-problem'
+												: 'bg-proposed/15 border-proposed text-proposed'}">
+										{pr.elevator === true ? 'YES' : pr.elevator === false ? 'NO' : 'TBD'}
 									</button>
 								</div>
 							</td>
-							<td class="px-1 py-2">
-								<div class="flex justify-center">
-									<button type="button" role="switch" aria-label="Forklift" title="Forklift" aria-checked={!!pr.forklift} on:click={() => toggleProdBool(d.id, 'forklift')}
-										class="relative inline-flex w-9 h-5 rounded-full transition-colors cursor-pointer {pr.forklift ? 'bg-lime' : 'bg-gray1 hover:bg-gray1/70'}">
-										<span class="absolute top-0.5 w-4 h-4 rounded-full bg-black transition-all {pr.forklift ? 'left-[18px]' : 'left-0.5 ring-1 ring-white/10'}"></span>
+							<td class="px-1 py-2 align-middle">
+								<div class="h-8 flex items-center justify-center">
+									<button type="button" aria-label="Forklift"
+										title="Forklift — click to cycle: TBD → Yes → No"
+										on:click={() => toggleProdBool(d.id, 'forklift')}
+										class="px-3 h-6 rounded-full text-[10px] font-black uppercase tracking-wide border flex items-center justify-center transition-colors cursor-pointer
+											{pr.forklift === true
+											? 'bg-confirmed/15 border-confirmed text-confirmed'
+											: pr.forklift === false
+												? 'bg-problem/15 border-problem text-problem'
+												: 'bg-proposed/15 border-proposed text-proposed'}">
+										{pr.forklift === true ? 'YES' : pr.forklift === false ? 'NO' : 'TBD'}
 									</button>
 								</div>
 							</td>
-							<td class="px-1 py-2">
-								<div class="flex justify-center">
-									<button type="button" role="switch" aria-label="Rig" title="Rig" aria-checked={!!pr.rigging} on:click={() => toggleProdBool(d.id, 'rigging')}
-										class="relative inline-flex w-9 h-5 rounded-full transition-colors cursor-pointer {pr.rigging ? 'bg-lime' : 'bg-gray1 hover:bg-gray1/70'}">
-										<span class="absolute top-0.5 w-4 h-4 rounded-full bg-black transition-all {pr.rigging ? 'left-[18px]' : 'left-0.5 ring-1 ring-white/10'}"></span>
+							<td class="px-1 py-2 align-middle">
+								<div class="h-8 flex items-center justify-center">
+									<button type="button" aria-label="Rig"
+										title="Rig — click to cycle: TBD → Yes → No"
+										on:click={() => toggleProdBool(d.id, 'rigging')}
+										class="px-3 h-6 rounded-full text-[10px] font-black uppercase tracking-wide border flex items-center justify-center transition-colors cursor-pointer
+											{pr.rigging === true
+											? 'bg-confirmed/15 border-confirmed text-confirmed'
+											: pr.rigging === false
+												? 'bg-problem/15 border-problem text-problem'
+												: 'bg-proposed/15 border-proposed text-proposed'}">
+										{pr.rigging === true ? 'YES' : pr.rigging === false ? 'NO' : 'TBD'}
 									</button>
 								</div>
 							</td>

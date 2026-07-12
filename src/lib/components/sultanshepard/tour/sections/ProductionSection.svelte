@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte';
 	import type { ProductionData, LocalCrewItem, SSTourDate } from '$lib/types/tour';
 	import Toggle from '../ui/Toggle.svelte';
+	import StatusTriToggle from '../ui/StatusTriToggle.svelte';
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
 	import { supabase } from '$lib/supabase';
@@ -738,12 +739,30 @@
 						changed();
 					}}
 				/>
-					<Toggle label="Elevator" checked={data.elevator} on:change={(e) => { data.elevator = e.detail; changed(); }} />
-					<Toggle label="Forklift" checked={data.forklift} on:change={(e) => { data.forklift = e.detail; changed(); }} />
-					<Toggle label="Rig" checked={data.rigging} on:change={(e) => { data.rigging = e.detail; changed(); }} />
-				
-
-				
+					<StatusTriToggle
+						label="Elevator"
+						value={data.elevator}
+						on:change={(e) => {
+							data.elevator = e.detail;
+							changed();
+						}}
+					/>
+					<StatusTriToggle
+						label="Forklift"
+						value={data.forklift}
+						on:change={(e) => {
+							data.forklift = e.detail;
+							changed();
+						}}
+					/>
+					<StatusTriToggle
+						label="Rig"
+						value={data.rigging}
+						on:change={(e) => {
+							data.rigging = e.detail;
+							changed();
+						}}
+					/>
 				</div>
 				{#if data.led_wall}
 					<div class="grid grid-cols-2 gap-3 mt-4">

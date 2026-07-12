@@ -310,6 +310,13 @@ export interface LocalCrewItem {
 	role: string;
 }
 
+// Three-state status used for Elevator / Forklift / Rig (and any future
+// yes/no/tbd field). Stored verbatim in the DB (jsonb):
+//   null  = TBD       (not yet determined — default)
+//   true  = YES        (confirmed available)
+//   false = NO         (confirmed unavailable / problem)
+export type TriState = boolean | null;
+
 export interface ProductionData {
 	artist_specs_status?: 'to_send' | 'sent';
 	artist_specs_confirmed?: boolean;
@@ -323,9 +330,9 @@ export interface ProductionData {
 	led_height?: string;
 	pixel_map_link?: string;
 	venue_specs_notes?: string;
-	elevator?: boolean;
-	forklift?: boolean;
-	rigging?: boolean;
+	elevator?: TriState;
+	forklift?: TriState;
+	rigging?: TriState;
 	power_confirmed?: boolean;
 	power_notes?: string;
 	local_crew?: LocalCrewItem[];
