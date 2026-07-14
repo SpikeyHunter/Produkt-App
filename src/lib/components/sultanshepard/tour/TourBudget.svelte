@@ -918,7 +918,7 @@
 				<div class="border-t border-gray1 px-5 py-3 shrink-0 bg-navbar space-y-1.5">
 					<div class="flex items-center justify-between gap-2 text-sm">
 						<span class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap">Fixed Costs</span>
-						<span class="font-mono font-bold text-gray2 whitespace-nowrap">{usd(rightPoolUSD)}</span>
+						<span class="font-mono font-bold text-problem whitespace-nowrap">{usd(rightPoolUSD)}</span>
 					</div>
 					<div class="flex items-center justify-between gap-2 text-sm">
 						<span class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap">Show Expenses</span>
@@ -933,7 +933,7 @@
 						<span class="font-mono font-bold text-confirmed whitespace-nowrap">{usd(colTotals.merch_revenue)}</span>
 					</div>
 					<div class="flex items-center justify-between gap-2 pt-1.5 border-t border-gray1/60">
-						<span class="text-[12px] font-black uppercase tracking-wider text-white whitespace-nowrap">Balance</span>
+						<span class="text-[16px] font-black uppercase tracking-wider text-white whitespace-nowrap">Balance</span>
 						<span class="text-lg font-black font-mono whitespace-nowrap {footerBalanceUSD >= 0 ? 'text-confirmed' : 'text-problem'}">{usd(footerBalanceUSD)}</span>
 					</div>
 				</div>
