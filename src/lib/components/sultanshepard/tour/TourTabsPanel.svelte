@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { SSTourDate, SSTourData, SSCrew } from '$lib/types/tour';
-	import { tabsForType, tabProgress, isTabInactive } from './tabs';
+	import { tabsForType, tabProgress, isTabInactive, notesActivePriorities, NOTE_PRIORITY_TEXT_CLASS } from './tabs';
 	import { getRingColorClass, getRingDashArray, RING_RADIUS } from './progress';
 
 	export let selectedDate: SSTourDate | null = null;
@@ -10,6 +10,14 @@
 	export let activeTabId: string | null = null;
 
 	const dispatch = createEventDispatcher();
+
+	// Geometry for the notes tab's subdividing PIE (filled disc, not a ring):
+	// a circle drawn at half the radius with a stroke-width equal to the full
+	// diameter fills solid from center to edge, so each dash segment reads as
+	// a filled wedge instead of a thin arc.
+	const NOTES_FILL_RADIUS = RING_RADIUS / 2;
+	const NOTES_FILL_CIRCUMFERENCE = 2 * Math.PI * NOTES_FILL_RADIUS;
+	const NOTES_WEDGE_GAP = 1.5; // px gap between wedges when subdivided
 
 	// Types that don't appear on the map and have no location
 	const NO_MAP_TYPES = ['Travel Day', 'Tour Break'];
@@ -78,6 +86,7 @@
 					{@const inactive = tourData ? isTabInactive(tab.id, tourData) : false}
 					{@const ringColorClass = inactive ? 'text-gray2/50' : getRingColorClass(progress)}
 					{@const ringDashArray = getRingDashArray(inactive ? 0 : progress)}
+					{@const noteWedges = tab.id === 'notes' && tourData ? notesActivePriorities(tourData) : []}
 					<button
 						type="button"
 						class="group relative w-full flex items-center justify-center 2xl:justify-start gap-2 2xl:gap-3 p-1.5 2xl:px-3 2xl:py-1.5 rounded-xl border transition-all cursor-pointer {activeTabId ===
@@ -145,36 +154,63 @@
 									stroke="#2F2F2F"
 									stroke-width="4"
 								/>
-								<circle
-									cx="18"
-									cy="18"
-									r={RING_RADIUS}
-									fill="none"
-									class={ringColorClass}
-									stroke="currentColor"
-									stroke-width="4"
-									stroke-linecap="round"
-									stroke-dasharray={ringDashArray}
-									style="transition: stroke-dasharray 0.4s ease, stroke 0.4s ease;"
-								/>
+								{#if tab.id === 'notes' && noteWedges.length > 0}
+									{#each noteWedges as priority, i (priority)}
+										<circle
+											cx="18"
+											cy="18"
+											r={NOTES_FILL_RADIUS}
+											fill="none"
+											class={NOTE_PRIORITY_TEXT_CLASS[priority]}
+											stroke="currentColor"
+											stroke-width={RING_RADIUS}
+											stroke-dasharray={`${Math.max(
+												NOTES_FILL_CIRCUMFERENCE / noteWedges.length -
+													(noteWedges.length > 1 ? NOTES_WEDGE_GAP : 0),
+												0
+											)} ${NOTES_FILL_CIRCUMFERENCE}`}
+											stroke-dashoffset={-(i * (NOTES_FILL_CIRCUMFERENCE / noteWedges.length))}
+											style="transition: stroke-dasharray 0.4s ease, stroke 0.4s ease;"
+										/>
+									{/each}
+								{:else}
+									<circle
+										cx="18"
+										cy="18"
+										r={RING_RADIUS}
+										fill="none"
+										class={ringColorClass}
+										stroke="currentColor"
+										stroke-width="4"
+										stroke-linecap="round"
+										stroke-dasharray={ringDashArray}
+										style="transition: stroke-dasharray 0.4s ease, stroke 0.4s ease;"
+									/>
+								{/if}
 							</svg>
 
-							{#if !inactive && progress >= 100}
-								<svg
-									class="w-3 h-3 text-confirmed z-10"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="3"
-									stroke-linecap="round"
-									stroke-linejoin="round"
-								>
-									<path d="M20 6L9 17l-5-5" />
-								</svg>
+							{#if tab.id === 'notes'}
+								{#if noteWedges.length === 0}
+									<span class="text-[9px] font-bold z-10 text-gray2/50">–</span>
+								{/if}
 							{:else}
-								<span class="text-[9px] font-bold z-10 {ringColorClass}"
-									>{inactive ? '–' : progress}</span
-								>
+								{#if !inactive && progress >= 100}
+									<svg
+										class="w-3 h-3 text-confirmed z-10"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="3"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path d="M20 6L9 17l-5-5" />
+									</svg>
+								{:else}
+									<span class="text-[9px] font-bold z-10 {ringColorClass}"
+										>{inactive ? '–' : progress}</span
+									>
+								{/if}
 							{/if}
 						</div>
 

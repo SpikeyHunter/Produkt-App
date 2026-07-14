@@ -231,7 +231,7 @@
 			</div>
 
 			{#if assignedCrew.length}
-				<div class="grid grid-cols-[90px_1fr_100px] gap-2 px-3 mb-1">
+				<div class="grid grid-cols-[120px_1fr_100px] gap-2 px-3 mb-1">
 					<span class="text-[10px] font-bold uppercase tracking-wider text-gray2/70">Role</span>
 					<span class="text-[10px] font-bold uppercase tracking-wider text-gray2/70">Name</span>
 					<span class="text-[10px] font-bold uppercase tracking-wider text-gray2/70 text-right">Salary</span>
@@ -240,8 +240,8 @@
 
 			<div class="bg-gray1/30 rounded-2xl divide-y divide-gray1/60 overflow-hidden">
 				{#each assignedCrew as c (c.id)}
-					<div class="grid grid-cols-[90px_1fr_100px] gap-2 items-center px-3 py-1">
-						<span class="text-xs font-bold truncate {c.crew_type === 'artist' ? 'text-lime' : 'text-gray2'}">
+					<div class="grid grid-cols-[120px_1fr_100px] gap-2 items-center px-3 py-1">
+						<span class="text-xs font-bold {c.crew_type === 'artist' ? 'text-lime' : 'text-gray2'}">
 							{c.role || CREW_TYPE_LABEL[c.crew_type] || c.crew_type}
 						</span>
 						<span class="text-sm text-white truncate">{c.name}</span>
@@ -252,7 +252,7 @@
 				{/each}
 
 				{#if assignedCrew.length}
-					<div class="grid grid-cols-[90px_1fr_100px] gap-2 items-center px-3 py-1 bg-gray1/40">
+					<div class="grid grid-cols-[120px_1fr_100px] gap-2 items-center px-3 py-1 bg-gray1/40">
 						<span class="text-xs font-bold uppercase tracking-wider text-white col-span-2">Crew total</span>
 						<span class="text-sm font-bold text-white font-mono text-right">{money(crewTotal)}</span>
 					</div>

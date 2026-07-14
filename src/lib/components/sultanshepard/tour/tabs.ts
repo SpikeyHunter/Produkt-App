@@ -4,7 +4,7 @@
 // the middle column stacks them (map always first).
 // ============================================================
 
-import type { SSTourData, TourDataTab, SSCrew } from '$lib/types/tour';
+import type { SSTourData, TourDataTab, SSCrew, NotePriority } from '$lib/types/tour';
 import {
 	calculateEventDetailsProgress,
 	calculateVenueInfoProgress,
@@ -88,6 +88,54 @@ export function tabsForType(type?: string): TabDef[] {
 }
 
 // ============================================================
+// NOTES — 4 fixed priority cards (Information / Question /
+// Warning / Emergency). The tab-panel circle subdivides into
+// however many of these 4 currently have text, one wedge per
+// category, colored by the category's design-system color.
+// ============================================================
+
+// Order matches the 2x2 grid: top-left, top-right, bottom-left, bottom-right.
+export const NOTE_PRIORITY_ORDER: NotePriority[] = ['info', 'question', 'warning', 'emergency'];
+
+export const NOTE_PRIORITY_LABEL: Record<NotePriority, string> = {
+	info: 'Information',
+	question: 'Question',
+	warning: 'Warning',
+	emergency: 'Emergency'
+};
+
+// Maps each note priority to the existing design-system color token.
+export const NOTE_PRIORITY_COLOR_VAR: Record<NotePriority, string> = {
+	info: '--color-confirmed',
+	question: '--color-question',
+	warning: '--color-proposed',
+	emergency: '--color-problem'
+};
+
+// Same mapping, as Tailwind text-color utility classes (for the tab-panel's
+// SVG wedges, which use `class="text-X" stroke="currentColor"` like the
+// rest of that component's rings) rather than the CSS custom-property form
+// above (which SimpleNotesSection uses for its card styling).
+export const NOTE_PRIORITY_TEXT_CLASS: Record<NotePriority, string> = {
+	info: 'text-confirmed',
+	question: 'text-question',
+	warning: 'text-proposed',
+	emergency: 'text-problem'
+};
+
+/**
+ * Returns the priorities (in fixed display order) that currently have
+ * non-empty note text. Length of this array (1-4) is how many wedges
+ * the tab-panel circle should be divided into.
+ */
+export function notesActivePriorities(data: SSTourData): NotePriority[] {
+	const items = data.notes?.items || [];
+	return NOTE_PRIORITY_ORDER.filter((p) =>
+		items.some((i) => i.priority === p && !!i.text?.trim())
+	);
+}
+
+// ============================================================
 // PROGRESS — % complete per tab (drives ring in tab list)
 // ============================================================
 
@@ -102,6 +150,18 @@ const filled = (v: unknown) => {
 	if (typeof v === 'object') return Object.keys(v as object).length > 0;
 	return true;
 };
+
+// TodoSection stores items nested under columns (data.todos.columns[].items);
+// the legacy flat data.todos.items is migrated away (set to undefined) as
+// soon as the section mounts. Read both so progress is correct whether or
+// not that migration has happened yet.
+function allTodoItems(data: SSTourData) {
+	const columns = data.todos?.columns || [];
+	if (columns.length) {
+		return columns.flatMap((c) => c.items || []);
+	}
+	return data.todos?.items || [];
+}
 
 export function tabProgress(tab: TourDataTab, data: SSTourData, crew: SSCrew[] = []): number {
 	switch (tab) {
@@ -154,12 +214,16 @@ export function tabProgress(tab: TourDataTab, data: SSTourData, crew: SSCrew[] =
 		case 'immigration':
 			return calculateImmigrationProgress(data.immigration);
 		case 'todos': {
-			const items = data.todos?.items || [];
+			const items = allTodoItems(data);
 			if (!items.length) return 0;
 			return pct(items.filter((i) => i.done).length, items.length);
 		}
-		case 'notes':
-			return (data.notes?.items?.length || 0) > 0 ? 100 : 0;
+		case 'notes': {
+			// Kept as a numeric fallback (e.g. for any consumer that still wants a
+			// single %). The tab panel itself should prefer notesActivePriorities()
+			// to draw the subdivided, color-coded circle instead of this number.
+			return pct(notesActivePriorities(data).length, NOTE_PRIORITY_ORDER.length);
+		}
 		case 'travel': {
 			const people = data.travel?.people || [];
 			if (!people.length) return 0;
@@ -202,6 +266,9 @@ export function isTabInactive(tab: TourDataTab, data: SSTourData): boolean {
 		case 'immigration':
 			// Grayed out whenever "Immigration needed for this show" is not on.
 			return data.immigration?.enabled !== true;
+		case 'todos':
+			// Grayed out until at least one task exists — nothing to be "0%" of yet.
+			return allTodoItems(data).length < 1;
 		default:
 			return false;
 	}

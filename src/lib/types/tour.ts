@@ -472,8 +472,15 @@ export interface TodoItem {
 	done: boolean;
 }
 
+export interface TodoColumn {
+	id: string;
+	title: string;
+	items: TodoItem[];
+}
+
 export interface TodosData {
-	items?: TodoItem[];
+	columns?: TodoColumn[];
+	items?: TodoItem[]; // @deprecated legacy — auto-migrated into columns[0] on first load
 }
 
 export type NotePriority = 'info' | 'question' | 'warning' | 'emergency';
@@ -554,6 +561,7 @@ export interface TourBudgetItem {
 	id: string;
 	label: string;
 	amount: number;
+	hidden?: boolean; // eye-toggle; excluded from section subtotal + fixed-costs pool when true
 }
 
 export interface TourBudgetSection {

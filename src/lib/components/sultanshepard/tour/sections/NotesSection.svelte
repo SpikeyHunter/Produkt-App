@@ -6,135 +6,86 @@
 
 	const dispatch = createEventDispatcher();
 	const uid = () => Math.random().toString(36).slice(2, 10);
-	const changed = () => {
-		data = { ...data };
-		dispatch('change');
-	};
 
-	// Priority → app colors (info #c4b5fd, question #93c5fd, warning = tentatif, emergency = problem)
-	const PRIORITIES: { value: NotePriority; label: string; chip: string; border: string }[] = [
-		{ value: 'info', label: 'Info', chip: 'bg-info text-black', border: 'border-info/60' },
-		{ value: 'question', label: 'Question', chip: 'bg-question text-black', border: 'border-question/60' },
-		{ value: 'warning', label: 'Warning', chip: 'bg-tentatif text-black', border: 'border-tentatif/60' },
-		{ value: 'emergency', label: 'EMERGENCY', chip: 'bg-problem text-black', border: 'border-problem' }
+	// Priority → app colors (info #c4b5fd, question #93c5fd, warning = tentatif, emergency = problem).
+	// Grid order: top-left, top-right, bottom-left, bottom-right.
+	const CARDS: {
+		value: NotePriority;
+		label: string;
+		chip: string;
+		border: string;
+		text: string;
+	}[] = [
+		{ value: 'info', label: 'Information', chip: 'bg-confirmed text-black', border: 'border-confirmed/60', text: 'text-info' },
+		{ value: 'question', label: 'Question', chip: 'bg-question text-black', border: 'border-question/60', text: 'text-question' },
+		{ value: 'warning', label: 'Warning', chip: 'bg-tentatif text-black', border: 'border-tentatif/60', text: 'text-tentatif' },
+		{ value: 'emergency', label: 'Emergency', chip: 'bg-problem text-black', border: 'border-problem', text: 'text-problem' }
 	];
 
-	const ORDER: Record<NotePriority, number> = { emergency: 0, warning: 1, question: 2, info: 3 };
-
-	let newText = '';
-	let newPriority: NotePriority = 'info';
-
-	$: items = [...(data.items || [])].sort((a, b) => ORDER[a.priority] - ORDER[b.priority]);
-	$: counts = PRIORITIES.map((p) => ({
-		...p,
-		count: (data.items || []).filter((i) => i.priority === p.value).length
-	}));
-
-	function add() {
-		const text = newText.trim();
-		if (!text) return;
-		const item: NoteItem = {
-			id: uid(),
-			text,
-			priority: newPriority,
-			created_at: new Date().toISOString()
-		};
-		data.items = [...(data.items || []), item];
-		newText = '';
-		changed();
+	// Each card is a single editable textarea. We keep the existing
+	// NotesData.items model (so the tab-panel ring and any other consumers
+	// keep working): all notes for a priority are stored as one item whose
+	// `text` is the card's full content. If a priority somehow has multiple
+	// legacy items, we join them with newlines for editing and collapse back
+	// to a single item on save.
+	function textFor(priority: NotePriority): string {
+		return (data.items || [])
+			.filter((i) => i.priority === priority)
+			.map((i) => i.text)
+			.join('\n');
 	}
 
-	function setPriority(item: NoteItem, p: NotePriority) {
-		item.priority = p;
-		changed();
-	}
+	function updateText(priority: NotePriority, value: string) {
+		// Drop every existing item for this priority, then re-add one if there's text.
+		const others = (data.items || []).filter((i) => i.priority !== priority);
+		const trimmed = value.trim();
 
-	function remove(id: string) {
-		data.items = (data.items || []).filter((i) => i.id !== id);
-		changed();
-	}
+		if (trimmed === '') {
+			data.items = others;
+		} else {
+			// Preserve the original id/created_at for this priority if we had one.
+			const existing = (data.items || []).find((i) => i.priority === priority);
+			const item: NoteItem = {
+				id: existing?.id ?? uid(),
+				text: value,
+				priority,
+				created_at: existing?.created_at ?? new Date().toISOString()
+			};
+			data.items = [...others, item];
+		}
 
-	const meta = (p: NotePriority) => PRIORITIES.find((x) => x.value === p) || PRIORITIES[0];
+		data = { ...data };
+		dispatch('change');
+	}
 </script>
 
-<div class="space-y-3">
-	<!-- counts -->
-	{#if (data.items || []).length > 0}
-		<div class="flex flex-wrap gap-2">
-			{#each counts as c}
-				{#if c.count > 0}
-					<span class="text-[10px] font-bold px-2 py-0.5 rounded-md {c.chip}">
-						{c.count} {c.label}
-					</span>
-				{/if}
-			{/each}
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 h-full min-h-[420px]">
+	{#each CARDS as card (card.value)}
+		<div class="flex flex-col min-h-0 rounded-xl border {card.border} bg-black/30 overflow-hidden">
+			<div class="flex items-center gap-2 px-3 py-2 border-b border-gray1 shrink-0">
+				<span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md {card.chip}">
+					{card.label}
+				</span>
+			</div>
+			<textarea
+				class="flex-1 w-full min-h-0 resize-none bg-transparent px-3 py-2.5 text-sm text-white placeholder-gray1 focus:outline-none custom-scrollbar {card.value === 'emergency' ? 'font-bold' : ''}"
+				placeholder={`Add notes here`}
+				value={textFor(card.value)}
+				on:input={(e) => updateText(card.value, (e.currentTarget as HTMLTextAreaElement).value)}
+			></textarea>
 		</div>
-	{/if}
-
-	<!-- add row -->
-	<div class="flex flex-col sm:flex-row gap-2">
-		<textarea
-			class="flex-1 bg-black/40 border border-gray1 rounded-lg px-3 py-2 text-sm text-white placeholder-gray2 focus:outline-none focus:border-lime resize-none"
-			rows="2"
-			placeholder="Write a note…"
-			bind:value={newText}
-			on:keydown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), add())}
-		></textarea>
-		<div class="flex sm:flex-col gap-2">
-			<select
-				class="bg-black/40 border border-gray1 rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-lime"
-				bind:value={newPriority}
-			>
-				{#each PRIORITIES as p}
-					<option value={p.value}>{p.label}</option>
-				{/each}
-			</select>
-			<button
-				class="px-4 py-2 rounded-lg bg-lime text-black text-sm font-bold hover:opacity-90 transition"
-				on:click={add}
-			>
-				Add
-			</button>
-		</div>
-	</div>
-
-	{#if items.length === 0}
-		<p class="text-sm text-gray2 italic">No notes yet.</p>
-	{:else}
-		<ul class="space-y-2">
-			{#each items as item (item.id)}
-				{@const m = meta(item.priority)}
-				<li class="bg-black/30 border-l-4 {m.border} border border-gray1 rounded-lg px-3 py-2.5 group">
-					<div class="flex items-start gap-3">
-						<span class="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md shrink-0 mt-0.5 {m.chip}">
-							{m.label}
-						</span>
-						<p class="flex-1 text-sm text-white whitespace-pre-wrap {item.priority === 'emergency' ? 'font-bold' : ''}">
-							{item.text}
-						</p>
-						<button
-							class="opacity-0 group-hover:opacity-100 text-gray2 hover:text-problem transition shrink-0"
-							on:click={() => remove(item.id)}
-							aria-label="Delete note"
-						>
-							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M18 6L6 18M6 6l12 12" />
-							</svg>
-						</button>
-					</div>
-					<!-- quick re-prioritize -->
-					<div class="mt-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition">
-						{#each PRIORITIES as p}
-							<button
-								class="text-[9px] px-1.5 py-0.5 rounded {item.priority === p.value ? p.chip : 'text-gray2 hover:text-white'}"
-								on:click={() => setPriority(item, p.value)}
-							>
-								{p.label}
-							</button>
-						{/each}
-					</div>
-				</li>
-			{/each}
-		</ul>
-	{/if}
+	{/each}
 </div>
+
+<style>
+	.custom-scrollbar::-webkit-scrollbar {
+		width: 4px;
+	}
+	.custom-scrollbar::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	.custom-scrollbar::-webkit-scrollbar-thumb {
+		background: #444;
+		border-radius: 2px;
+	}
+</style>

@@ -184,8 +184,8 @@
 		{/if}
 	</div>
 
-	<!-- List -->
-	<div class="flex-1 overflow-y-auto p-3 custom-scrollbar min-h-0">
+	<!-- List (Added ID here) -->
+	<div id="tour-dates-scroll-container" class="flex-1 overflow-y-auto p-3 min-h-0">
 		{#if filteredDates.length > 0}
 			<div class="space-y-2">
 				{#each filteredDates as date (date.id)}
@@ -356,14 +356,25 @@
 </div>
 
 <style>
-	.custom-scrollbar::-webkit-scrollbar {
-		width: 4px;
+	/* Standard Firefox Support */
+	#tour-dates-scroll-container {
+		scrollbar-width: thin !important;
+		scrollbar-color: var(--color-gray1) transparent !important;
 	}
-	.custom-scrollbar::-webkit-scrollbar-track {
-		background: transparent;
+
+	/* Force High-Specificity Overrides for WebKit (Chrome/Safari) */
+	#tour-dates-scroll-container::-webkit-scrollbar {
+		width: 2px !important;
+		background-color: transparent !important;
 	}
-	.custom-scrollbar::-webkit-scrollbar-thumb {
-		background: #444;
-		border-radius: 2px;
+
+	#tour-dates-scroll-container::-webkit-scrollbar-track {
+		background-color: transparent !important;
+	}
+
+	#tour-dates-scroll-container::-webkit-scrollbar-thumb {
+		background-color: var(--color-gray1) !important;
+		border-radius: 2px !important;
+		border: none !important;
 	}
 </style>

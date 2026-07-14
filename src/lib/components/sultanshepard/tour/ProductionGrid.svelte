@@ -760,9 +760,9 @@
 						{@const vi = rows[d.id]?.venue_info || {}}
 						{@const pr = rows[d.id]?.production || {}}
 						{@const cap = rows[d.id]?.capacity || 0}
-						<tr class="border-t border-gray1/60 hover:bg-white/[0.02] align-top">
+						<tr class="border-t border-gray1/60 group hover:bg-white/[0.06] align-top">
 							<!-- Venue (row generator) -->
-							<td class="sticky left-0 z-10 bg-navbar px-2 py-2">
+							<td class="sticky left-0 z-10 bg-navbar group-hover:brightness-125 transition-[filter] px-2 py-2">
 								<div class="text-sm font-bold text-white truncate">{d.venue || 'Untitled'}</div>
 								<div class="text-[11px] text-gray2">{fmtDate(d.date)}</div>
 							</td>

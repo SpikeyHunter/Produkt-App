@@ -283,6 +283,14 @@
 	function handleBudgetSaved() {
 		loadAllTours(false);
 	}
+
+	function goBack() {
+		if (budgetOpen || productionOpen) {
+			setView(null);
+		} else {
+			goto('/sultanshepard/djshow');
+		}
+	}
 </script>
 
 <svelte:head>
@@ -292,7 +300,7 @@
 <MainLayout pageTitle="Sultan + Shepard Tour">
 	<div class="flex flex-col h-full min-h-0 w-full max-w-[1800px] mx-auto p-6 gap-6">
 		<div class="flex items-center justify-between shrink-0 gap-4">
-			<Button variant="gray" on:click={() => goto('/sultanshepard/djshow')}>
+			<Button variant="gray" on:click={goBack}>
 				<span class="flex items-center gap-2">
 					<svg
 						class="w-3 h-3"

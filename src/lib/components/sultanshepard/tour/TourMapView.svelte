@@ -17,7 +17,6 @@
 
 	export let tourDates: any[] = [];
 	export let selectedDateId: string | null = null;
-	// Travel Days have no location — use the linked show's id for pan/zoom/popup.
 	export let selectedHighlightId: string | null = null;
 	$: mapPinId = selectedHighlightId ?? selectedDateId;
 
@@ -26,6 +25,12 @@
 	let mapReady = false;
 	let eventsBound = false;
 	let skipNextZoom = false;
+
+	// Optimization: In-memory cache for parsed routes and distances
+	const routeMemCache = new Map<string, any[]>();
+	// Optimization: Lock to prevent overlapping heavy updates
+	let isUpdatingMap = false;
+	let mapUpdatePending = false;
 
 	// HTML Markers arrays
 	let distanceMarkers: maplibregl.Marker[] = [];
@@ -42,9 +47,7 @@
 	$: LINE_COLOR = $lineColor;
 	$: currentTypeColors = $typeColors;
 
-	// Types with no map location — excluded from pins/routes
 	const NO_MAP_TYPES = ['Travel Day', 'Tour Break'];
-
 	const VARIANT_COLORS = ['#86EFAC', '#FDBA74', '#FCA5A5'];
 
 	const LINE_COLORS_OPTIONS = [
@@ -108,41 +111,43 @@
 	}
 
 	$: if (mapReady && tourDates) {
-		updateMapContent();
+		triggerMapUpdate();
 	}
 
-	// Redraw whenever colors change
 	$: if (mapReady && (currentTypeColors || LINE_COLOR)) {
-		updateMapContent();
+		triggerMapUpdate();
 	}
 
-	// Zoom in when a date is selected
 	$: if (mapReady && mapPinId) {
 		if (skipNextZoom) {
 			skipNextZoom = false;
 		} else {
 			const selected = tourDates.find((d) => d.id === mapPinId);
-			if (selected) {
-				// Don't zoom to no-map types — they have no location
-				if (!NO_MAP_TYPES.includes(selected.type || '')) {
-					const geo = parseAddress(selected.address);
-					if (geo?.lng && geo?.lat) {
-						const coords = [Number(geo.lng), Number(geo.lat)] as [number, number];
-						map.flyTo({ center: coords, zoom: 12, speed: 3, curve: 1, essential: true });
-						showPopupForDate(selected, coords);
-					}
+			if (selected && !NO_MAP_TYPES.includes(selected.type || '')) {
+				const geo = parseAddress(selected.address);
+				if (geo?.lng && geo?.lat) {
+					const coords = [Number(geo.lng), Number(geo.lat)] as [number, number];
+					map.flyTo({ center: coords, zoom: 12, speed: 3, curve: 1, essential: true });
+					showPopupForDate(selected, coords);
 				}
 			}
 		}
 	}
 
-	// Zoom out and close popup when date is deselected (selectedDateId === null)
 	$: if (mapReady && mapPinId === null) {
 		if (currentPopup) {
 			currentPopup.remove();
 			currentPopup = null;
 		}
 		map?.flyTo({ center: [0, 20], zoom: 1.5, speed: 1.5, curve: 1, essential: true });
+	}
+
+	function triggerMapUpdate() {
+		if (isUpdatingMap) {
+			mapUpdatePending = true;
+			return;
+		}
+		updateMapContent();
 	}
 
 	async function saveLineColor(colorHex: string) {
@@ -162,22 +167,34 @@
 		cachedRoute?: string,
 		forceFetchAlternatives = false
 	) {
+		// Check fast-access memory cache first
+		const cacheKey = `${start.join(',')}|${end.join(',')}|${forceFetchAlternatives}`;
+		if (routeMemCache.has(cacheKey)) {
+			return routeMemCache.get(cacheKey);
+		}
+
+		let result;
+
 		if (cachedRoute && !forceFetchAlternatives) {
 			const coords = polyline
 				.decode(cachedRoute)
 				.map(([lat, lng]: [number, number]) => [lng, lat] as [number, number]);
-			return [
+			const rawDist = calculateDistanceNum(coords);
+			result = [
 				{
 					coords,
 					encoded: cachedRoute,
-					distanceKm: calculateDistance(coords),
-					rawDist: calculateDistanceNum(coords)
+					distanceKm: rawDist + ' km',
+					rawDist
 				}
 			];
+			routeMemCache.set(cacheKey, result);
+			return result;
 		}
+
 		if (!GOOGLE_API_KEY) {
 			const rawDist = calculateDistanceNum([start, end] as [number, number][]);
-			return [
+			result = [
 				{
 					coords: [start, end] as [number, number][],
 					encoded: '',
@@ -185,7 +202,10 @@
 					rawDist
 				}
 			];
+			routeMemCache.set(cacheKey, result);
+			return result;
 		}
+
 		try {
 			const response = await fetch(`https://routes.googleapis.com/directions/v2:computeRoutes`, {
 				method: 'POST',
@@ -205,7 +225,7 @@
 			const data = await response.json();
 			if (!data.routes || data.routes.length === 0) {
 				const rawDist = calculateDistanceNum([start, end] as [number, number][]);
-				return [
+				result = [
 					{
 						coords: [start, end] as [number, number][],
 						encoded: '',
@@ -213,20 +233,21 @@
 						rawDist
 					}
 				];
+			} else {
+				result = data.routes.map((r: any) => {
+					const encoded = r.polyline.encodedPolyline;
+					const coords = polyline
+						.decode(encoded)
+						.map(([lat, lng]: [number, number]) => [lng, lat] as [number, number]);
+					const rawDist = r.distanceMeters
+						? Math.round(r.distanceMeters / 1000)
+						: calculateDistanceNum(coords);
+					return { coords, encoded, distanceKm: rawDist + ' km', rawDist };
+				});
 			}
-			return data.routes.map((r: any) => {
-				const encoded = r.polyline.encodedPolyline;
-				const coords = polyline
-					.decode(encoded)
-					.map(([lat, lng]: [number, number]) => [lng, lat] as [number, number]);
-				const rawDist = r.distanceMeters
-					? Math.round(r.distanceMeters / 1000)
-					: calculateDistanceNum(coords);
-				return { coords, encoded, distanceKm: rawDist + ' km', rawDist };
-			});
 		} catch (e) {
 			const rawDist = calculateDistanceNum([start, end] as [number, number][]);
-			return [
+			result = [
 				{
 					coords: [start, end] as [number, number][],
 					encoded: '',
@@ -235,6 +256,9 @@
 				}
 			];
 		}
+
+		routeMemCache.set(cacheKey, result);
+		return result;
 	}
 
 	async function triggerEditRoute(startData: any, endData: any, lngLat: any) {
@@ -243,7 +267,7 @@
 		editingDateId = startData.id;
 		const routes = await fetchRoute(start, end, undefined, true);
 		alternativeRoutesForEdit = routes.sort((a: any, b: any) => a.rawDist - b.rawDist);
-		updateMapContent();
+		triggerMapUpdate();
 		showPopupForDate(startData, lngLat);
 	}
 
@@ -252,12 +276,14 @@
 		const selectedRoute = alternativeRoutesForEdit[idx];
 		const variantsStr = JSON.stringify(alternativeRoutesForEdit.map((r) => r.encoded));
 		const dObj = tourDates.find((d) => d.id === editingDateId);
+		
 		if (dObj) {
 			dObj.cached_route_to_next = selectedRoute.encoded;
 			dObj.route_variants = variantsStr;
 			skipNextZoom = true;
 			tourDates = [...tourDates];
 		}
+		
 		await supabase
 			.from('ss_tour_dates')
 			.update({
@@ -265,9 +291,10 @@
 				route_variants: variantsStr
 			})
 			.eq('id', editingDateId);
+			
 		editingDateId = null;
 		alternativeRoutesForEdit = [];
-		updateMapContent();
+		triggerMapUpdate();
 		if (currentPopup) currentPopup.remove();
 	}
 
@@ -295,6 +322,7 @@
 
 	async function updateMapContent() {
 		if (!map || !mapReady) return;
+		isUpdatingMap = true;
 
 		distanceMarkers.forEach((m) => m.remove());
 		distanceMarkers = [];
@@ -303,7 +331,6 @@
 		pinMarkers.forEach((m) => m.remove());
 		pinMarkers = [];
 
-		// Exclude Travel Day / Tour Break from pins and routes — no location
 		const sorted = [...tourDates]
 			.map((d) => ({ ...d, geo: parseAddress(d.address) }))
 			.filter(
@@ -330,56 +357,63 @@
 			]);
 		}
 
-		if (sorted.length === 0) return;
+		if (sorted.length === 0) {
+			isUpdatingMap = false;
+			return;
+		}
 
 		let allRouteFeatures: any[] = [];
 		const stops = sorted.map((d) => [Number(d.geo.lng), Number(d.geo.lat)] as [number, number]);
 
+		// Optimization: Process all route fetches in parallel instead of sequentially
+		const segmentPromises = [];
 		if (stops.length > 1) {
 			for (let i = 0; i < sorted.length - 1; i++) {
 				const startData = sorted[i];
-				const endData = sorted[i + 1];
-				const routesArray = await fetchRoute(
-					stops[i],
-					stops[i + 1],
-					startData.cached_route_to_next
+				segmentPromises.push(
+					fetchRoute(stops[i], stops[i + 1], startData.cached_route_to_next)
+						.then(routesArray => ({ startData, endData: sorted[i + 1], routesArray }))
 				);
-
-				if (routesArray.length > 0) {
-					const mainRoute = routesArray[0];
-					allRouteFeatures.push({
-						type: 'Feature',
-						geometry: { type: 'LineString', coordinates: mainRoute.coords }
-					});
-
-					if (startData.id !== editingDateId) {
-						const midIndex = Math.floor(mainRoute.coords.length / 2);
-						const midPoint = mainRoute.coords[midIndex];
-
-						const el = document.createElement('div');
-						el.className = 'km-marker-container z-[50]';
-						const inner = document.createElement('div');
-						inner.title = '';
-						inner.className =
-							'km-marker-inner text-[#1a1a1a] font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow-lg border-2 border-[#1a1a1a] whitespace-nowrap cursor-pointer transition-all duration-300 transform origin-center';
-						inner.style.backgroundColor = LINE_COLOR;
-						inner.innerText = mainRoute.distanceKm;
-
-						inner.addEventListener('click', (e) => {
-							e.stopPropagation();
-							const pointCoords = [Number(startData.geo.lng), Number(startData.geo.lat)];
-							triggerEditRoute(startData, endData, pointCoords);
-						});
-
-						el.appendChild(inner);
-						const distMarker = new maplibregl.Marker({ element: el })
-							.setLngLat(midPoint as [number, number])
-							.addTo(map);
-						distanceMarkers.push(distMarker);
-					}
-				}
 			}
 		}
+
+		const segments = await Promise.all(segmentPromises);
+
+		segments.forEach(({ startData, endData, routesArray }) => {
+			if (routesArray.length > 0) {
+				const mainRoute = routesArray[0];
+				allRouteFeatures.push({
+					type: 'Feature',
+					geometry: { type: 'LineString', coordinates: mainRoute.coords }
+				});
+
+				if (startData.id !== editingDateId) {
+					const midIndex = Math.floor(mainRoute.coords.length / 2);
+					const midPoint = mainRoute.coords[midIndex];
+
+					const el = document.createElement('div');
+					el.className = 'km-marker-container z-[50]';
+					const inner = document.createElement('div');
+					inner.title = '';
+					inner.className =
+						'km-marker-inner text-[#1a1a1a] font-extrabold text-[10px] px-2 py-0.5 rounded-full shadow-lg border-2 border-[#1a1a1a] whitespace-nowrap cursor-pointer transition-all duration-300 transform origin-center';
+					inner.style.backgroundColor = LINE_COLOR;
+					inner.innerText = mainRoute.distanceKm;
+
+					inner.addEventListener('click', (e) => {
+						e.stopPropagation();
+						const pointCoords = [Number(startData.geo.lng), Number(startData.geo.lat)];
+						triggerEditRoute(startData, endData, pointCoords);
+					});
+
+					el.appendChild(inner);
+					const distMarker = new maplibregl.Marker({ element: el })
+						.setLngLat(midPoint as [number, number])
+						.addTo(map);
+					distanceMarkers.push(distMarker);
+				}
+			}
+		});
 
 		const variantsGeoJSON = {
 			type: 'FeatureCollection',
@@ -485,7 +519,7 @@
 				if (features.length === 0 && editingDateId) {
 					editingDateId = null;
 					alternativeRoutesForEdit = [];
-					updateMapContent();
+					triggerMapUpdate();
 					if (currentPopup) currentPopup.remove();
 				}
 			});
@@ -495,12 +529,18 @@
 		}
 
 		setTimeout(updateMarkerVisibility, 50);
+
+		// Resolve any pending map updates triggered during the lock
+		isUpdatingMap = false;
+		if (mapUpdatePending) {
+			mapUpdatePending = false;
+			updateMapContent();
+		}
 	}
 
 	function showPopupForDate(data: any, lngLat: any) {
 		if (currentPopup) currentPopup.remove();
 
-		// Only show map-able dates in popup index
 		const sorted = [...tourDates]
 			.map((d) => ({ ...d, geo: parseAddress(d.address) }))
 			.filter(
@@ -588,13 +628,13 @@
 			.setDOMContent(container)
 			.addTo(map);
 	}
+	
 	let resizeObserver: ResizeObserver;
 
 	onMount(async () => {
 		await initUserSettings();
 		await tick();
 
-		// Wait until the flex layout has given the container a real height
 		await new Promise<void>((resolve) => {
 			const check = () => {
 				if (mapContainer && mapContainer.clientHeight > 0) resolve();
@@ -615,7 +655,6 @@
 			fadeDuration: 0
 		});
 
-		// Keep the canvas matched to the container on any later size change
 		resizeObserver = new ResizeObserver(() => map?.resize());
 		resizeObserver.observe(mapContainer);
 
@@ -634,18 +673,18 @@
 				'watername_ocean'
 			);
 			mapReady = true;
-			map.resize(); // correct any too-early initial measurement
-			updateMapContent();
+			map.resize();
+			triggerMapUpdate();
 		});
 	});
 
 	onDestroy(() => {
-    resizeObserver?.disconnect();
-    map?.remove();
-    distanceMarkers.forEach((m) => m.remove());
-    variantDistanceMarkers.forEach((m) => m.remove());
-    pinMarkers.forEach((m) => m.remove());
-});
+		resizeObserver?.disconnect();
+		map?.remove();
+		distanceMarkers.forEach((m) => m.remove());
+		variantDistanceMarkers.forEach((m) => m.remove());
+		pinMarkers.forEach((m) => m.remove());
+	});
 </script>
 
 <div class="w-full h-full relative rounded-2xl overflow-hidden" style="min-height: 300px;">
