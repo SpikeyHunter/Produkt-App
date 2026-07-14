@@ -563,7 +563,7 @@
 						{#each CURRENCIES as cur}
 							<button
 								type="button"
-								class="cursor-pointer px-3 py-1 text-xs font-bold rounded-full transition {sheetCurrency === cur ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
+								class="cursor-pointer px-3 py-1 text-xs font-bold rounded-full transition {sheetCurrency === cur ? 'bg-gray3 text-black' : 'text-gray2 hover:text-white'}"
 								on:click={() => (sheetCurrency = cur)}
 							>
 								{cur}$
@@ -741,7 +741,7 @@
 								{#each SECTION_CURRENCIES as cur}
 									<button
 										type="button"
-										class="cursor-pointer px-2 py-0.5 text-[10px] font-bold rounded-full transition {goalCurrency === cur ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
+										class="cursor-pointer px-2 py-0.5 text-[10px] font-bold rounded-full transition {goalCurrency === cur ? 'bg-gray3 text-black' : 'text-gray2 hover:text-white'}"
 										on:click={() => (goalCurrency = cur)}
 									>
 										{cur}
@@ -797,7 +797,7 @@
 									<svg class="w-4 h-4 transition-transform {section.collapsed ? '' : 'rotate-90'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
 								</button>
 								{#if section.id === PRE_PROD_ID}
-									<span class="flex-1 min-w-0 text-sm font-bold text-white truncate" title="Pre-Prod Budget's name is fixed">
+									<span class="flex-1 min-w-0 text-sm font-bold text-lime truncate" title="Pre-Prod Budget's name is fixed">
 										{section.name}
 									</span>
 								{:else}
@@ -814,7 +814,7 @@
 										{#each SECTION_CURRENCIES as cur}
 											<button
 												type="button"
-												class="cursor-pointer px-2 py-0.5 text-[10px] font-bold rounded-full transition {(section.currency || 'CAD') === cur ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
+												class="cursor-pointer px-2 py-0.5 text-[10px] font-bold rounded-full transition {(section.currency || 'CAD') === cur ? 'bg-gray3 text-black' : 'text-gray2 hover:text-white'}"
 												on:click={() => setSectionCurrency(section, cur)}
 											>
 												{cur}
@@ -840,7 +840,7 @@
 										<span class="text-gray2/50">· not counted in budget</span>
 									{/if}
 								</span>
-								<span class="text-sm font-bold font-mono text-gray2 whitespace-nowrap text-right">
+								<span class="text-sm font-bold font-mono text-lime whitespace-nowrap text-right">
 									{#if section.id === PRE_PROD_ID}
 										{usd(sumItemsUSDMixed(section))}
 									{:else}
@@ -867,7 +867,7 @@
 													{#each SECTION_CURRENCIES as cur}
 														<button
 															type="button"
-															class="cursor-pointer px-1.5 py-0.5 text-[9px] font-bold rounded-full transition {(item.currency || section.currency || 'CAD') === cur ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
+															class="cursor-pointer px-1.5 py-0.5 text-[9px] font-bold rounded-full transition {(item.currency || section.currency || 'CAD') === cur ? 'bg-gray3 text-black' : 'text-gray2 hover:text-white'}"
 															on:click={() => setItemCurrency(item, section, cur)}
 														>
 															{cur}
