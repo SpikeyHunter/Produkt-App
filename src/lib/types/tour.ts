@@ -561,7 +561,8 @@ export interface TourBudgetItem {
 	id: string;
 	label: string;
 	amount: number;
-	hidden?: boolean; // eye-toggle; excluded from section subtotal + fixed-costs pool when true
+	hidden?: boolean;
+	currency?: BudgetCurrency; // per-item override, used by Pre-Prod Budget
 }
 
 export interface TourBudgetSection {

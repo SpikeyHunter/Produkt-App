@@ -116,13 +116,7 @@
 		// fixed-costs pool — see rightPoolUSD / rightPoolCAD below.
 		const preProdIdx = b.sections.findIndex((s) => s.id === PRE_PROD_ID);
 		if (preProdIdx === -1) {
-			b.sections.unshift({
-				id: PRE_PROD_ID,
-				name: 'Pre-Prod Budget',
-				currency: 'CAD',
-				collapsed: true,
-				items: []
-			});
+			b.sections.unshift({ id: PRE_PROD_ID, name: 'Pre-Prod Budget', currency: 'CAD', collapsed: true, items: [] });
 		} else if (preProdIdx > 0) {
 			const [preProd] = b.sections.splice(preProdIdx, 1);
 			b.sections.unshift(preProd);
@@ -132,6 +126,9 @@
 
 		budget = b;
 		status = 'idle';
+		// undo/redo history resets per tour, seeded with the just-loaded state
+		history = [structuredClone(b)];
+		historyIdx = 0;
 	}
 
 	$: if (tour && tour.id !== lastTourId) {
@@ -150,8 +147,66 @@
 			const c = getComputedStyle(gray1Probe).color;
 			if (c) sectionEl.style.setProperty('--sb-thumb', c);
 		}
+
+		window.addEventListener('keydown', onKeydown);
 	});
-	onDestroy(() => clearTimeout(saveTimer));
+	onDestroy(() => {
+		clearTimeout(saveTimer);
+		clearTimeout(historyTimer);
+		window.removeEventListener('keydown', onKeydown);
+	});
+
+	// ---- undo / redo (Cmd/Ctrl+Z, Cmd/Ctrl+Shift+Z) ----
+	// Snapshots of `budget` are committed on a short debounce so rapid typing
+	// coalesces into one undo step instead of one per keystroke, while discrete
+	// actions (delete item, add section, etc.) still land as their own step
+	// since nothing else fires in that same window to keep resetting the timer.
+	let history: TourBudget[] = [];
+	let historyIdx = -1;
+	let historyTimer: ReturnType<typeof setTimeout>;
+	let applyingHistory = false;
+
+	function commitHistory() {
+		if (applyingHistory) return;
+		const snapshot = JSON.stringify(budget);
+		if (history[historyIdx] && JSON.stringify(history[historyIdx]) === snapshot) return;
+		history = history.slice(0, historyIdx + 1);
+		history.push(structuredClone(budget));
+		historyIdx = history.length - 1;
+		if (history.length > 100) {
+			history.shift();
+			historyIdx--;
+		}
+	}
+	function undo() {
+		clearTimeout(historyTimer);
+		commitHistory(); // flush any in-progress edit as its own step first
+		if (historyIdx <= 0) return;
+		applyingHistory = true;
+		historyIdx--;
+		budget = structuredClone(history[historyIdx]);
+		applyingHistory = false;
+		status = 'saving';
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(save, 700);
+	}
+	function redo() {
+		if (historyIdx >= history.length - 1) return;
+		applyingHistory = true;
+		historyIdx++;
+		budget = structuredClone(history[historyIdx]);
+		applyingHistory = false;
+		status = 'saving';
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(save, 700);
+	}
+	function onKeydown(e: KeyboardEvent) {
+		const mod = e.metaKey || e.ctrlKey;
+		if (!mod || e.key.toLowerCase() !== 'z') return;
+		e.preventDefault();
+		if (e.shiftKey) redo();
+		else undo();
+	}
 
 	// ---- persistence (debounced autosave) ----
 	function changed() {
@@ -159,6 +214,8 @@
 		status = 'saving';
 		clearTimeout(saveTimer);
 		saveTimer = setTimeout(save, 700);
+		clearTimeout(historyTimer);
+		historyTimer = setTimeout(commitHistory, 500);
 	}
 	async function save() {
 		if (!tour) return;
@@ -210,14 +267,31 @@
 	};
 
 	// ---- dynamic column width ----
-	// Inputs size themselves to their own displayed text (in `ch` units) instead of a
-	// fixed px width, so "10$" stays compact and "100,000.00$" grows the column that
-	// holds it. A floor keeps every column from collapsing below a usable min width.
-	const CH_MIN = 7;
-	const CH_PAD = 1.5;
+	// Inputs size themselves to their own displayed text instead of a fixed px
+	// width, so "10$" stays compact and "999,999.00$" grows to fit. This measures
+	// the *actual* rendered text width via canvas and adds the input's *real*
+	// padding/border (read from computed style) rather than guessing a flat
+	// ch-based padding — a guess that broke down whenever an input used more
+	// padding (px-3) than the guess assumed, clipping the trailing digits.
+	const MIN_WIDTH_PX = 56;
+	let measureCanvas: HTMLCanvasElement | null = null;
+	function measureTextWidth(text: string, font: string): number {
+		if (!measureCanvas) measureCanvas = document.createElement('canvas');
+		const ctx = measureCanvas.getContext('2d');
+		if (!ctx) return text.length * 8.5; // safe fallback if canvas is ever unavailable
+		ctx.font = font;
+		return ctx.measureText(text).width;
+	}
 	function sizeToContent(node: HTMLInputElement) {
-		const len = Math.max(node.value.length, node.placeholder?.length || 0);
-		node.style.width = Math.max(CH_MIN, len + CH_PAD) + 'ch';
+		const text = node.value || node.placeholder || '';
+		const cs = getComputedStyle(node);
+		const font = `${cs.fontStyle} ${cs.fontVariant} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+		const textWidth = measureTextWidth(text, font);
+		const paddingH = parseFloat(cs.paddingLeft || '0') + parseFloat(cs.paddingRight || '0');
+		const borderH = parseFloat(cs.borderLeftWidth || '0') + parseFloat(cs.borderRightWidth || '0');
+		// +6px caret/breathing room so the last character never sits flush against the edge
+		const width = Math.max(MIN_WIDTH_PX, Math.ceil(textWidth) + paddingH + borderH + 6);
+		node.style.width = width + 'px';
 	}
 
 	// ---- grid cell access (values stored in USD base) ----
@@ -312,19 +386,23 @@
 		(s.items || []).reduce((acc, i) => (i.hidden ? acc : acc + (Number(i.amount) || 0)), 0);
 	$: sectionUSD = (s: TourBudgetSection) =>
 		(s.currency || 'CAD') === 'CAD' ? sumItems(s) / rate : sumItems(s);
+	// Per-item currency override (Pre-Prod Budget only) — each item can carry its
+	// own currency, so its USD total has to be resolved item-by-item rather than
+	// assuming one currency for the whole section.
+	const sumItemsUSDMixed = (s: TourBudgetSection) =>
+		(s.items || []).reduce((acc, i) => {
+			if (i.hidden) return acc;
+			const amt = Number(i.amount) || 0;
+			const cur = i.currency || s.currency || 'CAD';
+			return acc + (cur === 'CAD' ? amt / rate : amt);
+		}, 0);
 
 	$: rightPoolUSD = (budget.sections || [])
 		.filter((s) => s.id !== PRE_PROD_ID)
-		.reduce(
-			(acc, s) => acc + ((s.currency || 'CAD') === 'CAD' ? sumItems(s) / rate : sumItems(s)),
-			0
-		);
+		.reduce((acc, s) => acc + ((s.currency || 'CAD') === 'CAD' ? sumItems(s) / rate : sumItems(s)), 0);
 	$: rightPoolCAD = (budget.sections || [])
 		.filter((s) => s.id !== PRE_PROD_ID)
-		.reduce(
-			(acc, s) => acc + ((s.currency || 'CAD') === 'CAD' ? sumItems(s) : sumItems(s) * rate),
-			0
-		);
+		.reduce((acc, s) => acc + ((s.currency || 'CAD') === 'CAD' ? sumItems(s) : sumItems(s) * rate), 0);
 	$: fixedPerShowUSD = showCount > 0 ? rightPoolUSD / showCount : 0;
 	$: prodPerShowCAD = showCount > 0 ? rightPoolCAD / showCount : 0;
 	$: goalCAD = Number(budget.target_per_show) || 0;
@@ -340,15 +418,8 @@
 
 	// ---- column totals + per-row balances (USD base), reactive on `grid` ----
 	const MONEY_KEYS: MoneyKey[] = [
-		'artist_fee',
-		'prod_buyout',
-		'salaries',
-		'flights',
-		'hotels',
-		'per_diem',
-		'transports',
-		'other',
-		'merch_revenue'
+		'artist_fee', 'prod_buyout', 'salaries', 'flights', 'hotels',
+		'per_diem', 'transports', 'other', 'merch_revenue'
 	];
 	$: colTotals = (() => {
 		const t: Record<string, number> = {};
@@ -407,7 +478,22 @@
 		budget.sections = (budget.sections || []).map((s) => ({ ...s, collapsed: nextCollapsed }));
 		changed();
 	}
+	// Converts an amount between CAD/USD using the live rate — used whenever a
+	// currency toggle is flipped, so the underlying number stays the same
+	// real-world value instead of just being relabeled.
+	const convertAmount = (amt: number, fromCur: BudgetCurrency, toCur: BudgetCurrency) => {
+		if (fromCur === toCur) return amt;
+		const usdVal = fromCur === 'CAD' ? amt / rate : amt;
+		return toCur === 'CAD' ? usdVal * rate : usdVal;
+	};
 	function setSectionCurrency(s: TourBudgetSection, cur: BudgetCurrency) {
+		const oldCur = s.currency || 'CAD';
+		if (oldCur !== cur) {
+			s.items = (s.items || []).map((i) => ({
+				...i,
+				amount: convertAmount(Number(i.amount) || 0, oldCur, cur)
+			}));
+		}
 		s.currency = cur;
 		changed();
 	}
@@ -424,6 +510,14 @@
 		item.hidden = !item.hidden;
 		changed();
 	}
+	function setItemCurrency(item: TourBudgetSection['items'][number], s: TourBudgetSection, cur: BudgetCurrency) {
+		const oldCur = item.currency || s.currency || 'CAD';
+		if (oldCur !== cur) {
+			item.amount = convertAmount(Number(item.amount) || 0, oldCur, cur);
+		}
+		item.currency = cur;
+		changed();
+	}
 
 	function fmtDate(d: string) {
 		try {
@@ -438,10 +532,7 @@
 	}
 </script>
 
-<section
-	bind:this={sectionEl}
-	class="tour-budget bg-navbar rounded-2xl h-full flex flex-col min-h-0 overflow-hidden"
->
+<section bind:this={sectionEl} class="tour-budget bg-navbar rounded-2xl h-full flex flex-col min-h-0 overflow-hidden">
 	<!-- invisible probe: lets us read the theme's real gray1 color at runtime for the
 	     scrollbar override below, instead of hardcoding a hex that might not match (req #1) -->
 	<span
@@ -461,9 +552,7 @@
 			<div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray1 shrink-0">
 				<!-- "Tour Budget" title + custom rate, stacked (req #4) -->
 				<div class="min-w-0">
-					<span class="block text-[13px] font-bold uppercase tracking-wider text-lime leading-tight"
-						>Tour Budget</span
-					>
+					<span class="block text-[13px] font-bold uppercase tracking-wider text-lime leading-tight">Tour Budget</span>
 					<span class="block text-[10px] text-gray2 leading-tight whitespace-nowrap">
 						1 USD = {rate.toLocaleString('en-US', { maximumFractionDigits: 4 })} CAD
 					</span>
@@ -474,10 +563,7 @@
 						{#each CURRENCIES as cur}
 							<button
 								type="button"
-								class="cursor-pointer px-3 py-1 text-xs font-bold rounded-full transition {sheetCurrency ===
-								cur
-									? 'bg-lime text-black'
-									: 'text-gray2 hover:text-white'}"
+								class="cursor-pointer px-3 py-1 text-xs font-bold rounded-full transition {sheetCurrency === cur ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
 								on:click={() => (sheetCurrency = cur)}
 							>
 								{cur}$
@@ -489,19 +575,11 @@
 					     gray2-tinted, with a visible background in both open and retracted states -->
 					<button
 						type="button"
-						class="flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer {fixedOpen
-							? 'bg-gray2/25 text-gray2'
-							: 'bg-gray1 text-gray2 hover:bg-gray1/70 hover:text-white'}"
+						class="flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-bold transition-colors cursor-pointer {fixedOpen ? 'bg-gray2/25 text-gray2' : 'bg-gray1 text-gray2 hover:bg-gray1/70 hover:text-white'}"
 						on:click={() => (fixedOpen = !fixedOpen)}
 						aria-expanded={fixedOpen}
 					>
-						<svg
-							class="w-3 h-3 transition-transform {fixedOpen ? 'rotate-180' : ''}"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="2"><path d="M9 6l6 6-6 6" /></svg
-						>
+						<svg class="w-3 h-3 transition-transform {fixedOpen ? 'rotate-180' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6" /></svg>
 						Fixed Costs
 					</button>
 				</div>
@@ -509,28 +587,26 @@
 
 			<div class="flex-1 min-h-0 overflow-auto custom-scrollbar">
 				{#if showCount === 0}
-					<p class="text-sm text-gray2 italic p-6">
-						No Tour Dates yet — add shows to build the grid.
-					</p>
+					<p class="text-sm text-gray2 italic p-6">No Tour Dates yet — add shows to build the grid.</p>
 				{:else}
 					<table class="w-full border-collapse text-sm min-w-[1150px]">
 						<thead>
 							<tr>
-								<th on:mouseenter={colEnter(0)} on:mouseleave={colLeave} class="sticky left-0 top-0 z-30 text-left px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap {hoveredCol === 0 ? 'bg-gray2 text-black' : 'bg-[#131313] text-gray2'}">Show</th>
+								<th on:mouseenter={colEnter(0)} on:mouseleave={colLeave} class="sticky left-0 top-0 z-30 text-left px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2 whitespace-nowrap {hoveredCol === 0 ? 'bg-gray2' : 'bg-gray1'}">Show</th>
 								{#each REVENUE_LEFT as c, i}
 									<!-- vertical divider: Show | Artist Fee -->
-									<th on:mouseenter={colEnter(1 + i)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 1 + i ? 'bg-gray2 text-black' : 'bg-[#131313] text-gray2'}">{c.label}</th>
+									<th on:mouseenter={colEnter(1 + i)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center whitespace-nowrap {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 1 + i ? 'bg-gray2' : 'bg-gray1'}">{c.label}</th>
 								{/each}
 								<!-- vertical divider: Prod Buyout | Fixed Costs -->
-								<th on:mouseenter={colEnter(3)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap border-l border-gray1 {hoveredCol === 3 ? 'bg-gray2 text-black' : 'bg-[#131313] text-gray2'}">Fixed Costs</th>
+								<th on:mouseenter={colEnter(3)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center whitespace-nowrap border-l border-gray1 {hoveredCol === 3 ? 'bg-gray2' : 'bg-black'}">Fixed Costs</th>
 								{#each EXPENSE_COLS as c, i}
 									<!-- vertical divider: Fixed Costs | Salaries -->
-									<th on:mouseenter={colEnter(4 + i)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 4 + i ? 'bg-gray2 text-black' : 'bg-[#131313] text-gray2'}">{c.label}</th>
+									<th on:mouseenter={colEnter(4 + i)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center whitespace-nowrap {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 4 + i ? 'bg-gray2' : 'bg-gray1'}">{c.label}</th>
 								{/each}
-								<th on:mouseenter={colEnter(10)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap border-l border-gray1 {hoveredCol === 10 ? 'bg-gray2 text-black' : 'bg-[#131313] text-gray2'}">Balance</th>
-								<th on:mouseenter={colEnter(11)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap border-l border-gray1 {hoveredCol === 11 ? 'bg-gray2 text-black' : 'bg-[#131313] text-gray2'}">Merch Rev</th>
-								<th on:mouseenter={colEnter(12)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap border-l border-gray1 {hoveredCol === 12 ? 'bg-gray2 text-black' : 'bg-[#131313] text-gray2'}">Capacity</th>
-								<th on:mouseenter={colEnter(13)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-center whitespace-nowrap {hoveredCol === 13 ? 'bg-gray2 text-black' : 'bg-[#131313] text-gray2'}">Sold</th>
+								<th on:mouseenter={colEnter(10)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center whitespace-nowrap border-l border-gray1 {hoveredCol === 10 ? 'bg-gray2' : 'bg-gray1'}">Balance</th>
+								<th on:mouseenter={colEnter(11)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center whitespace-nowrap border-l border-gray1 {hoveredCol === 11 ? 'bg-gray2' : 'bg-gray1'}">Merch Rev</th>
+								<th on:mouseenter={colEnter(12)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center whitespace-nowrap border-l border-gray1 {hoveredCol === 12 ? 'bg-gray2' : 'bg-gray1'}">Capacity</th>
+								<th on:mouseenter={colEnter(13)} on:mouseleave={colLeave} class="sticky top-0 z-20 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center whitespace-nowrap {hoveredCol === 13 ? 'bg-gray2' : 'bg-gray1'}">Sold</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -538,161 +614,79 @@
 								{@const bal = balanceById[d.id] || 0}
 								<tr class="group border-t border-gray1/60 hover:bg-white/[0.1] transition-colors">
 									<td class="sticky left-0 z-10 bg-navbar px-3 py-1 text-left whitespace-nowrap">
-										<div
-											class="absolute inset-0 bg-white/0 group-hover:bg-white/[0.1] transition-colors pointer-events-none"
-										></div>
-										{#if hoveredCol === 0}<div
-												class="absolute inset-0 bg-white/[0.06] pointer-events-none"
-											></div>{/if}
-										<div class="relative text-sm font-bold text-white whitespace-nowrap">
-											{d.venue || 'Untitled'}
-										</div>
-										<div class="relative text-[11px] text-gray2 whitespace-nowrap">
-											{fmtDate(d.date)}
-										</div>
+										<div class="absolute inset-0 bg-white/0 group-hover:bg-white/[0.1] transition-colors pointer-events-none"></div>
+										{#if hoveredCol === 0}<div class="absolute inset-0 bg-white/[0.06] pointer-events-none"></div>{/if}
+										<div class="relative text-sm font-bold text-white whitespace-nowrap">{d.venue || 'Untitled'}</div>
+										<div class="relative text-[11px] text-gray2 whitespace-nowrap">{fmtDate(d.date)}</div>
 									</td>
 
 									{#each REVENUE_LEFT as c, i}
-										<td
-											class="px-1 py-1 {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol ===
-											1 + i
-												? 'bg-white/[0.06]'
-												: ''}"
-										>
+										<td class="px-1 py-1 {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 1 + i ? 'bg-white/[0.06]' : ''}">
 											<input
-												type="text"
-												inputmode="decimal"
+												type="text" inputmode="decimal"
 												use:moneyCell={moneyDisp(d.id, c.key)}
 												on:focus={stripFmt}
 												on:input={(e) => onMoneyInput(d.id, c.key, e.currentTarget)}
-												on:blur={(e) => {
-													e.currentTarget.value = moneyFmt(moneyDisp(d.id, c.key));
-													sizeToContent(e.currentTarget);
-												}}
-												class="mx-auto block bg-transparent rounded-lg px-2 h-6 text-sm font-mono text-center whitespace-nowrap outline-none border border-transparent focus:border-lime/60 focus:bg-black/30 transition-colors {gvg(
-													grid,
-													d.id,
-													c.key
-												)
-													? 'text-confirmed'
-													: c.key === 'artist_fee'
-														? 'text-proposed'
-														: 'text-gray3'}"
+												on:blur={(e) => { e.currentTarget.value = moneyFmt(moneyDisp(d.id, c.key)); sizeToContent(e.currentTarget); }}
+												class="mx-auto block bg-transparent rounded-lg px-2 h-6 text-sm font-mono text-center whitespace-nowrap outline-none border border-transparent focus:border-lime/60 focus:bg-black/30 transition-colors {gvg(grid, d.id, c.key) ? 'text-confirmed' : (c.key === 'artist_fee' ? 'text-proposed' : 'text-gray3')}"
 												placeholder="0.00$"
 											/>
 										</td>
 									{/each}
 
 									<!-- Fixed Costs per-show value → gray2, darker resting bg than the rest of the grid -->
-									<td
-										class="px-2 py-1 text-center whitespace-nowrap border-l border-gray1 {hoveredCol ===
-										3
-											? 'bg-white/[0.08]'
-											: 'bg-black/20'}"
-									>
-										<span class="text-sm text-gray2 font-mono whitespace-nowrap"
-											>{fmtNum(fixedPerShowUSD)}</span
-										>
+									<td class="px-2 py-1 text-center whitespace-nowrap border-l border-gray1 {hoveredCol === 3 ? 'bg-white/[0.08]' : 'bg-black/20'}">
+										<span class="text-sm text-gray2 font-mono whitespace-nowrap">{fmtNum(fixedPerShowUSD)}</span>
 									</td>
 
 									{#each EXPENSE_COLS as c, i}
-										<td
-											class="px-1 py-1 {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol ===
-											4 + i
-												? 'bg-white/[0.06]'
-												: ''}"
-										>
+										<td class="px-1 py-1 {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 4 + i ? 'bg-white/[0.06]' : ''}">
 											<input
-												type="text"
-												inputmode="decimal"
+												type="text" inputmode="decimal"
 												use:moneyCell={moneyDisp(d.id, c.key)}
 												on:focus={stripFmt}
 												on:input={(e) => onMoneyInput(d.id, c.key, e.currentTarget)}
-												on:blur={(e) => {
-													e.currentTarget.value = moneyFmt(moneyDisp(d.id, c.key));
-													sizeToContent(e.currentTarget);
-												}}
-												class="mx-auto block bg-transparent rounded-lg px-2 h-6 text-sm font-mono text-center whitespace-nowrap outline-none border border-transparent focus:border-lime/60 focus:bg-black/30 transition-colors {gvg(
-													grid,
-													d.id,
-													c.key
-												)
-													? 'text-problem'
-													: 'text-gray3'}"
+												on:blur={(e) => { e.currentTarget.value = moneyFmt(moneyDisp(d.id, c.key)); sizeToContent(e.currentTarget); }}
+												class="mx-auto block bg-transparent rounded-lg px-2 h-6 text-sm font-mono text-center whitespace-nowrap outline-none border border-transparent focus:border-lime/60 focus:bg-black/30 transition-colors {gvg(grid, d.id, c.key) ? 'text-problem' : 'text-gray3'}"
 												placeholder="0.00$"
 											/>
 										</td>
 									{/each}
 
-									<td
-										class="px-2 py-1 text-center border-l border-gray1 whitespace-nowrap {hoveredCol ===
-										10
-											? 'bg-white/[0.06]'
-											: ''}"
-									>
-										<span
-											class="text-sm font-bold font-mono whitespace-nowrap {bal >= 0
-												? 'text-confirmed'
-												: 'text-problem'}">{fmtNum(bal)}</span
-										>
+									<td class="px-2 py-1 text-center border-l border-gray1 whitespace-nowrap {hoveredCol === 10 ? 'bg-white/[0.06]' : ''}">
+										<span class="text-sm font-bold font-mono whitespace-nowrap {bal >= 0 ? 'text-confirmed' : 'text-problem'}">{fmtNum(bal)}</span>
 									</td>
 
-									<td
-										class="px-1 py-1 border-l border-gray1 {hoveredCol === 11
-											? 'bg-white/[0.06]'
-											: ''}"
-									>
+									<td class="px-1 py-1 border-l border-gray1 {hoveredCol === 11 ? 'bg-white/[0.06]' : ''}">
 										<input
-											type="text"
-											inputmode="decimal"
+											type="text" inputmode="decimal"
 											use:moneyCell={moneyDisp(d.id, 'merch_revenue')}
 											on:focus={stripFmt}
 											on:input={(e) => onMoneyInput(d.id, 'merch_revenue', e.currentTarget)}
-											on:blur={(e) => {
-												e.currentTarget.value = moneyFmt(moneyDisp(d.id, 'merch_revenue'));
-												sizeToContent(e.currentTarget);
-											}}
-											class="mx-auto block bg-transparent rounded-lg px-2 h-6 text-sm font-mono text-center whitespace-nowrap outline-none border border-transparent focus:border-lime/60 focus:bg-black/30 transition-colors {gvg(
-												grid,
-												d.id,
-												'merch_revenue'
-											)
-												? 'text-confirmed'
-												: 'text-gray3'}"
+											on:blur={(e) => { e.currentTarget.value = moneyFmt(moneyDisp(d.id, 'merch_revenue')); sizeToContent(e.currentTarget); }}
+											class="mx-auto block bg-transparent rounded-lg px-2 h-6 text-sm font-mono text-center whitespace-nowrap outline-none border border-transparent focus:border-lime/60 focus:bg-black/30 transition-colors {gvg(grid, d.id, 'merch_revenue') ? 'text-confirmed' : 'text-gray3'}"
 											placeholder="0.00$"
 										/>
 									</td>
 
-									<td
-										class="px-1 py-1 border-l border-gray1 {hoveredCol === 12
-											? 'bg-white/[0.06]'
-											: ''}"
-									>
+									<td class="px-1 py-1 border-l border-gray1 {hoveredCol === 12 ? 'bg-white/[0.06]' : ''}">
 										<input
-											type="text"
-											inputmode="numeric"
+											type="text" inputmode="numeric"
 											use:cellInit={gv(d.id, 'capacity')}
 											on:focus={selectAll}
 											on:input={(e) => onCountInput(d.id, 'capacity', e.currentTarget)}
-											on:blur={(e) => {
-												e.currentTarget.value = numFmt(gv(d.id, 'capacity'));
-												sizeToContent(e.currentTarget);
-											}}
+											on:blur={(e) => { e.currentTarget.value = numFmt(gv(d.id, 'capacity')); sizeToContent(e.currentTarget); }}
 											class="mx-auto block bg-transparent rounded-lg px-2 h-6 text-sm text-white font-mono text-center whitespace-nowrap outline-none border border-transparent focus:border-lime/60 focus:bg-black/30 transition-colors"
 											placeholder="0"
 										/>
 									</td>
 									<td class="px-1 py-1 {hoveredCol === 13 ? 'bg-white/[0.06]' : ''}">
 										<input
-											type="text"
-											inputmode="numeric"
+											type="text" inputmode="numeric"
 											use:cellInit={gv(d.id, 'sold')}
 											on:focus={selectAll}
 											on:input={(e) => onCountInput(d.id, 'sold', e.currentTarget)}
-											on:blur={(e) => {
-												e.currentTarget.value = numFmt(gv(d.id, 'sold'));
-												sizeToContent(e.currentTarget);
-											}}
+											on:blur={(e) => { e.currentTarget.value = numFmt(gv(d.id, 'sold')); sizeToContent(e.currentTarget); }}
 											class="mx-auto block bg-transparent rounded-lg px-2 h-6 text-sm text-white font-mono text-center whitespace-nowrap outline-none border border-transparent focus:border-lime/60 focus:bg-black/30 transition-colors"
 											placeholder="0"
 										/>
@@ -700,22 +694,22 @@
 								</tr>
 							{/each}
 
-							<!-- totals — fully opaque (bg-[#131313]) so scrolling body never shows through, column-hover matches header -->
-<tr class="border-t-2 border-gray1 sticky bottom-0 z-20">
-	<td on:mouseenter={colEnter(0)} on:mouseleave={colLeave} class="sticky left-0 z-30 px-3 py-1.5 text-xs font-black uppercase tracking-wider whitespace-nowrap text-left {hoveredCol === 0 ? 'bg-gray2 text-black' : 'bg-[#131313] text-white'}">Total</td>
-	{#each REVENUE_LEFT as c, i}
-		<td on:mouseenter={colEnter(1 + i)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono whitespace-nowrap {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 1 + i ? 'bg-gray2 text-black' : 'bg-[#131313] text-confirmed'}">{fmtSheet(colTotals[c.key])}</td>
-	{/each}
-	<!-- Fixed Costs total -->
-	<td on:mouseenter={colEnter(3)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono whitespace-nowrap border-l border-gray1 {hoveredCol === 3 ? 'bg-gray2 text-black' : 'bg-[#131313] text-gray2'}">{fmtNum(rightPoolUSD)}</td>
-	{#each EXPENSE_COLS as c, i}
-		<td on:mouseenter={colEnter(4 + i)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono whitespace-nowrap {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 4 + i ? 'bg-gray2 text-black' : 'bg-[#131313] text-problem'}">{fmtSheet(colTotals[c.key])}</td>
-	{/each}
-	<td on:mouseenter={colEnter(10)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-black font-mono border-l border-gray1 whitespace-nowrap {hoveredCol === 10 ? 'bg-gray2 text-black' : 'bg-[#131313] ' + (grandBalanceUSD >= 0 ? 'text-confirmed' : 'text-problem')}">{fmtNum(grandBalanceUSD)}</td>
-	<td on:mouseenter={colEnter(11)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono border-l border-gray1 whitespace-nowrap {hoveredCol === 11 ? 'bg-gray2 text-black' : 'bg-[#131313] text-confirmed'}">{fmtSheet(colTotals.merch_revenue)}</td>
-	<td on:mouseenter={colEnter(12)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono border-l border-gray1 whitespace-nowrap {hoveredCol === 12 ? 'bg-gray2 text-black' : 'bg-[#131313] text-white'}">{colTotals.capacity.toLocaleString('en-US')}</td>
-	<td on:mouseenter={colEnter(13)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono whitespace-nowrap {hoveredCol === 13 ? 'bg-gray2 text-black' : 'bg-[#131313] text-white'}">{colTotals.sold.toLocaleString('en-US')}</td>
-</tr>
+							<!-- totals — fully opaque (bg-gray1) so scrolling body never shows through, darker Fixed Costs cell, column-hover matches header -->
+							<tr class="border-t-2 border-gray1 sticky bottom-0 z-20">
+								<td on:mouseenter={colEnter(0)} on:mouseleave={colLeave} class="sticky left-0 z-30 px-3 py-1.5 text-xs font-black uppercase tracking-wider text-white whitespace-nowrap text-left {hoveredCol === 0 ? 'bg-gray2' : 'bg-gray1'}">Total</td>
+								{#each REVENUE_LEFT as c, i}
+									<td on:mouseenter={colEnter(1 + i)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono text-confirmed whitespace-nowrap {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 1 + i ? 'bg-gray2' : 'bg-gray1'}">{fmtSheet(colTotals[c.key])}</td>
+								{/each}
+								<!-- Fixed Costs total → gray2, darker resting bg -->
+								<td on:mouseenter={colEnter(3)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono text-gray2 whitespace-nowrap border-l border-gray1 {hoveredCol === 3 ? 'bg-gray2' : 'bg-black'}">{fmtNum(rightPoolUSD)}</td>
+								{#each EXPENSE_COLS as c, i}
+									<td on:mouseenter={colEnter(4 + i)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono text-problem whitespace-nowrap {i === 0 ? 'border-l border-gray1' : ''} {hoveredCol === 4 + i ? 'bg-gray2' : 'bg-gray1'}">{fmtSheet(colTotals[c.key])}</td>
+								{/each}
+								<td on:mouseenter={colEnter(10)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-black font-mono border-l border-gray1 whitespace-nowrap {grandBalanceUSD >= 0 ? 'text-confirmed' : 'text-problem'} {hoveredCol === 10 ? 'bg-gray2' : 'bg-gray1'}">{fmtNum(grandBalanceUSD)}</td>
+								<td on:mouseenter={colEnter(11)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono text-confirmed border-l border-gray1 whitespace-nowrap {hoveredCol === 11 ? 'bg-gray2' : 'bg-gray1'}">{fmtSheet(colTotals.merch_revenue)}</td>
+								<td on:mouseenter={colEnter(12)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono text-white border-l border-gray1 whitespace-nowrap {hoveredCol === 12 ? 'bg-gray2' : 'bg-gray1'}">{colTotals.capacity.toLocaleString('en-US')}</td>
+								<td on:mouseenter={colEnter(13)} on:mouseleave={colLeave} class="px-2 py-1.5 text-center text-sm font-bold font-mono text-white whitespace-nowrap {hoveredCol === 13 ? 'bg-gray2' : 'bg-gray1'}">{colTotals.sold.toLocaleString('en-US')}</td>
+							</tr>
 						</tbody>
 					</table>
 				{/if}
@@ -727,39 +721,27 @@
 		     overflow-hidden clips it while collapsed; the inner panel keeps a fixed width so
 		     content never reflows/squishes mid-animation. -->
 		<div
-			class="shrink-0 overflow-hidden transition-[width,opacity] duration-300 ease-in-out {fixedOpen
-				? 'w-[460px] opacity-100'
-				: 'w-0 opacity-0'}"
+			class="shrink-0 overflow-hidden transition-[width,opacity] duration-300 ease-in-out {fixedOpen ? 'w-[540px] opacity-100' : 'w-0 opacity-0'}"
 			aria-hidden={!fixedOpen}
 		>
-			<div class="w-[460px] h-full flex flex-col min-h-0">
+			<div class="w-[540px] h-full flex flex-col min-h-0">
 				<!-- drawer header — no redundant collapse control, gray2-tinted (req #3, #7) -->
-				<div
-					class="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray1 shrink-0"
-				>
-					<span class="text-[13px] font-bold uppercase tracking-wider text-gray2 truncate"
-						>Fixed Costs</span
-					>
+				<div class="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray1 shrink-0">
+					<span class="text-[13px] font-bold uppercase tracking-wider text-gray2 truncate">Fixed Costs</span>
 					<button type="button" class={addButtonCls} on:click={addSection}>+ Add section</button>
 				</div>
 
 				<!-- budget per show -->
 				<div class="px-5 py-3 border-b border-gray1 shrink-0 space-y-2">
 					<div class="flex items-center justify-between gap-2">
-						<span
-							class="text-[11px] font-bold uppercase tracking-wider text-gray2 whitespace-nowrap"
-							>Budget per Show</span
-						>
+						<span class="text-[11px] font-bold uppercase tracking-wider text-gray2 whitespace-nowrap">Budget per Show</span>
 						<div class="flex items-center gap-2 shrink-0">
 							<!-- currency toggle -->
 							<div class="flex rounded-full overflow-hidden bg-black/40 p-0.5 shrink-0">
 								{#each SECTION_CURRENCIES as cur}
 									<button
 										type="button"
-										class="cursor-pointer px-2 py-0.5 text-[10px] font-bold rounded-full transition {goalCurrency ===
-										cur
-											? 'bg-lime text-black'
-											: 'text-gray2 hover:text-white'}"
+										class="cursor-pointer px-2 py-0.5 text-[10px] font-bold rounded-full transition {goalCurrency === cur ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
 										on:click={() => (goalCurrency = cur)}
 									>
 										{cur}
@@ -772,15 +754,11 @@
 							<div class="flex items-center gap-1 bg-gray1 rounded-full pl-3 pr-2 h-7 shrink-0">
 								<span class="text-xs text-gray2 shrink-0">{goalCurrency}$</span>
 								<input
-									type="text"
-									inputmode="decimal"
+									type="text" inputmode="decimal"
 									use:moneyCellBare={goalDisp}
 									on:focus={stripFmt}
 									on:input={(e) => onGoalInput(e.currentTarget)}
-									on:blur={(e) => {
-										e.currentTarget.value = moneyFmtBare(goalDisp);
-										sizeToContent(e.currentTarget);
-									}}
+									on:blur={(e) => { e.currentTarget.value = moneyFmtBare(goalDisp); sizeToContent(e.currentTarget); }}
 									class="bg-transparent text-sm text-white text-right font-mono whitespace-nowrap outline-none border-none focus:outline-none"
 									placeholder="0.00"
 								/>
@@ -789,16 +767,8 @@
 					</div>
 					<div class="flex items-center justify-between text-xs">
 						<span class="text-gray2 whitespace-nowrap">Prod / show (actual)</span>
-						<span
-							class="font-mono font-bold whitespace-nowrap {overGoal
-								? 'text-problem'
-								: 'text-confirmed'}"
-						>
-							{showCount > 0
-								? goalCurrency === 'USD'
-									? usd(fixedPerShowUSD)
-									: cad(prodPerShowCAD)
-								: '—'}
+						<span class="font-mono font-bold whitespace-nowrap {overGoal ? 'text-problem' : 'text-confirmed'}">
+							{showCount > 0 ? (goalCurrency === 'USD' ? usd(fixedPerShowUSD) : cad(prodPerShowCAD)) : '—'}
 						</span>
 					</div>
 				</div>
@@ -824,53 +794,42 @@
 									on:click={() => toggleCollapse(section)}
 									aria-label="Toggle items"
 								>
-									<svg
-										class="w-4 h-4 transition-transform {section.collapsed ? '' : 'rotate-90'}"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										stroke-width="2"><path d="M9 18l6-6-6-6" /></svg
-									>
+									<svg class="w-4 h-4 transition-transform {section.collapsed ? '' : 'rotate-90'}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6" /></svg>
 								</button>
-								<input
-									class="flex-1 min-w-0 bg-transparent text-sm font-bold text-white outline-none border-b border-transparent focus:border-lime/60"
-									bind:value={section.name}
-									on:focus={selectAll}
-									on:input={changed}
-								/>
-								<!-- currency pill -->
-								<div class="flex rounded-full overflow-hidden bg-black/40 p-0.5 shrink-0">
-									{#each SECTION_CURRENCIES as cur}
-										<button
-											type="button"
-											class="cursor-pointer px-2 py-0.5 text-[10px] font-bold rounded-full transition {(section.currency ||
-												'CAD') === cur
-												? 'bg-lime text-black'
-												: 'text-gray2 hover:text-white'}"
-											on:click={() => setSectionCurrency(section, cur)}
-										>
-											{cur}
-										</button>
-									{/each}
-								</div>
-								{#if section.id !== PRE_PROD_ID}
-									<button
-										class="text-gray2 hover:text-problem transition shrink-0 cursor-pointer"
-										on:click={() => removeSection(section.id)}
-										aria-label="Remove section"
-									>
-										<svg
-											class="w-4 h-4"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg
-										>
-									</button>
+								{#if section.id === PRE_PROD_ID}
+									<span class="flex-1 min-w-0 text-sm font-bold text-white truncate" title="Pre-Prod Budget's name is fixed">
+										{section.name}
+									</span>
 								{:else}
-									<!-- Pre-Prod Budget is permanent: no remove button -->
-									<div class="w-4 shrink-0"></div>
+									<input
+										class="flex-1 min-w-0 bg-transparent text-sm font-bold text-white outline-none border-b border-transparent focus:border-lime/60"
+										bind:value={section.name}
+										on:focus={selectAll}
+										on:input={changed}
+									/>
 								{/if}
+								<!-- currency pill — Pre-Prod items carry their own currency instead -->
+								{#if section.id !== PRE_PROD_ID}
+									<div class="flex rounded-full overflow-hidden bg-black/40 p-0.5 shrink-0">
+										{#each SECTION_CURRENCIES as cur}
+											<button
+												type="button"
+												class="cursor-pointer px-2 py-0.5 text-[10px] font-bold rounded-full transition {(section.currency || 'CAD') === cur ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
+												on:click={() => setSectionCurrency(section, cur)}
+											>
+												{cur}
+											</button>
+										{/each}
+									</div>
+								{/if}
+								{#if section.id !== PRE_PROD_ID}
+								<button class="text-gray2 hover:text-problem transition shrink-0 cursor-pointer" on:click={() => removeSection(section.id)} aria-label="Remove section">
+									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+								</button>
+							{:else}
+								<!-- Pre-Prod Budget is permanent: no remove button -->
+								<div class="w-4 shrink-0"></div>
+							{/if}
 							</div>
 
 							<!-- section total row (always visible), never wraps -->
@@ -882,12 +841,12 @@
 									{/if}
 								</span>
 								<span class="text-sm font-bold font-mono text-gray2 whitespace-nowrap text-right">
-									{(section.currency || 'CAD') === 'CAD'
-										? cad(sumItems(section))
-										: usd(sumItems(section))}
-									<span class="text-[10px] text-gray2 font-normal"
-										>≈ {usd(sectionUSD(section))}</span
-									>
+									{#if section.id === PRE_PROD_ID}
+										{usd(sumItemsUSDMixed(section))}
+									{:else}
+										{(section.currency || 'CAD') === 'CAD' ? cad(sumItems(section)) : usd(sumItems(section))}
+										<span class="text-[10px] text-gray2 font-normal">≈ {usd(sectionUSD(section))}</span>
+									{/if}
 								</span>
 							</div>
 
@@ -902,74 +861,47 @@
 												on:focus={selectAll}
 												on:input={changed}
 											/>
+											{#if section.id === PRE_PROD_ID}
+												<!-- per-item currency toggle — Pre-Prod items can mix CAD/USD -->
+												<div class="flex rounded-full overflow-hidden bg-black/40 p-0.5 shrink-0">
+													{#each SECTION_CURRENCIES as cur}
+														<button
+															type="button"
+															class="cursor-pointer px-1.5 py-0.5 text-[9px] font-bold rounded-full transition {(item.currency || section.currency || 'CAD') === cur ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
+															on:click={() => setItemCurrency(item, section, cur)}
+														>
+															{cur}
+														</button>
+													{/each}
+												</div>
+											{/if}
 											<input
-												type="text"
-												inputmode="decimal"
+												type="text" inputmode="decimal"
 												use:moneyCellBare={item.amount}
 												on:focus={stripFmt}
-												on:input={(e) => {
-													item.amount = parseMoney(e.currentTarget.value);
-													changed();
-												}}
-												on:blur={(e) => (e.currentTarget.value = moneyFmtBare(item.amount))}
-												class="w-24 shrink-0 bg-gray1 rounded-full px-3 h-7 text-sm text-white text-right font-mono whitespace-nowrap outline-none border border-transparent focus:border-lime/60 transition-colors"
+												on:input={(e) => { item.amount = parseMoney(e.currentTarget.value); changed(); }}
+												on:blur={(e) => { e.currentTarget.value = moneyFmtBare(item.amount); sizeToContent(e.currentTarget); }}
+												class="shrink-0 bg-gray1 rounded-full px-3 h-7 text-sm text-white text-right font-mono whitespace-nowrap outline-none border border-transparent focus:border-lime/60 transition-colors"
 												placeholder="0.00"
 											/>
 											<button
 												class="text-gray2 hover:text-white transition shrink-0 cursor-pointer"
 												on:click={() => toggleItemHidden(item)}
-												aria-label={item.hidden
-													? 'Show item (excluded from total)'
-													: 'Hide item (included in total)'}
-												title={item.hidden
-													? 'Hidden — excluded from total'
-													: 'Visible — included in total'}
+												aria-label={item.hidden ? 'Show item (excluded from total)' : 'Hide item (included in total)'}
+												title={item.hidden ? 'Hidden — excluded from total' : 'Visible — included in total'}
 											>
 												{#if item.hidden}
-													<svg
-														class="w-4 h-4"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-														><path
-															d="M17.94 17.94A10.94 10.94 0 0112 20c-7 0-10-8-10-8a18.6 18.6 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 10 8 10 8a18.6 18.6 0 01-2.16 3.19M14.12 14.12a3 3 0 11-4.24-4.24"
-														/><path d="M1 1l22 22" /></svg
-													>
+													<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.94 10.94 0 0112 20c-7 0-10-8-10-8a18.6 18.6 0 015.06-5.94M9.9 4.24A10.94 10.94 0 0112 4c7 0 10 8 10 8a18.6 18.6 0 01-2.16 3.19M14.12 14.12a3 3 0 11-4.24-4.24" /><path d="M1 1l22 22" /></svg>
 												{:else}
-													<svg
-														class="w-4 h-4"
-														viewBox="0 0 24 24"
-														fill="none"
-														stroke="currentColor"
-														stroke-width="2"
-														><path d="M1 12s3-8 11-8 11 8 11 8-3 8-11 8-11-8-11-8z" /><circle
-															cx="12"
-															cy="12"
-															r="3"
-														/></svg
-													>
+													<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s3-8 11-8 11 8 11 8-3 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
 												{/if}
 											</button>
-											<button
-												class="text-gray2 hover:text-problem transition shrink-0 cursor-pointer"
-												on:click={() => removeItem(section, item.id)}
-												aria-label="Remove item"
-											>
-												<svg
-													class="w-4 h-4"
-													viewBox="0 0 24 24"
-													fill="none"
-													stroke="currentColor"
-													stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg
-												>
+											<button class="text-gray2 hover:text-problem transition shrink-0 cursor-pointer" on:click={() => removeItem(section, item.id)} aria-label="Remove item">
+												<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
 											</button>
 										</div>
 									{/each}
-									<button
-										class="text-xs text-gray2/70 hover:text-gray2 transition cursor-pointer"
-										on:click={() => addItem(section)}
-									>
+									<button class="text-xs text-gray2/70 hover:text-gray2 transition cursor-pointer" on:click={() => addItem(section)}>
 										+ Add item
 									</button>
 								</div>
@@ -985,54 +917,24 @@
 				<!-- fixed footer: summary, opaque, never wraps -->
 				<div class="border-t border-gray1 px-5 py-3 shrink-0 bg-navbar space-y-1.5">
 					<div class="flex items-center justify-between gap-2 text-sm">
-						<span
-							class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap"
-							>Fixed Costs</span
-						>
-						<span class="font-mono font-bold text-gray2 whitespace-nowrap">{usd(rightPoolUSD)}</span
-						>
+						<span class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap">Fixed Costs</span>
+						<span class="font-mono font-bold text-gray2 whitespace-nowrap">{usd(rightPoolUSD)}</span>
 					</div>
 					<div class="flex items-center justify-between gap-2 text-sm">
-						<span
-							class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap"
-							>Show Expenses</span
-						>
-						<span class="font-mono font-bold text-problem whitespace-nowrap"
-							>{usd(footerShowExpensesUSD)}</span
-						>
+						<span class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap">Show Expenses</span>
+						<span class="font-mono font-bold text-problem whitespace-nowrap">{usd(footerShowExpensesUSD)}</span>
 					</div>
-					<div
-						class="flex items-center justify-between gap-2 pt-1.5 border-t border-gray1/60 text-sm"
-					>
-						<span
-							class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap"
-							>Revenue</span
-						>
-						<span class="font-mono font-bold text-confirmed whitespace-nowrap"
-							>{usd(footerRevenueUSD)}</span
-						>
+					<div class="flex items-center justify-between gap-2 pt-1.5 border-t border-gray1/60 text-sm">
+						<span class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap">Revenue</span>
+						<span class="font-mono font-bold text-confirmed whitespace-nowrap">{usd(footerRevenueUSD)}</span>
 					</div>
-					<div
-						class="flex items-center justify-between gap-2 pt-1.5 border-t border-gray1/60 text-sm"
-					>
-						<span
-							class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap"
-							>Merch Revenue</span
-						>
-						<span class="font-mono font-bold text-confirmed whitespace-nowrap"
-							>{usd(colTotals.merch_revenue)}</span
-						>
+					<div class="flex items-center justify-between gap-2 pt-1.5 border-t border-gray1/60 text-sm">
+						<span class="text-[12px] font-bold uppercase tracking-wider text-gray3 whitespace-nowrap">Merch Revenue</span>
+						<span class="font-mono font-bold text-confirmed whitespace-nowrap">{usd(colTotals.merch_revenue)}</span>
 					</div>
 					<div class="flex items-center justify-between gap-2 pt-1.5 border-t border-gray1/60">
-						<span
-							class="text-[12px] font-black uppercase tracking-wider text-white whitespace-nowrap"
-							>Balance</span
-						>
-						<span
-							class="text-lg font-black font-mono whitespace-nowrap {footerBalanceUSD >= 0
-								? 'text-confirmed'
-								: 'text-problem'}">{usd(footerBalanceUSD)}</span
-						>
+						<span class="text-[12px] font-black uppercase tracking-wider text-white whitespace-nowrap">Balance</span>
+						<span class="text-lg font-black font-mono whitespace-nowrap {footerBalanceUSD >= 0 ? 'text-confirmed' : 'text-problem'}">{usd(footerBalanceUSD)}</span>
 					</div>
 				</div>
 			</div>
