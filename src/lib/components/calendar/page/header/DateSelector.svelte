@@ -8,6 +8,7 @@
 
 	export let event: CalendarEvent;
 	export let groupEvents: CalendarEvent[];
+
 	let showPopover = false;
 	let popupRef: HTMLElement;
 	
@@ -40,6 +41,76 @@
 	$: daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate();
 	$: firstDayIndex = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1).getDay();
 
+	// --- NEW: Fetch Confirmed Events for the Viewed Month ---
+	let dbConfirmedEvents: any[] = [];
+
+	// Map colors to types
+	const typeColors: Record<string, string> = {
+		Corpo: '#d7b8e8',
+		'Bazart Nuits': '#ffe089',
+		'Moet City': '#f1e5cb',
+		'NCG Show': '#c4ef9b',
+		'NCG 360': '#fa7a90',
+		DSTRKT: '#afd3e9',
+		'Tour Prod': '#aec5d5',
+		Other: '#828282'
+	};
+
+	async function fetchMonthConfirmed(date: Date) {
+		const start = new Date(date.getFullYear(), date.getMonth(), 1).toISOString().split('T')[0];
+		const end = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString().split('T')[0];
+		
+		const { data, error } = await supabase
+			.from('calendar_events')
+			.select('date, calendar(details)')
+			.in('status', ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'])
+			.gte('date', start)
+			.lte('date', end);
+
+		if (error) {
+			console.error("Failed to fetch month confirmed events:", error);
+		} else if (data) {
+			dbConfirmedEvents = data;
+		}
+	}
+
+	$: if (showPopover && viewMonth) {
+		fetchMonthConfirmed(viewMonth);
+	}
+
+	function getDotColor(eventData: any): string | null {
+		if (!eventData) return null;
+		
+		let type = null;
+
+		// Extract type safely, handling potential array wrapping
+		const cal = Array.isArray(eventData.calendar) ? eventData.calendar[0] : eventData.calendar;
+		if (cal && cal.details) {
+			const calDetails = typeof cal.details === 'string' 
+				? JSON.parse(cal.details) 
+				: cal.details;
+			type = calDetails?.type;
+		}
+
+		// FIX: If the type is 'Other', or no type exists, return null to skip drawing a dot
+		if (!type || type === 'Other' || !typeColors[type]) {
+			return null;
+		}
+
+		return typeColors[type];
+	}
+
+	// Helper function to get only unique, non-null colors for a day
+	function getUniqueDotColors(events: any[]): string[] {
+		const colors = new Set<string>();
+		events.forEach(e => {
+			const color = getDotColor(e);
+			if (color) colors.add(color); // Only adds valid colors, skips 'Other'
+		});
+		return Array.from(colors);
+	}
+	// --------------------------------------------------------
+
 	let showModifyModal = false;
 	let isSavingModification = false;
 	let oldDatesToPass: string[] = [];
@@ -48,14 +119,14 @@
 	$: isDateLocked = ['IN SETTLEMENT', 'SETTLED'].includes(event?.status);
 	$: isConfirmedStatus = ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event?.status);
 	$: statusLabel = isConfirmedStatus ? 'Confirmed' : (activeHolds.length === 1 ? 'Hold' : 'Holds');
+	
 	// MATCHES EVENTHEADER LOGIC EXACTLY
 	function getVenueName(e: any) {
 		const v = e.venue || e.details?.venue || e.calendar?.details?.venue;
 		if (!v) return 'TBD';
 		const vParsed = typeof v === 'string' ? JSON.parse(v) : v;
 		if (vParsed.category) {
-			return `${vParsed.category} ${vParsed.room ?
-			'/ ' + vParsed.room : ''}`.trim();
+			return `${vParsed.category} ${vParsed.room ? '/ ' + vParsed.room : ''}`.trim();
 		}
 
 		return vParsed.label || vParsed.name || vParsed.title || vParsed.value || 'TBD';
@@ -218,8 +289,7 @@
 		class="flex items-center gap-2 px-3.5 py-2.5 bg-navbar rounded-3xl transition-colors {isDateLocked ? 'opacity-70 cursor-not-allowed' : 'hover:bg-white/5 cursor-pointer'}"
 		on:click={openPopover}
 		disabled={isDateLocked}
-		title={isDateLocked ?
-		'Dates are locked while in settlement' : 'Edit dates'}
+		title={isDateLocked ? 'Dates are locked while in settlement' : 'Edit dates'}
 	>
 		<svg
 			class="w-4 h-4 text-lime"
@@ -303,25 +373,39 @@
 			<div class="grid grid-cols-7 gap-1.5 text-center mb-6">
 				{#each Array(firstDayIndex) as _}<div></div>{/each}
 				{#each Array(daysInMonth) as _, i}
-					{@const dayNum = 
-					i + 1}
+					{@const dayNum = i + 1}
 					{@const targetDate = `${viewMonth.getFullYear()}-${String(viewMonth.getMonth() + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`}
 					{@const isSelected = stagedDates.includes(targetDate)}
+					{@const dayConfirmed = dbConfirmedEvents.filter(e => e.date === targetDate)}
+					
+					<!-- Generate unique colors for the day, ignoring 'Other' -->
+					{@const uniqueColors = getUniqueDotColors(dayConfirmed)}
+					{@const hasDots = isSelected || uniqueColors.length > 0}
 
 					<button
 						class="w-8 h-8 mx-auto rounded-full flex flex-col items-center justify-center text-xs font-bold transition-all relative cursor-pointer {isSelected
-							?
-							'border-2 border-lime text-white'
+							? 'border-2 border-lime text-white'
 							: 'text-gray2 hover:bg-white/5'}"
 						on:click={() => toggleDate(dayNum)}
 					>
-						{dayNum}
-						{#if isSelected}<div
-								class="w-1 h-1 rounded-full {isConfirmedStatus
-									?
-									'bg-confirmed'
-									: 'bg-lime'} absolute bottom-1"
-							></div>{/if}
+						<span class="leading-none transition-transform {hasDots ? '-mt-1 mb-1' : ''}">{dayNum}</span>
+						
+						{#if hasDots}
+							<div class="absolute bottom-[3px] flex gap-[1.5px] justify-center w-[24px] flex-wrap pointer-events-none">
+								{#if isSelected}
+									<div class="w-[4.5px] h-[4.5px] rounded-full shrink-0 {isConfirmedStatus ? 'bg-confirmed' : 'bg-lime'}"></div>
+								{:else}
+									<!-- Loop over unique colors -->
+									{#each uniqueColors as colorHex}
+										<div 
+											class="w-[4.5px] h-[4.5px] rounded-full opacity-90 shrink-0" 
+											style="background-color: {colorHex};"
+											title="Confirmed event"
+										></div>
+									{/each}
+								{/if}
+							</div>
+						{/if}
 					</button>
 				{/each}
 			</div>
