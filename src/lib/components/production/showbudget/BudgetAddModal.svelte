@@ -72,8 +72,7 @@
 			const allEvents = [...(liveData || []), ...(pastData || [])];
 
 			const excludeKeywords = [
-				'test', 'réservations', 'pass', 'event', 'template',
-				'produktworld', 'piknic', 'oktoberfest'
+				'test', 'réservations', 'pass', 'event', 'template', 'piknic', 'oktoberfest'
 			];
 
 			const filteredData = (allEvents || []).filter(
