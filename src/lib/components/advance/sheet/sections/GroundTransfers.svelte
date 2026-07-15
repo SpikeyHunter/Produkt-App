@@ -23,8 +23,13 @@
 
 	// Parse ground transport data
 	$: transferData = parseGroundTransport(event.ground_transport);
-	// Filter out N/A drivers
-	$: filteredTransferData = transferData.filter((t) => t.driverName !== 'N/A');
+	
+	// Keep all transfers, set driver to 'N/A' if blank
+	$: filteredTransferData = transferData.map((t) => ({
+		...t,
+		driverName: t.driverName || 'N/A'
+	}));
+	
 	$: transferGroups = groupTransfersByType(filteredTransferData);
 	$: uniqueDrivers = getUniqueDrivers(filteredTransferData);
 
@@ -143,6 +148,17 @@
 
 	// Check if UBER is used in any transfer (excluding N/A)
 	$: hasUber = filteredTransferData.some((t) => t.driverName === 'UBER');
+	
+	// Check if there is an arrival transfer with a valid driver (not N/A, not UBER)
+	$: hasArrivalWithDriver = filteredTransferData.some((t) => t.type === 'Arrival' && t.driverName !== 'N/A' && t.driverName !== 'UBER');
+
+	// Check if ALL transfers have 'N/A' as the driver
+	$: isAllNA = filteredTransferData.length > 0 && filteredTransferData.every((t) => t.driverName === 'N/A');
+
+	// If not all are N/A, get the unique types of transfers that are 'N/A' so we can list them out
+	$: naTypes = isAllNA 
+		? [] 
+		: Array.from(new Set(filteredTransferData.filter((t) => t.driverName === 'N/A').map((t) => t.type)));
 
 	// Count number of passengers (count commas + 1)
 	function countPax(paxNames: string): number {
@@ -168,24 +184,46 @@
 				<div>
 					<h3 class="text-lime text-sm font-bold uppercase tracking-wider mb-2">Information</h3>
 					<div class="space-y-1 text-sm">
-						{#each uniqueDrivers as driver}
+						
+						{#if isAllNA}
 							<div class="text-gray2">
-								<span class="font-bold text-white">Driver:</span>
-								{driver.name} - {driver.phone}
+								<span class="font-bold text-white">Ground Transport:</span>
+								Transportation will be at artist responsibility.
 							</div>
-						{/each}
-						<div class="text-gray2">
-							<span class="font-bold text-white">Vehicle:</span>
-							{advanceSettings.vehicle}
-						</div>
-						<div class="text-gray2">
-							<span class="font-bold text-white">Pickup Location:</span>
-							Please text driver when exiting airport. He will meet you at zone D, exit door 26
-						</div>
+						{:else}
+							{#each uniqueDrivers as driver}
+								<div class="text-gray2">
+									<span class="font-bold text-white">Driver:</span>
+									{driver.name} - {driver.phone}
+								</div>
+							{/each}
+							
+							{#if uniqueDrivers.length > 0}
+								<div class="text-gray2">
+									<span class="font-bold text-white">Vehicle:</span>
+									{advanceSettings.vehicle}
+								</div>
+							{/if}
+
+							{#if hasArrivalWithDriver}
+								<div class="text-gray2">
+									<span class="font-bold text-white">Pickup Location:</span>
+									Please text driver when exiting airport. He will meet you at zone D, exit door 26
+								</div>
+							{/if}
+
+							{#each naTypes as type}
+								<div class="text-gray2">
+									<span class="font-bold text-white">{type}:</span>
+									{type} will be at artist responsibility, we won't cover transportation.
+								</div>
+							{/each}
+						{/if}
+						
 						{#if hasUber}
 							<div class="text-gray2 pt-2">
 								<span class="font-bold text-white">UBER:</span>
-								{advanceSettings.drivers['UBER']}
+								We will provide an Uber voucher.
 							</div>
 						{/if}
 					</div>
