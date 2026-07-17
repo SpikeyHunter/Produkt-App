@@ -462,9 +462,20 @@
 				}
 				await updateEvent(newId, targetEventUpdates);
 
+				// ============================================================
+				// 🟢 NEW: TRANSFER MARKETING PROJECT LINK
+				// ============================================================
+				const { error: marketingUpdateError } = await supabase
+					.from('events_marketing')
+					.update({ event_id: newId })
+					.eq('event_id', oldId);
+
+				if (marketingUpdateError) {
+					console.warn('[Save] Could not update marketing project link:', marketingUpdateError);
+				}
+
 				// Every advance row now has a cloned counterpart on newId — safe
-				// to delete ALL the old advance rows for oldId (not just the one
-				// being edited).
+				// to delete ALL the old advance rows for oldId
 				const { error: deleteAdvanceError } = await supabase
 					.from('events_advance')
 					.delete()
@@ -504,14 +515,19 @@
 					// its calendar_link. This MUST land — and be CONFIRMED landed —
 					// before we attempt to delete the row.
 					// ============================================================
-					console.log('[Save] Step 1: Clearing old event row (is_custom -> false, calendar_link -> null)...');
+					console.log(
+						'[Save] Step 1: Clearing old event row (is_custom -> false, calendar_link -> null)...'
+					);
 					const { error: clearError } = await supabase
 						.from('events')
 						.update({ is_custom: false, calendar_link: null })
 						.eq('event_id', oldId);
 
 					if (clearError) {
-						console.error('[Save] Step 1 FAILED — old row not cleared, aborting delete:', clearError);
+						console.error(
+							'[Save] Step 1 FAILED — old row not cleared, aborting delete:',
+							clearError
+						);
 						alert(
 							'Warning: could not clear the old event row (is_custom/calendar_link) before deletion. ' +
 								'Data was copied to the new event, but the old row was left in place — please check it manually.\n\n' +
@@ -531,7 +547,10 @@
 							.maybeSingle();
 
 						const isCleared =
-							!verifyError && verifiedRow && verifiedRow.is_custom === false && verifiedRow.calendar_link === null;
+							!verifyError &&
+							verifiedRow &&
+							verifiedRow.is_custom === false &&
+							verifiedRow.calendar_link === null;
 
 						if (!isCleared) {
 							console.error(
@@ -562,11 +581,11 @@
 										'Please check it manually.'
 								);
 							} else {
-							console.log('[Save] Old EVENT row deleted successfully.');
+								console.log('[Save] Old EVENT row deleted successfully.');
+							}
 						}
 					}
 				}
-			}
 			} else {
 				// === SCENARIO 2: STANDARD UPDATE (SAME EVENT ID) ===
 				console.log('[Save] Same Event ID detected. Updating existing records...');
