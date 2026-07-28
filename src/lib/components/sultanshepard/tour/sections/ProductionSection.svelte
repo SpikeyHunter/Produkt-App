@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy } from 'svelte';
-	import type { ProductionData, LocalCrewItem, SSTourDate } from '$lib/types/tour';
+	import type { ProductionData, LocalCrewItem, SSTourDate, TriState } from '$lib/types/tour';
+	import { MIXER_OPTIONS, PLAYER_OPTIONS, backlineLabel } from '$lib/types/tour';
 	import Toggle from '../ui/Toggle.svelte';
 	import StatusTriToggle from '../ui/StatusTriToggle.svelte';
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
@@ -171,12 +172,26 @@
 		changed();
 	}
 
-	// --- CUSTOM DROPDOWN (Artist Specs) ---
-	let activeDropdown: 'artist_specs' | null = null;
-	let dropdownNodeSpecs: HTMLElement;
+	// --- CUSTOM DROPDOWNS (Artist Specs + Backline Mixer/Players) ---
+	// One shared "which dropdown is open" flag. Each trigger registers its
+	// wrapper node so the window click handler can tell inside from outside
+	// without every dropdown needing its own listener.
+	type DropdownKey = 'artist_specs' | 'backline_mixer' | 'backline_players';
 
-	function toggleDropdown() {
-		activeDropdown = activeDropdown === 'artist_specs' ? null : 'artist_specs';
+	let activeDropdown: DropdownKey | null = null;
+	let dropdownNodes: Record<string, HTMLElement> = {};
+
+	function registerDropdown(node: HTMLElement, key: DropdownKey) {
+		dropdownNodes[key] = node;
+		return {
+			destroy() {
+				delete dropdownNodes[key];
+			}
+		};
+	}
+
+	function toggleDropdown(key: DropdownKey = 'artist_specs') {
+		activeDropdown = activeDropdown === key ? null : key;
 	}
 
 	function selectSpecsStatus(val: 'to_send' | 'sent') {
@@ -186,13 +201,84 @@
 	}
 
 	function handleWindowClick(e: MouseEvent) {
-		if (
-			activeDropdown === 'artist_specs' &&
-			dropdownNodeSpecs &&
-			!dropdownNodeSpecs.contains(e.target as Node)
-		) {
-			activeDropdown = null;
+		if (!activeDropdown) return;
+		const node = dropdownNodes[activeDropdown];
+		if (node && !node.contains(e.target as Node)) activeDropdown = null;
+	}
+
+	// ============================================================
+	// SUPPORT — Backline (Mixer + Players), Monitors, Table/Riser
+	//
+	// Both backline dropdowns default to "None". Choosing "Other" swaps the
+	// dropdown for a text input; clearing that input on blur reverts the
+	// control back to the dropdown so a half-finished edit never sticks.
+	// Everything here writes to `production`, the same jsonb column the
+	// Production grid reads — so the two stay in sync over realtime.
+	// ============================================================
+	type BacklineField = {
+		key: 'backline_mixer' | 'backline_players';
+		customKey: 'backline_mixer_custom' | 'backline_players_custom';
+		dropdown: DropdownKey;
+		label: string;
+		options: readonly string[];
+	};
+
+	const BACKLINE_FIELDS: BacklineField[] = [
+		{
+			key: 'backline_mixer',
+			customKey: 'backline_mixer_custom',
+			dropdown: 'backline_mixer',
+			label: 'Mixer',
+			options: MIXER_OPTIONS
+		},
+		{
+			key: 'backline_players',
+			customKey: 'backline_players_custom',
+			dropdown: 'backline_players',
+			label: 'Players',
+			options: PLAYER_OPTIONS
 		}
+	];
+
+	// Set once the user *just* picked Other, so we focus the new input without
+	// stealing focus from every already-Other field on load.
+	let focusBacklineKey: string | null = null;
+
+	function pickBackline(f: BacklineField, val: string) {
+		data[f.key] = val;
+		if (val !== 'Other') data[f.customKey] = '';
+		else focusBacklineKey = f.key;
+		activeDropdown = null;
+		changed();
+	}
+
+	function backlineOtherBlur(f: BacklineField, node: HTMLInputElement) {
+		if (!node.value.trim()) {
+			data[f.key] = '';
+			data[f.customKey] = '';
+			changed();
+		}
+	}
+
+	function autoFocusInput(node: HTMLInputElement, active: boolean) {
+		const run = (a: boolean) => {
+			if (a) {
+				requestAnimationFrame(() => node.focus());
+				focusBacklineKey = null;
+			}
+		};
+		run(active);
+		return { update: run };
+	}
+
+	// Table / Riser — same TBD → Yes → No cycle the grid uses. Rendered inline
+	// (rather than via StatusTriToggle) so this one button can be sized larger
+	// without changing Elevator / Forklift / Rig alongside it.
+	function cycleTableRiser() {
+		const ORDER: TriState[] = [null, true, false];
+		const cur = data.table_riser ?? null;
+		data.table_riser = ORDER[(ORDER.indexOf(cur) + 1) % ORDER.length];
+		changed();
 	}
 
 	// --- FILE UPLOAD / MODALS ---
@@ -341,14 +427,14 @@
 			>
 
 			<div class="flex flex-wrap items-center gap-6">
-				<div bind:this={dropdownNodeSpecs} class="relative">
+				<div use:registerDropdown={'artist_specs'} class="relative">
 					<button
 						type="button"
 						class="bg-black/20 rounded-full pl-4 pr-10 h-8 text-sm outline-none border border-transparent flex items-center justify-between cursor-pointer font-bold transition-colors {data.artist_specs_status ===
 						'sent'
 							? 'text-confirmed focus:border-confirmed/60'
 							: 'text-problem focus:border-problem/60'}"
-						on:click|stopPropagation={toggleDropdown}
+						on:click|stopPropagation={() => toggleDropdown('artist_specs')}
 					>
 						<span>{data.artist_specs_status === 'sent' ? 'Sent' : 'To Send'}</span>
 						<svg
@@ -365,16 +451,16 @@
 
 					{#if activeDropdown === 'artist_specs'}
 						<div
-							class="absolute top-full mt-1.5 left-0 w-32 bg-[#2A2A2A] rounded-xl shadow-lg overflow-hidden z-50 border border-gray1/60 py-1"
+							class="absolute top-full mt-1 left-0 w-32 bg-[#2A2A2A] rounded-xl shadow-lg overflow-hidden z-50 border border-gray1/60 py-0.5"
 						>
 							<button
 								type="button"
-								class="w-full text-left px-3 py-2 text-sm text-problem font-bold hover:bg-gray1/60 transition-colors"
+								class="w-full text-left px-3 py-1 text-[13px] leading-5 cursor-pointer text-problem font-bold hover:bg-gray1/60 transition-colors"
 								on:click={() => selectSpecsStatus('to_send')}>To Send</button
 							>
 							<button
 								type="button"
-								class="w-full text-left px-3 py-2 text-sm text-confirmed font-bold hover:bg-gray1/60 transition-colors"
+								class="w-full text-left px-3 py-1 text-[13px] leading-5 cursor-pointer text-confirmed font-bold hover:bg-gray1/60 transition-colors"
 								on:click={() => selectSpecsStatus('sent')}>Sent</button
 							>
 						</div>
@@ -693,18 +779,8 @@
 				</div>
 			</div>
 
+			<!-- Width / Depth / Height — same order as the grid + the PDF export -->
 			<div class="grid grid-cols-3 gap-3">
-				<div>
-					<span class="block text-[10px] font-bold uppercase tracking-wider text-gray3 mb-1 pl-1"
-						>Stage Height</span
-					>
-					<input
-						class="w-full bg-black/20 rounded-full px-3 h-9 text-sm text-white placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors text-center"
-						bind:value={data.stage_height}
-						placeholder="e.g. 4' 6&quot;"
-						on:blur={() => handleDimensionBlur('stage_height')}
-					/>
-				</div>
 				<div>
 					<span class="block text-[10px] font-bold uppercase tracking-wider text-gray3 mb-1 pl-1"
 						>Stage Width</span
@@ -725,6 +801,17 @@
 						bind:value={data.stage_depth}
 						placeholder="e.g. 24'"
 						on:blur={() => handleDimensionBlur('stage_depth')}
+					/>
+				</div>
+				<div>
+					<span class="block text-[10px] font-bold uppercase tracking-wider text-gray3 mb-1 pl-1"
+						>Stage Height</span
+					>
+					<input
+						class="w-full bg-black/20 rounded-full px-3 h-9 text-sm text-white placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors text-center"
+						bind:value={data.stage_height}
+						placeholder="e.g. 4' 6&quot;"
+						on:blur={() => handleDimensionBlur('stage_height')}
 					/>
 				</div>
 			</div>
@@ -911,6 +998,111 @@
 						on:input={changed}
 					></textarea>
 				{/if}
+			</div>
+		</div>
+
+		<!-- ===== SUPPORT — mirrored in the Production grid ===== -->
+		<div class="bg-gray1/30 rounded-xl p-3 space-y-4">
+			<span class="block text-[13px] font-bold uppercase tracking-wider text-lime">Support</span>
+
+			<!-- Backline: Mixer + Players side by side, each with an "Other" text escape -->
+			<div>
+				<span class="block text-[10px] font-bold uppercase tracking-wider text-gray3 mb-1.5 pl-1"
+					>Backline</span
+				>
+				<div class="grid grid-cols-2 gap-3">
+					{#each BACKLINE_FIELDS as f (f.key)}
+						<div>
+							<span class="block text-[9px] font-bold uppercase tracking-wider text-gray2/70 mb-1 pl-1"
+								>{f.label}</span
+							>
+							<div use:registerDropdown={f.dropdown} class="relative">
+								{#if data[f.key] === 'Other'}
+									<input
+										class="w-full bg-black/20 rounded-full px-3 h-9 text-sm text-white placeholder-gray2/40 outline-none border border-lime/60 transition-colors"
+										placeholder={`Specify ${f.label.toLowerCase()}`}
+										bind:value={data[f.customKey]}
+										use:autoFocusInput={focusBacklineKey === f.key}
+										on:input={changed}
+										on:blur={(e) => backlineOtherBlur(f, e.currentTarget)}
+									/>
+								{:else}
+									<button
+										type="button"
+										class="w-full flex items-center justify-between gap-1 bg-black/20 rounded-full pl-3 pr-2 h-9 text-sm outline-none border border-transparent hover:border-lime/40 transition-colors cursor-pointer"
+										on:click|stopPropagation={() => toggleDropdown(f.dropdown)}
+									>
+										<span
+											class="truncate {data[f.key] && data[f.key] !== 'None'
+												? 'text-white'
+												: 'text-gray2/60'}"
+										>
+											{backlineLabel(data[f.key], data[f.customKey])}
+										</span>
+										<svg
+											class="w-3.5 h-3.5 text-gray2 shrink-0"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="2"><path d="M6 9l6 6 6-6" /></svg
+										>
+									</button>
+								{/if}
+
+								{#if activeDropdown === f.dropdown}
+									<div
+										class="absolute top-full mt-1 left-0 w-full min-w-[160px] max-h-[40vh] overflow-y-auto bg-[#2A2A2A] rounded-xl shadow-lg z-50 border border-gray1/60"
+									>
+										{#each f.options as opt}
+											<button
+												type="button"
+												class="w-full text-left px-3 py-1 text-[13px] leading-5 cursor-pointer hover:bg-gray1/60 transition-colors {data[
+													f.key
+												] === opt
+													? 'text-lime font-bold'
+													: 'text-white'}"
+												on:click={() => pickBackline(f, opt)}>{opt}</button
+											>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+			<!-- Table / Riser — own line, button sits right beside the label -->
+			<div class="flex items-center gap-3">
+				<span class="text-[10px] font-bold uppercase tracking-wider text-gray3 pl-1"
+					>Table / Riser</span
+				>
+				<button
+					type="button"
+					title="Click to cycle: TBD → Yes → No"
+					on:click={cycleTableRiser}
+					class="w-24 h-7 rounded-full text-[11px] font-black uppercase tracking-wide border flex items-center justify-center transition-colors cursor-pointer {data.table_riser ===
+					true
+						? 'bg-confirmed/15 border-confirmed text-confirmed'
+						: data.table_riser === false
+							? 'bg-problem/15 border-problem text-problem'
+							: 'bg-proposed/15 border-proposed text-proposed'}"
+				>
+					{data.table_riser === true ? 'Yes' : data.table_riser === false ? 'No' : 'TBD'}
+				</button>
+			</div>
+
+			<!-- Monitors -->
+			<div>
+				<span class="block text-[10px] font-bold uppercase tracking-wider text-gray3 mb-1.5 pl-1"
+					>Monitor Type</span
+				>
+				<input
+					class="w-full bg-black/20 rounded-full px-3 h-9 text-sm text-white placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
+					placeholder="e.g. 2x wedges + side fills"
+					bind:value={data.monitors}
+					on:input={changed}
+				/>
 			</div>
 		</div>
 	</div>

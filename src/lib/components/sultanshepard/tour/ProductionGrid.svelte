@@ -21,6 +21,7 @@
 		TourBudget,
 		TriState
 	} from '$lib/types/tour';
+	import { MIXER_OPTIONS, PLAYER_OPTIONS, backlineLabel } from '$lib/types/tour';
 	import { fetchTourDataForDates, saveTabData, saveTourBudget } from '$lib/services/tourService';
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
@@ -265,7 +266,7 @@
 	function toggleLed(id: string) {
 		setProd(id, { led_wall: !rows[id]?.production?.led_wall });
 	}
-	function toggleProdBool(id: string, key: 'elevator' | 'forklift' | 'rigging') {
+	function toggleProdBool(id: string, key: 'elevator' | 'forklift' | 'rigging' | 'table_riser') {
 		const current = rows[id]?.production?.[key] ?? null;
 		const ORDER: TriState[] = [null, true, false];
 		const next = ORDER[(ORDER.indexOf(current) + 1) % ORDER.length];
@@ -276,19 +277,38 @@
 	// CUSTOM DROPDOWNS (Location + Type) — rendered position:fixed
 	// outside the scroll container so they can't be clipped.
 	// ============================================================
-	let menu: { id: string; field: 'location' | 'type'; x: number; y: number; w: number } | null =
-		null;
+	type MenuField = 'location' | 'type' | 'backline_mixer' | 'backline_players';
 
-	function openMenu(e: MouseEvent, id: string, field: 'location' | 'type') {
+	let menu: { id: string; field: MenuField; x: number; y: number; w: number } | null = null;
+
+	// Backline triggers are deliberately tiny (two stacked controls inside one
+	// row), so their menus get a sane minimum width instead of matching the
+	// button.
+	const MENU_MIN_W: Partial<Record<MenuField, number>> = {
+		backline_mixer: 168,
+		backline_players: 168
+	};
+
+	function openMenu(e: MouseEvent, id: string, field: MenuField) {
 		e.stopPropagation();
+		closeMonitors();
 		if (menu && menu.id === id && menu.field === field) {
 			menu = null;
 			return;
 		}
 		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		menu = { id, field, x: r.left, y: r.bottom + 4, w: r.width };
+		menu = {
+			id,
+			field,
+			x: r.left,
+			y: r.bottom + 4,
+			w: Math.max(r.width, MENU_MIN_W[field] ?? 0)
+		};
 	}
-	const closeMenu = () => (menu = null);
+	const closeMenu = () => {
+		menu = null;
+		closeMonitors();
+	};
 
 	function pickLocation(id: string, val: 'indoor' | 'outdoor' | '') {
 		setVenue(id, { indoor_outdoor: val });
@@ -325,6 +345,98 @@
 		if (!vi) return '';
 		if (vi.venue_type === 'Other') return vi.venue_type_custom || 'Other';
 		return vi.venue_type || '';
+	}
+
+	// ============================================================
+	// SUPPORT — Backline (Mixer + Players), Monitors, Table/Riser.
+	// Same fields the Production tab writes, so both views stay in sync
+	// through the existing ss_tour_data realtime subscription.
+	// ============================================================
+	type BacklineField = {
+		key: 'backline_mixer' | 'backline_players';
+		customKey: 'backline_mixer_custom' | 'backline_players_custom';
+		field: MenuField;
+		label: string;
+		options: readonly string[];
+	};
+
+	const BACKLINE_FIELDS: BacklineField[] = [
+		{
+			key: 'backline_mixer',
+			customKey: 'backline_mixer_custom',
+			field: 'backline_mixer',
+			label: 'Mixer',
+			options: MIXER_OPTIONS
+		},
+		{
+			key: 'backline_players',
+			customKey: 'backline_players_custom',
+			field: 'backline_players',
+			label: 'Players',
+			options: PLAYER_OPTIONS
+		}
+	];
+
+	const backlineFieldFor = (f: MenuField) => BACKLINE_FIELDS.find((b) => b.field === f);
+
+	// "<dateId>:<key>" of the cell that just switched to Other, so only that
+	// input steals focus (not every already-Other row on load).
+	let focusBacklineKey: string | null = null;
+
+	function pickBackline(id: string, f: BacklineField, val: string) {
+		const patch: Partial<ProductionData> = { [f.key]: val } as Partial<ProductionData>;
+		if (val !== 'Other') (patch as any)[f.customKey] = '';
+		else focusBacklineKey = `${id}:${f.key}`;
+		setProd(id, patch);
+		menu = null;
+	}
+
+	// Markup can't carry TS casts, so the write goes through here.
+	function setBacklineCustom(id: string, f: BacklineField, value: string) {
+		setProd(id, { [f.customKey]: value } as Partial<ProductionData>);
+	}
+
+	// Emptying the specify input reverts the cell back to the dropdown.
+	function backlineOtherBlur(id: string, f: BacklineField, node: HTMLInputElement) {
+		if (!node.value.trim()) {
+			setProd(id, { [f.key]: '', [f.customKey]: '' } as Partial<ProductionData>);
+		}
+	}
+
+	function autoFocusBackline(node: HTMLInputElement, active: boolean) {
+		const run = (a: boolean) => {
+			if (a) {
+				requestAnimationFrame(() => node.focus());
+				focusBacklineKey = null;
+			}
+		};
+		run(active);
+		return { update: run };
+	}
+
+	// ---- Monitors: compact cell that expands into a fixed popup on click ----
+	let monitorPop: { id: string; x: number; y: number; w: number } | null = null;
+
+	function openMonitors(e: MouseEvent, id: string) {
+		e.stopPropagation();
+		menu = null;
+		if (monitorPop && monitorPop.id === id) {
+			monitorPop = null;
+			return;
+		}
+		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		monitorPop = { id, x: r.left, y: r.bottom + 4, w: Math.max(r.width, 240) };
+	}
+	const closeMonitors = () => (monitorPop = null);
+
+	function onMonitorsInput(id: string, node: HTMLTextAreaElement) {
+		setProd(id, { monitors: node.value });
+	}
+	function autoFocusArea(node: HTMLTextAreaElement) {
+		requestAnimationFrame(() => {
+			node.focus();
+			node.setSelectionRange(node.value.length, node.value.length);
+		});
 	}
 
 	// ============================================================
@@ -498,27 +610,59 @@
 	// ============================================================
 	// Presence-only, matching the other YES/NO toggle columns.
 	const specsText = (pr: ProductionData) => (pr.venue_specs_link ? 'YES' : 'NO');
-	// Elevator/Forklift/Rig are 3-state (TBD/Yes/No) — render all three in the PDF.
+	// Elevator/Forklift/Rig/Table-Riser are 3-state (TBD/Yes/No) — render all three in the PDF.
 	const triText = (v: TriState | undefined) => (v === true ? 'YES' : v === false ? 'NO' : 'TBD');
+	// Backline prints as "Mixer / Players", collapsing to a single "None" when
+	// neither piece has been specified.
+	const backlineText = (pr: ProductionData) => {
+		const mixer = backlineLabel(pr.backline_mixer, pr.backline_mixer_custom);
+		const players = backlineLabel(pr.backline_players, pr.backline_players_custom);
+		if (mixer === 'None' && players === 'None') return 'None';
+		return `${mixer} / ${players}`;
+	};
 
-	type PdfCol = { header: string; width: number; get: (vi: VenueInfoData, pr: ProductionData, capacity: number) => string };
+	type PdfCol = {
+		header: string;
+		width: number;
+		get: (vi: VenueInfoData, pr: ProductionData, capacity: number) => string;
+		/**
+		 * Optional stacked rendering — [top line, bottom line]. Used when the row
+		 * is tall enough (same threshold the SHOW column uses); on very dense
+		 * tours the rows get too short for two lines and `get` is used instead.
+		 */
+		lines?: (vi: VenueInfoData, pr: ProductionData) => [string, string];
+	};
 	const PDF_COLUMNS: PdfCol[] = [
-		{ header: 'LOCATION', width: 140, get: (vi) => locationLabel(vi.indoor_outdoor) || '—' },
-		{ header: 'TYPE', width: 150, get: (vi) => typeLabel(vi) || '—' },
-		{ header: 'HEIGHT', width: 88, get: (_v, pr) => pr.stage_height || '—' },
-		{ header: 'WIDTH', width: 88, get: (_v, pr) => pr.stage_width || '—' },
-		{ header: 'DEPTH', width: 88, get: (_v, pr) => pr.stage_depth || '—' },
-		{ header: 'STAGE SPECS', width: 190, get: (_v, pr) => specsText(pr) },
-		{ header: 'LED WALL', width: 105, get: (_v, pr) => (pr.led_wall ? 'YES' : 'NO') },
-		{ header: 'WIDTH', width: 92, get: (_v, pr) => pr.led_width || '—' },
-		{ header: 'HEIGHT', width: 92, get: (_v, pr) => pr.led_height || '—' },
-		{ header: 'ELEV', width: 78, get: (_v, pr) => triText(pr.elevator) },
-		{ header: 'FORK', width: 78, get: (_v, pr) => triText(pr.forklift) },
-		{ header: 'RIG', width: 70, get: (_v, pr) => triText(pr.rigging) },
-		{ header: 'CAPACITY', width: 90, get: (_v, _p, cap) => (cap ? cap.toLocaleString('en-US') : '—') },
-		{ header: 'NOTES', width: 260, get: (vi) => (vi.notes || '').replace(/\s+/g, ' ').trim() || '—' }
+		{ header: 'LOCATION', width: 120, get: (vi) => locationLabel(vi.indoor_outdoor) || '—' },
+		{ header: 'TYPE', width: 128, get: (vi) => typeLabel(vi) || '—' },
+		// Stage dimensions always print WIDTH → DEPTH → HEIGHT.
+		{ header: 'WIDTH', width: 78, get: (_v, pr) => pr.stage_width || '—' },
+		{ header: 'DEPTH', width: 78, get: (_v, pr) => pr.stage_depth || '—' },
+		{ header: 'HEIGHT', width: 78, get: (_v, pr) => pr.stage_height || '—' },
+		{ header: 'STAGE SPECS', width: 131, get: (_v, pr) => specsText(pr) },
+		{ header: 'LED WALL', width: 98, get: (_v, pr) => (pr.led_wall ? 'YES' : 'NO') },
+		{ header: 'WIDTH', width: 78, get: (_v, pr) => pr.led_width || '—' },
+		{ header: 'HEIGHT', width: 78, get: (_v, pr) => pr.led_height || '—' },
+		{ header: 'ELEV', width: 66, get: (_v, pr) => triText(pr.elevator) },
+		{ header: 'FORK', width: 66, get: (_v, pr) => triText(pr.forklift) },
+		{ header: 'RIG', width: 60, get: (_v, pr) => triText(pr.rigging) },
+		{
+			header: 'BACKLINE',
+			width: 158,
+			get: (_v, pr) => backlineText(pr),
+			// Mixer on top, players underneath — mirrors the on-screen cell.
+			lines: (_v, pr) => [
+				backlineLabel(pr.backline_mixer, pr.backline_mixer_custom),
+				backlineLabel(pr.backline_players, pr.backline_players_custom)
+			]
+		},
+		// Long monitor notes are simply clipped to the column.
+		{ header: 'MONITORS', width: 150, get: (_v, pr) => (pr.monitors || '').replace(/\s+/g, ' ').trim() || '—' },
+		{ header: 'TABLE', width: 72, get: (_v, pr) => triText(pr.table_riser) },
+		{ header: 'CAPACITY', width: 98, get: (_v, _p, cap) => (cap ? cap.toLocaleString('en-US') : '—') },
+		{ header: 'NOTES', width: 175, get: (vi) => (vi.notes || '').replace(/\s+/g, ' ').trim() || '—' }
 	];
-	const PDF_SHOW_COL_WIDTH = 210;
+	const PDF_SHOW_COL_WIDTH = 180;
 
 	export async function downloadPdf() {
 		if (pdfBusy) return;
@@ -604,6 +748,13 @@
 			const rowH = numRows > 0 ? availableH / numRows : 0;
 			const fontSize = Math.max(4.5, Math.min(7.5, rowH - 4));
 			const showTwoLine = rowH >= 16;
+			// Stacked data cells (BACKLINE) size their own text so two lines always
+			// fit the row rather than overlapping. Only once that would drop below
+			// 4.5pt do they fall back to the single-line `get`.
+			const STACK_GAP = 1.5;
+			const stackFont = Math.min(fontSize, (rowH - 4 - STACK_GAP) / 2);
+			const stackBlockH = stackFont * 2 + STACK_GAP;
+			const stackTwoLine = stackFont >= 4.5;
 
 			showDates.forEach((d, i) => {
 				const vi = rows[d.id]?.venue_info || {};
@@ -633,9 +784,21 @@
 				// data columns
 				PDF_COLUMNS.forEach((col, ci) => {
 					const w = colWidths[ci + 1];
-					const raw = col.get(vi, pr, rows[d.id]?.capacity || 0);
-					const t = truncate(raw, font, fontSize, w - 6);
-					page.drawText(t, { x: centerX(t, font, fontSize, cx, w), y: rowBottom + (rowH - fontSize) / 2 + 1, size: fontSize, font, color: black });
+					if (col.lines && stackTwoLine) {
+						// Two stacked values sharing one cell (BACKLINE: mixer over
+						// players), centered as a block so they never collide.
+						const [top, bottom] = col.lines(vi, pr);
+						const botBase = rowBottom + (rowH - stackBlockH) / 2;
+						const topBase = botBase + stackFont + STACK_GAP;
+						const t1 = truncate(top, font, stackFont, w - 4);
+						const t2 = truncate(bottom, font, stackFont, w - 4);
+						page.drawText(t1, { x: centerX(t1, font, stackFont, cx, w), y: topBase, size: stackFont, font, color: black });
+						page.drawText(t2, { x: centerX(t2, font, stackFont, cx, w), y: botBase, size: stackFont, font, color: black });
+					} else {
+						const raw = col.get(vi, pr, rows[d.id]?.capacity || 0);
+						const t = truncate(raw, font, fontSize, w - 6);
+						page.drawText(t, { x: centerX(t, font, fontSize, cx, w), y: rowBottom + (rowH - fontSize) / 2 + 1, size: fontSize, font, color: black });
+					}
 					cx += w;
 				});
 			});
@@ -698,60 +861,68 @@
 		{:else if showDates.length === 0}
 			<p class="text-sm text-gray2 italic p-6">No Tour Dates yet — add shows to build the grid.</p>
 		{:else}
-			<table class="w-full table-fixed border-collapse text-sm min-w-[1574px]">
+			<table class="w-full table-fixed border-collapse text-sm min-w-[1684px]">
 				<colgroup>
-					<col style="width:195px" />
+					<col style="width:180px" />
 					<!-- location -->
-					<col style="width:125px" />
-					<col style="width:135px" />
-					<!-- stage -->
-					<col style="width:74px" />
-					<col style="width:74px" />
-					<col style="width:74px" />
-					<col style="width:175px" />
+					<col style="width:108px" />
+					<col style="width:116px" />
+					<!-- stage: width / depth / height / specs -->
+					<col style="width:64px" />
+					<col style="width:64px" />
+					<col style="width:64px" />
+					<col style="width:158px" />
 					<!-- video & rigging -->
-					<col style="width:66px" />
-					<col style="width:78px" />
-					<col style="width:78px" />
+					<col style="width:58px" />
 					<col style="width:66px" />
 					<col style="width:66px" />
-					<col style="width:60px" />
+					<col style="width:54px" />
+					<col style="width:54px" />
+					<col style="width:50px" />
+					<!-- support: backline / monitors / table -->
+					<col style="width:122px" />
+					<col style="width:128px" />
+					<col style="width:66px" />
 					<!-- capacity -->
-					<col style="width:78px" />
+					<col style="width:70px" />
 					<!-- notes -->
-					<col style="width:230px" />
+					<col style="width:196px" />
 				</colgroup>
 
 				<thead>
 					<!-- group row -->
 					<tr class="bg-navbar">
-						<th rowspan="2" class="sticky left-0 top-0 z-40 bg-navbar text-center px-3 align-middle text-[11px] font-black uppercase tracking-widest text-lime border-b border-gray1">Show Dates</th>
+						<th rowspan="2" class="sticky left-0 top-0 z-40 bg-navbar text-center px-2 align-middle text-[11px] font-black uppercase tracking-widest text-lime border-b border-gray1">Show Dates</th>
 						<th colspan="2" class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Location</th>
 						<th colspan="4" class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Stage</th>
 						<th colspan="6" class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Video &amp; Rigging</th>
+						<th colspan="3" class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Support</th>
 						<th class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Capacity</th>
 						<th class="sticky top-0 z-30 bg-navbar h-7 text-[10px] font-black uppercase tracking-widest text-lime border-l-2 border-gray1">Notes</th>
 					</tr>
 					<!-- column row -->
 					<tr class="bg-navbar">
-						<th class="sticky top-7 z-30 bg-navbar px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Location</th>
-						<th class="sticky top-7 z-30 bg-navbar px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Type</th>
+						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Location</th>
+						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Type</th>
 
-						
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Width</th>
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Depth</th>
-                        <th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 ">Height</th>
-						<th class="sticky top-7 z-30 bg-navbar px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Stage Specs</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Width</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Depth</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Height</th>
+						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Stage Specs</th>
 
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">LED Wall</th>
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Width</th>
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Height</th>
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Elev</th>
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Fork</th>
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Rig</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">LED Wall</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Width</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Height</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Elev</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Fork</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Rig</th>
 
-						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Capacity</th>
-						<th class="sticky top-7 z-30 bg-navbar px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Notes</th>
+						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Backline</th>
+						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Monitors</th>
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1">Table</th>
+
+						<th class="sticky top-7 z-30 bg-navbar px-0.5 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Capacity</th>
+						<th class="sticky top-7 z-30 bg-navbar px-1 py-2 text-[10px] font-bold uppercase tracking-wider text-gray2 text-center border-b border-gray1 border-l-2 border-l-gray1">Notes</th>
 					</tr>
 				</thead>
 
@@ -762,13 +933,13 @@
 						{@const cap = rows[d.id]?.capacity || 0}
 						<tr class="border-t border-gray1/60 group hover:bg-white/[0.06] align-top">
 							<!-- Venue (row generator) -->
-							<td class="sticky left-0 z-10 bg-navbar group-hover:brightness-125 transition-[filter] px-2 py-2">
+							<td class="sticky left-0 z-10 bg-navbar group-hover:brightness-125 transition-[filter] px-1 py-2">
 								<div class="text-sm font-bold text-white truncate">{d.venue || 'Untitled'}</div>
 								<div class="text-[11px] text-gray2">{fmtDate(d.date)}</div>
 							</td>
 
 							<!-- Location -->
-							<td class="px-2 py-2 border-l-2 border-gray1">
+							<td class="px-1 py-2 border-l-2 border-gray1">
 								<button
 									type="button"
 									class="w-full flex items-center justify-between gap-1 bg-black/20 rounded-full pl-3 pr-2 h-8 text-sm outline-none border border-transparent hover:border-lime/40 transition-colors cursor-pointer"
@@ -782,7 +953,7 @@
 							</td>
 
 							<!-- Type (dropdown; "Other" swaps the whole control for an input) -->
-							<td class="px-2 py-2">
+							<td class="px-1 py-2">
 								{#if vi.venue_type === 'Other'}
 									<input
 										class="w-full bg-black/20 rounded-full px-3 h-8 text-sm text-white placeholder-gray2/40 outline-none border border-lime/60 transition-colors"
@@ -808,7 +979,7 @@
 
 							<!-- Stage H / W / D -->
 							
-							<td class="px-1 py-2 border-l-2 border-gray1 ">
+							<td class="px-0.5 py-2 border-l-2 border-gray1 ">
 								<input
 									class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
 									placeholder="—"
@@ -817,7 +988,7 @@
 									on:blur={(e) => onDimBlur(d.id, 'stage_width', e.currentTarget)}
 								/>
 							</td>
-							<td class="px-1 py-2">
+							<td class="px-0.5 py-2">
 								<input
 									class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
 									placeholder="—"
@@ -826,7 +997,7 @@
 									on:blur={(e) => onDimBlur(d.id, 'stage_depth', e.currentTarget)}
 								/>
 							</td>
-                            <td class="px-1 py-2">
+                            <td class="px-0.5 py-2">
 								<input
 									class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
 									placeholder="—"
@@ -837,7 +1008,7 @@
 							</td>
 
 							<!-- Stage Specs (fixed width, no full URL) -->
-							<td class="px-2 py-2">
+							<td class="px-1 py-2">
 								{#if !specsEditing[d.id] && isUrl(pr.venue_specs_link || '')}
 									<div class="flex items-center gap-1 bg-black/15 rounded-full pl-3 pr-1 h-8">
 										<span class="flex-1 min-w-0 truncate text-xs text-lime font-bold select-none">
@@ -899,7 +1070,7 @@
 							</td>
 
 							<!-- LED Wall toggle -->
-							<td class="px-1 py-2 border-l-2 border-gray1 align-middle">
+							<td class="px-0.5 py-2 border-l-2 border-gray1 align-middle">
 								<div class="h-8 flex items-center justify-center">
 									<button type="button" role="switch" aria-label="LED Wall" title="LED Wall" aria-checked={!!pr.led_wall} on:click={() => toggleLed(d.id)}
 										class="relative inline-flex w-9 h-5 rounded-full transition-colors cursor-pointer {pr.led_wall ? 'bg-lime' : 'bg-gray1 hover:bg-gray1/70'}">
@@ -909,7 +1080,7 @@
 							</td>
 
 							<!-- Wall W / H (locked unless LED wall on) -->
-							<td class="px-1 py-2 align-middle">
+							<td class="px-0.5 py-2 align-middle">
 								{#if pr.led_wall}
 									<input
 										class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
@@ -924,7 +1095,7 @@
 									</div>
 								{/if}
 							</td>
-							<td class="px-1 py-2 align-middle">
+							<td class="px-0.5 py-2 align-middle">
 								{#if pr.led_wall}
 									<input
 										class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
@@ -941,7 +1112,7 @@
 							</td>
 
 							<!-- Elevator / Forklift / Rig — 3-state: TBD (proposed) / Yes (confirmed) / No (problem) -->
-							<td class="px-1 py-2 align-middle">
+							<td class="px-0.5 py-2 align-middle">
 								<div class="h-8 flex items-center justify-center">
 									<button type="button" aria-label="Elevator"
 										title="Elevator — click to cycle: TBD → Yes → No"
@@ -956,7 +1127,7 @@
 									</button>
 								</div>
 							</td>
-							<td class="px-1 py-2 align-middle">
+							<td class="px-0.5 py-2 align-middle">
 								<div class="h-8 flex items-center justify-center">
 									<button type="button" aria-label="Forklift"
 										title="Forklift — click to cycle: TBD → Yes → No"
@@ -971,7 +1142,7 @@
 									</button>
 								</div>
 							</td>
-							<td class="px-1 py-2 align-middle">
+							<td class="px-0.5 py-2 align-middle">
 								<div class="h-8 flex items-center justify-center">
 									<button type="button" aria-label="Rig"
 										title="Rig — click to cycle: TBD → Yes → No"
@@ -987,8 +1158,82 @@
 								</div>
 							</td>
 
+							<!-- ===== SUPPORT ===== -->
+
+							<!-- Backline — two stacked dropdowns (Mixer over Players).
+							     Picking "Other" swaps that one control for a text input;
+							     clearing it on blur reverts to the dropdown. -->
+							<td class="px-0.5 py-2 border-l-2 border-gray1 align-middle">
+								<div class="h-8 flex flex-col justify-center gap-[3px]">
+									{#each BACKLINE_FIELDS as f (f.key)}
+										{#if pr[f.key] === 'Other'}
+											<input
+												class="w-full bg-black/20 rounded-full px-2 h-[14px] text-[9px] leading-none text-white placeholder-gray2/40 outline-none border border-lime/60 transition-colors"
+												placeholder={f.label}
+												title={f.label}
+												use:fieldSync={pr[f.customKey] || ''}
+												use:autoFocusBackline={focusBacklineKey === `${d.id}:${f.key}`}
+												on:input={(e) => setBacklineCustom(d.id, f, e.currentTarget.value)}
+												on:blur={(e) => backlineOtherBlur(d.id, f, e.currentTarget)}
+											/>
+										{:else}
+											<button
+												type="button"
+												title="{f.label} — {backlineLabel(pr[f.key], pr[f.customKey])}"
+												class="w-full flex items-center justify-between gap-0.5 bg-black/20 rounded-full pl-2 pr-1 h-[14px] text-[9px] leading-none outline-none border border-transparent hover:border-lime/40 transition-colors cursor-pointer"
+												on:click={(e) => openMenu(e, d.id, f.field)}
+											>
+												<span
+													class="truncate {pr[f.key] && pr[f.key] !== 'None'
+														? 'text-white'
+														: 'text-gray2/50'}"
+												>
+													{backlineLabel(pr[f.key], pr[f.customKey])}
+												</span>
+												<svg class="w-2.5 h-2.5 text-gray2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 9l6 6 6-6" /></svg>
+											</button>
+										{/if}
+									{/each}
+								</div>
+							</td>
+
+							<!-- Monitors — compact cell, expands to a popup editor on click -->
+							<td class="px-0.5 py-2 align-middle">
+								<button
+									type="button"
+									title={pr.monitors || 'Monitors'}
+									class="w-full h-8 flex items-center justify-between gap-1 bg-black/20 rounded-full pl-3 pr-2 text-sm outline-none border border-transparent hover:border-lime/40 transition-colors cursor-pointer {monitorPop?.id ===
+									d.id
+										? 'border-lime/60'
+										: ''}"
+									on:click={(e) => openMonitors(e, d.id)}
+								>
+									<span class="truncate text-left {pr.monitors ? 'text-white' : 'text-gray2/50'}">
+										{pr.monitors || '—'}
+									</span>
+									<svg class="w-3.5 h-3.5 text-gray2 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>
+								</button>
+							</td>
+
+							<!-- Table — 3-state: TBD (default) / Yes / No -->
+							<td class="px-0.5 py-2 align-middle">
+								<div class="h-8 flex items-center justify-center">
+									<button type="button" aria-label="Table"
+										title="Table — click to cycle: TBD → Yes → No"
+										on:click={() => toggleProdBool(d.id, 'table_riser')}
+										class="px-3 h-6 rounded-full text-[10px] font-black uppercase tracking-wide border flex items-center justify-center transition-colors cursor-pointer
+											{pr.table_riser === true
+											? 'bg-confirmed/15 border-confirmed text-confirmed'
+											: pr.table_riser === false
+												? 'bg-problem/15 border-problem text-problem'
+												: 'bg-proposed/15 border-proposed text-proposed'}">
+										{pr.table_riser === true ? 'YES' : pr.table_riser === false ? 'NO' : 'TBD'}
+									</button>
+								</div>
+							</td>
+
 							<!-- Capacity — linked to the Tour Budget tab (ss_tour.budget.grid) -->
-							<td class="px-1 py-2 border-l-2 border-gray1">
+							<td class="px-0.5 py-2 border-l-2 border-gray1">
 								<input
 									class="w-full bg-black/20 rounded-full px-1 h-8 text-sm text-white text-center placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors"
 									placeholder="—"
@@ -1000,7 +1245,7 @@
 							</td>
 
 							<!-- Notes (typing enables the section; emptying disables it) -->
-							<td class="px-2 py-2 border-l-2 border-gray1">
+							<td class="px-1 py-2 border-l-2 border-gray1">
 								<textarea
 									rows="1"
 									class="w-full bg-black/20 rounded-2xl px-3 py-1.5 text-sm text-white placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors resize-none min-h-[32px]"
@@ -1026,15 +1271,53 @@
 		style="left:{m.x}px; top:{m.y}px; width:{m.w}px"
 	>
 		{#if m.field === 'location'}
-			<button type="button" class="w-full text-left px-3 py-2 text-sm text-gray2 hover:text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, '')}>Select</button>
-			<button type="button" class="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, 'indoor')}>Indoor</button>
-			<button type="button" class="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, 'outdoor')}>Outdoor</button>
-		{:else}
-			<button type="button" class="w-full text-left px-3 py-2 text-sm text-gray2 hover:text-white hover:bg-gray1/60 transition-colors" on:click={() => pickType(m.id, '')}>Select</button>
+			<button type="button" class="w-full text-left px-3 py-2 text-sm cursor-pointer text-gray2 hover:text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, '')}>Select</button>
+			<button type="button" class="w-full text-left px-3 py-2 text-sm cursor-pointer text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, 'indoor')}>Indoor</button>
+			<button type="button" class="w-full text-left px-3 py-2 text-sm cursor-pointer text-white hover:bg-gray1/60 transition-colors" on:click={() => pickLocation(m.id, 'outdoor')}>Outdoor</button>
+		{:else if m.field === 'type'}
+			<button type="button" class="w-full text-left px-3 py-2 text-sm cursor-pointer text-gray2 hover:text-white hover:bg-gray1/60 transition-colors" on:click={() => pickType(m.id, '')}>Select</button>
 			{#each VENUE_TYPES as vt}
-				<button type="button" class="w-full text-left px-3 py-2 text-sm text-white hover:bg-gray1/60 transition-colors" on:click={() => pickType(m.id, vt)}>{vt}</button>
+				<button type="button" class="w-full text-left px-3 py-2 text-sm cursor-pointer text-white hover:bg-gray1/60 transition-colors" on:click={() => pickType(m.id, vt)}>{vt}</button>
 			{/each}
+		{:else}
+			{@const bf = backlineFieldFor(m.field)}
+			{#if bf}
+				<div class="px-3 pt-1 pb-1.5 text-[9px] font-black uppercase tracking-widest text-gray2/70">
+					{bf.label}
+				</div>
+				{#each bf.options as opt}
+					<button
+						type="button"
+						class="w-full text-left px-3 py-2 text-sm cursor-pointer hover:bg-gray1/60 transition-colors {(rows[m.id]
+							?.production?.[bf.key] || 'None') === opt
+							? 'text-lime font-bold'
+							: 'text-white'}"
+						on:click={() => pickBackline(m.id, bf, opt)}>{opt}</button
+					>
+				{/each}
+			{/if}
 		{/if}
+	</div>
+{/if}
+
+<!-- ===== monitors popup (expands the compact cell; closes on outside click) ===== -->
+{#if monitorPop}
+	{@const mp = monitorPop}
+	<button type="button" class="fixed inset-0 z-[90] cursor-default" aria-label="Close monitors" on:click={closeMonitors}></button>
+	<div
+		class="fixed z-[100] bg-[#2A2A2A] rounded-2xl shadow-xl overflow-hidden border border-lime/40 p-2"
+		style="left:{mp.x}px; top:{mp.y}px; width:{mp.w}px"
+	>
+		<div class="px-1 pb-1 text-[9px] font-black uppercase tracking-widest text-gray2/70">Monitors</div>
+		<textarea
+			rows="3"
+			class="w-full bg-black/30 rounded-xl px-3 py-2 text-sm text-white placeholder-gray2/40 outline-none border border-transparent focus:border-lime/60 transition-colors resize-none"
+			placeholder="e.g. 2x wedges + side fills"
+			use:fieldSync={rows[mp.id]?.production?.monitors || ''}
+			use:autoFocusArea
+			on:input={(e) => onMonitorsInput(mp.id, e.currentTarget)}
+			on:keydown={(e) => e.key === 'Escape' && closeMonitors()}
+		></textarea>
 	</div>
 {/if}
 

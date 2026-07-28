@@ -317,6 +317,38 @@ export interface LocalCrewItem {
 //   false = NO         (confirmed unavailable / problem)
 export type TriState = boolean | null;
 
+// ============================================================
+// SUPPORT / BACKLINE
+//
+// Two dropdowns (Mixer + Players) that both offer an "Other" escape
+// hatch. Picking "Other" stores 'Other' in the main field and puts the
+// free text in the matching `*_custom` field — the same pattern
+// venue_type / venue_type_custom already uses. An empty custom string
+// reverts the control back to the dropdown (see backlineLabel).
+// ============================================================
+
+export const MIXER_OPTIONS = ['None', 'DJM-900-NXS2', 'DJM-A9', 'DJM-V10', 'Other'] as const;
+export const PLAYER_OPTIONS = [
+	'None',
+	'CDJ-2000-NXS2',
+	'CDJ-3000',
+	'CDJ-3000X',
+	'Other'
+] as const;
+
+export type MixerOption = (typeof MIXER_OPTIONS)[number] | string;
+export type PlayerOption = (typeof PLAYER_OPTIONS)[number] | string;
+
+/**
+ * Display label for a backline dropdown.
+ * Unset / empty => 'None' (the default for every show).
+ * 'Other' => the custom text, or 'Other' if nothing was typed yet.
+ */
+export function backlineLabel(value?: string, custom?: string): string {
+	if (value === 'Other') return (custom || '').trim() || 'Other';
+	return value || 'None';
+}
+
 export interface ProductionData {
 	artist_specs_status?: 'to_send' | 'sent';
 	artist_specs_confirmed?: boolean;
@@ -341,6 +373,14 @@ export interface ProductionData {
 	load_out_time?: string;
 	load_out_confirmed?: boolean;
 	stagehands_rate_total?: number; // linked into show budget
+
+	// ---- SUPPORT (shared by the Production tab + the Production grid) ----
+	backline_mixer?: MixerOption; // '' / undefined => None
+	backline_mixer_custom?: string; // only used when backline_mixer === 'Other'
+	backline_players?: PlayerOption; // '' / undefined => None
+	backline_players_custom?: string; // only used when backline_players === 'Other'
+	monitors?: string; // free text (wedges, IEMs, side fills...)
+	table_riser?: TriState; // null = TBD (default) | true = YES | false = NO
 }
 
 export interface SetListSong {
