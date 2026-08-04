@@ -13,6 +13,18 @@ export const POST: RequestHandler = async ({ request }) => {
 		const requestData: CalendarSyncRequest = await request.json();
 		const { rows, artistName, eventId, existingEventIds } = requestData;
 
+		// Guests come from the client: artist liaisons (excluding Charles / Mezz,
+		// who already own the calendar) plus any assigned drivers.
+		const attendees: string[] = Array.isArray((requestData as any).attendees)
+			? Array.from(
+					new Set(
+						(requestData as any).attendees
+							.map((email: unknown) => String(email || '').trim().toLowerCase())
+							.filter((email: string) => email.includes('@'))
+					)
+				)
+			: [];
+
 		// Validate required fields
 		if (!rows || !Array.isArray(rows) || rows.length === 0) {
 			return json(
@@ -36,6 +48,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 		console.log(`Starting calendar sync for event ${eventId} - ${artistName}`);
 		console.log(`Processing ${rows.length} transport entries`);
+		console.log(
+			attendees.length ? `Inviting ${attendees.length} guest(s): ${attendees.join(', ')}` : 'No guests to invite'
+		);
 		
 		// Log sample entry for debugging timezone issues
 		if (rows.length > 0) {
@@ -50,7 +65,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		// The syncToCalendar function now handles all timezone conversions internally
 		// Times in 'rows' are expected to be in HH:MM format (Eastern Time)
 		// Dates are expected to be in YYYY-MM-DD format
-		const result = await syncToCalendar(rows, artistName, existingEventIds);
+		const result = await syncToCalendar(rows, artistName, existingEventIds, attendees);
 
 		if (result.success) {
 			try {

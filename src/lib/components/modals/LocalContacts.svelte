@@ -3,6 +3,7 @@
 	import { supabase } from '$lib/supabase.js';
 	import Modal from './Modal.svelte';
 	import { portal } from '$lib/utils/portalUtils.js';
+	import { formatLocalContact } from '$lib/components/settings/AdvanceVariables';
 
 	export let show = false;
 	export let onSelect: (contact: LocalContact) => void;
@@ -13,10 +14,11 @@
 	interface LocalContact {
 		id: number;
 		dj_name: string;
-		first_name: string;
-		last_name: string;
-		email: string;
-		phone: string;
+		// Everything below is optional in the database — treat it that way.
+		first_name?: string | null;
+		last_name?: string | null;
+		email?: string | null;
+		phone?: string | null;
 	}
 
 	let contacts: LocalContact[] = [];
@@ -50,23 +52,27 @@
 			filteredContacts = [...contacts];
 		} else {
 			const query = searchQuery.toLowerCase();
-			filteredContacts = contacts.filter(
-				(contact) =>
-					contact.dj_name.toLowerCase().includes(query) ||
-					contact.first_name.toLowerCase().includes(query) ||
-					contact.last_name.toLowerCase().includes(query) ||
-					contact.email.toLowerCase().includes(query) ||
-					contact.phone.toLowerCase().includes(query)
+			filteredContacts = contacts.filter((contact) =>
+				[
+					contact.dj_name,
+					contact.first_name,
+					contact.last_name,
+					contact.email,
+					contact.phone
+				].some((field) => (field || '').toLowerCase().includes(query))
 			);
 		}
 		// Sort alphabetically by DJ name
-		filteredContacts.sort((a, b) => a.dj_name.localeCompare(b.dj_name));
+		filteredContacts.sort((a, b) => (a.dj_name || '').localeCompare(b.dj_name || ''));
 	}
 
-	// Check if a contact is currently selected
+	// Check if a contact is currently selected.
+	// Uses the same formatter as AdvanceInfo so contacts without a phone number
+	// still match (and can therefore be de-selected).
 	function isContactSelected(contact: LocalContact): boolean {
-		const contactString = `${contact.first_name} - ${contact.phone}`;
-		return currentSelectedContact === contactString;
+		const formatted = formatLocalContact(contact);
+		if (!formatted) return false;
+		return (currentSelectedContact || '').trim() === formatted;
 	}
 
 	async function fetchContacts() {
@@ -97,11 +103,11 @@
 		isEditing = true;
 		isAdding = false;
 		editingContact = contact;
-		formDjName = contact.dj_name;
-		formFirstName = contact.first_name;
-		formLastName = contact.last_name;
-		formEmail = contact.email;
-		formPhone = contact.phone;
+		formDjName = contact.dj_name ?? '';
+		formFirstName = contact.first_name ?? '';
+		formLastName = contact.last_name ?? '';
+		formEmail = contact.email ?? '';
+		formPhone = contact.phone ?? '';
 	}
 
 	function handleCancelEdit() {
@@ -368,16 +374,16 @@
 									>
 										{contact.dj_name}
 									</div>
-									<div class="text-white truncate" title={contact.first_name}>
-										{contact.first_name}
+									<div class="text-white truncate" title={contact.first_name ?? ''}>
+										{contact.first_name || '-'}
 									</div>
-									<div class="text-white truncate" title={contact.last_name}>
-										{contact.last_name}
+									<div class="text-white truncate" title={contact.last_name ?? ''}>
+										{contact.last_name || '-'}
 									</div>
-									<div class="text-gray2 truncate text-xs" title={contact.email}>
+									<div class="text-gray2 truncate text-xs" title={contact.email ?? ''}>
 										{contact.email || '-'}
 									</div>
-									<div class="text-gray2 truncate text-xs" title={contact.phone}>
+									<div class="text-gray2 truncate text-xs" title={contact.phone ?? ''}>
 										{contact.phone || '-'}
 									</div>
 									<div class="flex gap-1">
@@ -419,9 +425,3 @@
 		</Modal>
 	</div>
 {/if}
-
-<style lang="postcss">
-	@tailwind base;
-	@tailwind components;
-	@tailwind utilities;
-</style>

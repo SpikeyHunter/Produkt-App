@@ -103,10 +103,33 @@
 	}
 
 	async function handleAdvanceInfoUpdate(e: CustomEvent) {
-		const updatedEvent = e.detail.event;
-		const valueToSave = updatedEvent.main_contact === '' ? null : updatedEvent.main_contact;
-		const updateObject = { main_contact: valueToSave };
-		await supabase.from('events').update(updateObject).eq('id', updatedEvent.id);
+		const updatedEvent = e.detail?.event;
+		if (!updatedEvent) return;
+
+		const previousMainContact = event?.main_contact || null;
+
+		// Keep the page-level event in sync with what AdvanceInfo just changed
+		// (artist liaison, main contact, artist type, contract state...). Without
+		// this, anything generated from `event` — the advance sheet and the thread
+		// email — keeps rendering the previous values until a page refresh.
+		// timetable / timetable_active live on the `events` table and are loaded
+		// separately, so they're preserved rather than overwritten.
+		event = event
+			? {
+					...event,
+					...updatedEvent,
+					timetable: updatedEvent.timetable ?? event.timetable ?? null,
+					timetable_active: updatedEvent.timetable_active ?? event.timetable_active ?? false
+				}
+			: updatedEvent;
+
+		const valueToSave = updatedEvent.main_contact || null;
+
+		// Only touch the database when the contact actually changed — this handler
+		// fires on every field update, not just contact edits.
+		if (valueToSave !== previousMainContact && updatedEvent.id) {
+			await supabase.from('events').update({ main_contact: valueToSave }).eq('id', updatedEvent.id);
+		}
 	}
 
 	async function handleColumnUpdate(updateEvent: CustomEvent) {

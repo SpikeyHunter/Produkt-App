@@ -10,6 +10,14 @@
 	import ContractPreviewModal from '$lib/components/modals/ContractPreviewModal.svelte';
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
 	import { portal } from '$lib/utils/portalUtils';
+	import {
+		dosContactOptions,
+		parseDosNames,
+		sortDosNames,
+		formatDosValue,
+		formatLocalContact,
+		type LocalContactLike
+	} from '$lib/components/settings/AdvanceVariables';
 
 	export let event: EventAdvance;
 
@@ -27,7 +35,13 @@
 
 	// Options for dropdowns
 	const artistTypeOptions = ['Headliner', 'Support', 'Local', 'Other'];
-	const DOSConctactOptions = ['Charles', 'Olivia', 'Ziyaan', 'Mezz'];
+	const DOSConctactOptions = dosContactOptions;
+
+	// Artist Liaison multi-select state
+	let showDosDropdown = false;
+	let dosButtonEl: HTMLButtonElement;
+	let dosMenuPos = { top: 0, left: 0 };
+	let isSavingDos = false;
 
 	// Reactive variables derived from the event prop
 	$: imageUrl = event.event_flyer || event.poster;
@@ -46,6 +60,10 @@
 	$: formattedDate = formatDisplayDate(eventDate);
 	$: isLocalArtist = artistType === 'Local';
 	$: mainContactDisplay = mainContact || 'Select Contact';
+
+	// Artist Liaison — supports multiple people, Charles always listed first
+	$: dosNames = sortDosNames(parseDosNames(dosContact));
+	$: dosDisplay = dosNames.length ? dosNames.join(', ') : 'Select';
 
 	// Drive Contract Flow States
 	$: hasFolder = !!event.gdrive_folder_id;
@@ -218,6 +236,7 @@
 					event.artist_type = newRecord.artist_type;
 					event = { ...event };
 					if (progressBarRef) progressBarRef.recalculate();
+					dispatch('update', { event });
 				}
 			})
 			.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'events', filter: `event_id=eq.${event.event_id}` }, (payload) => {
@@ -236,12 +255,18 @@
 		if (isLocalArtist) syncDosContactForLocal();
 		syncContractData(); 
 		setupRealtime();
+		document.addEventListener('click', handleDosClickOutside, true);
+		window.addEventListener('scroll', handleDosReposition, true);
+		window.addEventListener('resize', handleDosReposition);
 	});
 
 	$: if (artistType === 'Local') syncDosContactForLocal();
 
 	onDestroy(() => {
 		if (realtimeChannel) supabase.removeChannel(realtimeChannel);
+		document.removeEventListener('click', handleDosClickOutside, true);
+		window.removeEventListener('scroll', handleDosReposition, true);
+		window.removeEventListener('resize', handleDosReposition);
 	});
 
 	function handleFieldUpdate(updateEvent: CustomEvent) {
@@ -253,12 +278,76 @@
 		if (column === 'artist_type' && value === 'Local') syncDosContactForLocal();
 	}
 
+	// --- Artist Liaison (multi-select) ---
+	async function toggleDosName(name: string) {
+		if (isSavingDos || isLocalArtist) return;
+
+		const next = dosNames.includes(name)
+			? dosNames.filter((n) => n !== name)
+			: [...dosNames, name];
+
+		const value = formatDosValue(next);
+
+		// Optimistic UI update — dispatch straight away so the advance sheet
+		// re-renders with both names without needing a refresh.
+		dosContact = value;
+		event.dos = value;
+		event = { ...event };
+		if (progressBarRef) progressBarRef.recalculate();
+		dispatch('update', { event });
+
+		isSavingDos = true;
+		try {
+			await supabase
+				.from('events_advance')
+				.update({ dos: value })
+				.eq('event_id', event.event_id)
+				.eq('artist_name', event.artist_name);
+			dispatch('update', { event });
+		} catch (err) {
+			console.error('Error updating artist liaison:', err);
+		} finally {
+			isSavingDos = false;
+		}
+	}
+
+	// The info card uses overflow-hidden, so the menu is portaled to <body> and
+	// positioned against the button to avoid being clipped or stacked under
+	// neighbouring cards.
+	function positionDosMenu() {
+		if (!dosButtonEl) return;
+		const rect = dosButtonEl.getBoundingClientRect();
+		dosMenuPos = { top: rect.bottom + 4, left: rect.left };
+	}
+
+	function toggleDosDropdown() {
+		if (!showDosDropdown) positionDosMenu();
+		showDosDropdown = !showDosDropdown;
+	}
+
+	function handleDosClickOutside(e: MouseEvent) {
+		const target = e.target as HTMLElement;
+		if (
+			showDosDropdown &&
+			!target.closest('.dos-dropdown-container') &&
+			!target.closest('.dos-dropdown-menu')
+		) {
+			showDosDropdown = false;
+		}
+	}
+
+	function handleDosReposition() {
+		if (showDosDropdown) showDosDropdown = false;
+	}
+
 	function openLocalContactsModal() {
 		showLocalContactsModal = true;
 	}
 
-	async function handleLocalContactSelect(contact: { first_name: string; phone: string; dj_name: string; }) {
-		const formattedContact = contact.first_name && contact.phone ? `${contact.first_name} - ${contact.phone}` : '';
+	async function handleLocalContactSelect(contact: LocalContactLike) {
+		// Phone is optional — a contact with only a name is still a valid pick.
+		// Falls back to the DJ name when no first name is on file.
+		const formattedContact = formatLocalContact(contact);
 		mainContact = formattedContact;
 		event.main_contact = formattedContact;
 		event = { ...event };
@@ -493,17 +582,66 @@
 				<span class="font-semibold min-w-[95px] text-gray3">Artist Liaison</span>
 				{#if isLocalArtist}
 					<div class="px-3 py-1.5 bg-gray1 text-gray-300 rounded-3xl text-xs font-medium truncate" style="max-width: 140px;">
-						{dosContact || 'Syncing...'}
+						{dosDisplay === 'Select' ? 'Syncing...' : dosDisplay}
 					</div>
 				{:else}
-					<DropdownButton
-						bind:value={dosContact}
-						{event}
-						options={DOSConctactOptions}
-						placeholder="Select"
-						column="dos"
-						on:fieldUpdate={handleFieldUpdate}
-					/>
+					<div class="dos-dropdown-container relative">
+						<button
+							type="button"
+							bind:this={dosButtonEl}
+							on:click={toggleDosDropdown}
+							title={dosNames.length ? dosNames.join(', ') : 'Select artist liaison(s)'}
+							class="flex items-center justify-between gap-1.5 px-3 py-1.5 rounded-3xl text-xs font-medium transition-all cursor-pointer
+								{dosNames.length ? 'bg-lime text-black hover:bg-lime/80' : 'bg-gray1 text-gray-300 hover:bg-gray2 hover:text-black'}"
+							style="max-width: 160px;"
+						>
+							<span class="truncate">{dosDisplay}</span>
+							{#if dosNames.length > 1}
+								<span class="flex-shrink-0 rounded-full bg-black/20 px-1.5 py-[1px] text-[10px] font-bold leading-none">
+									{dosNames.length}
+								</span>
+							{/if}
+							<svg
+								class="w-3 h-3 flex-shrink-0 transition-transform {showDosDropdown ? 'rotate-180' : ''}"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path d="M6 9l6 6 6-6" />
+							</svg>
+						</button>
+					</div>
+
+					{#if showDosDropdown}
+						<div
+							use:portal
+							class="dos-dropdown-menu fixed z-[9999] w-[128px] overflow-hidden rounded-lg border border-lime bg-navbar shadow-2xl"
+							style="top: {dosMenuPos.top}px; left: {dosMenuPos.left}px;"
+						>
+							{#each DOSConctactOptions as option}
+								{@const selected = dosNames.includes(option)}
+								<button
+									type="button"
+									on:click={() => toggleDosName(option)}
+									class="flex w-full items-center gap-2 border-b border-gray1 px-2.5 py-1.5 text-left text-xs font-bold transition-colors last:border-b-0 cursor-pointer
+										{selected ? 'bg-lime/15 text-lime' : 'text-white hover:bg-lime hover:text-black'}"
+								>
+									<span
+										class="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-[4px] border
+											{selected ? 'border-lime bg-lime' : 'border-gray2'}"
+									>
+										{#if selected}
+											<svg class="h-2.5 w-2.5 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+											</svg>
+										{/if}
+									</span>
+									<span class="truncate">{option}</span>
+								</button>
+							{/each}
+						</div>
+					{/if}
 				{/if}
 			</div>
 			<div class="flex items-center gap-1 text-sm">

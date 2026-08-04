@@ -8,6 +8,7 @@
 	import { browser } from '$app/environment';
 	import { autofillData } from '$lib/services/autofillService';
 	import type { CalendarEntry } from '$lib/types/GoogleCalendar';
+	import { getDosAttendeeEmails } from '$lib/components/settings/AdvanceVariables';
 
 	export let isOpen = false;
 	export let event: EventAdvance;
@@ -33,6 +34,13 @@
 		return event.calendar_event_ids;
 	})();
 	$: groundEnabled = event?.ground_enabled !== false; // Default to true if null/undefined
+
+	// --- Calendar guests ---------------------------------------------------
+	// Any artist liaison who isn't already on the shared Produkt calendar
+	// (Charles / Mezz) is invited to every event in the sync. Drivers are NOT
+	// sent from here — GoogleCalendar.ts resolves the driver per row, so each
+	// driver only gets the rides they're actually assigned to.
+	$: attendeeEmails = getDosAttendeeEmails(event?.dos);
 
 	async function toggleGroundEnabled() {
 		if (isSaving) return;
@@ -378,15 +386,22 @@
 		}
 	})();
 
-	$: syncButtonText =
-		{
-			[SyncStatus.NO_SYNC]: 'Sync to Calendar',
-			[SyncStatus.UPDATE]: 'Update',
-			[SyncStatus.UPDATE_AND_SYNC]: 'Update and Sync',
-			[SyncStatus.NO_UPDATES]: 'No updates'
-		}[syncStatus] || 'Sync to Calendar';
+	// Liaison / driver changes happen outside this modal, so when everything else
+	// is already in sync we still allow a guest-only push to the calendar.
+	$: canPushGuests =
+		syncStatus === SyncStatus.NO_UPDATES && isCalendarSynced && attendeeEmails.length > 0;
 
-	$: syncButtonDisabled = syncStatus === SyncStatus.NO_UPDATES || rows.length === 0;
+	$: syncButtonText = canPushGuests
+		? 'Update Guests'
+		: {
+				[SyncStatus.NO_SYNC]: 'Sync to Calendar',
+				[SyncStatus.UPDATE]: 'Update',
+				[SyncStatus.UPDATE_AND_SYNC]: 'Update and Sync',
+				[SyncStatus.NO_UPDATES]: 'No updates'
+			}[syncStatus] || 'Sync to Calendar';
+
+	$: syncButtonDisabled =
+		(syncStatus === SyncStatus.NO_UPDATES && !canPushGuests) || rows.length === 0;
 	$: hasMeaningfulData = rows.some((row) => row.date && row.pickupTime);
 	$: isSaveAndCloseDisabled = isCalendarSynced && syncStatus !== SyncStatus.NO_UPDATES;
 
@@ -443,6 +458,10 @@
 					rows,
 					artistName,
 					eventId: event.event_id,
+					// Artist liaisons (excluding Charles / Mezz); drivers are added
+					// per-row inside GoogleCalendar.ts
+					attendees: attendeeEmails,
+					dos: event.dos ?? '',
 					existingEventIds: isCalendarSynced ? calendarEventIds : undefined
 				})
 			});
@@ -541,6 +560,31 @@
 				>
 					Clear Fields
 				</button>
+
+				{#if attendeeEmails.length > 0}
+					<div class="ml-auto flex items-center gap-1.5 text-xs text-gray2">
+						<svg
+							xmlns="http://www.w3.org/2000/svg"
+							class="h-3.5 w-3.5 flex-shrink-0"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+							/>
+						</svg>
+						<span class="font-bold uppercase tracking-wider">Guests</span>
+						{#each attendeeEmails as email}
+							<span class="rounded-full bg-lime/15 px-2 py-[2px] font-medium text-lime">
+								{email}
+							</span>
+						{/each}
+					</div>
+				{/if}
 			</div>
 
 			{#if syncError}
@@ -810,9 +854,11 @@
 				on:click={handleCalendarSync}
 				disabled={isSyncing || syncButtonDisabled}
 				class={`flex items-center gap-2 px-4 py-3 rounded-full text-sm font-bold transition-all ${
-					syncStatus === SyncStatus.NO_UPDATES
+					syncStatus === SyncStatus.NO_UPDATES && !canPushGuests
 						? 'bg-gray2 text-gray-500'
-						: syncStatus === SyncStatus.NO_SYNC
+						: canPushGuests
+							? 'bg-[#93c5fd] text-black'
+							: syncStatus === SyncStatus.NO_SYNC
 							? 'bg-lime text-black'
 							: syncStatus === SyncStatus.UPDATE
 								? 'bg-[#93c5fd] text-black'

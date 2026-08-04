@@ -34,6 +34,43 @@ const getGuestEmail = (driver: string): string => {
 	return driverEmails[driver] || '';
 };
 
+// Builds the guest list for a single event: the assigned driver (plus Eddy on
+// Reza's trips) merged with any extra guests passed in from the client —
+// currently the artist liaisons who aren't already on the calendar.
+// Extras are invited even on UBER rows, since the liaison still needs the event.
+const buildAttendees = (
+	driverName: string,
+	extraAttendees: string[] = []
+): { email: string }[] => {
+	const emails: string[] = [];
+
+	if (driverName !== 'UBER') {
+		const driverEmail = getGuestEmail(driverName);
+		if (driverEmail) emails.push(driverEmail);
+
+		// Eddy is notified on Reza's trips
+		if (driverName === 'Reza') {
+			const eddyEmail = getGuestEmail('Eddy');
+			if (eddyEmail) emails.push(eddyEmail);
+		}
+	}
+
+	emails.push(...extraAttendees);
+
+	// De-dupe case-insensitively and drop anything that isn't an address.
+	// responseStatus is deliberately omitted so re-syncing doesn't wipe out
+	// RSVPs that guests have already given.
+	const unique = Array.from(
+		new Set(
+			emails
+				.map((email) => String(email || '').trim().toLowerCase())
+				.filter((email) => email.includes('@'))
+		)
+	);
+
+	return unique.map((email) => ({ email }));
+};
+
 const formatTime = (date: Date): string => {
 	const formatted = new Intl.DateTimeFormat('en-US', {
 		hour: 'numeric',
@@ -135,7 +172,8 @@ const findDuplicateEventId = async (
 export async function syncToCalendar(
 	rows: CalendarEntry[],
 	artistName: string,
-	existingEventIds?: { [key: number]: string }
+	existingEventIds?: { [key: number]: string },
+	extraAttendees: string[] = []
 ): Promise<CalendarSyncResponse> {
 	const eventIds: { [key: number]: string } = existingEventIds ? { ...existingEventIds } : {};
 	let hasErrors = false;
@@ -218,27 +256,7 @@ export async function syncToCalendar(
 				extendedProperties: {
 					private: { syncSource: 'produkt-ground-transport' }
 				},
-				attendees:
-					row.driverName !== 'UBER'
-						? (() => {
-								const attendees = [];
-								const driverEmail = getGuestEmail(row.driverName);
-
-								// ADD THIS: Simply check if an email exists for the driver
-								if (driverEmail) {
-									attendees.push({ email: driverEmail, responseStatus: 'needsAction' });
-								}
-
-								// Keep your special logic for Reza/Eddy if you want Eddy notified for Reza's trips
-								if (row.driverName === 'Reza') {
-									const eddyEmail = getGuestEmail('Eddy');
-									if (eddyEmail && eddyEmail !== driverEmail) {
-										attendees.push({ email: eddyEmail, responseStatus: 'needsAction' });
-									}
-								}
-								return attendees;
-							})()
-						: [],
+				attendees: buildAttendees(row.driverName, extraAttendees),
 				reminders: {
 					useDefault: false,
 					overrides: [{ method: 'popup', minutes: getReminderMinutes(row.type) }]

@@ -13,7 +13,7 @@
 
 	$: isEventSelected = selectedEvents && selectedEvents.length > 0;
 
-	const GENERAL_CC = ['janie@produkt.ca', 'danny@produkt.ca'];
+	const GENERAL_CC = ['danny@produkt.ca'];
 	const TECH_ONLY_CC = ['e.nlamoureux@onedot.ca', 'smorrisson@hqaudio.ca', 'fchampagne@hqaudio.ca'];
 
 	async function handleSendEmails() {

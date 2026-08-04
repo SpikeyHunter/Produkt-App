@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Section from '../Section.svelte';
 	import ContentBox from '../ContentBox.svelte';
-	import { advanceSettings } from '$lib/components/settings/AdvanceVariables';
+	import { advanceSettings, getDosContacts } from '$lib/components/settings/AdvanceVariables';
 	import type { EventAdvance } from '$lib/types/events';
 
 	// Props from parent component
@@ -10,11 +10,9 @@
 	// Get static contacts, removing the original static production contact
 	const { talentBuyer, emergency } = advanceSettings.contacts;
 
-	// Get Day of Show contact based on DOS field
-	$: dosContact =
-		event.dos && advanceSettings.dosContacts[event.dos]
-			? advanceSettings.dosContacts[event.dos]
-			: { name: '[Name]', phone: '[Phone]', email: '[Email]' };
+	// Day of Show contacts — supports one or many, Charles always first
+	$: dosContacts = getDosContacts(event.dos);
+	$: isMultiDos = dosContacts.length > 1;
 
 	// --- NEW: Conditionally determine the Production contact ---
 	$: productionContact = (() => {
@@ -50,8 +48,28 @@
 
 		<ContentBox class="!bg-black/15">
 			<div class="mb-2 text-xs uppercase tracking-wider text-lime">Day of Show</div>
-			<div class="text-white">{dosContact.name}</div>
-			<div class="text-sm text-gray2">{dosContact.phone} • {dosContact.email}</div>
+
+			{#if isMultiDos}
+				<!-- Sized to content so long emails are never cut, with a tight gap
+				     between people instead of a fixed 50/50 split -->
+				<div class="flex flex-wrap items-start gap-x-6 gap-y-1.5">
+					{#each dosContacts as contact}
+						<div class="whitespace-nowrap">
+							<div class="text-[13px] font-medium leading-tight text-white">
+								{contact.name}
+							</div>
+							<div class="text-[11px] leading-tight text-gray2">
+								{contact.phone} • {contact.email}
+							</div>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<div class="text-white">{dosContacts[0].name}</div>
+				<div class="text-sm text-gray2">
+					{dosContacts[0].phone} • {dosContacts[0].email}
+				</div>
+			{/if}
 		</ContentBox>
 
 		<ContentBox class="!bg-black/15">

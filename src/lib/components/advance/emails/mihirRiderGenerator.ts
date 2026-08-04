@@ -400,7 +400,7 @@ export function downloadEmlFile(emailBody: string, fileName: string) {
 	}
 	
 	const to = 'Mihir Routh <mrouth@gmail.com>, Mykl Zadourian <myklzadourian@gmail.com>';
-	const cc = 'Allanah De Marco <allanah@produkt.ca>, Janie Latendresse <janie@produkt.ca>';
+	const cc = 'Allanah De Marco <allanah@produkt.ca>';
 	const from = 'Charles <charles@produkt.ca>';
 	
 	let htmlBody = emailBody;
