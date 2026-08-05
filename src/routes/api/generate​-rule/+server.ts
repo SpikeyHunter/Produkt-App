@@ -1,31 +1,36 @@
 // src/routes/api/generate-rule/+server.ts
 
-import { json, error } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import OpenAI from 'openai';
-import { OPENAI_API_KEY } from '$env/static/private';
+import { json, type RequestHandler } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+const MODEL = 'gpt-4.1-mini';
+const OPENAI_TIMEOUT_MS = 30_000;
 
 export const POST: RequestHandler = async ({ request }) => {
-    const { selected_text, action_type, user_intent } = await request.json();
+    try {
+        const apiKey = env.OPENAI_API_KEY;
+        if (!apiKey) {
+            return json({ error: 'OPENAI_API_KEY is not set on the server' }, { status: 500 });
+        }
 
-    if (!selected_text || !action_type || !user_intent) {
-        throw error(400, 'Missing required fields: selected_text, action_type, user_intent');
-    }
+        const { selected_text, action_type, user_intent } = await request.json();
 
-    const actionDescriptions: Record<string, string> = {
-        strikethrough: 'Strike through the matching text (redline)',
-        strikethrough_annotate: 'Strike through the matching text and add a red annotation note above it',
-        highlight: 'Highlight the matching text in red to flag it',
-        annotate: 'Add a red annotation note on the matching text',
-        underline: 'Underline the matching text in red'
-    };
+        if (!selected_text || !action_type || !user_intent) {
+            return json({ error: 'Missing required fields: selected_text, action_type, user_intent' }, { status: 400 });
+        }
 
-    const actionDesc = actionDescriptions[action_type] || action_type;
-    const needsNote = action_type === 'strikethrough_annotate' || action_type === 'annotate';
+        const actionDescriptions: Record<string, string> = {
+            strikethrough: 'Strike through the matching text (redline)',
+            strikethrough_annotate: 'Strike through the matching text and add a red annotation note above it',
+            highlight: 'Highlight the matching text in red to flag it',
+            annotate: 'Add a red annotation note on the matching text',
+            underline: 'Underline the matching text in red'
+        };
 
-    const systemPrompt = `You are a contract redlining assistant for a music/entertainment agency management tool called Produkt Red. 
+        const actionDesc = actionDescriptions[action_type] || action_type;
+        const needsNote = action_type === 'strikethrough_annotate' || action_type === 'annotate';
+
+        const systemPrompt = `You are a contract redlining assistant for a music/entertainment agency management tool called Produkt Red.
 Your job is to help create reusable rules that the AI contract analyzer will use to automatically detect and mark up clauses in artist contracts.
 
 A rule consists of:
@@ -40,7 +45,7 @@ Important guidelines:
 - The rule should work across different contracts from different agencies
 - Be specific about the problematic pattern, not the exact wording`;
 
-    const userPrompt = `Here is the selected contract text the user wants to create a rule from:
+        const userPrompt = `Here is the selected contract text the user wants to create a rule from:
 
 """
 ${selected_text}
@@ -49,38 +54,72 @@ ${selected_text}
 The user's description of what they want this rule to do:
 "${user_intent}"
 
-Generate a reusable rule. Return ONLY valid JSON with this exact format:
-{
-  "rule_text": "...",
-  "annotation_note": ${needsNote ? '"..."' : 'null'}
-}`;
+Generate a reusable rule.`;
 
-    try {
-        const completion = await openai.chat.completions.create({
-            model: 'gpt-4o',
-            temperature: 0.7,
-            max_tokens: 500,
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt }
-            ],
-            response_format: { type: 'json_object' }
+        const RESPONSE_SCHEMA = {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+                rule_text: { type: 'string' },
+                annotation_note: { type: ['string', 'null'] }
+            },
+            required: ['rule_text', 'annotation_note']
+        };
+
+        const aiResp = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: MODEL,
+                temperature: 0.7,
+                max_tokens: 500,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt }
+                ],
+                response_format: {
+                    type: 'json_schema',
+                    json_schema: { name: 'generate_rule', strict: true, schema: RESPONSE_SCHEMA }
+                }
+            })
         });
 
-        const content = completion.choices[0]?.message?.content;
-        if (!content) {
-            throw error(500, 'No response from AI');
+        if (!aiResp.ok) {
+            const detail = await aiResp.text().catch(() => '');
+            console.error(`[generate-rule] OpenAI ${aiResp.status}: ${detail.slice(0, 2000)}`);
+            const hint =
+                aiResp.status === 429 ? 'quota or rate limit' :
+                aiResp.status === 401 ? 'invalid API key' :
+                'provider error';
+            return json({ error: `AI provider error ${aiResp.status} (${hint})` }, { status: 502 });
         }
 
-        const parsed = JSON.parse(content);
+        const data = await aiResp.json();
+        if (data?.usage) {
+            console.log(`[generate-rule] ${MODEL} prompt=${data.usage.prompt_tokens} completion=${data.usage.completion_tokens}`);
+        }
 
-        return json({
-            rule_text: parsed.rule_text,
-            annotation_note: parsed.annotation_note ?? null
-        });
-    } catch (err: any) {
-        if (err?.status) throw err; // re-throw SvelteKit errors
-        console.error('generate-rule error:', err);
-        throw error(500, err?.message || 'Failed to generate rule');
+        const content: string = data?.choices?.[0]?.message?.content ?? '{}';
+        try {
+            const parsed = JSON.parse(content);
+            return json({
+                rule_text: parsed.rule_text ?? '',
+                annotation_note: parsed.annotation_note ?? null
+            });
+        } catch {
+            console.error(`[generate-rule] invalid JSON from model: ${content.slice(0, 500)}`);
+            return json({ error: 'AI returned invalid JSON' }, { status: 502 });
+        }
+    } catch (err) {
+        const e = err as Error & { status?: number; name?: string };
+        if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
+            return json({ error: 'Rule generation timed out — try again.' }, { status: 504 });
+        }
+        console.error('[generate-rule] unhandled:', e);
+        return json({ error: String(e?.message ?? e) }, { status: e?.status ?? 500 });
     }
 };
