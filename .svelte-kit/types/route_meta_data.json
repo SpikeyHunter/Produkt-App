@@ -86,6 +86,9 @@
 	"/api/generate-settimes-pdf": [
 		"src/routes/api/generate-settimes-pdf/+server.ts"
 	],
+	"/api/generate​-rule": [
+		"src/routes/api/generate​-rule/+server.ts"
+	],
 	"/api/google-calendar": [
 		"src/routes/api/google-calendar/+server.ts"
 	],

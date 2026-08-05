@@ -1,103 +1,71 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { writable } from 'svelte/store';
+	import { onMount, onDestroy } from 'svelte';
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import EventSelectorBudget from '$lib/components/production/showbudget/EventSelectorBudget.svelte';
 	import BudgetDetailsDisplay from '$lib/components/production/showbudget/BudgetDetailsDisplay.svelte';
 	import ExportBudget from '$lib/components/production/showbudget/ExportBudget.svelte';
-	import { supabase } from '$lib/supabase.js';
+	import { createBudgetSync } from '$lib/utils/budgetSync';
+	import {
+		subsBudgetedTotal,
+		itemsBudgetedTotal,
+		incomeTotalFor
+	} from '$lib/utils/budgetUtils';
 
 	let selectedEvent: any = null;
 	let isExporting = false;
 	let mounted = false;
 	let presetRefreshTrigger = 0;
 
-	const budgetStore = writable<any>(null);
+	// All loading / saving / realtime / undo lives here now
+	const sync = createBudgetSync();
+	const budgetStore = sync.store;
+	const savingState = sync.savingState;
 
 	onMount(() => {
 		setTimeout(() => (mounted = true), 150);
 	});
 
-	function safeJsonParse(input: any) {
-		if (typeof input === 'string') {
-			try {
-				return JSON.parse(input);
-			} catch (e) {
-				console.warn('Failed to parse JSON:', input);
-				return [];
-			}
-		}
-		return input || [];
-	}
+	onDestroy(() => {
+		sync.destroy();
+	});
 
 	async function handleEventSelect(event: CustomEvent) {
 		selectedEvent = event.detail;
 		if (!selectedEvent) {
-			budgetStore.set(null);
+			await sync.clear();
 			return;
 		}
-
-		// CHANGED: Added budget_type and income_total_budget to query
-		const { data, error } = await supabase
-			.from('show_budget')
-			.select(
-				`id, 
-				event_name, 
-				event_id, 
-				budget_type,
-				income_total_budget,
-				income_artist, 
-				income_technical, 
-				income_hospitality, 
-				income_other, 
-				expenses_artist_fee, 
-				expenses_technical, 
-				expenses_hospitality, 
-				expenses_other`
-			)
-			.eq('id', selectedEvent.id)
-			.single();
-
-		if (error) {
-			console.error('Error loading budget details:', error);
-			budgetStore.set(null);
-		} else {
-			budgetStore.set({
-				// New Fields
-				budget_type: data.budget_type || 'Tour Prod',
-				income_total_budget: data.income_total_budget ?? null,
-
-				// Existing Fields
-				income_artist: data.income_artist ?? null,
-				income_technical: data.income_technical ?? null,
-				income_hospitality: data.income_hospitality ?? null,
-				income_other: data.income_other ?? null,
-
-				// Expenses (Arrays)
-				artist_fee: safeJsonParse(data.expenses_artist_fee),
-				technical: safeJsonParse(data.expenses_technical),
-				hospitality: safeJsonParse(data.expenses_hospitality),
-				other_expenses: safeJsonParse(data.expenses_other)
-			});
-		}
+		await sync.load(selectedEvent.id);
 	}
 
-	async function handleExport(event: CustomEvent) {
-		// Export logic handled in child component
+	// Children dispatch save with { key: <db column or store key> }.
+	// The sync engine reads the current store state itself — no stale data races.
+	function handleSave(event: CustomEvent) {
+		const { key } = event.detail;
+		sync.markDirty(key);
 	}
 
-	async function handleSave(event: CustomEvent) {
-		if (!selectedEvent) return;
-		const { key, data } = event.detail;
-		
-		// Map store keys to DB columns if they differ
-		let dbKey = key;
-		// (No mapping needed for budget_type or income_total_budget as keys match DB)
+	// Live net of the currently open budget — recomputes on every keystroke and
+	// feeds the selector card, so it never waits for save + realtime round-trip.
+	$: liveNet = $budgetStore ? computeLiveNet($budgetStore) : null;
 
-		await supabase
-			.from('show_budget')
-			.update({ [dbKey]: data })
-			.eq('id', selectedEvent.id);
+	function computeLiveNet(s: any): number {
+		const type = s.budget_type || 'Tour Prod';
+		let expenses =
+			subsBudgetedTotal(s.technical || []) +
+			subsBudgetedTotal(s.hospitality || []) +
+			subsBudgetedTotal(s.other_expenses || []);
+		if (type === 'Complete Prod') expenses += itemsBudgetedTotal(s.artist_fee || []);
+		return incomeTotalFor(s) - expenses;
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+		if (!$budgetStore) return;
+		e.preventDefault();
+		// Commit whatever input is being typed in before stepping through history
+		(document.activeElement as HTMLElement | null)?.blur?.();
+		setTimeout(() => (e.shiftKey ? sync.redo() : sync.undo()), 0);
 	}
 </script>
 
@@ -105,19 +73,21 @@
 	<title>Show Budget - NCG</title>
 </svelte:head>
 
+<svelte:window on:keydown={handleKeydown} />
+
 <MainLayout pageTitle="Show Budget">
-	<div class="h-full overflow-hidden p-6">
+	<div class="h-full overflow-hidden p-4 xl:p-6">
 		<div class="liaison-container fade-in {mounted ? 'mounted' : ''}">
 			<div class="selector-column">
-				<EventSelectorBudget on:select={handleEventSelect} />
+				<EventSelectorBudget
+					liveNetId={selectedEvent?.id ?? null}
+					{liveNet}
+					on:select={handleEventSelect}
+				/>
 			</div>
 
 			<div class="details-column">
-				<BudgetDetailsDisplay 
-					{budgetStore} 
-					{presetRefreshTrigger}
-					on:save={handleSave} 
-				/>
+				<BudgetDetailsDisplay {budgetStore} {presetRefreshTrigger} on:save={handleSave} />
 			</div>
 
 			<div class="export-column">
@@ -125,7 +95,7 @@
 					{budgetStore}
 					{selectedEvent}
 					{isExporting}
-					on:export={handleExport}
+					{savingState}
 					on:save={handleSave}
 					on:presetsChanged={() => presetRefreshTrigger++}
 				/>
@@ -146,37 +116,33 @@
 	}
 	.liaison-container {
 		display: grid;
-		grid-template-columns: 320px 1fr 280px;
-		gap: 16px;
+		grid-template-columns: 222px minmax(0, 1fr) 272px;
+		gap: 12px;
 		height: 100%;
 	}
 	.selector-column,
 	.details-column,
 	.export-column {
 		height: 100%;
+		min-height: 0;
 		overflow: hidden;
-	}
-	.selector-column {
-		width: 320px;
-		min-width: 320px;
-		max-width: 320px;
-	}
-	.export-column {
-		width: 280px;
-		min-width: 280px;
-		max-width: 280px;
 	}
 	.details-column {
 		min-width: 0;
 	}
 	@media (max-width: 1400px) {
-		.liaison-container { grid-template-columns: 280px 1fr 250px; }
-		.selector-column { width: 280px; min-width: 280px; max-width: 280px; }
-		.export-column { width: 250px; min-width: 250px; max-width: 250px; }
+		.liaison-container { grid-template-columns: 208px minmax(0, 1fr) 252px; }
 	}
 	@media (max-width: 1200px) {
-		.liaison-container { grid-template-columns: 260px 1fr 220px; gap: 12px; }
-		.selector-column { width: 260px; min-width: 260px; max-width: 260px; }
-		.export-column { width: 220px; min-width: 220px; max-width: 220px; }
+		.liaison-container { grid-template-columns: 194px minmax(0, 1fr) 232px; gap: 10px; }
+	}
+	/* Narrow windows: export panel drops below the details column so nothing
+	   gets squeezed or cut — the selector keeps the full height on the left. */
+	@media (max-width: 1024px) {
+		.liaison-container {
+			grid-template-columns: 184px minmax(0, 1fr);
+			grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+		}
+		.selector-column { grid-row: 1 / -1; }
 	}
 </style>

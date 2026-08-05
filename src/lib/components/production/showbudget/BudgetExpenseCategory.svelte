@@ -1,17 +1,13 @@
-<!--
-  FIXED:
-  - Added 'export let presetRefreshTrigger' so it can accept the prop.
-  - 'categoryKey' is now correctly used.
--->
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { formatMoney } from '$lib/utils/budgetUtils';
+	import { formatMoney, subsBudgetedTotal, subsActualTotal, subsHaveActuals } from '$lib/utils/budgetUtils';
+	import type { BudgetSubsection as SubsectionType } from '$lib/types/budget';
 	import BudgetSubsection from './BudgetSubsection.svelte';
 
 	export let title: string;
 	export let categoryKey: string;
-	export let subsections: { id: string; name: string; items: any[] }[] = [];
-	export let presetRefreshTrigger = 0; // Added missing export
+	export let subsections: SubsectionType[] = [];
+	export let presetRefreshTrigger = 0;
 
 	const dispatch = createEventDispatcher();
 	let newSubName = '';
@@ -19,7 +15,6 @@
 	function notifyUpdate() {
 		dispatch('update');
 	}
-
 	function notifySave() {
 		dispatch('save');
 	}
@@ -32,6 +27,7 @@
 			{
 				id: crypto.randomUUID(),
 				name: name,
+				hidden: false,
 				items: []
 			}
 		];
@@ -46,25 +42,25 @@
 		notifySave();
 	}
 
-	$: categoryTotal = subsections.reduce((acc, subsection) => {
-		const subsectionTotal = (subsection.items || []).reduce(
-			(itemAcc, item) => itemAcc + (Number(item.price) || 0) * (Number(item.quantity) || 1),
-			0
-		);
-		return acc + subsectionTotal;
-	}, 0);
+	$: categoryBudgeted = subsBudgetedTotal(subsections);
+	$: categoryActual = subsActualTotal(subsections);
+	$: hasActuals = subsHaveActuals(subsections);
 </script>
 
-<div class="py-4 border-t border-gray1 first:pt-0 first:border-t-0">
-	<div class="flex justify-left items-left mb-3">
+<div class="py-3 border-t border-gray1 first:pt-0 first:border-t-0">
+	<div class="flex justify-left items-baseline mb-2">
 		<h4 class="text-lime font-bold text-sm uppercase">{title}</h4>
-		<span class="ml-1 text-sm font-bold text-white">- {formatMoney(categoryTotal)}</span>
+		<span class="ml-1 text-sm font-bold text-white">- {formatMoney(categoryBudgeted)}</span>
+		{#if hasActuals}
+			<span class="ml-2 text-xs font-bold text-confirmed">act. {formatMoney(categoryActual)}</span>
+		{/if}
 	</div>
 
-	<div class="space-y-3">
+	<div class="space-y-2">
 		{#each subsections as subsection (subsection.id)}
 			<BudgetSubsection
 				bind:name={subsection.name}
+				bind:hidden={subsection.hidden}
 				bind:items={subsection.items}
 				{categoryKey}
 				{presetRefreshTrigger}
@@ -75,18 +71,21 @@
 		{/each}
 	</div>
 
-	<div class="flex gap-2 mt-4">
+	<div class="flex gap-2 mt-3">
 		<input
 			type="text"
 			bind:value={newSubName}
 			placeholder="New section name"
-			class="flex-1 bg-black/15 text-white rounded-2xl px-3 py-1.5 text-sm placeholder-gray3"
+			on:keydown={(e) => {
+				if (e.key === 'Enter') addSubsection();
+			}}
+			class="flex-1 bg-black/15 text-white rounded-2xl px-3 py-1 text-sm placeholder-gray3"
 		/>
 		<button
 			type="button"
 			on:click={addSubsection}
 			disabled={newSubName.trim() === ''}
-			class="px-3 py-1.5 bg-lime text-black text-xs font-bold rounded-2xl hover:bg-lime/90 cursor-pointer disabled:opacity-50"
+			class="px-3 py-1 bg-lime text-black text-xs font-bold rounded-2xl hover:bg-lime/90 cursor-pointer disabled:opacity-50"
 		>
 			+ Add Section
 		</button>

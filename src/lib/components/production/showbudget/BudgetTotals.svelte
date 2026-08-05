@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition';
+	import { formatDisplay } from '$lib/utils/budgetUtils';
 
 	export let totalIncome: number = 0;
-	export let totalExpenses: number = 0;
-	export let netTotal: number = 0;
+	export let totalExpenses: number = 0; // budgeted
+	export let netTotal: number = 0; // budgeted
 
-	// REMOVED: export let formatMoney... (It is no longer used)
+	export let actualExpenses: number = 0;
+	export let actualNet: number = 0;
+	export let hasActuals: boolean = false;
 
 	export let incomeArtist: number = 0;
 	export let expenseArtist: number = 0;
@@ -19,33 +22,42 @@
 	export let incomeTotalBudget: number = 0;
 
 	let showDetails = false;
-
-	// Local formatter: Uses "-" for negative numbers instead of "()"
-	function formatDisplay(amount: number): string {
-		const abs = Math.abs(amount);
-		const str = abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-		return amount < 0 ? `-${str}$` : `${str}$`;
-	}
 </script>
 
 <div class="flex-shrink-0 w-full">
-	<div class="space-y-2">
+	<div class="space-y-1.5">
 		<div class="flex justify-between items-center text-sm">
 			<span class="text-gray2">Total Budget</span>
 			<span class="font-bold text-gray3">{formatDisplay(totalIncome)}</span>
 		</div>
-		
+
 		<div class="flex justify-between items-center text-sm">
-			<span class="text-gray2">Total Expenses</span>
+			<span class="text-gray2">Expenses (Budgeted)</span>
 			<span class="font-bold text-gray3">{formatDisplay(totalExpenses * -1)}</span>
 		</div>
-		
+
+		{#if hasActuals}
+			<div class="flex justify-between items-center text-sm">
+				<span class="text-gray2">Expenses (Actual)</span>
+				<span class="font-bold text-confirmed">{formatDisplay(actualExpenses * -1)}</span>
+			</div>
+		{/if}
+
 		<div class="flex justify-between items-center text-lg border-t border-gray2/20 pt-2 mt-2">
 			<span class="font-bold text-white">NET TOTAL</span>
 			<span class="font-bold {netTotal >= 0 ? 'text-confirmed' : 'text-problem'}">
 				{formatDisplay(netTotal)}
 			</span>
 		</div>
+
+		{#if hasActuals}
+			<div class="flex justify-between items-center text-sm">
+				<span class="font-bold text-gray2">Net (Actual)</span>
+				<span class="font-bold {actualNet >= 0 ? 'text-confirmed' : 'text-problem'}">
+					{formatDisplay(actualNet)}
+				</span>
+			</div>
+		{/if}
 
 		<button
 			on:click={() => (showDetails = !showDetails)}
@@ -63,8 +75,7 @@
 		</button>
 
 		{#if showDetails}
-			<div transition:slide|local={{ duration: 200 }} class="space-y-4 pt-2 text-xs">
-				
+			<div transition:slide|local={{ duration: 200 }} class="space-y-3 pt-2 text-xs">
 				{#if budgetType === 'Internal Prod'}
 					<div>
 						<div class="text-white font-bold mb-1">Budget Overview</div>
@@ -92,7 +103,7 @@
 							</div>
 							<div class="flex justify-between pt-1 mt-1 border-t border-gray2/10 font-bold">
 								<span class="text-gray2">Net:</span>
-								<span class="{artistDiff >= 0 ? 'text-confirmed' : 'text-problem'}">
+								<span class={artistDiff >= 0 ? 'text-confirmed' : 'text-problem'}>
 									{formatDisplay(artistDiff)}
 								</span>
 							</div>
@@ -115,7 +126,7 @@
 							</div>
 							<div class="flex justify-between pt-1 mt-1 border-t border-gray2/10 font-bold">
 								<span class="text-gray2">Net:</span>
-								<span class="{techDiff >= 0 ? 'text-confirmed' : 'text-problem'}">
+								<span class={techDiff >= 0 ? 'text-confirmed' : 'text-problem'}>
 									{formatDisplay(techDiff)}
 								</span>
 							</div>
@@ -148,7 +159,7 @@
 							</div>
 							<div class="flex justify-between pt-1 mt-1 border-t border-gray2/10 font-bold">
 								<span class="text-gray2">Net:</span>
-								<span class="{hospoDiff >= 0 ? 'text-confirmed' : 'text-problem'}">
+								<span class={hospoDiff >= 0 ? 'text-confirmed' : 'text-problem'}>
 									{formatDisplay(hospoDiff)}
 								</span>
 							</div>
@@ -181,7 +192,7 @@
 							</div>
 							<div class="flex justify-between pt-1 mt-1 border-t border-gray2/10 font-bold">
 								<span class="text-gray2">Net:</span>
-								<span class="{otherDiff >= 0 ? 'text-confirmed' : 'text-problem'}">
+								<span class={otherDiff >= 0 ? 'text-confirmed' : 'text-problem'}>
 									{formatDisplay(otherDiff)}
 								</span>
 							</div>

@@ -4,17 +4,16 @@
 
 	export let value: number | null = null;
 	export let placeholder = '0.00';
-	// Allow passing class from parent
+	export let disabled = false;
 	let className = '';
 	export { className as class };
 
 	const dispatch = createEventDispatcher();
 	let focused = false;
 
-	// Handle typing: strip non-numeric chars and update the real number value
+	// Typing: strip non-numeric chars and update the real number value
 	function handleInput(e: Event) {
 		const input = e.target as HTMLInputElement;
-		// Allow only numbers and one decimal point
 		const raw = input.value.replace(/[^0-9.]/g, '');
 		value = raw ? parseFloat(raw) : null;
 		dispatch('input');
@@ -29,17 +28,15 @@
 		dispatch('blur');
 	}
 
-	// Reactive statement to control what is shown in the box
-	// If focused: show raw number (e.g. "1000")
-	// If blurred: show formatted string (e.g. "1,000.00$")
-	$: displayValue = focused 
-		? (value ?? '') 
-		: (value != null ? formatMoney(value) : '');
+	// Focused: raw number ("1000"). Blurred: formatted ("1,000.00$").
+	// Also reacts to external changes (realtime sync / undo) while not focused.
+	$: displayValue = focused ? (value ?? '') : value != null ? formatMoney(value) : '';
 </script>
 
 <input
 	type="text"
 	value={displayValue}
+	{disabled}
 	on:input={handleInput}
 	on:focus={handleFocus}
 	on:blur={handleBlur}

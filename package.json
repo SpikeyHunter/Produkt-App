@@ -87,6 +87,7 @@
 		"lodash-es": "^4.17.21",
 		"maplibre-gl": "^5.23.0",
 		"nodemailer": "^8.0.1",
+		"openai": "^7.4.0",
 		"pdf-lib": "^1.17.1",
 		"pdfjs-dist": "^5.6.205",
 		"playwright": "^1.55.1",

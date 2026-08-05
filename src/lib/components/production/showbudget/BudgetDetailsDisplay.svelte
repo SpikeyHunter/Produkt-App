@@ -17,28 +17,18 @@
 	function createSaveHandler(
 		dbColumnKey: 'expenses_artist_fee' | 'expenses_technical' | 'expenses_hospitality' | 'expenses_other'
 	) {
+		// The sync engine reads the store itself — we only tell it which column changed.
 		return () => {
 			if (!$budgetStore) return;
-			
-			let storeKey = '';
-			if (dbColumnKey === 'expenses_artist_fee') storeKey = 'artist_fee';
-			else if (dbColumnKey === 'expenses_technical') storeKey = 'technical';
-			else if (dbColumnKey === 'expenses_hospitality') storeKey = 'hospitality';
-			else if (dbColumnKey === 'expenses_other') storeKey = 'other_expenses';
-
-			dispatch('save', {
-				key: dbColumnKey,
-				data: $budgetStore[storeKey]
-			});
+			dispatch('save', { key: dbColumnKey });
 		};
 	}
 
-	// Reactive check for visibility
 	$: budgetType = $budgetStore?.budget_type || 'Tour Prod';
 	$: showArtistFee = budgetType === 'Complete Prod';
 </script>
 
-<div class="h-full flex flex-col bg-navbar border-2 border-gray1 rounded-xl overflow-hidden budget-details-container">
+<div class="h-full flex flex-col bg-navbar border border-white/[0.07] rounded-xl overflow-hidden budget-details-container">
 	{#if !$budgetStore}
 		<div class="flex-1 flex items-center justify-center">
 			<div class="text-center">
@@ -50,13 +40,12 @@
 			</div>
 		</div>
 	{:else}
-		<div class="flex-1 overflow-y-auto p-4 custom-scroll space-y-4">
-			<div class="bg-gray1 rounded-lg p-4">
-				<h3 class="text-white font-bold text-base mb-3 pb-2 border-b border-gray2/20">
+		<div class="flex-1 overflow-y-auto p-3 custom-scroll space-y-3">
+			<div class="bg-gray1 rounded-lg p-3">
+				<h3 class="text-white font-bold text-base mb-2 pb-2 border-b border-gray2/20">
 					Expenses (-)
 				</h3>
-				<div class="space-y-4">
-					
+				<div class="space-y-3">
 					{#if showArtistFee}
 						<BudgetSimpleCategory
 							title="Artist Fee"
@@ -99,8 +88,9 @@
 </div>
 
 <style>
-	.custom-scroll::-webkit-scrollbar { width: 6px; }
-	.custom-scroll::-webkit-scrollbar-track { background: #1a1a1a; }
-	.custom-scroll::-webkit-scrollbar-thumb { background: #e1ff00; border-radius: 3px; }
-	.custom-scroll::-webkit-scrollbar-thumb:hover { background: #f0ff4d; }
+	.custom-scroll { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.16) transparent; }
+	.custom-scroll::-webkit-scrollbar { width: 5px; height: 5px; }
+	.custom-scroll::-webkit-scrollbar-track { background: transparent; }
+	.custom-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 9999px; }
+	.custom-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
 </style>
