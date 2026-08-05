@@ -59,6 +59,13 @@
 		return incomeTotalFor(s) - expenses;
 	}
 
+	// Fields save when you leave them. If the window/tab goes away while one is
+	// still focused, blur it first so the edit isn't lost.
+	function commitFocusedField() {
+		const el = document.activeElement as HTMLElement | null;
+		if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) el.blur();
+	}
+
 	function handleKeydown(e: KeyboardEvent) {
 		if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
 		if (!$budgetStore) return;
@@ -73,7 +80,7 @@
 	<title>Show Budget - NCG</title>
 </svelte:head>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window on:keydown={handleKeydown} on:beforeunload={commitFocusedField} on:blur={commitFocusedField} />
 
 <MainLayout pageTitle="Show Budget">
 	<div class="h-full overflow-hidden p-4 xl:p-6">

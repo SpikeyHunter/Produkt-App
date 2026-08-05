@@ -12,6 +12,7 @@
 import { writable, get, type Writable } from 'svelte/store';
 import { supabase } from '$lib/supabase.js';
 import { normalizeItems, normalizeSubsections } from '$lib/utils/budgetUtils';
+import { mergeColumn } from '$lib/utils/budgetMerge';
 
 export type SavingState = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -90,6 +91,15 @@ export function createBudgetSync() {
 
 	// Last value we sent per DB column (for echo suppression)
 	const lastSent: Record<string, string> = {};
+
+	// Last known SERVER value per store key — the common ancestor used to merge
+	// our edits with anyone else's instead of overwriting their work.
+	let baseline: Record<string, any> = {};
+	function setBaseline(state: any) {
+		baseline = {};
+		for (const k of Object.keys(STORE_TO_DB)) baseline[k] = clone(state?.[k]);
+	}
+	const clone = (v: any) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
 	// Undo history: snapshots of the whole budget object
 	let history: string[] = [];
@@ -181,9 +191,21 @@ export function createBudgetSync() {
 
 			// 1) Echo of our own save -> ignore
 			if (lastSent[dbCol] === incomingStr) continue;
-			// 2) We have unsaved local edits on this column -> local wins (our flush overwrites)
-			if (dirty.has(storeKey)) continue;
+
+			// 2) Unsaved local edits on this column: merge rather than pick a
+			//    winner, so their new lines appear without dropping ours.
+			if (dirty.has(storeKey)) {
+				const merged = mergeColumn(storeKey, baseline[storeKey], state[storeKey], incoming);
+				baseline[storeKey] = clone(incoming); // server truth moves forward
+				if (stableStringify(state[storeKey]) !== stableStringify(merged)) {
+					state[storeKey] = merged;
+					changed = true;
+				}
+				continue;
+			}
+
 			// 3) Same as what we already have -> nothing to do
+			baseline[storeKey] = clone(incoming);
 			if (stableStringify(state[storeKey]) === incomingStr) continue;
 
 			state[storeKey] = incoming;
@@ -230,16 +252,57 @@ export function createBudgetSync() {
 		const keys = Array.from(dirty);
 		dirty = new Set();
 
+		saveInFlight = true;
+		savingState.set('saving');
+
+		// --- Read-modify-write -------------------------------------------------
+		// Re-read the columns we're about to write and merge our changes into the
+		// current server state. Without this, a save built from a stale copy of the
+		// array would wipe out lines someone else added while we were typing.
+		const cols = keys.map((k) => STORE_TO_DB[k]);
+		let merged: Record<string, any> = {};
+		try {
+			const { data: fresh, error: readErr } = await supabase
+				.from('show_budget')
+				.select(['id', ...cols].join(', '))
+				.eq('id', budgetId)
+				.single();
+			if (!readErr && fresh) {
+				for (const storeKey of keys) {
+					const dbCol = STORE_TO_DB[storeKey];
+					const remote = normalizeStoreValue(storeKey, (fresh as any)[dbCol]);
+					merged[storeKey] = mergeColumn(storeKey, baseline[storeKey], state[storeKey], remote);
+				}
+			}
+		} catch (err) {
+			console.error('Budget pre-save read failed, writing local state:', err);
+		}
+
 		const payload: Record<string, any> = {};
 		for (const storeKey of keys) {
 			const dbCol = STORE_TO_DB[storeKey];
-			const value = state[storeKey] ?? (JSON_KEYS.has(storeKey) ? [] : null);
+			const value =
+				merged[storeKey] !== undefined
+					? merged[storeKey]
+					: (state[storeKey] ?? (JSON_KEYS.has(storeKey) ? [] : null));
 			payload[dbCol] = value;
 			lastSent[dbCol] = stableStringify(normalizeStoreValue(storeKey, value));
 		}
 
-		saveInFlight = true;
-		savingState.set('saving');
+		// Reflect the merge locally so the UI shows the combined result.
+		if (Object.keys(merged).length > 0) {
+			const current = get(store);
+			if (current) {
+				let touched = false;
+				for (const storeKey of keys) {
+					if (merged[storeKey] === undefined) continue;
+					if (stableStringify(current[storeKey]) === stableStringify(merged[storeKey])) continue;
+					current[storeKey] = merged[storeKey];
+					touched = true;
+				}
+				if (touched) store.set({ ...current });
+			}
+		}
 
 		let ok = false;
 		for (let attempt = 0; attempt < 3 && !ok; attempt++) {
@@ -260,10 +323,17 @@ export function createBudgetSync() {
 		saveInFlight = false;
 
 		if (!ok) {
-			// put keys back so a retry can pick them up
+			// put keys back and keep retrying on a timer (don't wait for the next edit)
 			keys.forEach((k) => dirty.add(k));
 			savingState.set('error');
+			if (saveTimer) clearTimeout(saveTimer);
+			saveTimer = setTimeout(() => flush(), 5000);
 			return false;
+		}
+
+		// The server now holds exactly what we wrote -> that's the new ancestor.
+		for (const storeKey of keys) {
+			baseline[storeKey] = clone(payload[STORE_TO_DB[storeKey]]);
 		}
 
 		pushHistory();
@@ -341,7 +411,9 @@ export function createBudgetSync() {
 			return false;
 		}
 
-		store.set(rowToState(data));
+		const loaded = rowToState(data);
+		store.set(loaded);
+		setBaseline(loaded);
 		pushHistory();
 		subscribe(id);
 		return true;

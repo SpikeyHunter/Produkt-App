@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, tick } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import type { Writable, Readable } from 'svelte/store';
 	import BudgetIncomeSection from './BudgetIncomeSection.svelte';
@@ -113,6 +113,11 @@
 		if (!$budgetStore || !selectedEvent) return;
 		isExporting = true;
 
+		// Let Svelte finish rendering the hidden template first — otherwise a
+		// change made right before clicking (export options, a just-typed value)
+		// wouldn't be in the HTML we capture.
+		await tick();
+
 		const sheetElement = sheetContainer?.querySelector('#budget-pdf-root');
 		if (!sheetElement) {
 			console.error('PDF Template not found');
@@ -124,19 +129,34 @@
 		const artistName = selectedEvent.event_name || 'Event';
 		const eventDate = selectedEvent.event_date || new Date().toISOString().split('T')[0];
 		const cleanFileName = `${eventDate} - ${artistName} - Budget.pdf`.replace(/[^\w\s.-]/g, '');
+		// Unique name for the *server/storage* side so every export writes a new
+		// object instead of hitting an already-uploaded (stale) one. The file the
+		// browser saves still uses cleanFileName.
+		const stamp = Date.now();
+		const uniqueFileName = cleanFileName.replace(/\.pdf$/i, `-${stamp}.pdf`);
 
 		try {
 			const response = await fetch('/api/generate-advance-pdf', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ htmlContent, artistName, eventDate, fileName: cleanFileName })
+				body: JSON.stringify({
+					htmlContent,
+					artistName,
+					eventDate,
+					fileName: uniqueFileName,
+					cacheBust: stamp
+				})
 			});
 
 			if (!response.ok) throw new Error('PDF Generation Failed');
 			const result = await response.json();
 
 			if (result.path) {
-				const downloadUrl = `${env.PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${result.path}?download=${cleanFileName}`;
+				// `t=` busts the storage CDN cache — without it the public URL can
+				// serve a previously generated copy of the same path.
+				const downloadUrl =
+					`${env.PUBLIC_SUPABASE_URL}/storage/v1/object/public/documents/${result.path}` +
+					`?download=${encodeURIComponent(cleanFileName)}&t=${stamp}`;
 				const link = document.createElement('a');
 				link.href = downloadUrl;
 				link.setAttribute('download', cleanFileName);

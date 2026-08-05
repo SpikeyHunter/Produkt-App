@@ -74,6 +74,10 @@
           setTimeout(() => (showPresets = false), 150);
           notifySave();
       }
+      /** Enter commits the field (same as clicking away) */
+      function commitOnEnter(e: KeyboardEvent) {
+          if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+      }
       function selectPreset(preset: Preset) {
           item.name = preset.name;
           if (!kids) item.price = preset.price;
@@ -350,7 +354,7 @@
               <BudgetCurrencyInput
                   bind:value={item.price}
                   disabled={item.hidden}
-                  on:input={change}
+                  on:input={notifyUpdate}
                   on:blur={notifySave}
                   class="w-full {inputBg} {rowText} rounded-lg px-2 py-1 text-[12px] placeholder-gray2"
               />
@@ -368,7 +372,7 @@
               <BudgetCurrencyInput
                   bind:value={item.actual}
                   disabled={item.hidden}
-                  on:input={change}
+                  on:input={notifyUpdate}
                   on:blur={notifySave}
                   class="w-full {inputBg} {hasActual ? 'text-confirmed' : rowText} rounded-lg px-2 py-1 text-[12px] placeholder-gray2/60"
               />
@@ -377,12 +381,21 @@
           <!-- Qty -->
           <input
               type="number"
+              min="0"
+              max="99999"
+              step="1"
               bind:value={item.quantity}
               disabled={item.hidden}
-              on:input={change}
+              on:input={(e) => {
+                  // keep quantities sane (and inside the column) — 5 digits max
+                  const n = Number(e.currentTarget.value);
+                  if (n > 99999) item.quantity = 99999;
+                  notifyUpdate();
+              }}
+              on:keydown={commitOnEnter}
               on:blur={notifySave}
               placeholder="1"
-              class="w-full {inputBg} {rowText} rounded-lg px-2 py-1 text-[12px] placeholder-gray2 text-center"
+              class="w-full min-w-0 {inputBg} {rowText} rounded-lg px-1 py-1 text-[12px] placeholder-gray2 text-center"
           />
   
           <!-- Unit -->
@@ -392,7 +405,8 @@
                   bind:value={item.unit}
                   disabled={item.hidden}
                   on:focus={handleUnitFocus}
-                  on:input={change}
+                  on:input={notifyUpdate}
+                  on:keydown={commitOnEnter}
                   on:blur={handleUnitBlur}
                   placeholder="Item"
                   class="w-full {inputBg} {rowText} rounded-lg px-2 py-1 text-[12px] placeholder-gray2"
@@ -489,7 +503,7 @@
   <style>
       .row-grid {
           display: grid;
-          grid-template-columns: 16px 18px 16px minmax(0, 1fr) minmax(62px, 82px) minmax(62px, 82px) 34px minmax(44px, 56px) minmax(66px, 78px) 42px;
+          grid-template-columns: 16px 18px 16px minmax(0, 1fr) minmax(62px, 82px) minmax(62px, 82px) minmax(46px, 56px) minmax(44px, 56px) minmax(66px, 78px) 42px;
           gap: 4px;
       }
       .grip {

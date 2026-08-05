@@ -327,7 +327,7 @@
 <style>
 	.header-grid {
 		display: grid;
-		grid-template-columns: 16px 18px 16px minmax(0, 1fr) minmax(62px, 82px) minmax(62px, 82px) 34px minmax(44px, 56px) minmax(66px, 78px) 42px;
+		grid-template-columns: 16px 18px 16px minmax(0, 1fr) minmax(62px, 82px) minmax(62px, 82px) minmax(46px, 56px) minmax(44px, 56px) minmax(66px, 78px) 42px;
 		gap: 4px;
 	}
 	.grip { cursor: grab; }

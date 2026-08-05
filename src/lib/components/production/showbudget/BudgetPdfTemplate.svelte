@@ -227,7 +227,7 @@
 													<span class="font-mono w-24 text-right {child.flagged ? 'text-problem' : 'text-gray2'}">{formatMoney(itemBudgetedTotal(child))}</span>
 												{/if}
 												{#if showActual}
-													<span class="font-mono w-24 text-right text-confirmed/70">{formatMoney(itemActualTotal(child))}</span>
+													<span class="font-mono w-24 text-right text-confirmed">{formatMoney(itemActualTotal(child))}</span>
 												{/if}
 											</span>
 										</div>
