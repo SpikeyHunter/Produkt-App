@@ -120,7 +120,7 @@
 	</div>
 
 	{#if options.includeIncome}
-		<div class="mb-8">
+		<div class="pdf-section mb-8">
 			<h2 class="text-xl font-bold text-white mb-4 uppercase border-b border-gray2/20 pb-2">
 				Income (+)
 			</h2>
@@ -169,7 +169,7 @@
 		{/if}
 
 		{#if budgetType === 'Complete Prod' && pdfArtistFee.length > 0}
-			<div>
+			<div class="pdf-section">
 				<h3 class="text-lime font-bold text-sm uppercase mb-3">
 					Artist Fee - {sectionHeaderTotal(totalArtistFee, actArtistFee)}
 				</h3>
@@ -204,7 +204,7 @@
 					</h3>
 					<div class="space-y-4">
 						{#each cat.subs as sub}
-							<div class="bg-gray2/10 rounded-lg p-4 border border-gray2/20">
+							<div class="pdf-section bg-gray2/10 rounded-lg p-4 border border-gray2/20">
 								<div class="text-gray2 text-xs uppercase font-bold mb-2 border-b border-gray2/20 pb-1">
 									{sub.name}
 								</div>
@@ -252,7 +252,7 @@
 		{/each}
 	</div>
 
-	<div class="mt-8 pt-6 border-t-2 border-gray2/30 break-inside-avoid">
+	<div class="pdf-section mt-8 pt-6 border-t-2 border-gray2/30 break-inside-avoid">
 		<h2 class="text-xl font-bold text-white mb-4 uppercase">Summary</h2>
 		<div class="bg-gray2/10 rounded-lg p-6 border border-gray2/20">
 			{#if options.includeIncome}

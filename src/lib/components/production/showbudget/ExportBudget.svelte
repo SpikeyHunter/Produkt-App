@@ -113,6 +113,223 @@
 	$: netTotal = totalIncome - totalExpenses;
 	$: actualNet = totalIncome - actualExpenses;
 
+	// ---- Print-version PDF (8.5 x 11 in, black on white) -------------------
+	// Generated fully client-side (html2canvas + jsPDF) because the server
+	// pipeline ignores @page and imposes its own page size. Rules:
+	//  - true Letter pages: 8.5 x 11 in, 0.45in margins
+	//  - real light theme: white background, black text, gray secondary — not
+	//    an inverted/grayscaled dark theme
+	//  - a section never gets cut: it either fits, is squeezed a little
+	//    (down to 88%), or moves whole to the next page; a section taller
+	//    than a full page is sliced (nothing is ever lost)
+	//  - a heading directly above a section travels with it
+	// Requires: npm i jspdf html2canvas (loaded lazily, only when used)
+	let isPrinting = false;
+
+	const PRINT_LIGHT_CSS = `
+		#budget-print-root, #budget-print-root #budget-pdf-root { background: #ffffff !important; }
+		#budget-print-root * {
+			color: #000 !important;
+			background-color: transparent !important;
+			background-image: none !important;
+			border-color: rgba(0, 0, 0, 0.35) !important;
+			box-shadow: none !important;
+			text-shadow: none !important;
+		}
+		#budget-print-root .pdf-section {
+			background-color: #fff !important;
+			border: 1px solid rgba(0, 0, 0, 0.4) !important;
+		}
+		#budget-print-root [class*='text-gray'] { color: #555 !important; }
+	`;
+
+	/** html2canvas ignores CSS filters, so the white-on-transparent lockup is
+	 *  inverted at the pixel level to print black. CORS failures leave it as-is. */
+	async function invertImages(root: HTMLElement) {
+		const imgs = Array.from(root.querySelectorAll('img'));
+		await Promise.all(
+			imgs.map(
+				(img) =>
+					new Promise<void>((resolve) => {
+						const src = img.src;
+						const pic = new Image();
+						pic.crossOrigin = 'anonymous';
+						pic.onload = () => {
+							try {
+								const c = document.createElement('canvas');
+								c.width = pic.naturalWidth;
+								c.height = pic.naturalHeight;
+								const ctx = c.getContext('2d')!;
+								ctx.drawImage(pic, 0, 0);
+								const d = ctx.getImageData(0, 0, c.width, c.height);
+								for (let i = 0; i < d.data.length; i += 4) {
+									d.data[i] = 255 - d.data[i];
+									d.data[i + 1] = 255 - d.data[i + 1];
+									d.data[i + 2] = 255 - d.data[i + 2];
+								}
+								ctx.putImageData(d, 0, 0);
+								img.src = c.toDataURL('image/png');
+							} catch (e) {
+								console.log('[budget] print-pdf: logo invert skipped (CORS)', e);
+							}
+							resolve();
+						};
+						pic.onerror = () => resolve();
+						pic.src = src;
+					})
+			)
+		);
+	}
+
+	async function handlePrintPdf() {
+		if (!$budgetStore || !selectedEvent || isPrinting) return;
+		isPrinting = true;
+		console.log('[budget] print-pdf: building 8.5x11 B&W client-side');
+		await tick();
+
+		const sheetElement = sheetContainer?.querySelector('#budget-pdf-root');
+		if (!sheetElement) {
+			console.error('[budget] print-pdf: template not found');
+			isPrinting = false;
+			return;
+		}
+
+		// Lazy-load the generators so the page never pays for them otherwise
+		let jsPDFmod: any, html2canvas: any;
+		try {
+			[jsPDFmod, html2canvas] = await Promise.all([import('jspdf'), import('html2canvas')]);
+		} catch (e) {
+			console.error('[budget] print-pdf: missing dependencies — run: npm i jspdf html2canvas', e);
+			alert('Print export needs two packages. Run: npm i jspdf html2canvas');
+			isPrinting = false;
+			return;
+		}
+		const JsPDF = jsPDFmod.jsPDF || jsPDFmod.default;
+		const h2c = html2canvas.default || html2canvas;
+
+		// Off-screen clone at the exact printable width, in the light theme
+		document.getElementById('budget-print-root')?.remove();
+		const root = document.createElement('div');
+		root.id = 'budget-print-root';
+		const style = document.createElement('style');
+		style.textContent = PRINT_LIGHT_CSS;
+		root.appendChild(style);
+		root.appendChild(sheetElement.cloneNode(true));
+		document.body.appendChild(root);
+
+		const inner = root.querySelector('#budget-pdf-root') as HTMLElement;
+		inner.style.minHeight = '0';
+
+		// Colors are forced INLINE on every element — html2canvas honors inline
+		// styles unconditionally, whereas stylesheet overrides proved flaky
+		// (white-on-white text disappeared in the first attempt).
+		root.querySelectorAll('*').forEach((node) => {
+			const el = node as HTMLElement;
+			const cls = typeof el.className === 'string' ? el.className : '';
+			if (/text-gray/.test(cls)) el.style.setProperty('color', '#555555', 'important');
+			else el.style.setProperty('color', '#000000', 'important');
+			if (el !== inner) el.style.setProperty('background-color', 'transparent', 'important');
+		});
+		inner.style.setProperty('background-color', '#ffffff', 'important');
+
+		// Capture at the template's NATURAL width (it hard-codes 8.5in = 816px)
+		// and map proportionally onto the 7.6in printable area. Cropping to the
+		// printable width was what cut off the right column.
+		await invertImages(root);
+
+		const W = Math.max(inner.getBoundingClientRect().width, 600);
+		root.style.width = W + 'px';
+		const PAGE_H = W * ((11 - 2 * 0.45) / 7.6); // page height in capture px
+		const MIN_ZOOM = 0.88;
+
+		try {
+			// 1. Squeeze: a section slightly taller than a page shrinks to fit
+			let squeezed = 0;
+			root.querySelectorAll('.pdf-section').forEach((node) => {
+				const el = node as HTMLElement;
+				const h = el.offsetHeight;
+				if (h > PAGE_H && h * MIN_ZOOM <= PAGE_H) {
+					(el.style as any).zoom = String(Math.max(MIN_ZOOM, PAGE_H / h - 0.01));
+					squeezed++;
+				}
+			});
+
+			// 2. Page plan: greedy-pack sections; break BEFORE a section that
+			// would cross a page edge. A heading right above it comes along.
+			const rootRect = root.getBoundingClientRect();
+			const atoms: { top: number; bottom: number }[] = [];
+			root.querySelectorAll('.pdf-section').forEach((node) => {
+				const el = node as HTMLElement;
+				const r = el.getBoundingClientRect();
+				let top = r.top - rootRect.top;
+				const prev = el.previousElementSibling as HTMLElement | null;
+				if (prev && !prev.classList.contains('pdf-section')) {
+					const pr = prev.getBoundingClientRect();
+					const prevTop = pr.top - rootRect.top;
+					if (top - prevTop < 160) top = prevTop; // heading sticks to its section
+				}
+				atoms.push({ top, bottom: r.bottom - rootRect.top });
+			});
+			atoms.sort((a, b) => a.top - b.top);
+
+			const totalH = root.scrollHeight;
+			const cuts: number[] = [0];
+			let pageStart = 0;
+			for (const a of atoms) {
+				if (a.bottom - pageStart > PAGE_H && a.top > pageStart + 1) {
+					cuts.push(a.top);
+					pageStart = a.top;
+				}
+			}
+			cuts.push(totalH);
+			console.log('[budget] print-pdf: sections squeezed:', squeezed, '| pages planned:', cuts.length - 1);
+
+			// 3. Rasterize once at 2x, slice into Letter pages
+			const SCALE = 2;
+			const canvas = await h2c(root, {
+				scale: SCALE,
+				width: W,
+				windowWidth: Math.ceil(W) + 40,
+				backgroundColor: '#ffffff',
+				useCORS: true
+			});
+
+			const pdf = new JsPDF({ unit: 'in', format: [8.5, 11] });
+			const M = 0.45;
+			let first = true;
+			for (let i = 0; i < cuts.length - 1; i++) {
+				// a single planned slice taller than a page (a huge section) is
+				// chopped into page-height pieces so nothing is lost
+				for (let y = cuts[i]; y < cuts[i + 1]; y += PAGE_H) {
+					const sliceH = Math.min(PAGE_H, cuts[i + 1] - y);
+					if (sliceH < 4) continue; // skip sub-pixel remainders
+					const page = document.createElement('canvas');
+					page.width = Math.floor(W * SCALE);
+					page.height = Math.floor(sliceH * SCALE);
+					const ctx = page.getContext('2d')!;
+					ctx.fillStyle = '#ffffff';
+					ctx.fillRect(0, 0, page.width, page.height);
+					ctx.drawImage(canvas, 0, y * SCALE, page.width, page.height, 0, 0, page.width, page.height);
+					if (!first) pdf.addPage([8.5, 11]);
+					first = false;
+					pdf.addImage(page.toDataURL('image/jpeg', 0.94), 'JPEG', M, M, 7.6, (sliceH / W) * 7.6);
+				}
+			}
+
+			const artistName = selectedEvent.event_name || 'Event';
+			const eventDate = selectedEvent.event_date || new Date().toISOString().split('T')[0];
+			const cleanFileName = `${eventDate} - ${artistName} - Budget Print.pdf`.replace(/[^\w\s.-]/g, '');
+			pdf.save(cleanFileName);
+			console.log('[budget] print-pdf: saved', cleanFileName);
+		} catch (error) {
+			console.error('[budget] print-pdf: failed', error);
+			alert('Failed to generate print PDF.');
+		} finally {
+			document.getElementById('budget-print-root')?.remove();
+			isPrinting = false;
+		}
+	}
+
 	// PDF Logic
 	async function handleGeneratePdf() {
 		if (!$budgetStore || !selectedEvent) return;
@@ -179,6 +396,23 @@
 		}
 	}
 </script>
+
+
+<svelte:head>
+	{#if true}
+		<style>
+			/* Off-screen layout root used to measure sections at the exact
+			   printable width (8.5in - 2 x 0.45in margins) before PDF export */
+			#budget-print-root {
+				position: absolute;
+				left: -12000px;
+				top: 0;
+				width: max-content;
+				background: #ffffff;
+			}
+		</style>
+	{/if}
+</svelte:head>
 
 <div class="hidden" aria-hidden="true" bind:this={sheetContainer}>
 	{#if $budgetStore && selectedEvent}
@@ -354,7 +588,8 @@
 						</div>
 					{/if}
 
-					<button type="button" on:click={handleGeneratePdf} disabled={isExporting} class="w-full bg-gray3 text-black font-bold text-sm py-2.5 rounded-3xl hover:bg-lime transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
+					<div class="flex gap-2">
+					<button type="button" on:click={handleGeneratePdf} disabled={isExporting} class="flex-1 bg-gray3 text-black font-bold text-sm py-2.5 rounded-3xl hover:bg-lime transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">
 						{#if isExporting}
 							<span class="flex items-center justify-center gap-2">
 								<div class="animate-spin w-4 h-4 border-2 border-black border-t-transparent rounded-3xl"></div>
@@ -364,6 +599,25 @@
 							Export as PDF
 						{/if}
 					</button>
+					<button
+						type="button"
+						on:click={handlePrintPdf}
+						disabled={isPrinting}
+						title="Export print version — 8.5 x 11 in, black and white, light background"
+						aria-label="Export print version PDF"
+						class="px-4 bg-gray1 text-white font-bold text-sm py-2.5 rounded-3xl hover:bg-lime hover:text-black transition-all disabled:opacity-50 cursor-pointer flex items-center justify-center"
+					>
+						{#if isPrinting}
+							<div class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>
+						{:else}
+							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<polyline points="6 9 6 2 18 2 18 9" />
+								<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+								<rect x="6" y="14" width="12" height="8" />
+							</svg>
+						{/if}
+					</button>
+					</div>
 				</div>
 			</div>
 		{:else}
