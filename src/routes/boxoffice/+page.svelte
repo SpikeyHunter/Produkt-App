@@ -28,6 +28,36 @@
 	let showPdfPreview = false;
 	let isDeletingPdf = false;
 
+	// ─── RESPONSIVE SHELL ────────────────────────────────────────────────
+	// Below NARROW_AT the side panels stop stealing width from the grid and
+	// become overlay drawers opened from a slim always-visible rail.
+	const NARROW_AT = 1180;
+
+	let innerWidth = 1600;
+	let isNarrow = false;
+	let leftOpen = true;
+	let rightOpen = true;
+
+	// Auto-collapse when crossing the breakpoint, but never fight a manual toggle
+	$: if (innerWidth) {
+		const narrow = innerWidth < NARROW_AT;
+		if (narrow !== isNarrow) {
+			isNarrow = narrow;
+			leftOpen = !narrow;
+			rightOpen = !narrow;
+		}
+	}
+
+	$: showRightPanel = !showAllEvents && selectedEvent && reportData;
+	$: overlayOpen = isNarrow && (leftOpen || (rightOpen && showRightPanel));
+
+	function closeDrawers() {
+		if (isNarrow) {
+			leftOpen = false;
+			rightOpen = false;
+		}
+	}
+
 	async function handleDeletePdf() {
 		if (!reportData?.pdf_url || !selectedEvent) return;
 		isDeletingPdf = true;
@@ -101,6 +131,8 @@
 		if (selectedEvent) {
 			await loadReport(selectedEvent.event_id);
 		}
+		// On small screens, drop the drawer once a choice is made
+		closeDrawers();
 	}
 
 	async function loadReport(eventId: number) {
@@ -291,59 +323,146 @@
 	<title>Box Office</title>
 </svelte:head>
 
-<MainLayout>
-	<div class="p-4 max-[1200px]:pr-0 h-[calc(100vh-64px)] box-border">
-		<div class="liaison-container">
-			<div class="left-sidebar-wrapper custom-scrollbar">
-				<div class="selector-column overflow-visible flex-shrink-0">
-					<EventSelectorBO
-						{events}
-						{selectedEvent}
-						{isBookingUser}
-						{currentUser}
-						isViewingAllEvents={showAllEvents}
-						on:select={handleEventSelect}
-						on:approve={handleApprove}
-						on:statusChange={handleStatusChange}
-						on:resetReport={handleResetReport}
-						on:toggleAllEvents={() => (showAllEvents = !showAllEvents)}
-					/>
-				</div>
+<svelte:window bind:innerWidth />
 
-				{#if !showAllEvents && selectedEvent && reportData}
-					<div
-						class="export-column rounded-xl overflow-hidden shadow-lg bg-navbar/50 backdrop-blur"
+<MainLayout>
+	<div class="p-2 sm:p-3 lg:p-4 h-[calc(100vh-64px)] box-border">
+		<div class="bo-shell" class:narrow={isNarrow}>
+			<!-- ─── LEFT: EVENT SELECTOR ─────────────────────────────── -->
+			<div class="side left" class:open={leftOpen}>
+				{#if !leftOpen || isNarrow}
+					<button
+						type="button"
+						class="rail-btn"
+						aria-label="Show event selector"
+						aria-expanded={leftOpen}
+						on:click={() => (leftOpen = !leftOpen)}
 					>
-						<ReportRightPanel
-							{reportData}
+						<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<rect x="3" y="4" width="18" height="18" rx="2" />
+							<line x1="16" y1="2" x2="16" y2="6" />
+							<line x1="8" y1="2" x2="8" y2="6" />
+							<line x1="3" y1="10" x2="21" y2="10" />
+						</svg>
+						<span class="rail-label">Events</span>
+					</button>
+				{/if}
+
+				{#if leftOpen}
+					<div class="side-body custom-scrollbar">
+						{#if !isNarrow}
+							<button
+								type="button"
+								class="collapse-tab"
+								aria-label="Hide event selector"
+								on:click={() => (leftOpen = false)}
+							>
+								<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+									<polyline points="15 18 9 12 15 6" />
+								</svg>
+							</button>
+						{/if}
+
+						<EventSelectorBO
+							{events}
 							{selectedEvent}
 							{isBookingUser}
-							on:update={handleUpdate}
-							on:openTixrImport={() => (showTixrModal = true)}
-							on:viewPdf={() => (showPdfPreview = true)}
+							{currentUser}
+							isViewingAllEvents={showAllEvents}
+							on:select={handleEventSelect}
+							on:approve={handleApprove}
+							on:statusChange={handleStatusChange}
+							on:resetReport={handleResetReport}
+							on:toggleAllEvents={() => {
+								showAllEvents = !showAllEvents;
+								closeDrawers();
+							}}
 						/>
 					</div>
 				{/if}
 			</div>
 
-			{#if showAllEvents}
-				<div
-					class="all-events-column rounded-xl overflow-hidden shadow-lg border border-gray1/50 bg-[#1e1e1e]"
-				>
-					<AllEvents {events} {dailyCounts} on:close={() => (showAllEvents = false)} />
-				</div>
-			{:else}
-				<div
-					class="details-column rounded-xl overflow-y-auto shadow-lg bg-[#1e1e1e] backdrop-blur relative"
-				>
-					{#if selectedEvent && reportData}
-						<ReportGrid {reportData} on:update={handleUpdate} />
-					{:else}
-						<div class="h-full flex items-center justify-center text-gray2 font-bold opacity-50">
-							Select an event to view Box Office report
+			<!-- ─── CENTER: GRID / ALL EVENTS ────────────────────────── -->
+			<div class="center">
+				{#if showAllEvents}
+					<div class="pane rounded-xl overflow-hidden shadow-lg border border-gray1/50 bg-[#1e1e1e]">
+						<AllEvents {events} {dailyCounts} on:close={() => (showAllEvents = false)} />
+					</div>
+				{:else}
+					<div class="pane rounded-xl overflow-hidden shadow-lg bg-[#1e1e1e] relative">
+						{#if selectedEvent && reportData}
+							<ReportGrid {reportData} on:update={handleUpdate} />
+						{:else}
+							<div class="h-full flex items-center justify-center text-gray2 font-bold opacity-50 text-center px-6">
+								Select an event to view Box Office report
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<!-- ─── RIGHT: EXPORT / SUMMARY ──────────────────────────── -->
+			{#if showRightPanel}
+				<div class="side right" class:open={rightOpen}>
+					{#if !rightOpen || isNarrow}
+						<button
+							type="button"
+							class="rail-btn"
+							aria-label="Show report summary"
+							aria-expanded={rightOpen}
+							on:click={() => (rightOpen = !rightOpen)}
+						>
+							<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+							</svg>
+							<span class="rail-label">Report</span>
+						</button>
+					{/if}
+
+					{#if rightOpen}
+						<div class="side-body panel-shell rounded-xl overflow-hidden shadow-lg bg-navbar">
+							{#if !isNarrow}
+								<button
+									type="button"
+									class="collapse-tab right"
+									aria-label="Hide report summary"
+									on:click={() => (rightOpen = false)}
+								>
+									<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+										<polyline points="9 18 15 12 9 6" />
+									</svg>
+								</button>
+							{/if}
+
+							<ReportRightPanel
+								{reportData}
+								{selectedEvent}
+								{isBookingUser}
+								on:update={handleUpdate}
+								on:openTixrImport={() => {
+									showTixrModal = true;
+									closeDrawers();
+								}}
+								on:viewPdf={() => {
+									showPdfPreview = true;
+									closeDrawers();
+								}}
+							/>
 						</div>
 					{/if}
 				</div>
+			{/if}
+
+			<!-- Backdrop for the overlay drawers on small screens -->
+			{#if overlayOpen}
+				<div
+					class="drawer-backdrop"
+					role="button"
+					tabindex="-1"
+					aria-label="Close panel"
+					on:click={closeDrawers}
+					on:keydown={(e) => e.key === 'Escape' && closeDrawers()}
+				></div>
 			{/if}
 		</div>
 	</div>
@@ -372,86 +491,173 @@
 {/if}
 
 <style>
-	.liaison-container {
+	.bo-shell {
+		position: relative;
 		display: flex;
-		gap: 16px;
+		gap: 12px;
 		height: 100%;
 		width: 100%;
 		overflow: hidden;
 	}
 
-	.left-sidebar-wrapper {
-		display: contents;
-	}
-
-	.selector-column {
-		width: 280px;
-		height: 100%;
-		flex-shrink: 0;
-		display: flex;
-		flex-direction: column;
-		order: 1;
-	}
-
-	.details-column,
-	.all-events-column {
-		flex: 1;
+	/* ── Center column always gets whatever is left over ───────────── */
+	.center {
+		flex: 1 1 auto;
 		min-width: 0;
 		height: 100%;
-		order: 2;
+		min-height: 0;
+	}
+	.pane {
+		height: 100%;
+		min-height: 0;
 	}
 
-	.export-column {
-		width: 280px;
+	/* ── Retractable side panels ───────────────────────────────────── */
+	.side {
+		position: relative;
+		flex: 0 0 auto;
 		height: 100%;
-		flex-shrink: 0;
+		min-height: 0;
+		width: 34px;
+		display: flex;
+		transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+	.side.open {
+		/* Scales with the viewport instead of a hard 280px */
+		width: clamp(230px, 20vw, 300px);
+	}
+
+	.side-body {
+		position: relative;
+		width: 100%;
+		height: 100%;
+		min-height: 0;
 		display: flex;
 		flex-direction: column;
-		order: 3;
+		overflow-y: auto;
+		overflow-x: hidden;
+		overscroll-behavior: contain;
 	}
 
-	@media (max-width: 1200px) {
-		.left-sidebar-wrapper {
-			display: flex;
-			flex-direction: column;
-			gap: 16px;
-			width: 240px;
-			height: 100%;
+	.panel-shell {
+		backdrop-filter: blur(6px);
+	}
+
+	/* ── Slim rail (the retracted state) ───────────────────────────── */
+	.rail-btn {
+		width: 34px;
+		flex: 0 0 34px;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: flex-start;
+		gap: 12px;
+		padding-top: 14px;
+		border-radius: 10px;
+		border: 1px solid var(--color-gray1, #333);
+		background: color-mix(in srgb, var(--color-navbar, #141414) 70%, transparent);
+		color: var(--color-gray2, #777);
+		cursor: pointer;
+		transition:
+			color 0.15s ease,
+			border-color 0.15s ease,
+			background 0.15s ease;
+	}
+	.rail-btn:hover {
+		color: var(--color-lime, #e1ff00);
+		border-color: color-mix(in srgb, var(--color-lime, #e1ff00) 40%, transparent);
+		background: color-mix(in srgb, var(--color-lime, #e1ff00) 6%, transparent);
+	}
+	.rail-label {
+		writing-mode: vertical-rl;
+		text-orientation: mixed;
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		white-space: nowrap;
+	}
+
+	/* ── Inline collapse chevron (desktop, panel open) ─────────────── */
+	.collapse-tab {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		z-index: 30;
+		width: 22px;
+		height: 22px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--color-gray1, #333) 80%, transparent);
+		color: var(--color-gray2, #777);
+		cursor: pointer;
+		opacity: 0;
+		transition: opacity 0.15s ease, color 0.15s ease;
+	}
+	.side:hover .collapse-tab {
+		opacity: 1;
+	}
+	.collapse-tab:hover {
+		color: var(--color-lime, #e1ff00);
+	}
+	.collapse-tab.right {
+		right: auto;
+		left: 6px;
+	}
+
+	/* ── Narrow screens: panels become overlay drawers ─────────────── */
+	.bo-shell.narrow .side.open {
+		width: 34px;
+	}
+	.bo-shell.narrow .side.open .side-body {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		z-index: 60;
+		width: min(320px, calc(100vw - 90px));
+		border-radius: 12px;
+		padding: 8px;
+		background: var(--color-navbar, #141414);
+		border: 1px solid var(--color-gray1, #333);
+		box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65);
+	}
+	.bo-shell.narrow .side.left.open .side-body {
+		left: 38px;
+	}
+	.bo-shell.narrow .side.right.open .side-body {
+		right: 38px;
+	}
+
+	.drawer-backdrop {
+		position: absolute;
+		inset: 0;
+		z-index: 50;
+		background: rgba(0, 0, 0, 0.55);
+		backdrop-filter: blur(2px);
+	}
+
+	/* ── Scrollbars ────────────────────────────────────────────────── */
+	.custom-scrollbar::-webkit-scrollbar {
+		width: 6px;
+	}
+	.custom-scrollbar::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	.custom-scrollbar::-webkit-scrollbar-thumb {
+		background: var(--color-gray1, #333);
+		border-radius: 3px;
+	}
+	.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+		background: var(--color-gray2, #666);
+	}
+
+	/* Very short windows: let the whole shell scroll rather than crush rows */
+	@media (max-height: 620px) {
+		.side-body {
 			overflow-y: auto;
-			flex-shrink: 0;
-			/* Change this to 0 or remove it completely */
-			padding-right: -10px;
-			order: 1;
-		}
-		/* ... rest of your styles ... */
-
-		/* Apply standardized scrollbar to wrapper */
-		.left-sidebar-wrapper::-webkit-scrollbar {
-			width: 6px;
-		}
-		.left-sidebar-wrapper::-webkit-scrollbar-track {
-			background: transparent;
-		}
-		.left-sidebar-wrapper::-webkit-scrollbar-thumb {
-			background: var(--color-gray1, #333);
-			border-radius: 3px;
-		}
-		.left-sidebar-wrapper::-webkit-scrollbar-thumb:hover {
-			background: var(--color-gray2, #666);
-		}
-
-		.selector-column {
-			width: 100%;
-			height: auto;
-			flex-shrink: 0;
-			order: 1;
-		}
-
-		.export-column {
-			width: 100%;
-			height: auto;
-			flex-shrink: 0;
-			order: 2;
 		}
 	}
 </style>

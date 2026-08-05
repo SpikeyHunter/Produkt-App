@@ -380,19 +380,19 @@
 	</div>
 
 	{#if isBookingUser}
-		<div class="p-5 bg-black/10 border-t border-gray1/50 report-summary-section mt-auto">
-			<h3 class="text-lg font-bold text-gray3 mb-4 uppercase tracking-wider text-center">
+		<div class="p-4 bg-black/10 border-t border-gray1/50 report-summary-section mt-auto">
+			<h3 class="text-sm font-bold text-gray3 mb-3 uppercase tracking-wider text-center">
 				Report Summary
 			</h3>
 
 			<div class="flex justify-between items-center mb-3 text-sm">
 				<span class="text-gray2">Total Sold</span>
-				<span class="text-white font-bold">{summary.sold}</span>
+				<span class="text-white font-bold tabular-nums">{summary.sold}</span>
 			</div>
 
 			<div class="flex justify-between items-center mb-3 text-sm">
 				<span class="text-gray2">Total Scanned</span>
-				<span class="text-white font-bold">{summary.scanned}</span>
+				<span class="text-white font-bold tabular-nums">{summary.scanned}</span>
 			</div>
 
 			<div class="flex justify-between items-center mb-4 text-sm">
@@ -402,12 +402,12 @@
 
 			<div class="pt-4 border-t border-gray1 flex flex-col gap-2">
 				<div class="flex justify-between items-center">
-					<span class="text-gray3 font-bold tracking-wide text-md">Total Gross</span>
-					<span class="text-white font-bold text-lg">{formatCurrency(summary.gross)}</span>
+					<span class="text-gray3 font-bold tracking-wide text-sm">Total Gross</span>
+					<span class="text-white font-bold text-base tabular-nums whitespace-nowrap">{formatCurrency(summary.gross)}</span>
 				</div>
 				<div class="flex justify-between items-center">
-					<span class="text-lime font-black tracking-wide text-lg">Total Net</span>
-					<span class="text-lime font-black text-xl">{formatCurrency(summary.net)}</span>
+					<span class="text-lime font-black tracking-wide text-base">Total Net</span>
+					<span class="text-lime font-black text-lg tabular-nums whitespace-nowrap">{formatCurrency(summary.net)}</span>
 				</div>
 			</div>
 
@@ -418,8 +418,8 @@
 					</h4>
 					{#each summary.otherItems as item}
 						<div class="flex justify-between items-center text-sm">
-							<span class="text-gray3 ml-2">{item.name}</span>
-							<span class="text-white font-mono">{formatCurrency(item.settle)}</span>
+							<span class="text-gray3 ml-2 truncate pr-2" title={item.name}>{item.name}</span>
+							<span class="text-white font-mono whitespace-nowrap">{formatCurrency(item.settle)}</span>
 						</div>
 					{/each}
 				</div>
@@ -499,16 +499,12 @@
 		background: var(--color-gray2, #666);
 	}
 
-	@media (max-width: 1200px) {
-		.panel-wrapper {
-			height: auto !important;
-			overflow: visible !important;
-		}
-		.report-info-section {
-			flex: none !important;
-		}
-		.report-summary-section {
-			margin-top: 0 !important;
-		}
+	/* The panel is now always a full-height column (it retracts instead of
+	   stacking), so it just needs to stay scrollable and never overflow. */
+	.panel-wrapper {
+		min-height: 0;
+	}
+	.panel-wrapper :global(*) {
+		min-width: 0;
 	}
 </style>
