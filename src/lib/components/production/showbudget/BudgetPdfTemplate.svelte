@@ -217,6 +217,21 @@
 											{/if}
 										</span>
 									</div>
+									{#each item.children || [] as child}
+										<div class="flex justify-between items-center py-1 pl-6 text-xs text-gray2">
+											<span class="{child.flagged ? 'text-problem' : 'text-gray2'}">
+												└ {safeNum(child.quantity) || 1}x {child.name || 'Sub-item'}{child.flagged ? ' *' : ''}
+											</span>
+											<span class="flex gap-8">
+												{#if showBudgeted}
+													<span class="font-mono w-24 text-right {child.flagged ? 'text-problem' : 'text-gray2'}">{formatMoney(itemBudgetedTotal(child))}</span>
+												{/if}
+												{#if showActual}
+													<span class="font-mono w-24 text-right text-confirmed/70">{formatMoney(itemActualTotal(child))}</span>
+												{/if}
+											</span>
+										</div>
+									{/each}
 								{/each}
 								<div class="text-right mt-2 pt-2 text-xs font-bold uppercase text-gray2">
 									Subtotal:

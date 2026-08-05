@@ -30,8 +30,12 @@ const num = (v: any) => {
 	return isNaN(n) ? 0 : n;
 };
 
-/** Ensure every item has the new fields (actual / hidden / flagged) so old budgets load cleanly. */
-export function normalizeItem(raw: any): BudgetItem {
+/**
+ * Ensure every item has the newer fields (actual / hidden / flagged / children)
+ * so budgets saved before those existed still load cleanly.
+ * `depth` guards against accidental nesting deeper than one level.
+ */
+export function normalizeItem(raw: any, depth = 0): BudgetItem {
 	return {
 		id: raw?.id || crypto.randomUUID(),
 		name: raw?.name ?? '',
@@ -40,7 +44,9 @@ export function normalizeItem(raw: any): BudgetItem {
 		quantity: raw?.quantity === null || raw?.quantity === undefined ? 1 : Number(raw.quantity),
 		unit: raw?.unit ?? '',
 		hidden: !!raw?.hidden,
-		flagged: !!raw?.flagged
+		flagged: !!raw?.flagged,
+		children: depth === 0 && Array.isArray(raw?.children) ? raw.children.map((c: any) => normalizeItem(c, 1)) : [],
+		collapsed: !!raw?.collapsed
 	};
 }
 
@@ -61,14 +67,36 @@ export function normalizeSubsections(raw: any): BudgetSubsection[] {
 
 /* ---------- Totals (hidden rows/sections are always excluded) ---------- */
 
+/** True when the line is a "sub-item section" — its amounts come from its children. */
+export function hasChildren(item: BudgetItem | null | undefined): boolean {
+	return !!item && Array.isArray(item.children) && item.children.length > 0;
+}
+
+/** Budgeted unit price: typed in directly, or the sum of visible sub-items. */
+export function itemBudgetedUnit(item: BudgetItem): number {
+	if (hasChildren(item)) return itemsBudgetedTotal(item.children);
+	return num(item.price);
+}
+
+/** Actual unit price: typed in directly, or the sum of visible sub-items. */
+export function itemActualUnit(item: BudgetItem): number {
+	if (hasChildren(item)) return itemsActualTotal(item.children);
+	return item.actual === null || item.actual === undefined ? num(item.price) : num(item.actual);
+}
+
 export function itemBudgetedTotal(item: BudgetItem): number {
-	return num(item.price) * (num(item.quantity) || 1);
+	return itemBudgetedUnit(item) * (num(item.quantity) || 1);
 }
 
 /** Actual falls back to budgeted when not filled in, so partial actuals still make sense. */
 export function itemActualTotal(item: BudgetItem): number {
-	const base = item.actual === null || item.actual === undefined ? num(item.price) : num(item.actual);
-	return base * (num(item.quantity) || 1);
+	return itemActualUnit(item) * (num(item.quantity) || 1);
+}
+
+/** Does this line (or any of its sub-items) have an Actual entered? */
+export function itemHasActual(item: BudgetItem): boolean {
+	if (hasChildren(item)) return itemsHaveActuals(item.children);
+	return item.actual !== null && item.actual !== undefined;
 }
 
 export function itemsBudgetedTotal(items: BudgetItem[] | undefined | null): number {
@@ -80,7 +108,27 @@ export function itemsActualTotal(items: BudgetItem[] | undefined | null): number
 }
 
 export function itemsHaveActuals(items: BudgetItem[] | undefined | null): boolean {
-	return (items || []).some((i) => !i.hidden && i.actual !== null && i.actual !== undefined);
+	return (items || []).some(
+		(i) =>
+			!i.hidden &&
+			((i.actual !== null && i.actual !== undefined) || itemsHaveActuals(i.children))
+	);
+}
+
+/** A fresh blank line, with Unit pre-filled to "Item". */
+export function blankItem(): BudgetItem {
+	return {
+		id: crypto.randomUUID(),
+		name: '',
+		price: null,
+		actual: null,
+		quantity: 1,
+		unit: 'Item',
+		hidden: false,
+		flagged: false,
+		children: [],
+		collapsed: false
+	};
 }
 
 export function subsBudgetedTotal(subs: BudgetSubsection[] | undefined | null): number {

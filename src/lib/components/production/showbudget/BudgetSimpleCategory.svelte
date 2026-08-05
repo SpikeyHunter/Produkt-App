@@ -5,12 +5,19 @@
   <script lang="ts">
 	  import { createEventDispatcher, onMount } from 'svelte';
 	  import { supabase } from '$lib/supabase.js';
-	  import { formatMoney, itemsBudgetedTotal, itemsActualTotal, itemsHaveActuals } from '$lib/utils/budgetUtils';
+	  import { formatMoney, itemsBudgetedTotal, itemsActualTotal, itemsHaveActuals, hasChildren, blankItem } from '$lib/utils/budgetUtils';
 	  import type { Preset, BudgetItem } from '$lib/types/budget';
 	  import BudgetItemRow from './BudgetItemRow.svelte';
+	  import { dragging, dropOn, canDrop } from '$lib/utils/budgetDnd';
+	  import type { StoreKey, DropTarget } from '$lib/utils/budgetDnd';
+  
+	  let endActive = false;
+	  $: FLAT_PATH = { cat: storeKey, sub: -1, item: -1, child: -1 };
   
 	  export let title: string;
 	  export let categoryKey: string;
+	  /** budget store key — 'artist_fee' (kept as a prop for consistency with the other categories) */
+	  export let storeKey: StoreKey = 'artist_fee';
 	  export let items: BudgetItem[] = [];
 	  export let presetRefreshTrigger = 0;
   
@@ -44,19 +51,7 @@
 	  }
   
 	  function addItem() {
-		  items = [
-			  ...items,
-			  {
-				  id: crypto.randomUUID(),
-				  name: '',
-				  price: null,
-				  actual: null,
-				  quantity: 1,
-				  unit: '',
-				  hidden: false,
-				  flagged: false
-			  }
-		  ];
+		  items = [...items, blankItem()];
 		  notifyUpdate();
 		  notifySave();
 	  }
@@ -67,6 +62,38 @@
 		  notifySave();
 	  }
   
+	  function toggleAllSubItems() {
+		  const anyOpen = items.some((i) => hasChildren(i) && !i.collapsed);
+		  items = items.map((i) => (hasChildren(i) ? { ...i, collapsed: anyOpen } : i));
+		  notifyUpdate();
+		  notifySave();
+	  }
+  
+	  $: endTarget = { kind: 'items-end', path: FLAT_PATH } as DropTarget;
+	  function onEndOver(e: DragEvent) {
+		  if (!canDrop($dragging, endTarget)) return;
+		  e.preventDefault();
+		  e.stopPropagation();
+		  endActive = true;
+	  }
+	  /** dragleave also fires when the pointer crosses into a child element —
+		  ignore those so the insertion line doesn't flicker while moving. */
+	  function reallyLeft(e: DragEvent): boolean {
+		  const from = e.currentTarget as HTMLElement;
+		  const to = e.relatedTarget as Node | null;
+		  return !to || !from.contains(to);
+	  }
+  
+	  function onEndDrop(e: DragEvent) {
+		  if (!endActive) return;
+		  e.preventDefault();
+		  e.stopPropagation();
+		  endActive = false;
+		  dropOn(endTarget);
+	  }
+  
+	  $: anySubItemsOpen = items.some((i) => hasChildren(i) && !i.collapsed);
+	  $: hasAnySubItems = items.some((i) => hasChildren(i));
 	  $: categoryBudgeted = itemsBudgetedTotal(items);
 	  $: categoryActual = itemsActualTotal(items);
 	  $: hasActuals = itemsHaveActuals(items);
@@ -83,6 +110,16 @@
 			  {/if}
 		  </div>
 		  <div class="flex items-center gap-2">
+			  {#if hasAnySubItems}
+				  <button
+					  type="button"
+					  on:click={toggleAllSubItems}
+					  class="px-2 py-0.5 text-gray2 hover:text-lime text-[10px] font-bold uppercase tracking-wider rounded-2xl cursor-pointer transition-colors"
+					  title={anySubItemsOpen ? 'Hide all sub-items' : 'Show all sub-items'}
+				  >
+					  {anySubItemsOpen ? 'Hide sub-items' : 'Show sub-items'}
+				  </button>
+			  {/if}
 			  <button
 				  type="button"
 				  on:click={addItem}
@@ -98,31 +135,50 @@
 		  {#if items.length > 0}
 			  <div class="header-grid text-gray2 text-[10px] uppercase tracking-wider px-0.5">
 				  <div></div>
-				  <div>Item</div>
-				  <div>Budgeted $</div>
-				  <div>Actual $</div>
+				  <div></div>
+				  <div></div>
+				  <div class="pl-2 truncate">Item</div>
+				  <div class="pl-2 truncate">Budgeted $</div>
+				  <div class="pl-2 truncate">Actual $</div>
 				  <div class="text-center">Qty</div>
-				  <div>Unit</div>
-				  <div class="text-right">Total</div>
+				  <div class="pl-2 truncate">Unit</div>
+				  <div class="pl-2 truncate">Total</div>
 				  <div></div>
 			  </div>
-			  {#each items as item (item.id)}
+			  {#each items as item, i (item.id)}
 				  <BudgetItemRow
-					  bind:item
+					  bind:item={items[i]}
 					  {availablePresets}
+					  path={{ cat: storeKey, sub: -1, item: i, child: -1 }}
 					  on:update={notifyUpdate}
 					  on:save={notifySave}
 					  on:delete={() => deleteItem(item.id)}
 				  />
 			  {/each}
 		  {/if}
+  
+		  <div
+			  class="drop-zone {items.length === 0 ? 'roomy' : ''} {endActive ? 'active' : ''}"
+			  on:dragover={onEndOver}
+			  on:dragleave={(e) => reallyLeft(e) && (endActive = false)}
+			  on:drop={onEndDrop}
+			  role="presentation"
+		  ></div>
 	  </div>
   </div>
   
   <style>
+	  .drop-zone {
+		  height: 6px;
+		  border-radius: 6px;
+		  background: transparent;
+		  transition: background 0.12s ease;
+	  }
+	  .drop-zone.roomy { height: 22px; }
+	  .drop-zone.active { background: rgba(225, 255, 0, 0.35); }
 	  .header-grid {
 		  display: grid;
-		  grid-template-columns: 18px minmax(0, 1fr) minmax(64px, 84px) minmax(64px, 84px) 34px minmax(40px, 54px) minmax(74px, 92px) 40px;
+		  grid-template-columns: 16px 18px 16px minmax(0, 1fr) minmax(62px, 82px) minmax(62px, 82px) 34px minmax(44px, 56px) minmax(66px, 78px) 42px;
 		  gap: 4px;
 	  }
   </style>

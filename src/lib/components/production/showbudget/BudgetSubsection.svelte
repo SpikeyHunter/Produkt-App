@@ -1,15 +1,28 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
-	import { formatMoney, itemsBudgetedTotal, itemsActualTotal, itemsHaveActuals } from '$lib/utils/budgetUtils';
+	import { formatMoney, itemsBudgetedTotal, itemsActualTotal, itemsHaveActuals, hasChildren, blankItem } from '$lib/utils/budgetUtils';
 	import { supabase } from '$lib/supabase.js';
 	import type { Preset, BudgetItem } from '$lib/types/budget';
 	import BudgetItemRow from './BudgetItemRow.svelte';
+	import { dragging, beginDrag, endDrag, dropOn, canDrop, edgeFromEvent } from '$lib/utils/budgetDnd';
+	import type { StoreKey, DropTarget } from '$lib/utils/budgetDnd';
 
 	export let name: string;
 	export let hidden: boolean = false;
+	/** preset category ('technical' | 'hospitality' | 'other' | 'artist_fee') */
 	export let categoryKey: string;
+	/** budget store key — where this section lives, for drag & drop */
+	export let storeKey: StoreKey;
+	/** index of this section within its category */
+	export let subIndex: number;
 	export let items: BudgetItem[] = [];
 	export let presetRefreshTrigger = 0;
+
+	// drag & drop
+	let sectionEl: HTMLElement;
+	let cardEl: HTMLElement;
+	let dropEdge: 'before' | 'after' | null = null;
+	let endActive = false;
 
 	const dispatch = createEventDispatcher();
 	let isEditingName = false;
@@ -50,21 +63,84 @@
 	}
 
 	function addItem() {
-		items = [
-			...items,
-			{
-				id: crypto.randomUUID(),
-				name: '',
-				price: null,
-				actual: null,
-				quantity: 1,
-				unit: '',
-				hidden: false,
-				flagged: false
-			}
-		];
+		items = [...items, blankItem()];
 		change();
 	}
+
+	/** Fold / unfold every sub-item list in this section at once. */
+	function toggleAllSubItems() {
+		const anyOpen = items.some((i) => hasChildren(i) && !i.collapsed);
+		items = items.map((i) => (hasChildren(i) ? { ...i, collapsed: anyOpen } : i));
+		change();
+	}
+
+	/* ---------------------------------------------------------- drag & drop */
+
+	$: selfTarget = { kind: 'section', path: { cat: storeKey, sub: subIndex, item: -1, child: -1 } } as DropTarget;
+	$: endTarget = { kind: 'items-end', path: { cat: storeKey, sub: subIndex, item: -1, child: -1 } } as DropTarget;
+
+	function onDragStart(e: DragEvent) {
+		e.stopPropagation();
+		if (e.dataTransfer) {
+			e.dataTransfer.setData('text/plain', name);
+			e.dataTransfer.effectAllowed = 'move';
+			// drag the whole card, not just the little grip icon
+			if (cardEl) e.dataTransfer.setDragImage(cardEl, 24, 18);
+		}
+		beginDrag({
+			kind: 'section',
+			path: { cat: storeKey, sub: subIndex, item: -1, child: -1 },
+			label: name || 'Section',
+			hasKids: false
+		});
+	}
+	function onDragEnd() {
+		dropEdge = null;
+		endDrag();
+	}
+	function onDragOver(e: DragEvent) {
+		if (!$dragging) return;
+		// item drops are handled by the rows / end zone inside
+		if ($dragging.kind !== 'section') return;
+		const edge = edgeFromEvent(e, sectionEl);
+		if (!canDrop($dragging, { ...selfTarget, edge })) return;
+		e.preventDefault();
+		e.stopPropagation();
+		dropEdge = edge;
+	}
+	/** dragleave also fires when the pointer crosses into a child element —
+	    ignore those so the insertion line doesn't flicker while moving. */
+	function reallyLeft(e: DragEvent): boolean {
+		const from = e.currentTarget as HTMLElement;
+		const to = e.relatedTarget as Node | null;
+		return !to || !from.contains(to);
+	}
+
+	function onDrop(e: DragEvent) {
+		if (!dropEdge) return;
+		e.preventDefault();
+		e.stopPropagation();
+		const edge = dropEdge;
+		dropEdge = null;
+		dropOn({ ...selfTarget, edge });
+	}
+	function onEndOver(e: DragEvent) {
+		if (!canDrop($dragging, endTarget)) return;
+		e.preventDefault();
+		e.stopPropagation();
+		endActive = true;
+	}
+	function onEndDrop(e: DragEvent) {
+		if (!endActive) return;
+		e.preventDefault();
+		e.stopPropagation();
+		endActive = false;
+		dropOn(endTarget);
+	}
+
+	$: anySubItemsOpen = items.some((i) => hasChildren(i) && !i.collapsed);
+	$: hasAnySubItems = items.some((i) => hasChildren(i));
+	$: isDragged = $dragging?.kind === 'section' && $dragging.path.cat === storeKey && $dragging.path.sub === subIndex;
 
 	function deleteItem(id: string) {
 		items = items.filter((item) => item.id !== id);
@@ -86,9 +162,40 @@
 	$: hasActuals = itemsHaveActuals(items);
 </script>
 
-<div class="bg-navbar p-2 rounded-xl {hidden ? 'opacity-50' : ''}">
+<div
+	class="relative"
+	bind:this={sectionEl}
+	on:dragover={onDragOver}
+	on:dragleave={(e) => reallyLeft(e) && (dropEdge = null)}
+	on:drop={onDrop}
+	role="listitem"
+>
+	{#if dropEdge}
+		<div class="drop-line" class:bottom={dropEdge === 'after'}></div>
+	{/if}
+
+	<div
+		bind:this={cardEl}
+		class="bg-navbar p-2 rounded-xl transition-opacity duration-150 {hidden ? 'opacity-50' : ''} {isDragged ? 'opacity-30' : ''}"
+	>
 	<!-- Subsection Header -->
-	<div class="flex justify-between items-center {hidden ? '' : 'mb-2'}">
+	<div class="flex justify-between items-center gap-2 {hidden ? '' : 'mb-2'}">
+		<div class="flex items-center gap-1.5 min-w-0 flex-1">
+		<button
+			type="button"
+			draggable="true"
+			on:dragstart={onDragStart}
+			on:dragend={onDragEnd}
+			class="grip w-4 h-5 flex items-center justify-center text-gray2/40 hover:text-white transition-colors flex-shrink-0"
+			title="Drag to reorder this section"
+			aria-label="Drag to move section"
+		>
+			<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+				<line x1="4" y1="8" x2="20" y2="8" />
+				<line x1="4" y1="12" x2="20" y2="12" />
+				<line x1="4" y1="16" x2="20" y2="16" />
+			</svg>
+		</button>
 		{#if isEditingName}
 			<input
 				type="text"
@@ -119,7 +226,18 @@
 				{/if}
 			</div>
 		{/if}
+		</div>
 		<div class="flex items-center gap-1.5 flex-shrink-0">
+			{#if !hidden && hasAnySubItems}
+				<button
+					type="button"
+					on:click={toggleAllSubItems}
+					class="px-2 py-0.5 text-gray2 hover:text-lime text-[10px] font-bold uppercase tracking-wider rounded-2xl cursor-pointer transition-colors"
+					title={anySubItemsOpen ? 'Hide all sub-items in this section' : 'Show all sub-items in this section'}
+				>
+					{anySubItemsOpen ? 'Hide sub-items' : 'Show sub-items'}
+				</button>
+			{/if}
 			{#if !hidden}
 				<button
 					type="button"
@@ -171,32 +289,68 @@
 				<!-- Header Row -->
 				<div class="header-grid text-gray2 text-[10px] uppercase tracking-wider px-0.5">
 					<div></div>
-					<div>Item</div>
-					<div>Budgeted $</div>
-					<div>Actual $</div>
+					<div></div>
+					<div></div>
+					<div class="pl-2 truncate">Item</div>
+					<div class="pl-2 truncate">Budgeted $</div>
+					<div class="pl-2 truncate">Actual $</div>
 					<div class="text-center">Qty</div>
-					<div>Unit</div>
-					<div class="text-right">Total</div>
+					<div class="pl-2 truncate">Unit</div>
+					<div class="pl-2 truncate">Total</div>
 					<div></div>
 				</div>
-				{#each items as item (item.id)}
+				{#each items as item, i (item.id)}
 					<BudgetItemRow
-						bind:item
+						bind:item={items[i]}
 						{availablePresets}
+						path={{ cat: storeKey, sub: subIndex, item: i, child: -1 }}
 						on:update={notifyUpdate}
 						on:save={notifySave}
 						on:delete={() => deleteItem(item.id)}
 					/>
 				{/each}
 			{/if}
+
+			<!-- drop zone: end of this section's list (also catches drops on an empty section) -->
+			<div
+				class="drop-zone {items.length === 0 ? 'roomy' : ''} {endActive ? 'active' : ''}"
+				on:dragover={onEndOver}
+				on:dragleave={(e) => reallyLeft(e) && (endActive = false)}
+				on:drop={onEndDrop}
+				role="presentation"
+			></div>
 		</div>
 	{/if}
+	</div>
 </div>
 
 <style>
 	.header-grid {
 		display: grid;
-		grid-template-columns: 18px minmax(0, 1fr) minmax(64px, 84px) minmax(64px, 84px) 34px minmax(40px, 54px) minmax(74px, 92px) 40px;
+		grid-template-columns: 16px 18px 16px minmax(0, 1fr) minmax(62px, 82px) minmax(62px, 82px) 34px minmax(44px, 56px) minmax(66px, 78px) 42px;
 		gap: 4px;
 	}
+	.grip { cursor: grab; }
+	.grip:active { cursor: grabbing; }
+	.drop-line {
+		position: absolute;
+		left: 0;
+		right: 0;
+		top: -4px;
+		height: 2px;
+		border-radius: 9999px;
+		background: #e1ff00;
+		box-shadow: 0 0 6px rgba(225, 255, 0, 0.6);
+		z-index: 10;
+		pointer-events: none;
+	}
+	.drop-line.bottom { top: auto; bottom: -4px; }
+	.drop-zone {
+		height: 6px;
+		border-radius: 6px;
+		background: transparent;
+		transition: background 0.12s ease;
+	}
+	.drop-zone.roomy { height: 22px; }
+	.drop-zone.active { background: rgba(225, 255, 0, 0.35); }
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy } from 'svelte';
 	import type { Writable } from 'svelte/store';
+	import { registerDndContext } from '$lib/utils/budgetDnd';
 	import BudgetExpenseCategory from './BudgetExpenseCategory.svelte';
 	import BudgetSimpleCategory from './BudgetSimpleCategory.svelte';
 
@@ -23,6 +24,14 @@
 			dispatch('save', { key: dbColumnKey });
 		};
 	}
+
+	// Drag & drop needs to move lines between components, so it works directly on
+	// the store. Registered here (the one place that owns it) and torn down on exit.
+	$: teardown = registerDndContext(budgetStore, (columns) => {
+		$budgetStore = $budgetStore;
+		for (const key of columns) dispatch('save', { key });
+	});
+	onDestroy(() => teardown?.());
 
 	$: budgetType = $budgetStore?.budget_type || 'Tour Prod';
 	$: showArtistFee = budgetType === 'Complete Prod';
@@ -50,6 +59,7 @@
 						<BudgetSimpleCategory
 							title="Artist Fee"
 							categoryKey="artist_fee"
+						storeKey="artist_fee"
 							bind:items={$budgetStore.artist_fee}
 							{presetRefreshTrigger}
 							on:update={handleUpdate}
@@ -60,6 +70,7 @@
 					<BudgetExpenseCategory
 						title="Technical"
 						categoryKey="technical"
+						storeKey="technical"
 						bind:subsections={$budgetStore.technical}
 						{presetRefreshTrigger}
 						on:update={handleUpdate}
@@ -68,6 +79,7 @@
 					<BudgetExpenseCategory
 						title="Hospitality"
 						categoryKey="hospitality"
+						storeKey="hospitality"
 						bind:subsections={$budgetStore.hospitality}
 						{presetRefreshTrigger}
 						on:update={handleUpdate}
@@ -76,6 +88,7 @@
 					<BudgetExpenseCategory
 						title="Other Expenses"
 						categoryKey="other"
+						storeKey="other_expenses"
 						bind:subsections={$budgetStore.other_expenses}
 						{presetRefreshTrigger}
 						on:update={handleUpdate}

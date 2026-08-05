@@ -25,6 +25,10 @@ export type BudgetItem = {
 	hidden: boolean;
 	/** Line flagged "to be revised" (rendered in problem color) */
 	flagged: boolean;
+	/** Sub-items. When present, the parent's Budgeted/Actual are the sum of these. */
+	children: BudgetItem[];
+	/** Sub-items folded away in the UI (display only) */
+	collapsed: boolean;
 };
 
 export type BudgetSubsection = {
