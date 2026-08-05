@@ -1,3 +1,8 @@
+<script context="module" lang="ts">
+	// Version beacon — every file in this bundle must print the SAME tag.
+	console.log('[budget] BudgetSubsection ui-v4 loaded');
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { formatMoney, itemsBudgetedTotal, itemsActualTotal, itemsHaveActuals, hasChildren, blankItem } from '$lib/utils/budgetUtils';
@@ -63,6 +68,7 @@
 	}
 
 	function addItem() {
+		console.log('[budget] ui: add item in section', name);
 		items = [...items, blankItem()];
 		change();
 	}
@@ -143,6 +149,7 @@
 	$: isDragged = $dragging?.kind === 'section' && $dragging.path.cat === storeKey && $dragging.path.sub === subIndex;
 
 	function deleteItem(id: string) {
+		console.log('[budget] ui: delete item', id, 'in section', name);
 		items = items.filter((item) => item.id !== id);
 		change();
 	}

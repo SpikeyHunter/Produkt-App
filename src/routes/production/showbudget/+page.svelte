@@ -22,6 +22,7 @@
 	const savingState = sync.savingState;
 
 	onMount(() => {
+		blog('page mounted');
 		setTimeout(() => (mounted = true), 150);
 	});
 
@@ -29,8 +30,11 @@
 		sync.destroy();
 	});
 
+	const blog = (...args: any[]) => console.log('[budget]', ...args);
+
 	async function handleEventSelect(event: CustomEvent) {
 		selectedEvent = event.detail;
+		blog('event selected:', selectedEvent?.id, selectedEvent?.event_name);
 		if (!selectedEvent) {
 			await sync.clear();
 			return;
@@ -42,6 +46,7 @@
 	// The sync engine reads the current store state itself — no stale data races.
 	function handleSave(event: CustomEvent) {
 		const { key } = event.detail;
+		blog('save requested from UI:', key);
 		sync.markDirty(key);
 	}
 

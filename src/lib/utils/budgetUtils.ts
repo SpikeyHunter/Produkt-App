@@ -50,9 +50,12 @@ export function normalizeItem(raw: any, depth = 0): BudgetItem {
 	};
 }
 
-export function normalizeItems(raw: any): BudgetItem[] {
+export function normalizeItems(raw: any, depth = 0): BudgetItem[] {
 	if (!Array.isArray(raw)) return [];
-	return raw.map(normalizeItem);
+	// NEVER `raw.map(normalizeItem)`: Array.map passes the index as the second
+	// argument, which lands in `depth` and strips children from every item
+	// after the first. (This exact bug ate sub-items once.)
+	return raw.map((item) => normalizeItem(item, depth));
 }
 
 export function normalizeSubsections(raw: any): BudgetSubsection[] {

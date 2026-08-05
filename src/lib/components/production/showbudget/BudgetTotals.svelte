@@ -1,3 +1,8 @@
+<script context="module" lang="ts">
+	// Version beacon — every file in this bundle must print the SAME tag.
+	console.log('[budget] BudgetTotals ui-v4 loaded');
+</script>
+
 <script lang="ts">
 	import { slide } from 'svelte/transition';
 	import { formatDisplay } from '$lib/utils/budgetUtils';

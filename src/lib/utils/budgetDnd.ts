@@ -12,6 +12,8 @@
  *   section            (reorder within a category, or move to another category)
  */
 import { writable, get } from 'svelte/store';
+
+const log = (...args: any[]) => console.log('[budget]', ...args);
 import type { Writable } from 'svelte/store';
 
 export type StoreKey = 'artist_fee' | 'technical' | 'hospitality' | 'other_expenses';
@@ -67,6 +69,7 @@ let ctxSave: ((columns: string[]) => void) | null = null;
 
 /** Called once by BudgetDetailsDisplay. Returns a teardown function. */
 export function registerDndContext(store: Writable<any>, save: (columns: string[]) => void) {
+	log('dnd: context registered');
 	ctxStore = store;
 	ctxSave = save;
 	return () => {
@@ -76,6 +79,7 @@ export function registerDndContext(store: Writable<any>, save: (columns: string[
 }
 
 export function beginDrag(payload: DragPayload) {
+	log('dnd: drag start —', payload.kind, JSON.stringify(payload.path), payload.label);
 	dragging.set(payload);
 }
 
@@ -192,7 +196,16 @@ export function canDrop(src: DragPayload | null, dest: DropTarget): boolean {
 export function dropOn(dest: DropTarget): void {
 	const src = get(dragging);
 	endDrag();
-	if (!src || !ctxStore || !canDrop(src, dest)) return;
+	if (!src) return;
+	if (!ctxStore) {
+		log('dnd: drop ignored — no context registered');
+		return;
+	}
+	if (!canDrop(src, dest)) {
+		log('dnd: drop rejected —', src.kind, '→', dest.kind);
+		return;
+	}
+	log('dnd: drop —', src.kind, JSON.stringify(src.path), '→', dest.kind, JSON.stringify(dest.path), dest.edge || '');
 
 	const state = get(ctxStore);
 	if (!state) return;
@@ -222,6 +235,7 @@ export function dropOn(dest: DropTarget): void {
 	for (const cat of cats) next[cat] = Array.isArray(next[cat]) ? [...next[cat]] : next[cat];
 	ctxStore.set(next);
 
+	log('dnd: moved, saving', cats.join(', '));
 	ctxSave?.(cats.map((c) => STORE_TO_DB[c]));
 }
 

@@ -1,5 +1,10 @@
+<script context="module" lang="ts">
+	// Version beacon — every file in this bundle must print the SAME tag.
+	console.log('[budget] BudgetDetailsDisplay ui-v4 loaded');
+</script>
+
 <script lang="ts">
-	import { createEventDispatcher, onDestroy } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import { registerDndContext } from '$lib/utils/budgetDnd';
 	import BudgetExpenseCategory from './BudgetExpenseCategory.svelte';
@@ -26,12 +31,14 @@
 	}
 
 	// Drag & drop needs to move lines between components, so it works directly on
-	// the store. Registered here (the one place that owns it) and torn down on exit.
-	$: teardown = registerDndContext(budgetStore, (columns) => {
-		$budgetStore = $budgetStore;
-		for (const key of columns) dispatch('save', { key });
-	});
-	onDestroy(() => teardown?.());
+	// the store. Registered ONCE on mount (a `$:` here re-registered on every
+	// store change because the closure references the store) and torn down on exit.
+	onMount(() =>
+		registerDndContext(budgetStore, (columns) => {
+			budgetStore.update((s) => (s ? { ...s } : s));
+			for (const key of columns) dispatch('save', { key });
+		})
+	);
 
 	$: budgetType = $budgetStore?.budget_type || 'Tour Prod';
 	$: showArtistFee = budgetType === 'Complete Prod';

@@ -42,6 +42,16 @@ const byId = <T extends { id: string }>(arr: T[] | null | undefined) => {
 	return m;
 };
 
+/**
+ * STRUCTURE RULE (v2): the save-path merge NEVER deletes a local row.
+ * Inferring "the other person deleted this" from its absence in a read-back
+ * proved fragile — any staleness or representation drift silently ate rows
+ * the user just added. Deletions now propagate only through the clean
+ * realtime path (applyRemote on a non-dirty column applies remote wholesale).
+ * Worst case a concurrently-deleted row is resurrected by our save, which is
+ * recoverable; a silently deleted row is not.
+ */
+
 /** Field-level pick: we changed it -> ours; we didn't -> theirs. */
 function pick<T>(base: T, local: T, remote: T): T {
 	return sig(local) !== sig(base) ? local : remote;
@@ -79,14 +89,8 @@ export function mergeItems(
 	for (const l of L) {
 		const b = baseMap.get(l.id);
 		const r = remoteMap.get(l.id);
-		if (!r) {
-			// Gone from the server. Drop it only if we hadn't touched it — that
-			// means the other person deleted it and we have nothing to lose.
-			if (b && sig(l) === sig(b)) continue;
-			out.push(l);
-			continue;
-		}
-		out.push(mergeItem(b, l, r));
+		// Local rows always survive; merge fields when remote also has the row.
+		out.push(r ? mergeItem(b, l, r) : l);
 	}
 
 	// Lines the other side added while we were editing (we've never seen them).
@@ -127,12 +131,7 @@ export function mergeSections(
 	for (const l of L) {
 		const b = baseMap.get(l.id);
 		const r = remoteMap.get(l.id);
-		if (!r) {
-			if (b && sig(l) === sig(b)) continue;
-			out.push(l);
-			continue;
-		}
-		out.push(mergeSection(b, l, r));
+		out.push(r ? mergeSection(b, l, r) : l);
 	}
 
 	R.forEach((r, idx) => {

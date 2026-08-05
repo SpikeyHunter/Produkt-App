@@ -1,3 +1,8 @@
+<script context="module" lang="ts">
+	// Version beacon — every file in this bundle must print the SAME tag.
+	console.log('[budget] ExportBudget ui-v4 loaded');
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
 	import { slide } from 'svelte/transition';
@@ -112,6 +117,7 @@
 	async function handleGeneratePdf() {
 		if (!$budgetStore || !selectedEvent) return;
 		isExporting = true;
+		console.log('[budget] pdf: export started');
 
 		// Let Svelte finish rendering the hidden template first — otherwise a
 		// change made right before clicking (export options, a just-typed value)
@@ -148,6 +154,7 @@
 				})
 			});
 
+			console.log('[budget] pdf: server responded', response.status);
 			if (!response.ok) throw new Error('PDF Generation Failed');
 			const result = await response.json();
 

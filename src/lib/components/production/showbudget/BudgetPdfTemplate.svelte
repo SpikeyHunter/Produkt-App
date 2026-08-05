@@ -1,3 +1,8 @@
+<script context="module" lang="ts">
+	// Version beacon — every file in this bundle must print the SAME tag.
+	console.log('[budget] BudgetPdfTemplate ui-v4 loaded');
+</script>
+
 <script lang="ts">
 	import {
 		formatMoney,

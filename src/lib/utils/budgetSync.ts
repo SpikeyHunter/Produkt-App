@@ -35,6 +35,13 @@ const DB_TO_STORE: Record<string, string> = Object.fromEntries(
 const JSON_KEYS = new Set(['artist_fee', 'technical', 'hospitality', 'other_expenses']);
 const SIMPLE_JSON_KEYS = new Set(['artist_fee']); // flat item lists (no subsections)
 
+// Minimal, greppable logs: filter the console on "[budget]".
+// SYNC_VERSION prints at startup — if you don't see it, the old file is still
+// being served (hard-refresh / restart dev server).
+export const SYNC_VERSION = 'sync-v5';
+const DEBUG = true;
+const log = (...args: any[]) => DEBUG && console.log('[budget]', ...args);
+
 const SAVE_DEBOUNCE_MS = 500;
 const MAX_HISTORY = 100;
 
@@ -75,7 +82,21 @@ function safeParse(input: any) {
 	}
 }
 
+function countSubs(subs: any[]): string {
+	const s = subs || [];
+	let items = 0;
+	let kids = 0;
+	for (const sec of s) {
+		for (const it of sec.items || []) {
+			items++;
+			kids += it.children?.length || 0;
+		}
+	}
+	return `${s.length} sections / ${items} items / ${kids} sub-items`;
+}
+
 export function createBudgetSync() {
+	log('engine created —', SYNC_VERSION);
 	const store: Writable<any> = writable(null);
 	const savingState: Writable<SavingState> = writable('idle');
 	const canUndo = writable(false);
@@ -89,8 +110,19 @@ export function createBudgetSync() {
 	let saveInFlight = false;
 	let savedFlashTimer: ReturnType<typeof setTimeout> | null = null;
 
-	// Last value we sent per DB column (for echo suppression)
-	const lastSent: Record<string, string> = {};
+	// Recently-sent values per DB column (for echo suppression). A ring, not a
+	// single value: two quick saves produce two echoes, and the older echo must
+	// still be recognized as ours — applying it would briefly "delete" the
+	// newest rows and the newer echo (suppressed) would never restore them.
+	const lastSent: Record<string, string[]> = {};
+	function rememberSent(dbCol: string, sig: string) {
+		const ring = (lastSent[dbCol] ||= []);
+		ring.push(sig);
+		if (ring.length > 8) ring.shift();
+	}
+	function wasSentByUs(dbCol: string, sig: string): boolean {
+		return (lastSent[dbCol] || []).includes(sig);
+	}
 
 	// Last known SERVER value per store key — the common ancestor used to merge
 	// our edits with anyone else's instead of overwriting their work.
@@ -167,7 +199,7 @@ export function createBudgetSync() {
 				{ event: 'UPDATE', schema: 'public', table: 'show_budget', filter: `id=eq.${id}` },
 				(payload) => applyRemote(payload.new)
 			)
-			.subscribe();
+			.subscribe((status) => log('realtime channel:', status));
 	}
 
 	function unsubscribe() {
@@ -189,12 +221,16 @@ export function createBudgetSync() {
 			const incoming = normalizeStoreValue(storeKey, row[dbCol]);
 			const incomingStr = stableStringify(incoming);
 
-			// 1) Echo of our own save -> ignore
-			if (lastSent[dbCol] === incomingStr) continue;
+			// 1) Echo of one of our own recent saves -> ignore
+			if (wasSentByUs(dbCol, incomingStr)) {
+				log('realtime: echo ignored for', storeKey);
+				continue;
+			}
 
 			// 2) Unsaved local edits on this column: merge rather than pick a
 			//    winner, so their new lines appear without dropping ours.
 			if (dirty.has(storeKey)) {
+				log('realtime: merging remote change into dirty column', storeKey);
 				const merged = mergeColumn(storeKey, baseline[storeKey], state[storeKey], incoming);
 				baseline[storeKey] = clone(incoming); // server truth moves forward
 				if (stableStringify(state[storeKey]) !== stableStringify(merged)) {
@@ -208,6 +244,7 @@ export function createBudgetSync() {
 			baseline[storeKey] = clone(incoming);
 			if (stableStringify(state[storeKey]) === incomingStr) continue;
 
+			log('realtime: applied remote change to', storeKey);
 			state[storeKey] = incoming;
 			changed = true;
 		}
@@ -227,7 +264,11 @@ export function createBudgetSync() {
 			const storeKey = DB_TO_STORE[k] || (STORE_TO_DB[k] ? k : null);
 			if (storeKey) dirty.add(storeKey);
 		}
-		if (dirty.size === 0) return;
+		if (dirty.size === 0) {
+			log('markDirty: called with unknown key(s)', arr, '— nothing queued');
+			return;
+		}
+		log('markDirty:', arr.join(', '), '→ pending:', Array.from(dirty).join(', '));
 		savingState.set('saving');
 		if (saveTimer) clearTimeout(saveTimer);
 		saveTimer = setTimeout(() => flush(), SAVE_DEBOUNCE_MS);
@@ -241,69 +282,85 @@ export function createBudgetSync() {
 		if (!budgetId || dirty.size === 0) return true;
 		if (saveInFlight) {
 			// a save is running; re-queue after it finishes
-			if (saveTimer) clearTimeout(saveTimer);
 			saveTimer = setTimeout(() => flush(), SAVE_DEBOUNCE_MS);
 			return true;
 		}
 
-		const state = get(store);
-		if (!state) return true;
-
-		const keys = Array.from(dirty);
-		dirty = new Set();
-
 		saveInFlight = true;
 		savingState.set('saving');
+		const t0 = Date.now();
 
-		// --- Read-modify-write -------------------------------------------------
-		// Re-read the columns we're about to write and merge our changes into the
-		// current server state. Without this, a save built from a stale copy of the
-		// array would wipe out lines someone else added while we were typing.
-		const cols = keys.map((k) => STORE_TO_DB[k]);
-		let merged: Record<string, any> = {};
+		// --- 1. Read current server state FIRST (all columns — it's one row).
+		// Everything after this read is synchronous until the write, so edits
+		// made during the read are naturally included instead of clobbered.
+		let fresh: any = null;
 		try {
-			const { data: fresh, error: readErr } = await supabase
+			const { data, error: readErr } = await supabase
 				.from('show_budget')
-				.select(['id', ...cols].join(', '))
+				.select(
+					`id, budget_type, income_total_budget, income_artist, income_technical,
+					 income_hospitality, income_other, expenses_artist_fee, expenses_technical,
+					 expenses_hospitality, expenses_other`
+				)
 				.eq('id', budgetId)
 				.single();
-			if (!readErr && fresh) {
-				for (const storeKey of keys) {
-					const dbCol = STORE_TO_DB[storeKey];
-					const remote = normalizeStoreValue(storeKey, (fresh as any)[dbCol]);
-					merged[storeKey] = mergeColumn(storeKey, baseline[storeKey], state[storeKey], remote);
-				}
-			}
+			if (readErr) log('pre-save read failed (writing local state):', readErr.message);
+			else fresh = data;
 		} catch (err) {
-			console.error('Budget pre-save read failed, writing local state:', err);
+			log('pre-save read threw (writing local state):', err);
 		}
 
+		// --- 2. NOW capture local state + dirty keys (post-await, so nothing
+		// typed or added during the read can be missed or overwritten).
+		const state = get(store);
+		if (!state) {
+			saveInFlight = false;
+			return true;
+		}
+		const keys = Array.from(dirty);
+		dirty = new Set();
+		if (keys.length === 0) {
+			saveInFlight = false;
+			return true;
+		}
+
+		// --- 3. Merge our columns into the server's current state.
 		const payload: Record<string, any> = {};
 		for (const storeKey of keys) {
 			const dbCol = STORE_TO_DB[storeKey];
-			const value =
-				merged[storeKey] !== undefined
-					? merged[storeKey]
-					: (state[storeKey] ?? (JSON_KEYS.has(storeKey) ? [] : null));
-			payload[dbCol] = value;
-			lastSent[dbCol] = stableStringify(normalizeStoreValue(storeKey, value));
-		}
-
-		// Reflect the merge locally so the UI shows the combined result.
-		if (Object.keys(merged).length > 0) {
-			const current = get(store);
-			if (current) {
-				let touched = false;
-				for (const storeKey of keys) {
-					if (merged[storeKey] === undefined) continue;
-					if (stableStringify(current[storeKey]) === stableStringify(merged[storeKey])) continue;
-					current[storeKey] = merged[storeKey];
-					touched = true;
+			// Normalize the local value first: what we compare, write, and keep as
+			// baseline must be byte-identical to what the DB echoes back, otherwise
+			// every save falsely looks like a concurrent remote change.
+			let value = normalizeStoreValue(
+				storeKey,
+				state[storeKey] ?? (JSON_KEYS.has(storeKey) ? [] : null)
+			);
+			if (fresh) {
+				const remote = normalizeStoreValue(storeKey, fresh[dbCol]);
+				const mergedVal = mergeColumn(storeKey, baseline[storeKey], value, remote);
+				if (stableStringify(mergedVal) !== stableStringify(value)) {
+					log('flush: merged remote changes into', storeKey);
+					value = mergedVal;
+					// reflect the combined result in the UI (synchronous — no race)
+					state[storeKey] = mergedVal;
+					store.set({ ...state });
 				}
-				if (touched) store.set({ ...current });
 			}
+			payload[dbCol] = value;
+			rememberSent(dbCol, stableStringify(normalizeStoreValue(storeKey, value)));
 		}
+		for (const storeKey of keys) {
+			if (!JSON_KEYS.has(storeKey)) continue;
+			const v = payload[STORE_TO_DB[storeKey]];
+			log(
+				'flush payload —',
+				storeKey + ':',
+				SIMPLE_JSON_KEYS.has(storeKey) ? `${(v || []).length} items` : countSubs(v)
+			);
+		}
+		log('flush: saving', keys.join(', '));
 
+		// --- 4. Write, with retries.
 		let ok = false;
 		for (let attempt = 0; attempt < 3 && !ok; attempt++) {
 			const { error } = await supabase
@@ -315,7 +372,7 @@ export function createBudgetSync() {
 			if (!error) {
 				ok = true;
 			} else {
-				console.error(`Budget save failed (attempt ${attempt + 1}):`, error);
+				log(`save failed (attempt ${attempt + 1}/3):`, error.message);
 				await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
 			}
 		}
@@ -335,6 +392,7 @@ export function createBudgetSync() {
 		for (const storeKey of keys) {
 			baseline[storeKey] = clone(payload[STORE_TO_DB[storeKey]]);
 		}
+		log('flush: saved in', Date.now() - t0, 'ms');
 
 		pushHistory();
 
@@ -368,6 +426,7 @@ export function createBudgetSync() {
 		pushHistory(); // capture any un-flushed typing as the newest step
 		if (hIndex <= 0) return;
 		hIndex--;
+		log('undo -> step', hIndex + 1, 'of', history.length);
 		restoreSnapshot(history[hIndex]);
 		updateUndoFlags();
 	}
@@ -376,6 +435,7 @@ export function createBudgetSync() {
 		if (!get(store)) return;
 		if (hIndex < 0 || hIndex >= history.length - 1) return;
 		hIndex++;
+		log('redo -> step', hIndex + 1, 'of', history.length);
 		restoreSnapshot(history[hIndex]);
 		updateUndoFlags();
 	}
@@ -391,6 +451,7 @@ export function createBudgetSync() {
 		history = [];
 		hIndex = -1;
 		Object.keys(lastSent).forEach((k) => delete lastSent[k]);
+		log('loading budget', id, '…');
 		savingState.set('idle');
 
 		const { data, error } = await supabase
@@ -412,14 +473,27 @@ export function createBudgetSync() {
 		}
 
 		const loaded = rowToState(data);
+		log(
+			'load counts — technical:',
+			countSubs(loaded.technical),
+			'| hospitality:',
+			countSubs(loaded.hospitality),
+			'| other:',
+			countSubs(loaded.other_expenses),
+			'| artist_fee:',
+			(loaded.artist_fee || []).length,
+			'items'
+		);
 		store.set(loaded);
 		setBaseline(loaded);
 		pushHistory();
 		subscribe(id);
+		log('loaded budget', id, `(${data.event_name || 'unnamed'})`);
 		return true;
 	}
 
 	async function clear() {
+		log('clear');
 		await flush();
 		unsubscribe();
 		budgetId = null;
@@ -431,6 +505,7 @@ export function createBudgetSync() {
 	}
 
 	function destroy() {
+		log('destroy');
 		flush();
 		unsubscribe();
 	}

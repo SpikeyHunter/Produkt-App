@@ -1,3 +1,8 @@
+<script context="module" lang="ts">
+	// Version beacon — every file in this bundle must print the SAME tag.
+	console.log('[budget] BudgetExpenseCategory ui-v4 loaded');
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import { formatMoney, subsBudgetedTotal, subsActualTotal, subsHaveActuals } from '$lib/utils/budgetUtils';
@@ -26,6 +31,7 @@
 	function addSubsection() {
 		if (newSubName.trim() === '') return;
 		const name = newSubName.trim();
+		console.log('[budget] ui: add section', name, 'in', title);
 		subsections = [
 			...subsections,
 			{
@@ -41,6 +47,7 @@
 	}
 
 	function deleteSubsection(id: string) {
+		console.log('[budget] ui: delete section', id, 'in', title);
 		subsections = subsections.filter((s) => s.id !== id);
 		notifyUpdate();
 		notifySave();
