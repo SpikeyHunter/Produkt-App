@@ -32,7 +32,9 @@
 	};
 
 	// --- STATE ---
-	let hospoRider: HospoRiderInfo | null = null;
+	// Typed as CompleteHospoRiderInfo (not HospoRiderInfo) so `rider_sent_to_mihir`
+	// is a known property — otherwise assigning it inline trips TS2353.
+	let hospoRider: CompleteHospoRiderInfo | null = null;
 	let foodBuyout: { type: 'buyout' | 'dinner' | null; details: string } | null = null;
 	let saving = false;
 	let showHospoModal = false;
@@ -122,7 +124,7 @@
 
 	$: hospoRider = parseHospoRider(event);
 	$: foodBuyout = parseFoodBuyout(event);
-	$: completeHospoRider = hospoRider as CompleteHospoRiderInfo | null;
+	$: completeHospoRider = hospoRider;
 
 	// --- DATABASE FUNCTIONS ---
 	async function saveHospoChanges() {
@@ -175,11 +177,108 @@
 		}
 	}
 
-	function toggleRiderSentStatus() {
-		if (completeHospoRider) {
-			completeHospoRider.rider_sent_to_mihir = !completeHospoRider.rider_sent_to_mihir;
-			hospoRider = { ...completeHospoRider }; // Trigger reactivity
-			saveHospoChanges();
+	/**
+	 * Flips "Sent to Mihir" for EVERY advance tied to this event, plus every
+	 * advance on any Bazart event happening the same day. The rider goes to
+	 * Mihir once for the whole night, so the flag has to move as one.
+	 *
+	 * Rows with no hospo_rider are left alone on purpose — writing an empty
+	 * shell would make generateMihirRider() stop warning about missing riders.
+	 */
+	async function toggleRiderSentStatus() {
+		if (!event?.event_id || saving) return;
+
+		const newValue = !completeHospoRider?.rider_sent_to_mihir;
+
+		saving = true;
+		try {
+			// 1. This event's date, so we can find the matching Bazart show.
+			const { data: currentEvent, error: currentEventError } = await supabase
+				.from('events')
+				.select('event_date')
+				.eq('event_id', event.event_id)
+				.single();
+
+			if (currentEventError) throw currentEventError;
+
+			const eventIds = new Set<number>([Number(event.event_id)]);
+
+			// 2. Every Bazart event on the same date.
+			if (currentEvent?.event_date) {
+				const { data: sameDayEvents, error: sameDayError } = await supabase
+					.from('events')
+					.select('event_id, event_venue')
+					.eq('event_date', currentEvent.event_date);
+
+				if (sameDayError) throw sameDayError;
+
+				(sameDayEvents || []).forEach((e: any) => {
+					if ((e.event_venue || '').trim().toLowerCase() === 'bazart') {
+						eventIds.add(Number(e.event_id));
+					}
+				});
+			}
+
+			// 3. Every advance row across those events.
+			const { data: advanceRows, error: advanceError } = await supabase
+				.from('events_advance')
+				.select('id, event_id, artist_name, hospo_rider')
+				.in('event_id', Array.from(eventIds));
+
+			if (advanceError) throw advanceError;
+
+			let updated = 0;
+			let skipped = 0;
+
+			for (const row of advanceRows || []) {
+				const rider =
+					typeof row.hospo_rider === 'string'
+						? (() => {
+								try {
+									return JSON.parse(row.hospo_rider);
+								} catch {
+									return null;
+								}
+							})()
+						: row.hospo_rider;
+
+				// No rider on file — nothing to mark as sent.
+				if (!rider || typeof rider !== 'object') {
+					skipped++;
+					continue;
+				}
+
+				const { error: updateError } = await supabase
+					.from('events_advance')
+					.update({ hospo_rider: { ...rider, rider_sent_to_mihir: newValue } })
+					.eq('id', row.id);
+
+				if (updateError) {
+					console.error(`Failed to update rider flag for ${row.artist_name}:`, updateError);
+				} else {
+					updated++;
+				}
+			}
+
+			// 4. Reflect it locally right away.
+			if (completeHospoRider) {
+				hospoRider = { ...completeHospoRider, rider_sent_to_mihir: newValue };
+			}
+
+			popupMessage = newValue
+				? `Marked as sent for ${updated} artist${updated === 1 ? '' : 's'}${skipped ? ` (${skipped} without a rider skipped)` : ''}`
+				: `Marked as not sent for ${updated} artist${updated === 1 ? '' : 's'}`;
+			showPopup = true;
+			setTimeout(() => (showPopup = false), 3000);
+
+			dispatch('datachanged');
+		} catch (err) {
+			console.error('Failed to sync rider sent status:', err);
+			popupMessage = 'Could not update the rider status';
+			showPopup = true;
+			setTimeout(() => (showPopup = false), 3000);
+		} finally {
+			saving = false;
 		}
 	}
 
@@ -492,11 +591,16 @@
 				type="button"
 				on:click={toggleRiderSentStatus}
 				disabled={saving}
-				class="flex-1 text-xs border border-transparent py-2 rounded-2xl transition-all cursor-pointer {completeHospoRider?.rider_sent_to_mihir
+				title="Applies to every artist on this event + any Bazart show the same day"
+				class="flex-1 text-xs border border-transparent py-2 rounded-2xl transition-all cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed {completeHospoRider?.rider_sent_to_mihir
 					? 'bg-lime text-black font-bold'
 					: 'bg-gray1 text-gray3 hover:text-black hover:bg-lime'}"
 			>
-				{completeHospoRider?.rider_sent_to_mihir ? 'Sent to Mihir' : 'Rider not sent'}
+				{#if saving}
+					Syncing…
+				{:else}
+					{completeHospoRider?.rider_sent_to_mihir ? 'Sent to Mihir' : 'Rider not sent'}
+				{/if}
 			</button>
 		</div>
 
@@ -633,4 +737,3 @@
 		/>
 	</div>
 {/if}
-

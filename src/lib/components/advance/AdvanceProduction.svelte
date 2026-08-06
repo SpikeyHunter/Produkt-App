@@ -3,6 +3,7 @@
 	import { supabase } from '$lib/supabase.js';
 	import type { EventAdvance, SoundcheckInfo } from '$lib/types/events.js';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
+	import { resolveLocalBackline } from '$lib/utils/localBacklineResolver';
 
 	// --- TYPE DEFINITIONS ---
 	interface EquipmentItem {
@@ -53,7 +54,11 @@
 	}
 
 	// Props & Dispatcher
-	export let event: EventAdvance & { event_venue?: string; artist_name?: string };
+	export let event: EventAdvance & {
+		event_venue?: string;
+		artist_name?: string;
+		artist_type?: string | null;
+	};
 	const dispatch = createEventDispatcher();
 
 	// --- STATE ---
@@ -69,6 +74,32 @@
 	let popupMessage = '';
 	let artistType: string = '';
 	let timetable: TimetableEntry[] = [];
+	/** Which artist the inherited backline came from (Locals only). */
+	let backlineSource: string | null = null;
+
+	/**
+	 * Resolves the artist type from the prop first, then the value we worked out
+	 * from the timetable / DB.
+	 *
+	 * The prop matters: `artistType` is a plain local that only gets written
+	 * inside async functions, so deriving `isLocal` from it alone left the header
+	 * stuck on "Tech Rider / Confirmed" even though the async code had already
+	 * correctly taken the Local path. `event` is a prop, so it always drives the
+	 * reactive statement below.
+	 */
+	function resolveArtistType(ev: typeof event, fallback: string): string {
+		return (ev?.artist_type || fallback || '').trim().toLowerCase();
+	}
+
+	/** Plain function for use inside async code, where `$:` values aren't flushed yet. */
+	function checkIsLocal(): boolean {
+		return resolveArtistType(event, artistType) === 'local';
+	}
+
+	// Reactive mirrors, for the markup.
+	$: isLocal = resolveArtistType(event, artistType) === 'local';
+	/** "Same" mode: the backline is inherited, so the controls are read-only. */
+	$: backlineLocked = isLocal && !!techRider?.confirmed;
 
 	const defaultTechRider: TechRider = {
 		selected_mixer: '',
@@ -117,8 +148,21 @@
 		return null;
 	}
 
+	/**
+	 * Works out whether this artist is a Local, in priority order:
+	 *   1. `artist_type` on the advance row we were handed
+	 *   2. the timetable note for their slot
+	 *   3. a direct read of events_advance.artist_type
+	 *
+	 * Step 3 matters because the parent doesn't always select artist_type into
+	 * the prop. Without it, a Local silently fell through to the generic
+	 * "Confirmed" toggle and nothing was locked.
+	 */
 	async function fetchTimetableAndDetermineType() {
 		if (!event?.event_id || !event.artist_name) return;
+
+		// Reset first — otherwise the previous artist's type leaks across a switch.
+		artistType = event.artist_type || '';
 
 		try {
 			const { data, error } = await supabase
@@ -135,84 +179,93 @@
 			if (data?.timetable) {
 				timetable = parseJson(data.timetable) || [];
 
-				// Find current artist in timetable - handle B2B scenarios
+				// Find current artist in timetable - handle B2B scenarios.
+				// Case/punctuation-insensitive: the timetable says "Joss" while the
+				// advance row says "JOSS", and an exact === never matched those.
+				const normalize = (name?: string | null) =>
+					(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+				const target = normalize(event.artist_name);
+
 				const currentArtistEntry = timetable.find((entry) => {
-					// Exact match
-					if (entry.artist === event.artist_name) {
-						return true;
-					}
+					if (!entry?.artist) return false;
+					if (normalize(entry.artist) === target) return true;
 
 					// Check if this artist is part of a B2B
-					const artistsInSlot = entry.artist.split(/\s+B2B\s+/i).map((name) => name.trim());
-					return artistsInSlot.includes(event.artist_name);
+					return entry.artist
+						.split(/\s+B2B\s+/i)
+						.some((name) => normalize(name) === target);
 				});
 
-				if (currentArtistEntry) {
+				if (currentArtistEntry && !artistType) {
 					artistType = currentArtistEntry.notes || '';
 				}
 			}
 		} catch (err) {
 			console.error('Error in fetchTimetableAndDetermineType:', err);
 		}
+
+		// Last resort: read artist_type straight off the advance row.
+		if (!artistType) {
+			try {
+				const { data } = await supabase
+					.from('events_advance')
+					.select('artist_type')
+					.eq('event_id', event.event_id)
+					.eq('artist_name', event.artist_name)
+					.maybeSingle();
+
+				if (data?.artist_type) artistType = data.artist_type;
+			} catch (err) {
+				console.warn('Could not read artist_type from events_advance:', err);
+			}
+		}
+
+		artistType = (artistType || '').trim();
+
+		console.log(
+			`[AdvanceProduction] ${event.artist_name} | prop.artist_type="${event.artist_type ?? ''}" | resolved="${artistType}" | isLocal=${checkIsLocal()}`
+		);
 	}
 
+	/**
+	 * Local artists inherit the backline of the nearest NON-local artist in the
+	 * timetable — forward first, then backward if the forward walk runs out.
+	 * A chain of Local -> Local -> Headliner collapses onto the Headliner.
+	 *
+	 * This delegates to the shared resolver so the Production panel and the
+	 * generated local advance email can never disagree. Mics and anything that
+	 * looks like SFX are stripped by the resolver.
+	 */
 	async function getSupportArtistRider(): Promise<TechRider | null> {
-		if (!event?.event_id || artistType !== 'Local') return null;
-
-		// Find the timetable entry that contains the current artist
-		const currentArtistEntry = timetable.find((entry) => {
-			if (entry.artist === event.artist_name) return true;
-			const artistsInSlot = entry.artist.split(/\s+B2B\s+/i).map((name) => name.trim());
-			return artistsInSlot.includes(event.artist_name);
-		});
-
-		if (!currentArtistEntry) return null;
-
-		const currentArtistIndex = timetable.indexOf(currentArtistEntry);
-
-		// Find the next Support artist slot after current artist
-		const supportArtistEntry = timetable
-			.slice(currentArtistIndex + 1)
-			.find((entry) => entry.notes === 'Support');
-
-		if (!supportArtistEntry) return null;
+		if (!event?.event_id || !event.artist_name || !checkIsLocal()) {
+			backlineSource = null;
+			return null;
+		}
 
 		try {
-			// Extract all artist names from the support slot (handle B2B)
-			const supportArtistNames = supportArtistEntry.artist
-				.split(/\s+B2B\s+/i)
-				.map((name) => name.trim());
+			const resolved = await resolveLocalBackline({
+				supabase,
+				eventId: event.event_id,
+				artistName: event.artist_name,
+				timetable
+			});
 
-			// Try to fetch rider from the first artist in the support slot
-			const { data, error } = await supabase
-				.from('events_advance')
-				.select('tech_rider')
-				.eq('event_id', event.event_id)
-				.eq('artist_name', supportArtistNames[0])
-				.single();
+			backlineSource = resolved.sourceArtist;
 
-			if (error || !data) {
-				console.warn('Could not fetch support artist rider:', error);
+			if (!resolved.rider) {
+				console.warn(`No backline source found for ${event.artist_name}.`);
 				return null;
 			}
 
-			const supportRider = parseJson(data.tech_rider);
+			console.log(
+				`Backline for ${event.artist_name} inherited from ${resolved.sourceArtist} (${resolved.direction})`,
+				resolved.chain
+			);
 
-			// Filter out microphones for Local artists
-			if (supportRider && supportRider.equipment) {
-				const filteredEquipment = { ...supportRider.equipment };
-				delete filteredEquipment['Wireless Mic'];
-				delete filteredEquipment['Wired Mic'];
-
-				return {
-					...supportRider,
-					equipment: filteredEquipment
-				};
-			}
-
-			return supportRider;
+			return resolved.rider as TechRider;
 		} catch (err) {
-			console.error('Error fetching support artist rider:', err);
+			console.error('Error resolving local backline:', err);
+			backlineSource = null;
 			return null;
 		}
 	}
@@ -252,7 +305,7 @@
 			};
 		}
 
-		if (artistType === 'Local') {
+		if (checkIsLocal()) {
 			// Default to "Same" (confirmed: true) if no existing data
 			const shouldUseSameRider = dbTechRider?.confirmed !== false; // true by default, or explicitly set
 
@@ -554,7 +607,7 @@
 			techRider.confirmed = !techRider.confirmed;
 
 			// If Local artist and switching to "Same", load support artist's rider
-			if (artistType === 'Local' && techRider.confirmed) {
+			if (checkIsLocal() && techRider.confirmed) {
 				const supportRider = await getSupportArtistRider();
 				if (supportRider) {
 					techRider = {
@@ -791,12 +844,14 @@
 					{/if}
 				</div>
 
-				<div class="flex items-center justify-between">
-					<div class="flex items-center gap-3">
-						<h3 class="font-semibold text-gray-200 text-sm">Tech Rider</h3>
+				<div class="flex items-center justify-between gap-2">
+					<div class="flex items-center gap-3 min-w-0">
+						<h3 class="font-semibold text-gray-200 text-sm flex-shrink-0">
+							{isLocal ? 'Backline' : 'Tech Rider'}
+						</h3>
 						<button
 							type="button"
-							class="rounded-xl px-3 py-1 text-xs transition-colors duration-200 cursor-pointer"
+							class="rounded-xl px-3 py-1 text-xs transition-colors duration-200 cursor-pointer flex-shrink-0"
 							class:bg-lime={techRider.confirmed}
 							class:text-black={techRider.confirmed}
 							class:font-bold={techRider.confirmed}
@@ -804,16 +859,37 @@
 							class:text-gray3={!techRider.confirmed}
 							on:click={toggleTechRiderConfirmed}
 							disabled={saving}
+							title={isLocal
+								? techRider.confirmed
+									? 'Inherited backline — click to set a custom one'
+									: 'Custom backline — click to go back to the inherited one'
+								: ''}
 						>
-							{#if artistType === 'Local'}
-								{techRider.confirmed ? 'Same' : 'Different'}
+							{#if isLocal}
+								{techRider.confirmed ? 'Same' : 'Custom'}
 							{:else}
 								{techRider.confirmed ? 'Confirmed' : 'Not Confirmed'}
 							{/if}
 						</button>
 					</div>
+
+					{#if isLocal && backlineLocked && backlineSource}
+						<span class="text-[10px] text-gray3 truncate" title="Inherited from {backlineSource}">
+							from {backlineSource}
+						</span>
+					{/if}
 				</div>
 
+				<!-- Everything below is locked while a Local is on the inherited ("Same")
+				     backline: pointer-events-none blocks interaction even where a
+				     `disabled` attribute wouldn't apply (wrapper divs, qty steppers). -->
+				<div
+					class="space-y-2 transition-opacity duration-200"
+					class:opacity-40={backlineLocked}
+					class:pointer-events-none={backlineLocked}
+					class:select-none={backlineLocked}
+					aria-disabled={backlineLocked}
+				>
 				<div class="grid grid-cols-3 gap-2">
 					{#each ['DJM-A9', 'DJM-V10', 'DJM-900-NXS2'] as mixer}
 						<button
@@ -823,7 +899,7 @@
 							mixer
 								? 'bg-lime text-black font-bold'
 								: 'bg-gray1 text-gray3 hover:border-lime'}"
-							disabled={artistType === 'Local' && techRider.confirmed}
+							disabled={backlineLocked}
 						>
 							{mixer}
 						</button>
@@ -845,7 +921,7 @@
 											type="button"
 											on:click={() => toggleEquipment(name)}
 											class="flex-grow text-left cursor-pointer"
-											disabled={artistType === 'Local' && techRider.confirmed}
+											disabled={backlineLocked}
 										>
 											{name}
 										</button>
@@ -855,7 +931,7 @@
 													type="button"
 													on:click|stopPropagation={() => adjustQty(techRider.equipment, name, -1)}
 													class="bg-navbar w-5 h-5 rounded text-white flex items-center justify-center hover:bg-gray-700 transition-colors cursor-pointer"
-													disabled={artistType === 'Local' && techRider.confirmed}
+													disabled={backlineLocked}
 												>
 													-
 												</button>
@@ -864,7 +940,7 @@
 													type="button"
 													on:click|stopPropagation={() => adjustQty(techRider.equipment, name, 1)}
 													class="bg-navbar w-5 h-5 rounded text-white flex items-center justify-center hover:bg-gray-700 transition-colors cursor-pointer"
-													disabled={artistType === 'Local' && techRider.confirmed}
+													disabled={backlineLocked}
 												>
 													+
 												</button>
@@ -886,14 +962,14 @@
 								class="w-full bg-gray1 p-1.5 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-lime"
 								bind:value={item.text}
 								on:input={() => updateOtherText(item.id, item.text, 'tech')}
-								disabled={artistType === 'Local' && techRider.confirmed}
+								disabled={backlineLocked}
 							/>
 							<button
 								type="button"
 								class="flex items-center justify-center w-6 h-6 text-red-500 hover:bg-red-500 hover:text-white rounded-full transition-colors cursor-pointer"
 								aria-label="Remove request"
 								on:click={() => removeOtherRequest(item.id, 'tech')}
-								disabled={artistType === 'Local' && techRider.confirmed}
+								disabled={backlineLocked}
 							>
 								<svg
 									class="w-3.5 h-3.5"
@@ -916,10 +992,18 @@
 					type="button"
 					on:click={() => addOtherRequest('tech')}
 					class="w-full text-xs bg-gray1 text-gray3 border border-transparent hover:border-lime py-1 rounded-lg transition-all cursor-pointer"
-					disabled={artistType === 'Local' && techRider.confirmed}
+					disabled={backlineLocked}
 				>
 					+ Add Other Request
 				</button>
+				</div>
+
+				{#if backlineLocked}
+					<p class="text-[10px] text-gray3 italic">
+						Same backline as {backlineSource || 'the next artist'} — click “Same” to set a custom
+						one.
+					</p>
+				{/if}
 			</div>
 
 			<div class="space-y-1.5 pt-1">
@@ -1018,4 +1102,3 @@
 		<div class="flex items-center justify-center h-full text-gray3">Loading...</div>
 	{/if}
 </div>
-

@@ -1,152 +1,228 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import {
+		normalizeStatus,
+		statusPillClass,
+		statusDotClass,
+		formatShortDate,
+		formatMoney
+	} from '$lib/components/booking/talentpayments/paymentStatus';
+
 	export let artist: any;
 	export let selected = false;
 	export let showEventName = false;
 
 	const dispatch = createEventDispatcher();
 
-	// NEW COLOR MAPPING FROM APP.CSS
-	function getStatusColor(status: string) {
-		if (!status) return 'text-gray2 bg-gray1';
-		switch (status.toLowerCase()) {
-			case 'draft':
-				return 'text-gray2 bg-gray1 border border-gray2/30';
-			case 'confirmed':
-				return 'text-tentatif bg-tentatif/10 border border-tentatif/30';
-			case 'invoiced':
-				return 'text-proposed bg-proposed/10 border border-proposed/30';
-			case 'approved':
-				return 'text-question bg-question/10 border border-question/30';
-			case 'submitted':
-				return 'text-info bg-info/10 border border-info/30';
-			case 'paid':
-				return 'text-confirmed bg-confirmed/10 border border-confirmed/30';
-			default:
-				return 'text-gray2 bg-gray1 border border-gray2/30';
-		}
-	}
-
-	const formatter = new Intl.NumberFormat('en-CA', {
-		style: 'currency',
-		currency: 'CAD',
-		maximumFractionDigits: 0
-	});
-
-	// Helper to format date like "Feb 13th 2025"
-	// Helper to format date matching EventSelectorPayment
-	function getFormattedDate(dateStr: string) {
-		if (!dateStr) return '';
-
-		// Using local timezone trick to prevent off-by-one-day errors
-		const cleanDateStr = dateStr.split('T')[0].replace(/-/g, '/');
-		const date = new Date(cleanDateStr);
-
-		return date.toLocaleDateString('en-US', {
-			month: 'short',
-			day: 'numeric',
-			year: 'numeric'
-		});
-	}
+	$: status = normalizeStatus(artist?.paymentData?.status);
+	$: amount = artist?.paymentData?.amount ?? 150;
+	$: delivery = artist?.paymentData?.delivery_method || 'Pick Up';
+	$: hasInvoice = !!artist?.paymentData?.invoice_url;
 </script>
 
+<!-- All accents use the `lime` Tailwind token. The scoped CSS handles geometry
+     only — it never sets border-color or text colour. -->
 <button
-	class="artist-card relative w-full min-w-0 min-h-0 hover:cursor-pointer rounded-2xl overflow-hidden border transition-all duration-200 group flex flex-col text-left
-    {selected
-		? 'border-lime shadow-[0_0_0_2px_rgba(132,204,22,1)]'
-		: 'border-gray1 hover:border-gray2 hover:shadow-lg'}"
+	class="artist-card group {selected
+		? 'border-lime ring-1 ring-lime'
+		: 'border-white/10 hover:border-white/25'}"
 	on:click={() => dispatch('click', artist)}
 >
-	<div class="absolute inset-0 bg-gray1 z-0">
+	<!-- Background layer is absolutely positioned, so the <img>'s intrinsic pixel
+	     size can never influence layout. The card's height comes purely from the
+	     grid track (grid-auto-rows), which is why it can't pop or scale on a
+	     cold first paint anymore. -->
+	<span class="card-bg">
 		{#if artist.event_flyer}
-			<img
-				src={artist.event_flyer}
-				alt=""
-				loading="lazy"
-				decoding="async"
-				class="w-full h-full object-cover opacity-30 group-hover:opacity-20 transition-opacity"
-			/>
-			<div class="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/30"></div>
+			<img src={artist.event_flyer} alt="" loading="lazy" decoding="async" />
+			<span class="card-scrim"></span>
 		{:else}
-			<div class="w-full h-full bg-gray1/50 flex items-center justify-center">
-				<span class="text-gray2 font-bold text-xs opacity-20">NO IMAGE</span>
-			</div>
-			<div class="absolute inset-0 bg-gradient-to-t from-black/90 to-transparent"></div>
+			<span class="card-scrim card-scrim--solid"></span>
 		{/if}
-	</div>
+	</span>
 
-	<div class="relative z-10 flex flex-col h-full p-4 justify-between">
-		<div class="space-y-1.5">
-			<h3
-				class="font-bold text-white text-lg leading-tight drop-shadow-md group-hover:text-lime transition-colors"
-			>
-				{artist.artist_name}
-			</h3>
+	<span class="card-body">
+		<span class="card-top">
+			<span class="card-title text-white group-hover:text-lime">{artist.artist_name}</span>
 
-			{#if artist.eventDateDisplay}
-				<div class="text-[12px] text-gray3 font-bold uppercase tracking-wide flex flex-col gap-0.5">
-					<span class="text-lime">
-						{getFormattedDate(artist.eventDateDisplay)}
-					</span>
-					{#if showEventName && artist.eventNameDisplay}
-						<span class="text-white text-left text-[11px] normal-case font-medium"
-							>{artist.eventNameDisplay}</span
-						>
-					{/if}
-
-					<div
-						class="mt-1.5 flex items-center gap-1 text-[10px] text-gray2 normal-case font-medium tracking-normal"
-					>
-						<span>Delivery:</span>
-						<span class="text-white font-bold"
-							>{artist.paymentData?.delivery_method || 'Pick Up'}</span
-						>
-					</div>
-				</div>
-			{/if}
-		</div>
-
-		<div class="flex flex-col gap-3">
-			<div class="flex items-center justify-between">
-				<span
-					class="text-[10px] uppercase tracking-wider px-2 py-1 rounded-full font-bold {getStatusColor(
-						artist.paymentData?.status || 'Draft'
-					)}"
-				>
-					{artist.paymentData?.status || 'Draft'}
-				</span>
-
-				<span class="text-lg font-bold text-lime drop-shadow-sm">
-					{formatter.format(artist.paymentData?.amount ?? 150)}
-				</span>
-			</div>
-
-			<div class="pt-2 border-t border-white/10">
-				{#if artist.paymentData?.approved_by}
-					<div class="flex items-center gap-1.5 text-[11px] text-lime font-bold tracking-wide">
-						Approved by {artist.paymentData.approved_by}
-					</div>
-				{:else}
-					<div
-						class="flex items-center gap-1.5 text-[11px] text-gray3 font-bold tracking-wide opacity-70"
-					>
-						Not Approved
-					</div>
+			<span class="card-meta">
+				<span class="card-date text-lime">{formatShortDate(artist.eventDateDisplay)}</span>
+				{#if showEventName && artist.eventNameDisplay}
+					<span class="card-event text-white/60">{artist.eventNameDisplay}</span>
 				{/if}
-			</div>
-		</div>
-	</div>
+			</span>
+		</span>
+
+		<span class="card-bottom">
+			<span class="card-delivery">
+				<span class="text-white/45">Delivery</span>
+				<span class="font-bold text-white">{delivery}</span>
+				{#if hasInvoice}
+					<svg
+						class="h-3 w-3 flex-shrink-0 text-lime"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.5"
+						viewBox="0 0 24 24"
+						aria-label="Invoice uploaded"
+					>
+						<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+					</svg>
+				{/if}
+			</span>
+
+			<span class="card-status-row">
+				<span class={statusPillClass(status)}>
+					<span class={statusDotClass(status)}></span>
+					{status}
+				</span>
+				<span class="card-amount text-lime">{formatMoney(amount)}</span>
+			</span>
+		</span>
+	</span>
 </button>
 
 <style>
-	/* Explicit aspect-ratio defined in CSS (not as a Tailwind arbitrary class) so it
-	   is guaranteed to be present in the stylesheet from the very first paint and
-	   can never be skipped/late due to JIT/purge timing. This, combined with
-	   min-width: 0 / min-height: 0 above, stops the grid item from ever sizing
-	   itself off the <img>'s natural (intrinsic) pixel dimensions before layout
-	   settles - which is what causes a card to "zoom" to near full size on a
-	   first/cold render and only look right after a refresh. */
 	.artist-card {
-		aspect-ratio: 3 / 4;
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		width: 100%;
+		height: 100%; /* fills the fixed grid row — no aspect-ratio guesswork */
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
+		border-radius: 14px;
+		/* width/style only — colour is owned by the Tailwind classes above */
+		border-width: 1px;
+		border-style: solid;
+		background: #141414;
+		text-align: left;
+		cursor: pointer;
+		transition:
+			border-color 0.15s ease,
+			box-shadow 0.15s ease;
+		contain: layout paint;
+	}
+
+	.card-bg {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		display: block;
+		background: #141414;
+	}
+
+	.card-bg img {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		opacity: 0.34;
+		transition: opacity 0.15s ease;
+	}
+
+	.artist-card:hover .card-bg img {
+		opacity: 0.22;
+	}
+
+	.card-scrim {
+		position: absolute;
+		inset: 0;
+		display: block;
+		background: linear-gradient(
+			to top,
+			rgb(0 0 0 / 0.95) 0%,
+			rgb(0 0 0 / 0.8) 45%,
+			rgb(0 0 0 / 0.45) 100%
+		);
+	}
+
+	.card-scrim--solid {
+		background: linear-gradient(to top, rgb(0 0 0 / 0.6), rgb(255 255 255 / 0.02));
+	}
+
+	.card-body {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		flex-direction: column;
+		justify-content: space-between;
+		height: 100%;
+		padding: 12px;
+		gap: 8px;
+	}
+
+	.card-top {
+		display: block;
+		min-width: 0;
+	}
+
+	.card-title {
+		display: -webkit-box;
+		font-size: 15px;
+		font-weight: 800;
+		line-height: 1.15;
+		letter-spacing: -0.015em;
+		overflow: hidden;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+		transition: color 0.15s ease;
+	}
+
+	.card-meta {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		margin-top: 4px;
+		min-width: 0;
+	}
+
+	.card-date {
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+	}
+
+	.card-event {
+		font-size: 11px;
+		font-weight: 500;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.card-bottom {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		min-width: 0;
+	}
+
+	.card-delivery {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 10px;
+		white-space: nowrap;
+	}
+
+	.card-status-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding-top: 8px;
+		border-top: 1px solid rgb(255 255 255 / 0.1);
+		min-width: 0;
+	}
+
+	.card-amount {
+		font-size: 15px;
+		font-weight: 800;
+		white-space: nowrap;
 	}
 </style>

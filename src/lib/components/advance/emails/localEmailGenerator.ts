@@ -1,5 +1,6 @@
 import type { EventAdvance, TimetableEntry } from '$lib/services/eventsService';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { resolveLocalBackline, buildBacklineHtml } from '$lib/utils/localBacklineResolver';
 
 /**
  * Generates an HTML table for the timetable.
@@ -97,90 +98,73 @@ function formatFullDate(dateString: string | null): string {
 }
 
 /**
- * Gets the backline equipment for the artist after the local artist.
+ * Resolves the venue for the event, falling back to the events table when the
+ * advance row doesn't carry it.
  */
-async function getNextArtistBackline(
-	event: EventAdvance,
+async function resolveEventVenue(
+	event: EventAdvance & { event_venue?: string },
 	supabase: SupabaseClient
 ): Promise<string> {
-	if (!event?.event_id || !event.artist_name || !event.timetable) {
-		return '';
-	}
+	const direct = event.event_venue || event.venue;
+	if (direct) return direct;
 
-	const timetable = event.timetable;
+	if (!event.event_id) return 'TBD';
 
-	// Find current local artist in timetable
-	const currentArtistEntry = timetable.find((entry: TimetableEntry) => {
-		if (entry.artist === event.artist_name) return true;
-		const artistsInSlot = entry.artist.split(/\s+B2B\s+/i).map((name: string) => name.trim());
-		return artistsInSlot.includes(event.artist_name);
-	});
+	const { data } = await supabase
+		.from('events')
+		.select('event_venue')
+		.eq('event_id', event.event_id)
+		.single();
 
-	if (!currentArtistEntry) return '';
+	return data?.event_venue || 'TBD';
+}
 
-	const currentArtistIndex = timetable.indexOf(currentArtistEntry);
+function normalizeName(name?: string | null): string {
+	return (name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
-	// Find the next artist after the local artist (excluding DOORS/CURFEW)
-	const nextArtistEntry = timetable
-		.slice(currentArtistIndex + 1)
-		.find((entry: TimetableEntry) => entry.artist !== 'DOORS' && entry.artist !== 'CURFEW');
+/**
+ * Finds the public invoice upload link for this artist — the exact same link the
+ * Talent Payments panel copies with "Share Link".
+ */
+async function getInvoiceUploadLink(
+	event: EventAdvance,
+	supabase: SupabaseClient
+): Promise<string | null> {
+	if (!event?.event_id || !event?.artist_name) return null;
 
-	if (!nextArtistEntry) return '';
+	const origin = typeof window !== 'undefined' ? window.location.origin : '';
+	if (!origin) return null;
 
 	try {
-		// Get the first artist name from the slot (handle B2B)
-		const nextArtistNames = nextArtistEntry.artist
-			.split(/\s+B2B\s+/i)
-			.map((name: string) => name.trim());
-
-		// Fetch tech rider for the next artist
 		const { data, error } = await supabase
-			.from('events_advance')
-			.select('tech_rider')
-			.eq('event_id', event.event_id)
-			.eq('artist_name', nextArtistNames[0])
-			.single();
+			.from('talent_payments')
+			.select('id, artist_name, advance_id, public_token')
+			.eq('event_id', event.event_id);
 
-		if (error || !data) {
-			console.warn('Could not fetch next artist tech rider:', error);
-			return '';
+		if (error || !data || data.length === 0) {
+			console.warn('No talent_payments rows found for this event:', error);
+			return null;
 		}
 
-		const techRider =
-			typeof data.tech_rider === 'string' ? JSON.parse(data.tech_rider) : data.tech_rider;
+		const target = normalizeName(event.artist_name);
 
-		if (!techRider) return '';
+		// Exact artist match first, then fall back to the advance row this email
+		// is being generated from (covers B2B slots and spelling drift).
+		const match =
+			data.find((row: any) => normalizeName(row.artist_name) === target) ||
+			data.find((row: any) => row.advance_id === (event as any).id) ||
+			null;
 
-		let backlineHtml = '';
-
-		// Add mixer
-		if (techRider.selected_mixer) {
-			backlineHtml += `* 1x ${techRider.selected_mixer}<br>`;
+		if (!match?.public_token) {
+			console.warn('No public_token on the matching talent_payments row.');
+			return null;
 		}
 
-		// Add equipment (excluding microphones)
-		if (techRider.equipment) {
-			for (const key in techRider.equipment) {
-				const item = techRider.equipment[key];
-				if (item.selected && key !== 'Wireless Mic' && key !== 'Wired Mic') {
-					backlineHtml += `* ${item.qty}x ${key}<br>`;
-				}
-			}
-		}
-
-		// Add other requests
-		if (Array.isArray(techRider.other)) {
-			techRider.other.forEach((req: any) => {
-				if (req.text && req.text.trim()) {
-					backlineHtml += `* ${req.text}<br>`;
-				}
-			});
-		}
-
-		return backlineHtml;
+		return `${origin}/public/invoice/${match.public_token}`;
 	} catch (err) {
-		console.error('Error fetching next artist backline:', err);
-		return '';
+		console.error('Error fetching invoice upload link:', err);
+		return null;
 	}
 }
 
@@ -194,13 +178,11 @@ async function getContactEmail(
 	if (!mainContact) return null;
 
 	try {
-		// Extract phone number from main_contact (format: "Name - Phone")
 		const phoneMatch = mainContact.match(/\+1\s*\(?\d{3}\)?\s*\d{3}[-.\s]?\d{4}/);
 		if (!phoneMatch) return null;
 
 		const phone = phoneMatch[0];
 
-		// Query local_contacts for matching phone
 		const { data, error } = await supabase
 			.from('local_contacts')
 			.select('email, first_name, dj_name')
@@ -287,10 +269,9 @@ async function hasContactPhone(
  * Generates the .eml file for local artist advance email.
  */
 export async function generateLocalAdvanceEmail(
-	event: EventAdvance & { timetable?: TimetableEntry[] | null },
+	event: EventAdvance & { timetable?: TimetableEntry[] | null; event_venue?: string },
 	supabase: SupabaseClient
 ) {
-	// Get the authenticated user
 	const {
 		data: { user }
 	} = await supabase.auth.getUser();
@@ -300,38 +281,48 @@ export async function generateLocalAdvanceEmail(
 		throw new Error('User must be authenticated to generate email');
 	}
 
-	// Get contact email
-	// Get contact email
-	// FIX: Use 'let' so we can modify it, and default to empty string if not found
 	let toEmail = await getContactEmail(event.main_contact || null, supabase);
-
 	if (!toEmail) {
 		console.warn('No contact email found. defaulting to empty.');
-		toEmail = ''; // Allows the email to open with a blank "To:" field
+		toEmail = '';
 	}
 
-	// Get contact name
 	const contactName = await getContactName(event.main_contact || null, supabase);
-
-	// Check if contact has phone number
 	const contactHasPhone = await hasContactPhone(event.main_contact || null, supabase);
 
 	const artistName = event.artist_name || 'N/A';
 	const eventDate = formatFullDate(event.event_date ?? null);
-	const eventVenue = event.venue || event.event_venue || 'TBD';
+	const eventVenue = await resolveEventVenue(event, supabase);
 	const fromEmail = user.email;
 	const userName = user.user_metadata?.name || fromEmail.split('@')[0];
 	const userFirstName = userName.split(' ')[0];
 
 	const subject = `Advance // ${artistName} // ${eventDate} // ${eventVenue} Montreal`;
 
-	// Get timetable
 	const timetableContent = generateTimetableHtml(event.timetable || null);
 
-	// Get backline from next artist
-	const backlineContent = await getNextArtistBackline(event, supabase);
+	// BACKLINE — inherited from the nearest non-local artist in the timetable
+	// (forward first, then backward). SFX is never included for a Local.
+	const backline = await resolveLocalBackline({
+		supabase,
+		eventId: event.event_id,
+		artistName,
+		timetable: event.timetable ?? null
+	});
+	const backlineContent = buildBacklineHtml(backline.rider);
 
-	// Get guestlist
+	if (backline.sourceArtist) {
+		console.log(
+			`Backline for ${artistName} inherited from ${backline.sourceArtist} (${backline.direction})`,
+			backline.chain
+		);
+	} else {
+		console.warn(`No backline source found for ${artistName}.`);
+	}
+
+	// Public invoice upload link (same link the Talent Payments panel shares).
+	const invoiceUploadLink = await getInvoiceUploadLink(event, supabase);
+
 	const guestlist = event.guestlist as any;
 	let guestlistText = '';
 	if (guestlist) {
@@ -347,7 +338,6 @@ export async function generateLocalAdvanceEmail(
 		}
 	}
 
-	// Get specs link based on venue
 	let specsText = '';
 	if (eventVenue === 'New City Gas') {
 		specsText =
@@ -366,6 +356,9 @@ export async function generateLocalAdvanceEmail(
 		bulletPoints += '<li>Can you please send your visuals or logo for our VJ</li>';
 	}
 	bulletPoints += `<li>Guest list will need to be submitted no later than 7pm night of the event. (Only ${guestlistText} will be given)</li>`;
+	if (invoiceUploadLink) {
+		bulletPoints += `<li>Please upload your invoice here: <a href="${invoiceUploadLink}">${invoiceUploadLink}</a></li>`;
+	}
 
 	const htmlBody = `
         <p>Hi ${contactName},</p>
@@ -404,7 +397,6 @@ Content-Type: text/html; charset=utf-8
 ${htmlBody}
 `;
 
-	// Create a Blob and trigger the download
 	const blob = new Blob([emlContent], { type: 'message/rfc822' });
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');
@@ -420,9 +412,9 @@ ${htmlBody}
  * Checks if the local artist email can be generated (has main_contact).
  */
 export async function canGenerateLocalEmail(
-	event: EventAdvance,
-	supabase: SupabaseClient
+	_event: EventAdvance,
+	_supabase: SupabaseClient
 ): Promise<boolean> {
-	// FIX: Always return true so the button is never disabled
+	// Always true so the button is never disabled.
 	return true;
 }

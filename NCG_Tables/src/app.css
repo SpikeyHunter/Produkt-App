@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  /* NCG Tables — matches the Produkt suite (dark + lime accent) */
+  --color-ink: #0c0d0f;        /* app background */
+  --color-panel: #16181c;      /* cards / panels */
+  --color-edge: #26292f;       /* borders */
+  --color-fog: #e7e9ee;        /* primary text */
+  --color-dim: #8b909c;        /* secondary text */
+  --color-lime: #c8f04d;       /* accent — actions, selection */
+  --color-ok: #4ade80;         /* available */
+  --color-hold: #fbbf24;       /* on hold / pending deposit */
+  --color-sold: #f87171;       /* reserved / paid */
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html, body { height: 100%; }
+
+::selection { background: var(--color-lime); color: var(--color-ink); }
+
+.btn {
+  @apply inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium
+         border border-edge bg-panel hover:border-lime/60 transition-colors cursor-pointer;
+}
+.btn-accent {
+  @apply bg-lime text-ink border-lime hover:bg-lime/90;
+}
+.input {
+  @apply w-full rounded-lg bg-ink border border-edge px-2.5 py-1.5 text-sm
+         focus:outline-none focus:border-lime/70;
+}
+.label {
+  @apply text-[11px] uppercase tracking-wider text-dim font-medium;
+}

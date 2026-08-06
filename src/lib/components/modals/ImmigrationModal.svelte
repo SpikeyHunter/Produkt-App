@@ -993,7 +993,7 @@
 Date: ${new Date().toUTCString()}
 From: Charles <charles@produkt.ca>
 To: IRCC.IMWU-UMIT.IRCC@cic.gc.ca
-CC: janie@produkt.ca, allanah@produkt.ca
+CC: allanah@produkt.ca
 Subject: WP Exemption for ${fullLegalName} AKA ${artistName} at New City Gas ${formattedEventDate}
 MIME-Version: 1.0
 Content-Type: multipart/mixed;

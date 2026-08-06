@@ -90,19 +90,25 @@ export function generateTechEmailString(
 		html += `</div>`;
 	}
 
-	// --- VISUALS (Outdoor) ---
-	// Added <br> for spacing before this section
-	// Added <strong> around the name
-	if (form.projector_outdoor) {
-		html += `<br><p style="margin: 0;"><strong>@${videoName}</strong></p>
+	// --- VISUALS (Outdoor + Interior) ---
+	// Both driven by the "Visuals & Video" SectionCard toggle. Previously this
+	// only checked whether the fields had text, so turning the section off in
+	// the editor didn't stop it from being exported. Now gated on the toggle.
+	const isVisualsSectionVisible = form.visible_sections?.['visuals'] !== false;
+
+	if (isVisualsSectionVisible) {
+		// Added <br> for spacing before this section
+		// Added <strong> around the name
+		if (form.projector_outdoor) {
+			html += `<br><p style="margin: 0;"><strong>@${videoName}</strong></p>
                  <p style="margin: 0;"><strong>Projecteur extérieur:</strong></p>
                  <p style="margin: 0 0 10px 0;">${form.projector_outdoor.replace(/\n/g, '<br>')}</p>`;
-	}
+		}
 
-	// --- VISUALS (Interior) ---
-	if (form.visuals_interior) {
-		html += `<p style="margin: 0;"><strong>Visuals for TVS and Interior Projector:</strong></p>
+		if (form.visuals_interior) {
+			html += `<p style="margin: 0;"><strong>Visuals for TVS and Interior Projector:</strong></p>
                  <p style="margin: 0 0 10px 0;">${form.visuals_interior.replace(/\n/g, '<br>')}</p>`;
+		}
 	}
 
 	// --- SET TIMES ---

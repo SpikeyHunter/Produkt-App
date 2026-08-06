@@ -390,8 +390,12 @@
 	</div>
 {/if}
 
-<style lang="">
-	@import "tailwindcss";
+<style>
+	/* NOTE: never `@import "tailwindcss"` inside a component <style> block.
+	   Tailwind v4's Vite plugin treats it as a stylesheet entry point and tries
+	   to compile this whole component as CSS, which fails with
+	   "Invalid declaration: `createEventDispatcher`". The import lives in
+	   app.css only; the CSS vars below are already global from its @theme. */
 
 	/* Artist highlight styles */
 	.artist-highlight {

@@ -87,12 +87,39 @@ function formatFullDate(dateString: string | null): string {
 }
 
 /**
+ * Resolves the venue for the event. The advance row doesn't always carry it, so
+ * fall back to the events table via event_id.
+ */
+async function resolveEventVenue(
+    event: EventAdvance & { event_venue?: string },
+    supabase: SupabaseClient
+): Promise<string> {
+    const direct = event.event_venue || event.venue;
+    if (direct) return direct;
+
+    if (!event.event_id) return '';
+
+    const { data } = await supabase
+        .from('events')
+        .select('event_venue')
+        .eq('event_id', event.event_id)
+        .single();
+
+    return data?.event_venue || '';
+}
+
+/** Bazart has no VJ, so we never ask for visuals there. */
+function isBazart(venue: string): boolean {
+    return (venue || '').trim().toLowerCase().includes('bazart');
+}
+
+/**
  * Generates the .eml file for the main advance email.
  * @param event The event data object.
  * @param supabase The Supabase client instance.
  */
 export async function generateAdvanceEmail(
-    event: EventAdvance & { timetable?: TimetableEntry[] | null },
+    event: EventAdvance & { timetable?: TimetableEntry[] | null; event_venue?: string },
     supabase: SupabaseClient
 ) {
     // Get the authenticated user
@@ -105,8 +132,9 @@ export async function generateAdvanceEmail(
 
     const artistName = event.artist_name || 'N/A';
     const eventDate = formatFullDate(event.event_date ?? null);
-    const eventVenue = event.venue || 'TBD';
-    
+    const resolvedVenue = await resolveEventVenue(event, supabase);
+    const eventVenue = resolvedVenue || 'TBD';
+
     const subject = `Advance // ${artistName} // ${eventDate} // ${eventVenue} Montreal`;
 
     // Get the authenticated user's email
@@ -115,8 +143,12 @@ export async function generateAdvanceEmail(
 
     const timetableContent = generateTimetableHtml(event.timetable || null);
 
-    // Conditionally include the VJ line only if a venue is specified.
-    const vjLine = event.venue ? `- Please send visuals/logo link for our VJ<br>` : '';
+    // VJ line: only when we know the venue AND it isn't Bazart. Bazart has no VJ,
+    // so asking for visuals/logo there just confuses the artist.
+    const vjLine =
+        resolvedVenue && !isBazart(resolvedVenue)
+            ? `- Please send visuals/logo link for our VJ<br>`
+            : '';
 
     // Using a template literal for the HTML body and cleaning it up.
     const htmlBody = `

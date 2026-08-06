@@ -4,6 +4,13 @@
 	import UploadModal from '$lib/components/modals/UploadModal.svelte';
 	import PreviewModal from '$lib/components/modals/PreviewModal.svelte';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
+	import {
+		PRIMARY_STATUSES,
+		FINAL_STATUSES,
+		normalizeStatus,
+		statusTheme,
+		formatOrdinalDate
+	} from '$lib/components/booking/talentpayments/paymentStatus';
 
 	export let advance: any;
 	export let payment: any = {};
@@ -12,209 +19,76 @@
 
 	const dispatch = createEventDispatcher();
 
+	/** Who signs off on invoices — used in the outgoing email copy. */
+	const APPROVER = 'Willis';
+	const ACCOUNTING_TO = 'comptabilite@newcitygas.com';
+	const ACCOUNTING_CC = ['charles@produkt.ca', 'mezz@produkt.ca', 'willis@produkt.ca'];
+
 	let amount = 150;
 	let notes = '';
 	let deliveryMethod = 'Pick Up';
 	let status = 'Draft';
 	let invoiceUrl: string | null = null;
-	let approvedBy: string | null = null;
-	let approvedAt: string | null = null;
 
 	let showUploadModal = false;
 	let showPreviewModal = false;
 	let isUploading = false;
-	let isConfirmingApprove = false;
 	let isGeneratingEml = false;
 	let isGeneratingSpark = false;
-	let statusDropdownOpen = false;
 
 	let notificationMessage = '';
 	let showNotification = false;
 
-	$: isLocked = !!approvedBy;
-
-	// FIX: Reactive block completely hot-swaps all inputs when a new artist is clicked, removing the need for a #key block
+	// Hot-swaps every input when a different artist is selected.
 	$: {
 		amount = payment?.amount ?? 150;
 		notes = payment?.notes ?? '';
 		deliveryMethod = payment?.delivery_method ?? 'Pick Up';
-		status = payment?.status ?? 'Draft';
+		status = normalizeStatus(payment?.status);
 		invoiceUrl = payment?.invoice_url || null;
-		approvedBy = payment?.approved_by || null;
-		approvedAt = payment?.approved_at || null;
 	}
 
-	function clickOutside(node: HTMLElement) {
-		const handleClick = (event: MouseEvent) => {
-			if (node && !node.contains(event.target as Node) && !event.defaultPrevented) {
-				node.dispatchEvent(new CustomEvent('click_outside'));
-			}
-		};
-		document.addEventListener('click', handleClick, true);
-		return {
-			destroy() {
-				document.removeEventListener('click', handleClick, true);
-			}
-		};
-	}
-
-	function getStatusClasses(statusState: string) {
-		switch (statusState?.toLowerCase()) {
-			case 'draft':
-				return 'bg-gray1 border border-gray2 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]';
-			case 'confirmed':
-				return 'bg-tentatif/20 border border-tentatif text-tentatif shadow-[0_0_10px_rgba(59,130,246,0.2)]';
-			case 'invoiced':
-				return 'bg-proposed/20 border border-proposed text-proposed shadow-[0_0_10px_rgba(147,51,234,0.2)]';
-			case 'approved':
-				return 'bg-question/20 border border-question text-question shadow-[0_0_10px_rgba(20,184,166,0.2)]';
-			case 'submitted':
-				return 'bg-info/20 border border-info text-info shadow-[0_0_10px_rgba(234,179,8,0.2)]';
-			case 'paid':
-				return 'bg-confirmed/20 border border-confirmed text-confirmed shadow-[0_0_10px_rgba(34,197,94,0.2)]';
-			default:
-				return 'bg-gray1 border border-gray2 text-white shadow-[0_0_10px_rgba(255,255,255,0.1)]';
-		}
-	}
-
-	function formatApprovalDate(dateString: string) {
-		if (!dateString) return '';
-		try {
-			const d = new Date(dateString);
-			if (isNaN(d.getTime())) return '';
-			const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-			const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-			const month = d.toLocaleDateString('en-US', { month: 'long' });
-			const day = d.getDate();
-			const year = d.getFullYear();
-			const suffix =
-				day > 3 && day < 21
-					? 'th'
-					: day % 10 === 1
-						? 'st'
-						: day % 10 === 2
-							? 'nd'
-							: day % 10 === 3
-								? 'rd'
-								: 'th';
-			return `Approved at, ${time}, ${dayName}, ${month} ${day}${suffix}, ${year}`;
-		} catch (e) {
-			return '';
-		}
-	}
-
-	function formatEventDate(dateString: string) {
-		if (!dateString) return '';
-		try {
-			// Using the same local timezone trick from ArtistListCard
-			const cleanDateStr = dateString.split('T')[0].replace(/-/g, '/');
-			const d = new Date(cleanDateStr);
-
-			if (isNaN(d.getTime())) return '';
-			
-			const month = d.toLocaleDateString('en-US', { month: 'long' });
-			const day = d.getDate();
-			const year = d.getFullYear();
-			const suffix =
-				day > 3 && day < 21
-					? 'th'
-					: day % 10 === 1
-						? 'st'
-						: day % 10 === 2
-							? 'nd'
-							: day % 10 === 3
-								? 'rd'
-								: 'th';
-			return `${month} ${day}${suffix} ${year}`;
-		} catch (e) {
-			return '';
-		}
-	}
+	$: canEmail = !!invoiceUrl;
 
 	async function updatePaymentField(field: string, value: any) {
-		if (isLocked && field !== 'status' && field !== 'invoice_url') return;
 		if (!payment?.id) {
 			console.error('No payment ID found for update');
 			return;
 		}
 
-		const payload = {
-			[field]: value,
-			updated_at: new Date().toISOString()
-		};
-
 		const { data, error } = await supabase
 			.from('talent_payments')
-			.update(payload)
+			.update({ [field]: value, updated_at: new Date().toISOString() })
 			.eq('id', payment.id)
 			.select()
 			.single();
 
-		if (error) {
-			console.error('Error updating payment:', error);
-		} else {
-			payment = data; // Keep local sync
-		}
+		if (error) console.error('Error updating payment:', error);
+		else payment = data;
 	}
 
 	async function selectStatus(newStatus: string) {
+		if (status === newStatus) return;
 		status = newStatus;
-		statusDropdownOpen = false;
 		await updatePaymentField('status', newStatus);
 	}
 
-	function toggleDelivery() {
-		if (isLocked) return;
-		deliveryMethod = deliveryMethod === 'Pick Up' ? 'Mail' : 'Pick Up';
-		updatePaymentField('delivery_method', deliveryMethod);
-	}
-
-	async function handleApprove() {
-		if (!currentUserProfile || !payment?.id || isLocked) return;
-
-		if (!isConfirmingApprove) {
-			isConfirmingApprove = true;
-			setTimeout(() => (isConfirmingApprove = false), 5000);
-			return;
-		}
-
-		const userName = currentUserProfile.first_name || 'User';
-		const now = new Date().toISOString();
-
-		approvedBy = userName;
-		approvedAt = now;
-		status = 'Approved';
-
-		const { error } = await supabase
-			.from('talent_payments')
-			.update({
-				status: 'Approved',
-				approved_by: userName,
-				approved_at: now
-			})
-			.eq('id', payment.id);
-
-		if (error) {
-			console.error('Approval failed', error);
-		} else {
-			isConfirmingApprove = false;
-		}
+	function setDelivery(method: string) {
+		if (deliveryMethod === method) return;
+		deliveryMethod = method;
+		updatePaymentField('delivery_method', method);
 	}
 
 	function handleShareLink() {
 		if (!payment?.public_token) return;
-
-		const link = `${window.location.origin}/public/invoice/${payment.public_token}`;
-		navigator.clipboard.writeText(link);
-
+		navigator.clipboard.writeText(`${window.location.origin}/public/invoice/${payment.public_token}`);
 		notificationMessage = 'Link copied to clipboard!';
 		showNotification = true;
 	}
 
 	function openPublicLink() {
 		if (!payment?.public_token) return;
-		const link = `${window.location.origin}/public/invoice/${payment.public_token}`;
-		window.open(link, '_blank');
+		window.open(`${window.location.origin}/public/invoice/${payment.public_token}`, '_blank');
 	}
 
 	async function handleUpload(e: CustomEvent) {
@@ -224,7 +98,9 @@
 		let dateStr = new Date().toISOString().split('T')[0];
 		try {
 			if (eventDate) dateStr = new Date(eventDate).toISOString().split('T')[0];
-		} catch (err) {}
+		} catch (err) {
+			/* keep today's date */
+		}
 
 		const cleanArtist = (advance?.artist_name || 'Artist').replace(/[^a-zA-Z0-9]/g, '_');
 		const ext = file.name.split('.').pop() || 'pdf';
@@ -256,54 +132,135 @@
 
 	async function handleDeleteInvoice() {
 		invoiceUrl = null;
-		status = 'Confirmed';
+		status = 'Draft';
 		await updatePaymentField('invoice_url', null);
-		await updatePaymentField('status', 'Confirmed');
+		await updatePaymentField('status', 'Draft');
 		showPreviewModal = false;
 	}
 
+	/* ------------------------------------------------------------ email ---- */
+
+	function buildEmail() {
+		const artistName = advance?.artist_name || 'Artist';
+		const formattedDate = formatOrdinalDate(eventDate);
+		const subject = `DJ Invoice - ${artistName} - ${formattedDate}`;
+		const body = [
+			`Hi Rachelle,`,
+			``,
+			`Here's a DJ invoice for ${artistName} for the performance on ${formattedDate}.`,
+			``,
+			`To be Approved by ${APPROVER}`,
+			``,
+			`Thanks,`,
+			`${currentUserProfile?.first_name || 'Team'}`
+		].join('\r\n');
+
+		const cc = ACCOUNTING_CC.filter((email) => email !== currentUserProfile?.email);
+		const fileName = `Invoice_${artistName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+
+		return { subject, body, cc, fileName };
+	}
+
+	async function downloadInvoicePdf(fileName: string) {
+		const response = await fetch(invoiceUrl as string);
+		if (!response.ok) throw new Error('Failed to fetch invoice PDF');
+		const blobFile = await response.blob();
+		const blobUrl = URL.createObjectURL(blobFile);
+		triggerDownload(blobUrl, fileName);
+		URL.revokeObjectURL(blobUrl);
+		return blobFile;
+	}
+
+	function triggerDownload(href: string, fileName: string) {
+		const a = document.createElement('a');
+		a.href = href;
+		a.download = fileName;
+		a.style.display = 'none';
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+	}
+
+	/**
+	 * FIXED: Spark (and every other mail client registered as a mailto: handler)
+	 * will silently ignore the request if the protocol launch doesn't happen
+	 * inside the original user gesture. The old version awaited a Supabase write
+	 * AND supabase.auth.getUser() before setting window.location.href, so by the
+	 * time the mailto fired the gesture had expired and nothing opened.
+	 *
+	 * Now the mailto is opened synchronously on click; the DB write and the PDF
+	 * download happen afterwards. The non-standard `&from=` param was also
+	 * dropped — it isn't part of RFC 6068 and newer Spark builds reject the whole
+	 * URL when they see it.
+	 */
+	function handleSparkEmail() {
+		if (!invoiceUrl || isGeneratingSpark || isGeneratingEml) return;
+
+		const { subject, body, cc, fileName } = buildEmail();
+
+		const params = new URLSearchParams();
+		if (cc.length) params.set('cc', cc.join(','));
+		params.set('subject', subject);
+		params.set('body', body);
+
+		// URLSearchParams encodes spaces as "+", which mail clients render literally.
+		const query = params.toString().replace(/\+/g, '%20');
+		const mailtoLink = `mailto:${ACCOUNTING_TO}?${query}`;
+
+		// Synchronous — still inside the click gesture.
+		const a = document.createElement('a');
+		a.href = mailtoLink;
+		a.rel = 'noopener';
+		a.style.display = 'none';
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+
+		// Everything else can safely run after.
+		isGeneratingSpark = true;
+		(async () => {
+			try {
+				status = 'Submitted';
+				await updatePaymentField('status', 'Submitted');
+				await downloadInvoicePdf(fileName);
+				notificationMessage = 'Email opened — attach the downloaded PDF.';
+				showNotification = true;
+			} catch (error) {
+				console.error('Spark email follow-up failed:', error);
+				notificationMessage = 'Email opened, but the PDF download failed.';
+				showNotification = true;
+			} finally {
+				isGeneratingSpark = false;
+			}
+		})();
+	}
+
+	/** .eml file with the PDF already attached — opens in any desktop client. */
 	async function generateEml() {
-		if (!invoiceUrl) return;
+		if (!invoiceUrl || isGeneratingEml || isGeneratingSpark) return;
 		isGeneratingEml = true;
 
 		try {
-			// Update the Database Status locally and to server instantly
 			status = 'Submitted';
 			await updatePaymentField('status', 'Submitted');
 
-			// 1. Fetch the actual PDF file and convert to Base64
+			const { subject, body, cc, fileName } = buildEmail();
+
 			const response = await fetch(invoiceUrl);
 			if (!response.ok) throw new Error('Failed to fetch invoice PDF');
 			const blobFile = await response.blob();
 
 			const base64Data = await new Promise<string>((resolve, reject) => {
 				const reader = new FileReader();
-				reader.onloadend = () => {
-					const base64 = (reader.result as string).split(',')[1];
-					resolve(base64);
-				};
+				reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
 				reader.onerror = reject;
 				reader.readAsDataURL(blobFile);
 			});
 
-			// 2. Format details
-			const ccList = ['charles@produkt.ca', 'mezz@produkt.ca', 'willis@produkt.ca']
-				.filter((email) => email !== currentUserProfile?.email)
-				.join(', ');
-
-			const formattedDate = formatEventDate(eventDate);
-			const subject = `DJ Invoice - ${advance?.artist_name || 'Artist'} - ${formattedDate}`;
-			const approvalText = approvedBy ? `Approved by ${approvedBy}` : 'To be Approved';
-
-			const bodyText = `Hi Rachelle,\n\nHere's a DJ invoice for ${advance?.artist_name || 'Artist'} for the performance on ${formattedDate}.\n\n${approvalText}\n\nThanks,\n${currentUserProfile?.first_name || 'Team'}`;
-
-			// 3. Construct Multipart MIME Document
 			const boundary = `----=_NextPart_${Date.now().toString(16)}`;
-			const cleanFileName = `Invoice_${(advance?.artist_name || 'Artist').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-
 			const emlContent = [
-				`To: comptabilite@newcitygas.com`,
-				`Cc: ${ccList}`,
+				`To: ${ACCOUNTING_TO}`,
+				`Cc: ${cc.join(', ')}`,
 				`From: ${currentUserProfile?.email || 'noreply@produkt.ca'}`,
 				`Subject: ${subject}`,
 				`X-Unsent: 1`,
@@ -314,26 +271,20 @@
 				`--${boundary}`,
 				`Content-Type: text/plain; charset=utf-8`,
 				``,
-				bodyText,
+				body,
 				``,
 				`--${boundary}`,
-				`Content-Type: application/pdf; name="${cleanFileName}"`,
-				`Content-Disposition: attachment; filename="${cleanFileName}"`,
+				`Content-Type: application/pdf; name="${fileName}"`,
+				`Content-Disposition: attachment; filename="${fileName}"`,
 				`Content-Transfer-Encoding: base64`,
 				``,
 				base64Data,
 				`--${boundary}--`
 			].join('\r\n');
 
-			// 4. Download EML file
 			const emlBlob = new Blob([emlContent], { type: 'message/rfc822' });
 			const url = URL.createObjectURL(emlBlob);
-			const a = document.createElement('a');
-			a.href = url;
-			a.download = `Email_${cleanFileName.replace('.pdf', '')}.eml`;
-			document.body.appendChild(a);
-			a.click();
-			document.body.removeChild(a);
+			triggerDownload(url, `Email_${fileName.replace('.pdf', '')}.eml`);
 			URL.revokeObjectURL(url);
 		} catch (error) {
 			console.error('Failed to generate EML:', error);
@@ -343,372 +294,206 @@
 		}
 	}
 
-	async function handleSparkEmail() {
-		if (!invoiceUrl) return;
-		isGeneratingSpark = true;
-
-		try {
-			// Update the Database Status locally and to server instantly
-			status = 'Submitted';
-			await updatePaymentField('status', 'Submitted');
-
-			// 1. Format details for the email
-			const ccList = ['charles@produkt.ca', 'mezz@produkt.ca', 'willis@produkt.ca']
-				.filter((email) => email !== currentUserProfile?.email)
-				.join(','); // mailto uses strictly commas for multiple emails
-
-			const formattedDate = formatEventDate(eventDate);
-			const subject = `DJ Invoice - ${advance?.artist_name || 'Artist'} - ${formattedDate}`;
-			const approvalText = approvedBy ? `Approved by ${approvedBy}` : 'To be Approved';
-
-			const bodyText = `Hi Rachelle,\n\nHere's a DJ invoice for ${advance?.artist_name || 'Artist'} for the performance on ${formattedDate}.\n\n${approvalText}\n\nThanks,\n${currentUserProfile?.first_name || 'Team'}`;
-
-			// NEW: Fetch the authenticated user's email directly from Supabase Auth
-			const {
-				data: { user },
-				error: authError
-			} = await supabase.auth.getUser();
-			if (authError) console.warn('Could not fetch user from auth:', authError);
-
-			// Use the auth user email first, fallback to the profile prop if needed
-			const fromEmail = user?.email || currentUserProfile?.email;
-
-			// 2. Open default mail client (Spark) with pre-filled TO, CC, Subject, Body
-			let mailtoLink = `mailto:comptabilite@newcitygas.com?cc=${encodeURIComponent(ccList)}&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`;
-
-			// Append the From address if we successfully retrieved one
-			if (fromEmail) {
-				mailtoLink += `&from=${encodeURIComponent(fromEmail)}`;
-			}
-
-			window.location.href = mailtoLink;
-
-			// 3. Fetch and Download the PDF automatically
-			const response = await fetch(invoiceUrl);
-			if (!response.ok) throw new Error('Failed to fetch invoice PDF');
-			const blobFile = await response.blob();
-
-			const cleanFileName = `Invoice_${(advance?.artist_name || 'Artist').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-			const blobUrl = URL.createObjectURL(blobFile);
-
-			const a = document.createElement('a');
-			a.href = blobUrl;
-			a.download = cleanFileName;
-			document.body.appendChild(a);
-			a.click();
-			document.body.removeChild(a);
-			URL.revokeObjectURL(blobUrl);
-		} catch (error) {
-			console.error('Failed to generate Spark email:', error);
-			alert('Error preparing email or downloading the PDF.');
-		} finally {
-			isGeneratingSpark = false;
-		}
-	}
-
 	function portal(node: HTMLElement, target: string = 'body') {
-		// Svelte actions only run in the browser, so 'document' is safe here
 		const targetEl = document.querySelector(target);
-		if (targetEl) {
-			targetEl.appendChild(node);
-		}
+		if (targetEl) targetEl.appendChild(node);
 		return {
 			destroy() {
-				if (node.parentNode) {
-					node.parentNode.removeChild(node);
-				}
+				if (node.parentNode) node.parentNode.removeChild(node);
 			}
 		};
 	}
+
+	function statusBtnClass(opt: string, active: boolean) {
+		const t = statusTheme(opt);
+		const base =
+			'w-full rounded-lg border px-2 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer truncate';
+		return active
+			? `${base} ${t.solid}`
+			: `${base} border-white/10 bg-transparent text-gray2 hover:border-white/25 hover:text-white`;
+	}
 </script>
 
-<div class="flex flex-col h-full bg-navbar relative pb-6">
-	<div class="flex-shrink-0 p-5 border-b border-gray1 bg-gray1/30 flex justify-between items-start">
-		<div>
-			<h2 class="text-xl font-bold text-white truncate">{advance?.artist_name || 'Artist'}</h2>
-			<p class="text-lime text-xs font-bold uppercase tracking-wider mt-1">Invoice Panel</p>
+<div class="flex h-full flex-col bg-navbar">
+	<!-- Header -->
+	<div class="flex flex-shrink-0 items-start justify-between gap-2 border-b border-gray1 bg-gray1/30 px-4 py-3">
+		<div class="min-w-0">
+			<h2 class="truncate text-base font-extrabold leading-tight text-white">
+				{advance?.artist_name || 'Artist'}
+			</h2>
+			<p class="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-lime">Invoice Panel</p>
 		</div>
 		<button
 			on:click={() => dispatch('edit')}
-			class="px-4 py-1.5 text-xs font-bold border border-gray2 text-gray2 rounded-full hover:bg-lime hover:border-lime hover:text-black transition-colors cursor-pointer"
+			class="flex-shrink-0 cursor-pointer rounded-full border border-gray2 px-3 py-1 text-[11px] font-bold text-gray2 transition-colors hover:border-lime hover:bg-lime hover:text-black"
 		>
 			Edit
 		</button>
 	</div>
 
-	<div class="flex-1 overflow-y-auto p-5 space-y-6">
-		<div class="grid grid-cols-2 gap-4">
+	<div class="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+		<!-- Amount + Delivery -->
+		<div class="grid grid-cols-2 gap-3">
 			<label class="flex flex-col">
-				<span class="block text-xs font-bold text-gray2 mb-2">Amount ($)</span>
+				<span class="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2">Amount ($)</span>
 				<input
 					type="number"
 					step="25"
 					bind:value={amount}
 					on:change={() => updatePaymentField('amount', amount)}
-					disabled={isLocked}
-					class="w-full bg-gray1 border border-gray2 rounded-2xl h-14 px-4 text-white font-bold text-lg focus:border-lime focus:outline-none disabled:opacity-50 transition-colors"
+					class="h-10 w-full rounded-lg border border-white/10 bg-gray1 px-3 text-base font-bold text-white transition-colors focus:border-lime focus:outline-none"
 				/>
 			</label>
 
 			<div class="flex flex-col">
-				<span class="block text-xs font-bold text-gray2 mb-2">Delivery</span>
-				<button
-					on:click={toggleDelivery}
-					class="w-full bg-gray1 border border-gray2 rounded-2xl h-14 px-4 text-white font-bold text-lg focus:border-lime focus:outline-none hover:border-lime transition-colors flex items-center justify-between cursor-pointer"
-				>
-					<span>{deliveryMethod}</span>
-					<svg class="w-5 h-5 text-gray2" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-						><path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-						></path></svg
-					>
-				</button>
+				<span class="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2">Delivery</span>
+				<div class="flex h-10 gap-1 rounded-lg border border-white/10 bg-gray1 p-1">
+					{#each ['Pick Up', 'Mail'] as method}
+						<button
+							on:click={() => setDelivery(method)}
+							class="flex-1 cursor-pointer rounded-md text-[11px] font-bold transition-colors {deliveryMethod ===
+							method
+								? 'bg-white text-black'
+								: 'text-gray2 hover:text-white'}"
+						>
+							{method}
+						</button>
+					{/each}
+				</div>
 			</div>
 		</div>
 
-		<div class="space-y-4">
-			{#if !invoiceUrl}
-				<div class="grid grid-cols-2 gap-3">
+		<!-- Invoice file -->
+		<div>
+			<span class="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-gray2">Invoice</span>
+			<div class="grid grid-cols-2 gap-2">
+				{#if !invoiceUrl}
 					<button
 						on:click={() => (showUploadModal = true)}
-						class="py-3 rounded-2xl border border-dashed border-gray2 hover:border-lime hover:bg-gray1/50 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 group cursor-pointer"
+						class="group flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed border-gray2 py-2.5 text-xs font-bold text-white transition-colors hover:border-lime hover:bg-gray1/50"
 					>
-						<svg
-							class="w-4 h-4 text-gray2 group-hover:text-lime"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
-							><path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-							></path></svg
-						>
+						<svg class="h-4 w-4 text-gray2 group-hover:text-lime" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+						</svg>
 						Upload PDF
 					</button>
-					<div class="flex flex-col gap-1 items-center justify-center">
-						<button
-							on:click={handleShareLink}
-							class="w-full py-3 rounded-2xl border border-gray2 hover:border-white hover:bg-gray1/50 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 group cursor-pointer"
-						>
-							<svg
-								class="w-4 h-4 text-gray2 group-hover:text-white"
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-								><path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-								></path></svg
-							>
-							Share Link
-						</button>
-						<button
-							on:click={openPublicLink}
-							class="text-[10px] text-gray2 hover:text-white hover:underline transition-colors cursor-pointer"
-						>
-							[View invoice upload link]
-						</button>
-					</div>
-				</div>
-			{:else}
-				<div class="grid grid-cols-2 gap-3">
+				{:else}
 					<button
 						on:click={() => (showPreviewModal = true)}
-						class="py-3 rounded-2xl border border-lime bg-lime/10 hover:bg-lime/20 text-lime font-bold text-sm transition-all flex flex-col items-center justify-center gap-0.5 group cursor-pointer"
+						class="flex cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-lime bg-lime/10 py-2 text-xs font-bold text-lime transition-colors hover:bg-lime/20"
 					>
-						<div class="flex items-center gap-1.5">
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-								><path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-								></path></svg
-							>
-							<span>Invoice Uploaded</span>
-						</div>
-						<span class="text-[10px] text-lime/70 uppercase tracking-wider">Preview File</span>
+						<span class="flex items-center gap-1.5">
+							<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+							</svg>
+							Uploaded
+						</span>
+						<span class="text-[9px] uppercase tracking-wider text-lime/70">Preview file</span>
 					</button>
+				{/if}
 
-					<div class="flex flex-col gap-1 items-center justify-center">
-						<button
-							on:click={handleShareLink}
-							class="w-full py-3 rounded-2xl border border-gray2 hover:border-white hover:bg-gray1/50 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 group cursor-pointer"
-						>
-							<svg
-								class="w-4 h-4 text-gray2 group-hover:text-white"
-								fill="none"
-								stroke="currentColor"
-								viewBox="0 0 24 24"
-								><path
-									stroke-linecap="round"
-									stroke-linejoin="round"
-									stroke-width="2"
-									d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-								></path></svg
-							>
-							Share Link
-						</button>
-						<button
-							on:click={openPublicLink}
-							class="text-[10px] text-gray2 hover:text-white hover:underline transition-colors cursor-pointer"
-						>
-							[View invoice upload link]
-						</button>
-					</div>
+				<div class="flex flex-col items-center justify-center gap-1">
+					<button
+						on:click={handleShareLink}
+						class="group flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-gray2 py-2.5 text-xs font-bold text-white transition-colors hover:border-white hover:bg-gray1/50"
+					>
+						<svg class="h-4 w-4 text-gray2 group-hover:text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+						</svg>
+						Share Link
+					</button>
+					<button
+						on:click={openPublicLink}
+						class="cursor-pointer text-[9px] text-gray2 transition-colors hover:text-white hover:underline"
+					>
+						View upload page
+					</button>
 				</div>
-			{/if}
+			</div>
 		</div>
 
-		<div
-			class="relative mt-4"
-			use:clickOutside
-			on:click_outside={() => (statusDropdownOpen = false)}
-		>
-			<span class="block text-xs font-bold text-gray2 mb-2">Status</span>
-			<button
-				on:click={() => (statusDropdownOpen = !statusDropdownOpen)}
-				class="w-full rounded-2xl p-4 flex justify-between items-center transition-all {getStatusClasses(
-					status
-				)} cursor-pointer"
-			>
-				<span class="font-bold uppercase tracking-wider text-sm">{status}</span>
-				<svg
-					class="w-4 h-4 transition-transform {statusDropdownOpen ? 'rotate-180' : ''}"
-					fill="none"
-					stroke="currentColor"
-					viewBox="0 0 24 24"
-					><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"
-					></path></svg
-				>
-			</button>
+		<!-- Status -->
+		<div>
+			<span class="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-gray2">Status</span>
+			<div class="grid grid-cols-2 gap-1.5">
+				{#each PRIMARY_STATUSES as opt}
+					<button on:click={() => selectStatus(opt)} class={statusBtnClass(opt, status === opt)}>
+						{opt}
+					</button>
+				{/each}
+			</div>
 
-			{#if statusDropdownOpen}
-				<div
-					class="absolute top-full left-0 mt-2 w-full bg-[#1C1C1C] border border-gray2 rounded-2xl shadow-2xl z-50 overflow-hidden flex flex-col gap-1 p-2"
-				>
-					{#each ['Draft', 'Confirmed', 'Invoiced', 'Approved', 'Submitted', 'Paid'] as opt}
-						<button
-							on:click={() => selectStatus(opt)}
-							class="w-full text-left px-4 py-3 rounded-xl text-sm font-bold transition-colors cursor-pointer {getStatusClasses(
-								opt
-							)}"
-						>
+			<div class="mt-2 rounded-xl border border-white/10 p-2">
+				<span class="mb-1.5 block text-[9px] font-bold uppercase tracking-wider text-gray2">Completed as</span>
+				<div class="grid grid-cols-3 gap-1.5">
+					{#each FINAL_STATUSES as opt}
+						<button on:click={() => selectStatus(opt)} class={statusBtnClass(opt, status === opt)}>
 							{opt}
 						</button>
 					{/each}
 				</div>
-			{/if}
+			</div>
 		</div>
 
-		<label class="flex flex-col space-y-2 pt-4 border-t border-gray1">
-			<span class="block text-xs font-bold text-gray2">Notes</span>
+		<!-- Notes -->
+		<label class="flex flex-col">
+			<span class="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2">Notes</span>
 			<textarea
 				bind:value={notes}
 				on:blur={() => updatePaymentField('notes', notes)}
 				placeholder="Add notes..."
 				rows="2"
-				class="w-full bg-gray1 rounded-2xl border border-gray2 text-sm text-white focus:border-lime focus:outline-none resize-none p-4 transition-colors"
+				class="w-full resize-none rounded-lg border border-white/10 bg-gray1 p-3 text-xs text-white transition-colors focus:border-lime focus:outline-none"
 			></textarea>
 		</label>
 
-		<div class="pt-4 border-t border-gray1">
-			{#if isLocked}
-				<div class="text-center">
-					<button
-						class="w-full bg-gray1 border border-lime/30 text-lime font-bold py-4 rounded-2xl text-sm cursor-not-allowed opacity-80"
-						disabled
-					>
-						Approved by {approvedBy}
-					</button>
-					{#if approvedAt}
-						<p class="text-[10px] text-gray2 mt-2 uppercase tracking-wide">
-							{formatApprovalDate(approvedAt)}
-						</p>
-					{/if}
-				</div>
+		<!-- Send -->
+		<div class="space-y-2 border-t border-gray1 pt-4">
+			<button
+				on:click={handleSparkEmail}
+				disabled={!canEmail || isGeneratingSpark || isGeneratingEml}
+				class="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold transition-colors
+				{!canEmail
+					? 'cursor-not-allowed bg-gray1 text-gray2 opacity-70'
+					: 'cursor-pointer bg-lime text-black hover:bg-lime/80'}"
+			>
+				{#if isGeneratingSpark}
+					<div class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+					<span>Opening mail…</span>
+				{:else}
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+					</svg>
+					<span>Email Accounting (Spark)</span>
+				{/if}
+			</button>
+
+			<button
+				on:click={generateEml}
+				disabled={!canEmail || isGeneratingEml || isGeneratingSpark}
+				class="flex w-full items-center justify-center gap-2 rounded-lg border py-2.5 text-xs font-bold transition-colors
+				{!canEmail
+					? 'cursor-not-allowed border-white/10 text-gray2 opacity-70'
+					: 'cursor-pointer border-gray2 text-white hover:border-lime hover:text-lime'}"
+			>
+				{#if isGeneratingEml}
+					<div class="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+					<span>Attaching file…</span>
+				{:else}
+					<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+					</svg>
+					<span>Download .eml (PDF attached)</span>
+				{/if}
+			</button>
+
+			{#if !canEmail}
+				<p class="text-center text-[10px] text-gray2 opacity-70">Upload an invoice to enable sending.</p>
 			{:else}
-				<button
-					on:click={handleApprove}
-					class="w-full py-4 rounded-2xl font-bold text-sm transition-all shadow-lg flex flex-col items-center justify-center gap-1 cursor-pointer
-                    {isConfirmingApprove
-						? 'bg-red-500 text-white hover:bg-red-600 scale-[1.02]'
-						: 'bg-gray3 text-black hover:bg-lime hover:scale-[1.02]'}"
-				>
-					{#if isConfirmingApprove}
-						<span>Are you sure you want to approve this, {currentUserProfile?.first_name}?</span>
-					{:else}
-						<span>Approve Invoice</span>
-					{/if}
-				</button>
+				<p class="text-center text-[10px] text-gray2 opacity-70">
+					Sends to accounting — “To be Approved by {APPROVER}”.
+				</p>
 			{/if}
-
-			<div class="mt-6 pt-6 border-t border-gray1/50 flex flex-col gap-3">
-				<button
-					on:click={generateEml}
-					disabled={!invoiceUrl ||
-						!['invoiced', 'approved', 'submitted', 'paid'].includes(status?.toLowerCase()) ||
-						isGeneratingEml ||
-						isGeneratingSpark}
-					class="w-full py-4 rounded-2xl font-bold text-sm transition-all shadow-lg flex items-center justify-center gap-2
-					{!invoiceUrl || !['invoiced', 'approved', 'submitted', 'paid'].includes(status?.toLowerCase())
-						? 'bg-gray1 text-gray2 cursor-not-allowed opacity-80'
-						: 'bg-gray2 text-black hover:bg-lime hover:text-black cursor-pointer'}"
-				>
-					{#if isGeneratingEml}
-						<div
-							class="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"
-						></div>
-						<span>Attaching file...</span>
-					{:else}
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-							><path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-							></path></svg
-						>
-						<span>Email Invoice to Accounting</span>
-					{/if}
-				</button>
-
-				<button
-					on:click={handleSparkEmail}
-					disabled={!invoiceUrl ||
-						!['invoiced', 'approved', 'submitted', 'paid'].includes(status?.toLowerCase()) ||
-						isGeneratingEml ||
-						isGeneratingSpark}
-					class="w-full py-2.5 rounded-2xl font-bold text-xs transition-all flex items-center justify-center gap-2 border border-gray2
-					{!invoiceUrl || !['invoiced', 'approved', 'submitted', 'paid'].includes(status?.toLowerCase())
-						? 'text-gray2 cursor-not-allowed opacity-80'
-						: 'text-white hover:border-lime hover:text-lime cursor-pointer bg-transparent'}"
-				>
-					{#if isGeneratingSpark}
-						<div
-							class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"
-						></div>
-						<span>Preparing Email...</span>
-					{:else}
-						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"
-							><path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M13 10V3L4 14h7v7l9-11h-7z"
-							></path></svg
-						>
-						<span>Email using Spark</span>
-					{/if}
-				</button>
-			</div>
 		</div>
 	</div>
 </div>

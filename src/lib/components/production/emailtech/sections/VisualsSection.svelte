@@ -153,6 +153,13 @@
 		} else {
 			removalTime = '00:00';
 			customInteriorText = standardInteriorText || 'Link: \nStage: \nShow Artwork: ';
+
+			// Bazart never uses this field — leave it empty (updateInteriorData
+			// also clears it for Bazart on user interaction).
+			if (!isBazart) {
+				const content = useStdLogo && (isNCG || isDSTRKT) ? standardInteriorText : customInteriorText;
+				formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(removalTime)} TVS only`;
+			}
 		}
 	}
 

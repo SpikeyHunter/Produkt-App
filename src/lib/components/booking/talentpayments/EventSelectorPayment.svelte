@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
+	import { formatShortDate, parseLocalDate } from '$lib/components/booking/talentpayments/paymentStatus';
 
 	export let events: any[] = [];
 	export let loading = false;
-	// Controlled by Parent
 	export let mode: 'EVENT' | 'ALL' = 'EVENT';
 	export let timeFilter: 'ALL' | 'LIVE' | 'PAST' = 'ALL';
 	export let selectedEventId: number | null = null;
@@ -13,8 +13,18 @@
 	let listContainer: HTMLElement;
 
 	const timeFilterOptions: ('LIVE' | 'PAST' | 'ALL')[] = ['LIVE', 'PAST', 'ALL'];
-	
-    // Auto-Scroll: Only triggers when selectedEventId actually changes
+
+	const excludeKeywords = [
+		'test',
+		'réservations',
+		'pass',
+		'event',
+		'template',
+		'produktworld',
+		'piknic',
+		'oktoberfest'
+	];
+
 	let lastScrolledId: number | null = null;
 	$: if (selectedEventId && listContainer && selectedEventId !== lastScrolledId) {
 		scrollToEvent(selectedEventId);
@@ -29,24 +39,13 @@
 		}
 	}
 
-	const excludeKeywords = [
-		'test',
-		'réservations',
-		'pass',
-		'event',
-		'template',
-		'produktworld',
-		'piknic',
-		'oktoberfest'
-	];
-    
-	// Split Logic
 	let liveEvents: any[] = [];
 	let pastEvents: any[] = [];
 
 	$: {
 		const today = new Date();
 		today.setHours(0, 0, 0, 0);
+		const term = searchTerm.trim().toLowerCase();
 
 		const filtered = events.filter((event) => {
 			if (!event.event_name) return false;
@@ -54,60 +53,66 @@
 			const nameLower = event.event_name.toLowerCase();
 			if (excludeKeywords.some((keyword) => nameLower.includes(keyword))) return false;
 
-			if (searchTerm) {
+			if (term) {
 				return (
-					nameLower.includes(searchTerm.toLowerCase()) ||
-					(event.event_venue && event.event_venue.toLowerCase().includes(searchTerm.toLowerCase()))
+					nameLower.includes(term) ||
+					(event.event_venue && event.event_venue.toLowerCase().includes(term))
 				);
 			}
 			return true;
 		});
+
 		liveEvents = filtered
-			.filter((e) => new Date(e.event_date) >= today)
-			.sort((a, b) => new Date(a.event_date).getTime() - new Date(b.event_date).getTime());
+			.filter((e) => (parseLocalDate(e.event_date) ?? new Date(0)) >= today)
+			.sort(
+				(a, b) =>
+					(parseLocalDate(a.event_date)?.getTime() ?? 0) -
+					(parseLocalDate(b.event_date)?.getTime() ?? 0)
+			);
+
 		pastEvents = filtered
-			.filter((e) => new Date(e.event_date) < today)
-			.sort((a, b) => new Date(b.event_date).getTime() - new Date(a.event_date).getTime());
+			.filter((e) => (parseLocalDate(e.event_date) ?? new Date(0)) < today)
+			.sort(
+				(a, b) =>
+					(parseLocalDate(b.event_date)?.getTime() ?? 0) -
+					(parseLocalDate(a.event_date)?.getTime() ?? 0)
+			);
 	}
 
-	function handleEventClick(event: any) {
-		dispatch('select', event);
-	}
+	// One flat list of sections keeps the markup to a single loop.
+	$: sections = [
+		{ key: 'live', label: 'Upcoming', accent: true, items: liveEvents },
+		{ key: 'past', label: 'Past Events', accent: false, items: pastEvents }
+	].filter((s) => {
+		if (s.items.length === 0) return false;
+		if (timeFilter === 'LIVE') return s.key === 'live';
+		if (timeFilter === 'PAST') return s.key === 'past';
+		return true;
+	});
 
-	function handleFilterClick(newFilter: 'ALL' | 'LIVE' | 'PAST') {
-		dispatch('filterChange', newFilter);
-	}
-
-	function formatDate(dateString: string): string {
-		if (!dateString) return 'TBD';
-        // FIXED: Using local timezone trick to match ArtistListCard
-        const cleanDateStr = dateString.split('T')[0].replace(/-/g, '/');
-        const date = new Date(cleanDateStr);
-
-		return date.toLocaleDateString('en-US', {
-			month: 'short',
-			day: 'numeric',
-			year: 'numeric'
-		});
-	}
+	$: isEmpty = !loading && sections.length === 0;
 </script>
 
 <div class="absolute inset-0 flex flex-col bg-navbar">
-	<div class="p-3 border-b border-gray1 space-y-3 bg-gray1/30 flex-shrink-0 z-10">
+	<div class="z-10 flex-shrink-0 space-y-2 border-b border-gray1 bg-gray1/30 p-2.5">
 		<div class="flex items-center justify-between">
-			<h2 class="text-white font-bold text-base">
-				{mode === 'ALL' ? 'Select Event' : 'Select Event'}
-			</h2>
+			<h2 class="text-[13px] font-bold text-white">Select Event</h2>
+			{#if mode === 'EVENT' && selectedEventId}
+				<button
+					class="cursor-pointer text-[10px] font-bold text-gray2 transition-colors hover:text-white"
+					on:click={() => dispatch('select', null)}
+				>
+					Clear
+				</button>
+			{/if}
 		</div>
 
-		<div class="bg-gray1 p-1 rounded-full flex gap-1">
+		<div class="flex gap-1 rounded-full bg-gray1 p-0.5">
 			{#each timeFilterOptions as t}
 				<button
-					class="flex-1 py-1.5 text-[10px] font-bold rounded-full transition-all uppercase tracking-wide cursor-pointer
-                    {timeFilter === t
-						? 'bg-lime text-black shadow-md'
-						: 'text-gray2 hover:text-white'}"
-					on:click={() => handleFilterClick(t)}
+					class="flex-1 cursor-pointer rounded-full py-1 text-[10px] font-bold uppercase tracking-wider transition-colors
+					{timeFilter === t ? 'bg-lime text-black' : 'text-gray2 hover:text-white'}"
+					on:click={() => dispatch('filterChange', t)}
 				>
 					{t}
 				</button>
@@ -116,121 +121,124 @@
 
 		<div class="relative">
 			<svg
-				class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray2"
+				class="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray2"
 				fill="none"
 				stroke="currentColor"
+				stroke-width="2"
 				viewBox="0 0 24 24"
-				><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"
-				></line></svg
 			>
+				<circle cx="11" cy="11" r="8" />
+				<line x1="21" y1="21" x2="16.65" y2="16.65" />
+			</svg>
 			<input
 				type="text"
 				bind:value={searchTerm}
 				placeholder="Search events..."
-				class="w-full bg-gray1 text-white rounded-full pl-9 pr-3 py-2 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-lime placeholder-gray2 transition-all"
+				class="w-full rounded-full bg-gray1 py-1.5 pl-8 pr-3 text-[11px] font-medium text-white placeholder-gray2 transition-all focus:outline-none focus:ring-1 focus:ring-lime"
 			/>
 		</div>
 	</div>
 
-	<div class="flex-1 overflow-y-auto p-2 scroll-smooth" bind:this={listContainer}>
+	<div class="flex-1 overflow-y-auto p-1.5" bind:this={listContainer}>
 		{#if loading}
-			<div class="p-8 text-center">
-				<div
-					class="animate-spin w-6 h-6 border-2 border-lime border-t-transparent rounded-full mx-auto"
-				></div>
+			<div class="p-6 text-center">
+				<div class="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-lime border-t-transparent"></div>
 			</div>
+		{:else if isEmpty}
+			<div class="p-6 text-center text-[11px] text-gray2">No events found</div>
 		{:else}
-			{#if (timeFilter === 'ALL' || timeFilter === 'LIVE') && liveEvents.length > 0}
+			{#each sections as section (section.key)}
 				{#if timeFilter === 'ALL'}
 					<div
-						class="px-2 py-2 mb-1 text-[14px] font-bold text-lime uppercase tracking-wider opacity-100 bg-navbar z-20 shadow-sm"
+						class="px-1.5 pb-1 pt-2 text-[10px] font-bold uppercase tracking-widest {section.accent
+							? 'text-lime'
+							: 'text-gray2'}"
 					>
-						Upcoming
+						{section.label}
 					</div>
 				{/if}
-				{#each liveEvents as event (event.id || event.event_id)}
+
+				{#each section.items as event (event.event_id)}
 					<button
 						id={`event-item-${event.event_id}`}
-						class="w-full text-left p-2.5 rounded-2xl flex items-center gap-3 group transition-all duration-200 border cursor-pointer mb-1
-                        {selectedEventId === event.event_id
-							? 'bg-gray1/80 border-lime shadow-[0_0_10px_rgba(132,204,22,0.1)]'
-							: 'border-transparent hover:bg-gray1/50 hover:border-gray2/50'}"
-						on:click={() => handleEventClick(event)}
+						class="event-row group {selectedEventId === event.event_id
+							? 'border-lime bg-lime/10'
+							: 'border-transparent hover:border-white/10 hover:bg-white/5'}"
+						on:click={() => dispatch('select', event)}
 					>
-						<div class="w-10 h-10 rounded-xl bg-gray1 flex-shrink-0 overflow-hidden relative">
+						<span class="event-thumb">
 							{#if event.event_flyer}
-								<img src={event.event_flyer} alt="" class="w-full h-full object-cover" />
-							{:else}
-								<div
-									class="w-full h-full flex items-center justify-center text-gray2 text-[9px] font-bold"
-								>
-									IMG
-								</div>
+								<img src={event.event_flyer} alt="" loading="lazy" decoding="async" />
 							{/if}
-						</div>
-						<div class="flex-1 min-w-0">
-							<div
-								class="text-white text-xs font-bold truncate group-hover:text-lime transition-colors"
-							>
-								{event.event_name}
-							</div>
-							<div class="text-gray2 text-[10px] font-medium mt-0.5">
-								{formatDate(event.event_date)}
-							</div>
-						</div>
+						</span>
+						<span class="min-w-0 flex-1">
+							<span class="event-name text-white group-hover:text-lime">{event.event_name}</span>
+							<span class="event-date text-white/50">{formatShortDate(event.event_date)}</span>
+						</span>
 					</button>
 				{/each}
-			{/if}
-
-			{#if timeFilter === 'ALL' && liveEvents.length > 0 && pastEvents.length > 0}
-				<div class="h-4"></div>
-			{/if}
-
-			{#if (timeFilter === 'ALL' || timeFilter === 'PAST') && pastEvents.length > 0}
-				{#if timeFilter === 'ALL'}
-					<div
-						class="px-2 py-2 mb-1 text-[14px] font-bold text-gray2 uppercase tracking-wider opacity-100 bg-navbar z-20 shadow-sm"
-					>
-						Past Events
-					</div>
-				{/if}
-				{#each pastEvents as event (event.id || event.event_id)}
-					<button
-						id={`event-item-${event.event_id}`}
-						class="w-full text-left p-2.5 rounded-2xl flex items-center gap-3 group transition-all duration-200 border cursor-pointer mb-1
-                        {selectedEventId === event.event_id
-							? 'bg-gray1/80 border-lime shadow-[0_0_10px_rgba(132,204,22,0.1)]'
-							: 'border-transparent hover:bg-gray1/50 hover:border-gray2/50'}"
-						on:click={() => handleEventClick(event)}
-					>
-						<div class="w-10 h-10 rounded-xl bg-gray1 flex-shrink-0 overflow-hidden relative">
-							{#if event.event_flyer}
-								<img src={event.event_flyer} alt="" class="w-full h-full object-cover" />
-							{:else}
-								<div
-									class="w-full h-full flex items-center justify-center text-gray2 text-[9px] font-bold"
-								>
-									IMG
-								</div>
-							{/if}
-						</div>
-						<div class="flex-1 min-w-0">
-							<div
-								class="text-white text-xs font-bold truncate group-hover:text-lime transition-colors"
-							>
-								{event.event_name}
-							</div>
-							<div class="text-gray2 text-[10px] font-medium mt-0.5">
-								{formatDate(event.event_date)}
-							</div>
-						</div>
-					</button>
-				{/each}
-			{/if}
-
-			{#if liveEvents.length === 0 && pastEvents.length === 0}
-				<div class="p-8 text-center text-gray2 text-xs">No events found</div>
-			{/if}
+			{/each}
 		{/if}
 	</div>
 </div>
+
+<style>
+	/* Geometry only — border colour and text colour come from the Tailwind
+	   `lime` token in the markup so accents always match the rest of the app. */
+	.event-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		height: 44px; /* fixed => the list never reflows while flyers load */
+		padding: 0 8px;
+		margin-bottom: 2px;
+		border-width: 1px;
+		border-style: solid;
+		border-radius: 10px;
+		background-color: transparent;
+		text-align: left;
+		cursor: pointer;
+		transition:
+			background-color 0.12s ease,
+			border-color 0.12s ease,
+			color 0.12s ease;
+		contain: layout paint;
+	}
+
+	.event-thumb {
+		position: relative;
+		display: block;
+		width: 30px;
+		height: 30px;
+		flex-shrink: 0;
+		overflow: hidden;
+		border-radius: 8px;
+		background: rgb(255 255 255 / 0.06);
+	}
+
+	.event-thumb img {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.event-name {
+		display: block;
+		font-size: 12px;
+		font-weight: 700;
+		line-height: 1.2;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.event-date {
+		display: block;
+		margin-top: 1px;
+		font-size: 10px;
+		font-weight: 600;
+	}
+</style>
