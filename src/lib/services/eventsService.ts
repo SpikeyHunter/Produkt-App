@@ -77,8 +77,36 @@ export interface EventWithTimetable {
 	event_name: string;
 	event_date: string;
 	event_flyer: string | null;
+	event_venue?: string | null;
+	event_status?: string | null;
 	timetable_active?: boolean;
 	timetable: TimetableEntry[] | null;
+}
+
+/**
+ * Builds the default header line printed above the set times.
+ *  - event_venue = "New City Gas"  ->  "Main Room - <Headliner>"
+ *  - event_venue = "Bazart"        ->  "Bazart Nuits - <Headliner>"
+ *  - anything else                 ->  falls back to schedule_techs.type (minus " Show")
+ */
+export function buildSetTimesTitle(
+	venue: string | null | undefined,
+	headlinerName: string,
+	fallbackType: string = 'Event'
+): string {
+	const v = (venue || '').trim().toLowerCase();
+	const artist = (headlinerName || 'TBA').trim();
+
+	let prefix: string;
+	if (v.includes('new city gas') || v === 'ncg') {
+		prefix = 'Main Room';
+	} else if (v.includes('bazart')) {
+		prefix = 'Bazart Nuits';
+	} else {
+		prefix = (fallbackType || 'Event').replace(/\s*Show$/i, '').trim() || 'Event';
+	}
+
+	return `${prefix} - ${artist}`;
 }
 // --- END MODIFIED TYPES ---
 
@@ -169,7 +197,7 @@ export async function fetchAllEventsWithSetTimes(): Promise<EventWithTimetable[]
 		const { data: allEvents, error: eventsError } = await supabase
 			.from('events')
 			.select(
-				'event_id, event_name, event_date, event_flyer, event_status, timetable_active, timetable'
+				'event_id, event_name, event_date, event_flyer, event_status, event_venue, timetable_active, timetable'
 			)
 			.order('event_date', { ascending: true });
 
@@ -411,7 +439,11 @@ function formatEventDate(dateString: string): string {
 	}
 }
 
-export async function fetchSetTimesPdfData(eventId: number, eventDate: string) {
+export async function fetchSetTimesPdfData(
+	eventId: number,
+	eventDate: string,
+	knownVenue?: string | null
+) {
 	try {
 		const { data: advanceData, error: advanceError } = await supabase
 			.from('events_advance')
@@ -425,6 +457,22 @@ export async function fetchSetTimesPdfData(eventId: number, eventDate: string) {
 			console.error('Error fetching advance data for PDF:', advanceError);
 		}
 
+		// Venue drives the default title. Use the value the card already has when possible.
+		let venue: string | null = knownVenue ?? null;
+		if (!venue) {
+			const { data: eventRow, error: eventError } = await supabase
+				.from('events')
+				.select('event_venue')
+				.eq('event_id', eventId)
+				.limit(1)
+				.single();
+
+			if (eventError && eventError.code !== 'PGRST116') {
+				console.error('Error fetching event venue for PDF:', eventError);
+			}
+			venue = eventRow?.event_venue || null;
+		}
+
 		const { data: techData, error: techError } = await supabase
 			.from('schedule_techs')
 			.select('type')
@@ -436,13 +484,23 @@ export async function fetchSetTimesPdfData(eventId: number, eventDate: string) {
 			console.error('Error fetching schedule_techs data for PDF:', techError);
 		}
 
+		const headlinerName = advanceData?.artist_name || 'TBA';
+		const eventType = techData?.type || 'Event';
+
 		return {
-			headlinerName: advanceData?.artist_name || 'TBA',
-			eventType: techData?.type || 'Event'
+			headlinerName,
+			eventType,
+			venue,
+			suggestedTitle: buildSetTimesTitle(venue, headlinerName, eventType)
 		};
 	} catch (err) {
 		console.error('Fatal error in fetchSetTimesPdfData:', err);
-		return { headlinerName: 'TBA', eventType: 'Event' };
+		return {
+			headlinerName: 'TBA',
+			eventType: 'Event',
+			venue: null as string | null,
+			suggestedTitle: 'Event - TBA'
+		};
 	}
 }
 

@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, tick } from 'svelte';
 	import type { EventWithTimetable, TimetableEntry } from '$lib/services/eventsService';
 	import { authStore } from '$lib/stores/authStore';
 	import { hasPermission } from '$lib/utils/permissions';
-	import { fetchSetTimesPdfData } from '$lib/services/eventsService';
+	import { fetchSetTimesPdfData, buildSetTimesTitle } from '$lib/services/eventsService';
 	import SetTimesPdfTemplate from './SetTimesPdfTemplate.svelte';
+	import SetTimesNameModal from './SetTimesNameModal.svelte';
 	import PopupNotification from '$lib/components/modals/PopupNotification.svelte';
 
 	export let event: EventWithTimetable;
@@ -15,8 +16,19 @@
 	let showPopup = false;
 	let popupMessage = '';
 	let isGeneratingPdf = false;
-	let pdfData = { headlinerName: 'TBA', eventType: 'Event' };
+	let isPreparingPdf = false;
+	let pdfData: {
+		headlinerName: string;
+		eventType: string;
+		venue: string | null;
+		suggestedTitle: string;
+	} = { headlinerName: 'TBA', eventType: 'Event', venue: null, suggestedTitle: '' };
 	let templateContainer: HTMLDivElement;
+
+	// --- PDF title modal state ---
+	let showNameModal = false;
+	let suggestedTitle = '';
+	let pdfTitle = '';
 
 	// --- Reactive Logic ---
 
@@ -113,35 +125,75 @@
 
 	// --- Functions ---
 
+	// Short venue code used in the downloaded file name
+	function venueFileCode(venue: string | null | undefined): string {
+		const v = (venue || '').trim().toLowerCase();
+		if (v.includes('new city gas') || v === 'ncg') return 'NCG';
+		if (v.includes('bazart')) return 'BAZART';
+		return 'PRODUKT';
+	}
+
+	// STEP 1 — validate, fetch the venue/headliner data, then ask for the title
 	async function handleDownloadPdf(e: MouseEvent) {
 		e.stopPropagation();
 		if (!canEditSetTimes) {
 			popupMessage = 'You do not have permission to download set times';
 			showPopup = true;
+			setTimeout(() => (showPopup = false), 3000);
 			return;
 		}
 		if (!allConfirmed) {
 			popupMessage = 'All artists must be Confirmed to generate PDF';
 			showPopup = true;
+			setTimeout(() => (showPopup = false), 3000);
 			return;
 		}
 
 		try {
+			isPreparingPdf = true;
+
+			pdfData = await fetchSetTimesPdfData(
+				event.event_id,
+				event.event_date,
+				event.event_venue ?? null
+			);
+
+			suggestedTitle =
+				pdfData.suggestedTitle ||
+				buildSetTimesTitle(
+					pdfData.venue ?? event.event_venue ?? null,
+					pdfData.headlinerName,
+					pdfData.eventType
+				);
+
+			pdfTitle = suggestedTitle;
+			showNameModal = true;
+		} catch (error) {
+			console.error('Error preparing PDF data:', error);
+			popupMessage = 'Failed to load event info for the PDF';
+			showPopup = true;
+			setTimeout(() => (showPopup = false), 3000);
+		} finally {
+			isPreparingPdf = false;
+		}
+	}
+
+	// STEP 2 — render the template with the chosen title and generate the PDF
+	async function generatePdf(chosenTitle: string) {
+		try {
 			isGeneratingPdf = true;
+			pdfTitle = chosenTitle;
 
-			// 1. Fetch auxiliary data
-			pdfData = await fetchSetTimesPdfData(event.event_id, event.event_date);
-
-			// 2. Give Svelte a tick to render the hidden template
+			// Let Svelte re-render the hidden template with the final title + font sizing
+			await tick();
 			await new Promise((resolve) => setTimeout(resolve, 50));
 
 			const sheetElement = templateContainer?.querySelector('#set-times-print-container');
 			if (!sheetElement) throw new Error('Template element not found.');
 
 			const htmlContent = sheetElement.outerHTML;
-			const fileName = `NCG_SetTimes_${event.event_date}`;
+			const fileName = `${venueFileCode(pdfData.venue ?? event.event_venue)}_SetTimes_${event.event_date}`;
 
-			// 3. Post to API
 			const response = await fetch('/api/generate-settimes-pdf', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -153,7 +205,6 @@
 				throw new Error(errorResult.error || 'PDF Generation failed');
 			}
 
-			// 4. Trigger download in browser
 			const blob = await response.blob();
 			const url = window.URL.createObjectURL(blob);
 			const a = document.createElement('a');
@@ -164,6 +215,7 @@
 			document.body.removeChild(a);
 			window.URL.revokeObjectURL(url);
 
+			showNameModal = false;
 			popupMessage = 'PDF Downloaded successfully!';
 			showPopup = true;
 		} catch (error) {
@@ -176,6 +228,15 @@
 				showPopup = false;
 			}, 3000);
 		}
+	}
+
+	function handleTitleConfirm(e: CustomEvent<{ title: string }>) {
+		generatePdf(e.detail.title);
+	}
+
+	function handleTitleCancel() {
+		if (isGeneratingPdf) return;
+		showNameModal = false;
 	}
 
 	async function handleCopyClick(e: MouseEvent) {
@@ -337,9 +398,21 @@
 		eventDate={event.event_date}
 		headlinerName={pdfData.headlinerName}
 		eventType={pdfData.eventType}
+		venue={pdfData.venue ?? event.event_venue ?? null}
+		title={pdfTitle}
 		timetable={event.timetable || []}
 	/>
 </div>
+
+<SetTimesNameModal
+	bind:show={showNameModal}
+	{suggestedTitle}
+	eventName={event.event_name}
+	eventDate={event.event_date}
+	isGenerating={isGeneratingPdf}
+	on:confirm={handleTitleConfirm}
+	on:cancel={handleTitleCancel}
+/>
 
 <PopupNotification
 	bind:show={showPopup}
@@ -404,7 +477,10 @@
 							class:opacity-50={!allConfirmed || !canEditSetTimes}
 							class:cursor-not-allowed={!allConfirmed || !canEditSetTimes}
 							class:cursor-pointer={allConfirmed && canEditSetTimes}
-							disabled={!allConfirmed || !canEditSetTimes || isGeneratingPdf}
+							disabled={!allConfirmed ||
+								!canEditSetTimes ||
+								isGeneratingPdf ||
+								isPreparingPdf}
 							aria-label="Download PDF"
 							title={!canEditSetTimes
 								? 'No permission'
@@ -412,7 +488,7 @@
 									? 'All artists must be Confirmed'
 									: 'Download PDF'}
 						>
-							{#if isGeneratingPdf}
+							{#if isGeneratingPdf || isPreparingPdf}
 								<svg
 									class="animate-spin w-4 h-4"
 									xmlns="http://www.w3.org/2000/svg"
