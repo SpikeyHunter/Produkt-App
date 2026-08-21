@@ -10,6 +10,7 @@
 		computeEventCosts,
 		formatDealSummary
 	} from '$lib/components/calendar/page/tabs/deals/dealEngine';
+	import { syncDealSetTimesToTimetable } from '$lib/services/timetableSync';
 	import type { DealRole, DealTypeOption, Deposit } from '../../../../../types/tabs/deals';
 
 	let dailyApiRate = 1;
@@ -591,6 +592,16 @@
 		}
 
 		await saveToDatabase(updatedDeals);
+
+		// One-way sync: deal set times -> linked show timetable (events.timetable).
+		// Only runs when the deal's Set Times section is enabled with a start time.
+		if (!isViewOnly) {
+			const groupId = event?.calendar?.id || event?.group_id;
+			if (groupId) {
+				await syncDealSetTimesToTimetable(groupId, savedDeal);
+			}
+		}
+
 		isCreatingDeal = false;
 		dealToEdit = null;
 	}

@@ -18,6 +18,7 @@
 	import RevenueTab from '$lib/components/calendar/page/tabs/revenue/RevenueTab.svelte';
 	import ProFormaTab from '$lib/components/calendar/page/tabs/proforma/ProFormaTab.svelte';
 	import CostsTab from '$lib/components/calendar/page/tabs/costs/CostsTab.svelte';
+	import SetTimesTab from '$lib/components/calendar/page/tabs/settimes/SetTimesTab.svelte';
 	import ContactsTab from '$lib/components/calendar/page/tabs/ContactsTab.svelte';
 	import FilesTab from '$lib/components/calendar/page/tabs/FilesTab.svelte';
 
@@ -78,13 +79,14 @@
 		}
 	}
 
-	const tabs = ['Deals', 'Revenue', 'Pro Forma', 'Costs', 'Contacts', 'Files'];
+	const tabs = ['Deals', 'Revenue', 'Pro Forma', 'Costs', 'Set Times', 'Contacts', 'Files'];
 
 	const tabComponents: Record<string, any> = {
 		Deals: DealsTab,
 		Revenue: RevenueTab,
 		'Pro Forma': ProFormaTab,
 		Costs: CostsTab,
+		'Set Times': SetTimesTab,
 		Contacts: ContactsTab,
 		Files: FilesTab
 	};
@@ -99,7 +101,7 @@
 	let userRole = 'Email Only';
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 
-	const DeployedAppTabs = ['Deals', 'Revenue', 'Pro Forma', 'Costs'];
+	const DeployedAppTabs = ['Deals', 'Revenue', 'Pro Forma', 'Costs', 'Set Times'];
 
 	let isDeployed = false;
 

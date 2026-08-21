@@ -1,4 +1,5 @@
 import { supabase } from '$lib/supabase';
+import { seedTimetableOnConfirm } from '$lib/services/timetableSync';
 
 /**
  * calendarEventLink
@@ -87,6 +88,8 @@ export async function syncConfirmedShowToEvents(params: {
 					.update({ event_date: date, event_venue: venue })
 					.eq('event_id', existing.event_id);
 			}
+			// Seed the run-of-show template if the linked show has none yet.
+			await seedTimetableOnConfirm(groupId);
 			return;
 		}
 
@@ -102,6 +105,7 @@ export async function syncConfirmedShowToEvents(params: {
 			}
 		]);
 		if (error) console.error('[calendarEventLink] insert failed:', error);
+		else await seedTimetableOnConfirm(groupId);
 	} catch (err) {
 		console.error('[calendarEventLink] syncConfirmedShowToEvents failed:', err);
 	}

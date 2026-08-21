@@ -47,6 +47,14 @@ export interface TimetableEntry {
 	length: string;
 	isLocked?: boolean;
 	showTimeDropdown?: boolean;
+	/** Id of the artist deal (calendar_data) that wrote this row, for one-way deal -> timetable sync. */
+	dealId?: string;
+	/**
+	 * Set when this row is an auto-inserted end boundary (empty "Local" line) marking
+	 * where that deal's set ends, so the artist's computed length matches the deal.
+	 * Cleared as soon as the row is claimed by a real artist.
+	 */
+	fillerForDealId?: string;
 }
 
 export async function fetchMainEvent(eventId: number): Promise<any | null> {

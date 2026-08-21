@@ -95,8 +95,8 @@
 	<div class="closing-company">4427319 CANADA INC.</div>
 
 	<div class="signature-block">
-		<div>Janie Latendresse</div>
-		<div>514-889-6386</div>
+		<div>Charles Brousseau</div>
+		<div>514-805-9313</div>
 		<div>Encls.</div>
 	</div>
 </div>

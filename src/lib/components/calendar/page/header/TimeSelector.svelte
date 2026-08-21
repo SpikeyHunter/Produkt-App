@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { invalidateAll } from '$app/navigation';
 	import { supabase } from '$lib/supabase';
+	import { syncEventTimeToTimetable } from '$lib/services/timetableSync';
 	import type { CalendarEvent } from '$lib/types/calendar-types';
 
 	export let event: CalendarEvent;
@@ -67,10 +68,12 @@
 
 		if (!error) {
 			invalidateAll();
+			// One-way sync: event time -> DOORS/CURFEW rows in the linked show's timetable.
+			syncEventTimeToTimetable(event.group_id, newTime.start, newTime.end);
 		} else {
 			console.error('Failed to update time:', error);
 		}
-		
+
 		closePopover();
 	}
 
