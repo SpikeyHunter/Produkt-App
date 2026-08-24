@@ -448,49 +448,55 @@
 		</label>
 
 		<!-- Send -->
-		<div class="space-y-2 border-t border-gray1 pt-4">
-			<button
-				on:click={handleSparkEmail}
-				disabled={!canEmail || isGeneratingSpark || isGeneratingEml}
-				class="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold transition-colors
-				{!canEmail
-					? 'cursor-not-allowed bg-gray1 text-gray2 opacity-70'
-					: 'cursor-pointer bg-lime text-black hover:bg-lime/80'}"
-			>
-				{#if isGeneratingSpark}
-					<div class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
-					<span>Opening mail…</span>
-				{:else}
-					<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-					</svg>
-					<span>Email Accounting (Spark)</span>
-				{/if}
-			</button>
+		<div class="border-t border-gray1 pt-4">
+			<!-- flex + gap instead of space-y: the breathing room between the two send
+			     buttons is explicit and can't be collapsed by a child's own margin. -->
+			<div class="flex flex-col gap-3">
+				<button
+					on:click={handleSparkEmail}
+					disabled={!canEmail || isGeneratingSpark || isGeneratingEml}
+					class="flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-bold transition-colors
+					{!canEmail
+						? 'cursor-not-allowed bg-gray1 text-gray2 opacity-70'
+						: 'cursor-pointer bg-lime text-black hover:bg-lime/80'}"
+				>
+					{#if isGeneratingSpark}
+						<div class="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+						<span>Opening mail…</span>
+					{:else}
+						<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+						</svg>
+						<span>Email Accounting (Spark)</span>
+					{/if}
+				</button>
 
-			<button
-				on:click={generateEml}
-				disabled={!canEmail || isGeneratingEml || isGeneratingSpark}
-				class="flex w-full items-center justify-center gap-2 rounded-lg border py-2.5 text-xs font-bold transition-colors
-				{!canEmail
-					? 'cursor-not-allowed border-white/10 text-gray2 opacity-70'
-					: 'cursor-pointer border-gray2 text-white hover:border-lime hover:text-lime'}"
-			>
-				{#if isGeneratingEml}
-					<div class="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
-					<span>Attaching file…</span>
-				{:else}
-					<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-					</svg>
-					<span>Download .eml (PDF attached)</span>
-				{/if}
-			</button>
+				<button
+					on:click={generateEml}
+					disabled={!canEmail || isGeneratingEml || isGeneratingSpark}
+					class="flex w-full items-center justify-center gap-2 rounded-lg border py-2.5 text-xs font-bold transition-colors
+					{!canEmail
+						? 'cursor-not-allowed border-white/10 text-gray2 opacity-70'
+						: 'cursor-pointer border-gray2 text-white hover:border-lime hover:text-lime'}"
+				>
+					{#if isGeneratingEml}
+						<div class="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"></div>
+						<span>Attaching file…</span>
+					{:else}
+						<svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+						</svg>
+						<span>Download .eml (PDF attached)</span>
+					{/if}
+				</button>
+			</div>
 
 			{#if !canEmail}
-				<p class="text-center text-[10px] text-gray2 opacity-70">Upload an invoice to enable sending.</p>
+				<p class="mt-3 text-center text-[10px] text-gray2 opacity-70">
+					Upload an invoice to enable sending.
+				</p>
 			{:else}
-				<p class="text-center text-[10px] text-gray2 opacity-70">
+				<p class="mt-3 text-center text-[10px] text-gray2 opacity-70">
 					Sends to accounting — “To be Approved by {APPROVER}”.
 				</p>
 			{/if}

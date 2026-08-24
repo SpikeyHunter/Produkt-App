@@ -212,3 +212,118 @@ export const moneyFormatter = new Intl.NumberFormat('en-CA', {
 export function formatMoney(amount?: number | null): string {
 	return moneyFormatter.format(amount ?? 0);
 }
+
+/* --------------------------------------------------------------- search ---- */
+//
+// Artist name only. Event names, dates, statuses and amounts are deliberately
+// NOT searchable — typing "Karnavale" or "aug 7" returns nothing, so a query
+// can only ever narrow the view down to artists.
+
+/** Splits "max dean" into ['max', 'dean']. All tokens must match (AND). */
+export function tokenizeQuery(query?: string | null): string[] {
+	return String(query ?? '')
+		.toLowerCase()
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean);
+}
+
+/** The one field a row can be found by. */
+export function searchHaystack(artist: any): string {
+	return String(artist?.artist_name ?? '').toLowerCase();
+}
+
+/** True when every token in the query appears in the artist name. */
+export function matchesQuery(artist: any, query?: string | null): boolean {
+	const tokens = tokenizeQuery(query);
+	if (tokens.length === 0) return true;
+	const name = searchHaystack(artist);
+	if (!name) return false;
+	return tokens.every((t) => name.includes(t));
+}
+
+/**
+ * Ranking for the ⌘K palette:
+ *   1. artist-name prefix hits, then anywhere-in-the-name hits
+ *   2. upcoming before past
+ *   3. soonest first (upcoming) / most recent first (past)
+ *   4. alphabetical
+ */
+function matchRank(artist: any, tokens: string[]): number {
+	if (tokens.length === 0) return 2;
+	const name = searchHaystack(artist);
+	if (tokens.some((t) => name.startsWith(t))) return 0;
+	if (tokens.some((t) => name.includes(t))) return 1;
+	return 2;
+}
+
+export function rankSearchResults<T = any>(list: T[], query?: string | null): T[] {
+	const tokens = tokenizeQuery(query);
+	const today = new Date();
+	today.setHours(0, 0, 0, 0);
+	const todayTs = today.getTime();
+
+	const ts = (a: any) => parseLocalDate(a?.eventDateDisplay)?.getTime() ?? 0;
+
+	return [...list].sort((a: any, b: any) => {
+		const rankDiff = matchRank(a, tokens) - matchRank(b, tokens);
+		if (rankDiff !== 0) return rankDiff;
+
+		const aTs = ts(a);
+		const bTs = ts(b);
+		const aUpcoming = aTs >= todayTs;
+		const bUpcoming = bTs >= todayTs;
+		if (aUpcoming !== bUpcoming) return aUpcoming ? -1 : 1;
+		if (aTs !== bTs) return aUpcoming ? aTs - bTs : bTs - aTs;
+
+		return String(a?.artist_name ?? '').localeCompare(String(b?.artist_name ?? ''));
+	});
+}
+
+/* ------------------------------------------------------------ highlight ---- */
+
+export type HighlightSegment = { text: string; hit: boolean };
+
+function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Splits a label into segments so components can wrap the matched parts in
+ * <mark> without ever using {@html} on user data.
+ */
+export function highlightSegments(
+	text?: string | null,
+	query?: string | null
+): HighlightSegment[] {
+	const value = text === null || text === undefined ? '' : String(text);
+	const tokens = tokenizeQuery(query);
+	if (!value || tokens.length === 0) return [{ text: value, hit: false }];
+
+	const pattern = tokens
+		.slice()
+		.sort((a, b) => b.length - a.length)
+		.map(escapeRegExp)
+		.join('|');
+
+	const re = new RegExp(`(${pattern})`, 'ig');
+	const out: HighlightSegment[] = [];
+	let last = 0;
+
+	for (const m of value.matchAll(re)) {
+		const idx = m.index ?? 0;
+		if (idx > last) out.push({ text: value.slice(last, idx), hit: false });
+		out.push({ text: m[0], hit: true });
+		last = idx + m[0].length;
+	}
+	if (last < value.length) out.push({ text: value.slice(last), hit: false });
+
+	return out.length ? out : [{ text: value, hit: false }];
+}
+
+/** ⌘ on Mac, Ctrl everywhere else — used for the shortcut hint chips. */
+export function shortcutSymbol(): string {
+	if (typeof navigator === 'undefined') return '⌘';
+	const ua = `${navigator.platform ?? ''} ${navigator.userAgent ?? ''}`;
+	return /mac|iphone|ipad|ipod/i.test(ua) ? '⌘' : 'Ctrl';
+}

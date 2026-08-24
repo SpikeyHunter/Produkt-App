@@ -5,12 +5,15 @@
 		statusPillClass,
 		statusDotClass,
 		formatShortDate,
-		formatMoney
+		formatMoney,
+		highlightSegments
 	} from '$lib/components/booking/talentpayments/paymentStatus';
 
 	export let artist: any;
 	export let selected = false;
 	export let showEventName = false;
+	/** Active ⌘K query — matched part of the artist name gets a lime highlight. */
+	export let query = '';
 
 	const dispatch = createEventDispatcher();
 
@@ -18,6 +21,9 @@
 	$: amount = artist?.paymentData?.amount ?? 150;
 	$: delivery = artist?.paymentData?.delivery_method || 'Pick Up';
 	$: hasInvoice = !!artist?.paymentData?.invoice_url;
+
+	// Only the artist name is searchable, so it's the only thing highlighted.
+	$: nameParts = highlightSegments(artist?.artist_name, query);
 </script>
 
 <!-- All accents use the `lime` Tailwind token. The scoped CSS handles geometry
@@ -43,7 +49,11 @@
 
 	<span class="card-body">
 		<span class="card-top">
-			<span class="card-title text-white group-hover:text-lime">{artist.artist_name}</span>
+			<span class="card-title text-white group-hover:text-lime">
+				{#each nameParts as seg}
+					{#if seg.hit}<mark class="tp-hl">{seg.text}</mark>{:else}{seg.text}{/if}
+				{/each}
+			</span>
 
 			<span class="card-meta">
 				<span class="card-date text-lime">{formatShortDate(artist.eventDateDisplay)}</span>
@@ -224,5 +234,13 @@
 		font-size: 15px;
 		font-weight: 800;
 		white-space: nowrap;
+	}
+
+	/* Search hit — lime wash, never the browser's default yellow. */
+	.tp-hl {
+		border-radius: 3px;
+		padding: 0 1px;
+		background: rgb(198 255 0 / 0.26);
+		color: inherit;
 	}
 </style>

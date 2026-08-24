@@ -7,6 +7,7 @@
 	import EventInfoPayment from '$lib/components/booking/talentpayments/EventInfoPayment.svelte';
 	import ArtistListCard from '$lib/components/booking/talentpayments/ArtistListCard.svelte';
 	import ArtistListRow from '$lib/components/booking/talentpayments/ArtistListRow.svelte';
+	import TalentPaymentSearch from '$lib/components/booking/talentpayments/TalentPaymentSearch.svelte';
 	import TalentPaymentActions from '$lib/components/booking/talentpayments/TalentPaymentActions.svelte';
 	import EventAddModal from '$lib/components/modals/EventAddModal.svelte';
 	import EventEditModal from '$lib/components/modals/EventEditModal.svelte';
@@ -18,7 +19,10 @@
 		ALL_STATUSES,
 		normalizeStatus,
 		statusChipClass,
-		parseLocalDate
+		parseLocalDate,
+		matchesQuery,
+		rankSearchResults,
+		shortcutSymbol
 	} from '$lib/components/booking/talentpayments/paymentStatus';
 
 	/* ------------------------------------------------------------- state ---- */
@@ -43,6 +47,10 @@
 	let timeFilter: 'ALL' | 'LIVE' | 'PAST' = 'ALL';
 	let layout: 'LIST' | 'CARDS' = 'LIST'; // list is the default view
 	let selectedStatus: string | null = null;
+
+	/* ⌘K search — one query drives the grid filter and the palette. */
+	let searchQuery = '';
+	let searchOpen = false;
 
 	const timeFilterOptions: ('LIVE' | 'PAST' | 'ALL')[] = ['LIVE', 'PAST', 'ALL'];
 	const LAYOUT_KEY = 'tp_layout';
@@ -71,9 +79,22 @@
 
 	/* ---------------------------------------------------------- derived ----- */
 
-	$: filteredArtists = selectedStatus
+	// Status chips and the ⌘K query stack: a row must satisfy both.
+	// The query only ever looks at the artist name.
+	$: statusScopedArtists = selectedStatus
 		? masterArtistList.filter((a) => normalizeStatus(a.paymentData?.status) === selectedStatus)
 		: masterArtistList;
+
+	$: filteredArtists = searchQuery.trim()
+		? statusScopedArtists.filter((a) => matchesQuery(a, searchQuery))
+		: statusScopedArtists;
+
+	// The palette deliberately searches every event, even while the page is
+	// scoped to one — picking a result just jumps you there.
+	$: paletteResults = rankSearchResults(filteredArtists, searchQuery);
+
+	$: hasSearch = searchQuery.trim().length > 0;
+	$: shortcutKey = shortcutSymbol();
 
 	$: {
 		if (viewMode === 'EVENT') {
@@ -130,6 +151,9 @@
 		const urlStatus = params.get('status');
 		const urlArtistName = params.get('artist_name');
 		const urlView = params.get('view');
+		const urlQuery = params.get('q');
+
+		if (urlQuery) searchQuery = urlQuery;
 
 		viewMode = urlMode === 'EVENT' ? 'EVENT' : 'ALL';
 		if (urlFilter && ['LIVE', 'PAST', 'ALL'].includes(urlFilter)) timeFilter = urlFilter as any;
@@ -349,6 +373,9 @@
 		if (selectedStatus) newUrl.searchParams.set('status', selectedStatus);
 		else newUrl.searchParams.delete('status');
 
+		if (searchQuery.trim()) newUrl.searchParams.set('q', searchQuery.trim());
+		else newUrl.searchParams.delete('q');
+
 		if (newUrl.toString() === $page.url.toString()) return;
 		goto(newUrl.toString(), { replaceState: true, keepFocus: true, noScroll: true });
 	}
@@ -425,7 +452,74 @@
 
 	function clearFilters() {
 		selectedStatus = null;
+		searchQuery = '';
 		syncUrl();
+	}
+
+	/* ------------------------------------------------------- ⌘K search ----- */
+
+	function openSearch() {
+		searchOpen = true;
+	}
+
+	function closeSearch() {
+		searchOpen = false;
+		// The query stays on so the grid remains filtered behind the palette.
+		syncUrl();
+	}
+
+	function clearSearch() {
+		searchQuery = '';
+		syncUrl();
+	}
+
+	async function handleSearchSelect(e: CustomEvent) {
+		searchOpen = false;
+		await handleArtistSelect(e.detail);
+	}
+
+	function isTypingTarget(target: EventTarget | null): boolean {
+		const el = target as HTMLElement | null;
+		if (!el || !el.tagName) return false;
+		return (
+			el.tagName === 'INPUT' ||
+			el.tagName === 'TEXTAREA' ||
+			el.tagName === 'SELECT' ||
+			el.isContentEditable === true
+		);
+	}
+
+	function handleWindowKeydown(e: KeyboardEvent) {
+		const key = e.key.toLowerCase();
+
+		// ⌘K / Ctrl+K toggles the palette from anywhere on the page.
+		if ((e.metaKey || e.ctrlKey) && !e.altKey && key === 'k') {
+			e.preventDefault();
+			searchOpen = !searchOpen;
+			return;
+		}
+
+		if (searchOpen) return; // the palette owns its own keys while it's open
+
+		// "/" is the quick way in, as long as you're not already typing.
+		if (key === '/' && !e.metaKey && !e.ctrlKey && !isTypingTarget(e.target)) {
+			e.preventDefault();
+			openSearch();
+			return;
+		}
+
+		// Esc drops an active query without touching anything else.
+		if (e.key === 'Escape' && hasSearch && !isTypingTarget(e.target)) {
+			e.preventDefault();
+			clearSearch();
+		}
+	}
+
+	// Keep the URL in step while typing (also covers the palette's own input).
+	$: syncSearchUrl(searchQuery);
+
+	function syncSearchUrl(_query: string) {
+		if (urlReady) syncUrl();
 	}
 
 	function openEditModal() {
@@ -462,6 +556,8 @@
 		syncUrl();
 	}
 </script>
+
+<svelte:window on:keydown={handleWindowKeydown} />
 
 <svelte:head>
 	<title
@@ -538,6 +634,28 @@
 							</div>
 
 							<div class="flex items-center gap-2">
+								<!-- ⌘K search -->
+								<button
+									class="tp-search-trigger"
+									on:click={openSearch}
+									title="Search artist (⌘K)"
+								>
+									<svg
+										class="h-3 w-3 flex-shrink-0"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										viewBox="0 0 24 24"
+									>
+										<circle cx="11" cy="11" r="7" />
+										<path stroke-linecap="round" d="M20 20l-3.5-3.5" />
+									</svg>
+									<span class="tp-search-trigger-label">
+										{hasSearch ? searchQuery.trim() : 'Search'}
+									</span>
+									<kbd class="tp-trigger-kbd">{shortcutKey}K</kbd>
+								</button>
+
 								<span class="text-[10px] font-bold uppercase tracking-wider text-gray2">
 									{totalVisible}
 									{totalVisible === 1 ? 'artist' : 'artists'}
@@ -606,7 +724,24 @@
 								{/each}
 							</div>
 
-							{#if selectedStatus}
+							{#if hasSearch}
+								<span class="mx-0.5 h-4 w-px bg-white/15"></span>
+								<button class="tp-query-chip" on:click={clearSearch} title="Clear search">
+									<span class="opacity-60">Artist</span>
+									<span class="tp-query-chip-value">{searchQuery.trim()}</span>
+									<svg
+										class="h-2.5 w-2.5"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="3"
+										viewBox="0 0 24 24"
+									>
+										<path stroke-linecap="round" d="M6 6l12 12M18 6L6 18" />
+									</svg>
+								</button>
+							{/if}
+
+							{#if selectedStatus || hasSearch}
 								<button
 									class="cursor-pointer px-1.5 text-[10px] font-bold uppercase tracking-wider text-gray2 hover:text-problem"
 									on:click={clearFilters}
@@ -628,8 +763,20 @@
 								<p class="text-xs font-bold">Select an event to view artists</p>
 							</div>
 						{:else if totalVisible === 0}
-							<div class="flex h-full items-center justify-center text-gray2 opacity-50">
-								<p class="text-xs font-bold">No artists match these filters</p>
+							<div class="flex h-full flex-col items-center justify-center gap-2 text-gray2">
+								{#if hasSearch}
+									<p class="text-xs font-bold opacity-60">
+										No artist named “{searchQuery.trim()}”
+									</p>
+									<button
+										class="cursor-pointer rounded-full border border-white/15 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/70 hover:border-lime hover:text-lime"
+										on:click={clearSearch}
+									>
+										Clear search
+									</button>
+								{:else}
+									<p class="text-xs font-bold opacity-50">No artists match these filters</p>
+								{/if}
 							</div>
 						{:else if layout === 'LIST'}
 							<div class="tp-list">
@@ -656,6 +803,7 @@
 											<ArtistListRow
 												{artist}
 												selected={selectedArtist?.ui_id === artist.ui_id}
+												query={searchQuery}
 												on:click={() => handleArtistSelect(artist)}
 											/>
 										{/each}
@@ -676,6 +824,7 @@
 											{artist}
 											selected={selectedArtist?.ui_id === artist.ui_id}
 											showEventName={true}
+											query={searchQuery}
 											on:click={() => handleArtistSelect(artist)}
 										/>
 									{/each}
@@ -708,6 +857,15 @@
 		</div>
 	</div>
 </MainLayout>
+
+<TalentPaymentSearch
+	open={searchOpen}
+	bind:query={searchQuery}
+	results={paletteResults}
+	totalCount={masterArtistList.length}
+	on:close={closeSearch}
+	on:select={handleSearchSelect}
+/>
 
 <EventAddModal
 	bind:isOpen={isAddModalOpen}
@@ -781,6 +939,81 @@
 	/* EventSelectorPayment positions itself absolutely inside its container. */
 	.tp-selector {
 		min-height: 0;
+	}
+
+	/* ---------------------------------------------------------- search --- */
+
+	.tp-search-trigger {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		max-width: 240px;
+		padding: 5px 8px 5px 10px;
+		border: 1px solid rgb(255 255 255 / 0.12);
+		border-radius: 999px;
+		background: rgb(255 255 255 / 0.04);
+		color: rgb(255 255 255 / 0.55);
+		font-size: 10px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		cursor: pointer;
+		transition:
+			border-color 0.12s ease,
+			color 0.12s ease;
+	}
+
+	.tp-search-trigger:hover {
+		border-color: rgb(255 255 255 / 0.3);
+		color: #fff;
+	}
+
+	.tp-search-trigger-label {
+		overflow: hidden;
+		max-width: 130px;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.tp-trigger-kbd {
+		padding: 1px 5px;
+		border: 1px solid rgb(255 255 255 / 0.14);
+		border-radius: 5px;
+		background: rgb(255 255 255 / 0.06);
+		font-size: 9px;
+		font-weight: 800;
+		letter-spacing: 0.06em;
+		line-height: 1.5;
+	}
+
+	.tp-query-chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		max-width: 260px;
+		padding: 4px 10px;
+		border: 1px solid rgb(198 255 0 / 0.5);
+		border-radius: 999px;
+		background: rgb(198 255 0 / 0.12);
+		color: rgb(198 255 0);
+		font-size: 10px;
+		font-weight: 800;
+		text-transform: uppercase;
+		letter-spacing: 0.1em;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+
+	.tp-query-chip:hover {
+		background: rgb(198 255 0 / 0.22);
+	}
+
+	.tp-query-chip-value {
+		overflow: hidden;
+		max-width: 150px;
+		text-overflow: ellipsis;
+		text-transform: none;
+		letter-spacing: 0;
 	}
 
 	/* --------------------------------------------------------- sections --- */
