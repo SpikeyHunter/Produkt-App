@@ -60,6 +60,7 @@
 
 		let lastTotal = 0;
 		let firstRecordFound = false;
+		let hasPriorSales = false;
 
 		if (dateRange.length > 0) {
 			const firstVisibleDate = dateRange[0];
@@ -67,9 +68,24 @@
 			if (priorRecords.length > 0) {
 				priorRecords.sort((a, b) => a.report_date.localeCompare(b.report_date));
 				lastTotal = priorRecords[priorRecords.length - 1].total;
-				firstRecordFound = true; 
+				firstRecordFound = true;
+				hasPriorSales = lastTotal > 0;
 			}
 		}
+
+		// First visible day where THIS event actually has tickets.
+		let firstSaleIdx = -1;
+		for (let i = 0; i < dateRange.length; i++) {
+			const rec = counts.find((c) => c.report_date === dateRange[i]);
+			if (rec && (rec.total ?? 0) > 0) {
+				firstSaleIdx = i;
+				break;
+			}
+		}
+
+		// Draw from one day before that first ticket. Events already selling before
+		// the window (or with no sales at all) just start at the left edge.
+		const startIdx = hasPriorSales || firstSaleIdx < 0 ? 0 : Math.max(0, firstSaleIdx - 1);
 
 		const points = dateRange.map((date, dateIdx) => {
 			const record = counts.find((c) => c.report_date === date);
@@ -96,7 +112,7 @@
 				daySells,
 				ga: record?.ga || 0,
 				vip: record?.vip || 0,
-				hasData: true,
+				hasData: dateIdx >= startIdx,
 				isFirstDataPoint,
 				record
 			};
@@ -126,7 +142,9 @@
 	$: yTicks = Array.from({ length: 6 }).map((_, i) => (yMax / 5) * i);
 
 	$: chartData = chartDataPrep.map((row) => {
-		const validPoints = row.points.filter((p) => !(viewMode === 'DAILY' && p.isFirstDataPoint));
+		const validPoints = row.points.filter(
+			(p) => p.hasData && !(viewMode === 'DAILY' && p.isFirstDataPoint)
+		);
 
 		const points = validPoints.map((p) => {
 			const val = viewMode === 'CUMULATIVE' ? p.total : p.daySells;
@@ -179,7 +197,7 @@
 	function getPath(points: any[]) {
 		if (points.length === 0) return '';
 		if (points.length === 1)
-			return `M ${points[0].xLine} ${points[0].y} L ${points[0].xLine + innerWidth} ${points[0].y}`;
+			return `M ${points[0].xLine} ${points[0].y} L ${padding.left + innerWidth} ${points[0].y}`;
 
 		return (
 			`M ${points[0].xLine} ${points[0].y} ` +

@@ -130,21 +130,44 @@
 		}
 	}
 
+	function addDaysISO(iso: string, days: number): string {
+		const d = new Date(`${iso}T00:00:00Z`);
+		d.setUTCDate(d.getUTCDate() + days);
+		return d.toISOString().split('T')[0];
+	}
+
 	function calculateDateRange(counts: DailyCount[]) {
 		if (counts.length === 0) {
 			fullDateRange = [];
 			return;
 		}
-		const dates = counts.map((c) => new Date(c.report_date).getTime());
-		const minDate = new Date(Math.min(...dates));
-		const maxDate = new Date(Math.max(...dates));
 
-		const range = [];
-		let current = new Date(minDate);
+		// ISO strings (YYYY-MM-DD) sort lexicographically, no timezone drift.
+		const allDates = counts.map((c) => c.report_date);
+		const absoluteMin = allDates.reduce((a, b) => (a < b ? a : b));
+		const maxDateStr = allDates.reduce((a, b) => (a > b ? a : b));
 
-		while (current <= maxDate) {
-			range.push(current.toISOString().split('T')[0]);
-			current.setDate(current.getDate() + 1);
+		// Skip the leading run of zero-ticket days: start ONE DAY BEFORE the first
+		// day any active event actually has a count.
+		const saleDates = counts.filter((c) => (c.total ?? 0) > 0).map((c) => c.report_date);
+
+		let minDateStr: string;
+		if (saleDates.length > 0) {
+			const firstSaleDate = saleDates.reduce((a, b) => (a < b ? a : b));
+			minDateStr = addDaysISO(firstSaleDate, -1);
+			// Never start after the first sale, and never trim past it.
+			if (minDateStr > firstSaleDate) minDateStr = firstSaleDate;
+		} else {
+			// No sales anywhere yet — fall back to the full span.
+			minDateStr = absoluteMin;
+		}
+
+		const range: string[] = [];
+		let current = minDateStr;
+
+		while (current <= maxDateStr) {
+			range.push(current);
+			current = addDaysISO(current, 1);
 		}
 		fullDateRange = range;
 	}
