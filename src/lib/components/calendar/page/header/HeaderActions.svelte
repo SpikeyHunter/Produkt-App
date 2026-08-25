@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { supabase } from '$lib/supabase';
 	import { authStore } from '$lib/stores/authStore';
@@ -17,6 +18,8 @@
 	$: isAdmin = $authStore?.profile?.role === 'Admin';
 	$: vParsed = typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
 	$: defaultEmailForVenue = vParsed.category === 'New City Gas';
+
+	const dispatch = createEventDispatcher();
 
 	let showMoreMenu = false;
 
@@ -305,6 +308,13 @@
 		<div
 			class="absolute right-0 top-[calc(100%+8px)] w-48 bg-navbar rounded-2xl shadow-xl overflow-hidden py-2 z-[9999] border border-gray2/10"
 		>
+			<button
+				class="w-full px-4 py-2.5 text-sm font-bold text-white hover:bg-white/5 text-left transition-colors cursor-pointer"
+				on:click={() => {
+					showMoreMenu = false;
+					dispatch('applyEventTemplate');
+				}}>Apply Event Template</button
+			>
 			<button
 				class="w-full px-4 py-2.5 text-sm font-bold text-white hover:bg-white/5 text-left transition-colors cursor-pointer"
 				on:click={openDuplicateModal}>Duplicate Event</button

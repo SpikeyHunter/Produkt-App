@@ -5,6 +5,7 @@
     export let eventRevenue: any = {};
     export let currency: string = 'CAD';
     export let triggerSave: () => void;
+    export let onLoadTemplate: (() => void) | null = null;
     export let expanded: boolean = false;
 
     const variableTypes = [
@@ -338,7 +339,15 @@
 
     {#if expanded}
         <div transition:slide|local class="px-0 pb-6 rounded-b-xl border-t border-gray1/10">
-            <div class="flex justify-end py-4">
+            <div class="flex justify-end items-center gap-3 py-4">
+                {#if onLoadTemplate}
+                    <button
+                        on:click={onLoadTemplate}
+                        class="px-4 py-2 bg-gray1 text-gray3 text-sm font-bold rounded-3xl hover:bg-gray2/10 hover:text-lime hover:cursor-pointer transition-colors"
+                    >
+                        Load Template
+                    </button>
+                {/if}
                 <button
                     on:click={addRow}
                     class="px-4 py-2 bg-lime text-black text-sm font-bold rounded-3xl hover:opacity-90 transition-colors hover:cursor-pointer"

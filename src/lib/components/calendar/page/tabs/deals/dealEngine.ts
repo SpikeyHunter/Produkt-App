@@ -78,18 +78,35 @@ export function computeBackend(deal: HeadlinerDeal, ctx: DealContext): number {
 		return metricAmount * qualifying;
 	}
 
-	// Flat backend (Plus a flat bonus after a threshold).
+	// Flat backend (Plus flat bonuses after thresholds). The Plus UI stores the
+	// per-bonus thresholds in details.bonuses (the first bonus's amount may live
+	// in metricAmount, with bonusAmount left 0) — splitPointAmount is NOT the
+	// threshold for these deals, so only fall back to it when no bonuses exist.
 	if (metricType === 'Flat') {
-		// Only pays once the threshold is met; otherwise 0.
-		if (afterType === '% Sell Through' && ctx.totalAllotment) {
-			const sellThrough = ctx.totalAllotment > 0 ? (ctx.paidTickets / ctx.totalAllotment) * 100 : 0;
-			return sellThrough >= splitPoint ? metricAmount : 0;
+		const rawBonuses: any[] = Array.isArray((d as any).bonuses) ? (d as any).bonuses : [];
+		const bonuses = rawBonuses.length
+			? rawBonuses.map((b: any, i: number) => ({
+					amount: Number(b.bonusAmount) || (i === 0 ? metricAmount : 0),
+					at: Number(b.atAmount) || 0,
+					mode: b.switchesAt || afterType
+				}))
+			: [{ amount: metricAmount, at: splitPoint, mode: afterType }];
+
+		let total = 0;
+		for (const b of bonuses) {
+			let achieved = false;
+			if (b.mode === '% Sell Through') {
+				achieved =
+					!!ctx.totalAllotment && (ctx.paidTickets / ctx.totalAllotment) * 100 >= b.at;
+			} else if (b.mode === '# Tickets Sold') {
+				achieved = ctx.paidTickets >= b.at;
+			} else {
+				// Manual Split Point: pays once net revenue clears the point.
+				achieved = ctx.netGross >= b.at;
+			}
+			if (achieved) total += b.amount;
 		}
-		if (afterType === '# Tickets Sold') {
-			return ctx.paidTickets >= splitPoint ? metricAmount : 0;
-		}
-		// Manual Split Point: pays once net revenue clears the point.
-		return ctx.netGross >= splitPoint ? metricAmount : 0;
+		return total;
 	}
 
 	return 0;
@@ -106,7 +123,12 @@ export function computeBackend(deal: HeadlinerDeal, ctx: DealContext): number {
 export function computeArtistPayout(deal: HeadlinerDeal, ctx: DealContext): number {
 	const dealType = (deal?.dealType || 'Flat') as DealType;
 	const guarantee = guaranteeInVenueCurrency(deal, ctx.exchangeRate);
-	const backend = computeBackend(deal, ctx);
+	// %-based backends are computed off venue-currency revenue; Per Ticket and
+	// Flat bonus amounts are entered in the deal currency, so convert them.
+	const metricType = deal?.details?.metricType || '';
+	const backendConvert =
+		metricType === 'Per Ticket' || metricType === 'Flat' ? Number(ctx.exchangeRate) || 1 : 1;
+	const backend = computeBackend(deal, ctx) * backendConvert;
 
 	switch (dealType) {
 		case 'Versus':
@@ -182,7 +204,9 @@ export function computeEventCosts(
 		const allot = Number(t.allotment) || 0;
 		const comps = Number(t.comps) || 0;
 		const kills = Number(t.kills) || 0;
-		const qty = useActual ? Number(t.sold) || 0 : allot - comps - kills;
+		const actualQty =
+			external && t.extSold != null && t.extSold !== '' ? Number(t.extSold) || 0 : Number(t.sold) || 0;
+		const qty = useActual ? actualQty : allot - comps - kills;
 		gross += qty * (Number(t.price) || 0);
 		paidTickets += qty;
 		totalAllotment += allot;
@@ -198,7 +222,15 @@ export function computeEventCosts(
 	(Array.isArray(c.fixedCosts) ? c.fixedCosts : []).forEach((g: any) => {
 		(Array.isArray(g.costs) ? g.costs : []).forEach((line: any) => {
 			if (useActual) {
-				fixed += Number(external ? line.externalSettlement : line.actualInternal) || 0;
+				// Internal actuals fall back to the settlement figure, then the
+				// estimate — an empty Actual Internal column shouldn't zero out
+				// costs that are clearly known (e.g. only Ext. Settlement filled).
+				fixed += external
+					? Number(line.externalSettlement) || 0
+					: Number(line.actualInternal) ||
+						Number(line.externalSettlement) ||
+						Number(line.estimatedInternal) ||
+						0;
 			} else {
 				fixed += Number(line.estimatedInternal) || 0;
 			}
@@ -210,8 +242,11 @@ export function computeEventCosts(
 		const m = Number(external ? v.externalAmount : v.internalAmount) || 0;
 		switch (v.type) {
 			case 'Flat':
-				variable +=
-					Number(useActual ? (external ? v.externalSettlement : v.actualInternal) : m) || m;
+				variable += useActual
+					? (external
+							? Number(v.externalSettlement) || m
+							: Number(v.actualInternal) || Number(v.externalSettlement) || m)
+					: m;
 				break;
 			case '% of Gross':
 				variable += (m / 100) * gross;
@@ -272,6 +307,11 @@ export function formatDealSummary(
 	// Currency the guarantee is denominated in (defaults to USD for legacy deals).
 	const dealCurrency = deal?.dealCurrency || 'USD';
 
+	// A $0 flat deal has no meaningful terms line — show nothing instead of "$0.00".
+	if ((deal?.dealType || 'Flat') === 'Flat' && !(Number(deal?.guaranteeAmount) > 0)) {
+		return '';
+	}
+
 	let summary: string = deal?.summaryText || '';
 
 	// Fallback for deals without a stored summary.
@@ -283,9 +323,16 @@ export function formatDealSummary(
 		}
 	}
 
-	// Legacy: replace literal "after Costs" with the dollar amount.
-	const costsLabel = `${venueCurrency}$${formatMoney(computedCosts)}`;
+	// "after Costs" deals always show the LIVE cost figure. Older deals baked
+	// the number in at save time (e.g. "after CAD$0.00" when costs were still
+	// zero) — patch those too so the summary tracks today's costs.
+	const prefix =
+		venueCurrency === 'CAD' ? 'CA$' : venueCurrency === 'USD' ? '$' : `${venueCurrency}$`;
+	const costsLabel = `${prefix}${formatMoney(computedCosts)}`;
 	summary = summary.replace(/after Costs\b/g, `after ${costsLabel}`);
+	if (deal?.details?.afterType === 'Costs') {
+		summary = summary.replace(/after (?:USD|CAD|EUR|GBP|CA|US)?\$[\d,]+(?:\.\d+)?/g, `after ${costsLabel}`);
+	}
 
 	// Prefix the currency code (USD/CAD). Only if not already prefixed.
 	if (!/^(USD|CAD|EUR|GBP)\s/.test(summary)) {
@@ -296,4 +343,57 @@ export function formatDealSummary(
 	}
 
 	return summary;
+}
+// ---------------------------------------------------------------------------
+// Shared event_deal payload parsing (keyed "headliner_..." / "support_..."
+// suffix format). Used by the sidebar and Pro Forma so every surface counts
+// the same deals — the main headliner plus any co-headliners and support
+// deals flagged "Include in Headliner Deal".
+// ---------------------------------------------------------------------------
+
+export interface ParsedEventDeal {
+	role: 'Headliner' | 'Support';
+	name: string;
+	deal: any;
+	isMain: boolean; // the primary headliner_deal
+}
+
+export function listEventDeals(raw: any): ParsedEventDeal[] {
+	let data = raw;
+	try {
+		if (typeof data === 'string') data = JSON.parse(data);
+		if (typeof data === 'string') data = JSON.parse(data);
+	} catch {
+		return [];
+	}
+	if (!data || typeof data !== 'object' || Array.isArray(data)) return [];
+
+	const out: ParsedEventDeal[] = [];
+	(
+		[
+			['Headliner', 'headliner'],
+			['Support', 'support']
+		] as const
+	).forEach(([role, prefix]) => {
+		let i = 1;
+		while (true) {
+			const sfx = i === 1 ? '' : `_${i}`;
+			const nameKey = `${prefix}_name${sfx}`;
+			if (!(nameKey in data)) break;
+			const name = data[nameKey];
+			const deal = data[`${prefix}_deal${sfx}`] || {};
+			if (name && name !== 'NULL' && name !== 'null' && deal?.dealType) {
+				out.push({ role, name, deal, isMain: role === 'Headliner' && i === 1 });
+			}
+			i++;
+		}
+	});
+	return out;
+}
+
+/** Deals that count as talent expenses on the headliner's ledger. */
+export function includedTalentDeals(raw: any): ParsedEventDeal[] {
+	return listEventDeals(raw).filter(
+		(d) => !d.isMain && (d.role === 'Headliner' || d.deal?.includeInHeadlinerDeal === true)
+	);
 }

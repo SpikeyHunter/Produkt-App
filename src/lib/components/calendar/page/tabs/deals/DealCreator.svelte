@@ -59,12 +59,29 @@
 	const depositTypes: DepositType[] = ['Percent', 'Flat'];
 	const dueDateTypes: DueDateType[] = ['Relative', 'Specific'];
 
+	// Hotels: rooms/suites and nights only make sense together — a room with no
+	// nights, or nights with nothing booked, would print a nonsense offer line.
+	$: hotelUnits =
+		(Number(newDeal?.description?.hotels?.rooms) || 0) +
+		(Number(newDeal?.description?.hotels?.suites) || 0);
+	$: hotelNights = Number(newDeal?.description?.hotels?.nights) || 0;
+	$: hotelsError = !newDeal?.description?.hotels?.enabled
+		? ''
+		: hotelUnits > 0 && hotelNights < 1
+			? 'Hotels need at least 1 night when a room or suite is added.'
+			: hotelNights > 0 && hotelUnits < 1
+				? 'Hotels need at least 1 room or suite when nights are added.'
+				: '';
+
 	$: isFormValid =
 		newDeal.artistName &&
 		newDeal.artistName.trim() !== '' &&
 		newDeal.dealType &&
 		(newDeal.dealType === 'Door Deal' ||
-			(newDeal.guaranteeAmount !== undefined && newDeal.guaranteeAmount > 0));
+			(newDeal.guaranteeAmount !== undefined &&
+				newDeal.guaranteeAmount !== null &&
+				Number(newDeal.guaranteeAmount) >= 0)) &&
+		!hotelsError;
 
 	let showDetails = true;
 
@@ -80,6 +97,8 @@
 		dealCurrency: 'USD' as 'USD' | 'CAD',
 		w_tax: true,
 		w_tax_amount: 24,
+		// Support deals only: count this deal as an expense on the headliner's offer.
+		includeInHeadlinerDeal: false,
 		cad_tax_type: 'Flat' as 'Flat' | 'Taxes',
 		cad_qst: false,
 		cad_gst: false,
@@ -166,6 +185,7 @@
 						newDeal.description.bookingNotes = { enabled: false, notes: '' };
 				}
 				if (newDeal.w_tax_amount === undefined) newDeal.w_tax_amount = 24;
+				if (newDeal.includeInHeadlinerDeal === undefined) newDeal.includeInHeadlinerDeal = false;
 
 				// Handle legacy deals for retroactive bonuses
 				if (!newDeal.details) {
@@ -233,12 +253,13 @@
 				minimumFractionDigits: 2,
 				maximumFractionDigits: 2
 			});
+		const hasGuar = Number(newDeal.guaranteeAmount) > 0;
 		const guar = `${newDeal.dealCurrency || 'USD'} $${formatNum(newDeal.guaranteeAmount)}`;
 
 		let prefix = '';
 		if (newDeal.dealType === 'Door Deal') prefix = 'Door Deal of';
-		else if (newDeal.dealType === 'Versus') prefix = `${guar} Versus`;
-		else if (newDeal.dealType === 'Plus') prefix = `${guar} Plus`;
+		else if (newDeal.dealType === 'Versus') prefix = hasGuar ? `${guar} Versus` : 'Versus';
+		else if (newDeal.dealType === 'Plus') prefix = hasGuar ? `${guar} Plus` : 'Plus';
 
 		let baseSummary = '';
 
@@ -299,6 +320,8 @@
 	})();
 
 	function handleSave() {
+		if (!isFormValid) return;
+
 		const payload = JSON.parse(JSON.stringify(newDeal));
 
 		payload.artistId = selectedArtist?.id || 'NULL';
@@ -319,7 +342,7 @@
 
 		payload.summaryText =
 			dealSummary ||
-			(payload.dealType === 'Flat'
+			(payload.dealType === 'Flat' && Number(payload.guaranteeAmount) > 0
 				? `${payload.dealCurrency || 'USD'} $${formattedGuarantee} Flat Deal`
 				: '');
 
@@ -514,6 +537,54 @@
 			</div>
 		{/if}
 	</div>
+
+	{#if newDeal.role === 'Support'}
+		<div class="px-2 mt-6">
+			<div class="flex items-center justify-between bg-navbar py-2.5 px-4 rounded-2xl">
+				<div class="flex items-center gap-2">
+					<h3 class="font-bold text-gray3">Headliner Deal</h3>
+					<div class="relative group flex items-center">
+						<span
+							class="w-4 h-4 rounded-full bg-gray1 text-gray2 text-[10px] font-black flex items-center justify-center cursor-help group-hover:text-lime transition-colors"
+							>i</span
+						>
+						<div
+							class="absolute left-6 top-1/2 -translate-y-1/2 w-64 hidden group-hover:block bg-gray1 border border-navbar rounded-xl shadow-2xl px-3 py-2 text-xs text-gray3 font-medium z-50"
+						>
+							When on, this support deal is listed as a Talent Pay expense on the headliner's
+							offer sheet.
+						</div>
+					</div>
+				</div>
+				<div class="flex items-center gap-3">
+					<span
+						class="text-sm font-bold {newDeal.includeInHeadlinerDeal
+							? 'text-white'
+							: 'text-gray2/40 italic'}"
+					>
+						{newDeal.includeInHeadlinerDeal ? 'Included in Deal' : 'Not Included in Deal'}
+					</span>
+					<button
+						type="button"
+						role="switch"
+						aria-checked={newDeal.includeInHeadlinerDeal}
+						aria-label="Toggle Include in Headliner Deal"
+						on:click={() => (newDeal.includeInHeadlinerDeal = !newDeal.includeInHeadlinerDeal)}
+						class="relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-1 focus:ring-lime {newDeal.includeInHeadlinerDeal
+							? 'bg-lime'
+							: 'bg-[#444]'}"
+					>
+						<span
+							aria-hidden="true"
+							class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-200 ease-in-out {newDeal.includeInHeadlinerDeal
+								? 'translate-x-5'
+								: 'translate-x-0'}"
+						></span>
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	<div class="px-2 mt-6">
 		<h3 class="font-bold mb-4 text-gray3">Withholding Taxes</h3>
@@ -936,7 +1007,12 @@
 		</button>
 	</div>
 
-	<div class="flex gap-4 justify-end mt-4">
+	<div class="flex gap-4 justify-end items-center mt-4">
+		{#if hotelsError}
+			<span class="text-problem text-sm font-bold" transition:fade={{ duration: 150 }}>
+				{hotelsError}
+			</span>
+		{/if}
 		<button
 			on:click={handleCancel}
 			class="px-8 py-3 bg-navbar text-white font-bold rounded-full hover:bg-gray2 transition-colors cursor-pointer"

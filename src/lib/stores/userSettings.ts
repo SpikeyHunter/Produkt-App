@@ -170,6 +170,11 @@ export async function saveTourLineColor(hex: string) {
 	await persist({ tour_line_color: hex });
 }
 
+/** Calendar event page: remember whether the right sidebar is open. */
+export async function saveCalendarSidebarOpen(open: boolean) {
+	await persist({ calendar_sidebar_open: open });
+}
+
 export async function saveTourTypeColor(type: string, hex: string) {
 	const colors = { ...get(typeColors), [type]: hex };
 	await persist({ tour_type_colors: colors });

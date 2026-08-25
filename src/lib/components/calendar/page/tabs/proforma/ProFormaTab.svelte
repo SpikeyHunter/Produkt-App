@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { computeArtistPayout, includedTalentDeals } from '$lib/components/calendar/page/tabs/deals/dealEngine';
 	import { onMount } from 'svelte';
 	import { supabase } from '$lib/supabase';
 	import { slide } from 'svelte/transition';
@@ -184,8 +185,14 @@
 		fixedCosts.forEach((g: any) => {
 			const costsArray = Array.isArray(g.costs) ? g.costs : [];
 			costsArray.forEach((c: any) => {
-				// PRISM logic: Actuals use `actualInternal`, Estimates use `estimatedInternal`
-				fixedTotal += Number(isActual ? c.actualInternal : c.estimatedInternal) || 0;
+				// Actuals: actualInternal, falling back to the settlement figure and
+				// then the estimate (an empty Actual Internal shouldn't hide costs).
+				fixedTotal += isActual
+					? Number(c.actualInternal) ||
+						Number(c.externalSettlement) ||
+						Number(c.estimatedInternal) ||
+						0
+					: Number(c.estimatedInternal) || 0;
 			});
 		});
 
@@ -194,7 +201,9 @@
 			const multiplier = Number(v.internalAmount) || 0;
 			switch (v.type) {
 				case 'Flat':
-					variableTotal += isActual ? Number(v.actualInternal) || multiplier : multiplier;
+					variableTotal += isActual
+						? Number(v.actualInternal) || Number(v.externalSettlement) || multiplier
+						: multiplier;
 					break;
 				case '% of Gross':
 					variableTotal += (multiplier / 100) * grossRevenue;
@@ -221,8 +230,14 @@
 		// Exchange rate: prefer the deal's customRate (when useCustomRate is on), then any explicit
 		// exchangeRate field, then the raw customRate, then 1. The DB stores customRate at the
 		// eventDeal level (not inside headliner_deal), e.g. customRate: 1.3844, useCustomRate: true.
+		const custom = eventDeal?.useCustomRate === true;
+		const settleCustom = Number(eventDeal?.customSettlementRate) || Number(eventDeal?.customRate);
 		const exchangeRate =
-			(eventDeal?.useCustomRate && Number(eventDeal?.customRate)) ||
+			(isSettlementMode &&
+				((custom && settleCustom) ||
+					Number(headlinerDeal?.savedSettlementRate) ||
+					Number(eventDeal?.lockedExchangeRate))) ||
+			(custom && Number(eventDeal?.customRate)) ||
 			Number(headlinerDeal?.exchangeRate) ||
 			Number(eventDeal?.customRate) ||
 			1;
@@ -234,10 +249,51 @@
 		const metricAmount = Number(headlinerDeal.details?.metricAmount) || 0;
 		const splitPoint = (Number(headlinerDeal.details?.splitPointAmount) || 0) * exchangeRate;
 
+		// Additional Support + other included talent count against the split
+		// point (same basis as the sidebar, deals tab and offer/settlement
+		// sheets) — computed before the headliner backend.
+		const additionalSupportBudgeted = Number(eventDeal?.additional_support_budgeted) || 0;
+		const hasActualSupport =
+			eventDeal?.additional_support_actual !== null &&
+			eventDeal?.additional_support_actual !== undefined &&
+			eventDeal?.additional_support_actual !== '';
+		const additionalSupportActual = hasActualSupport
+			? Number(eventDeal.additional_support_actual) || 0
+			: 0;
+		const additionalSupport = useActualSupport
+			? additionalSupportActual
+			: additionalSupportBudgeted;
+
+		let otherTalentPayout = 0;
+		for (const x of includedTalentDeals(eventDeal)) {
+			const r =
+				(isSettlementMode &&
+					((custom && settleCustom) ||
+						Number(x.deal?.savedSettlementRate) ||
+						Number(eventDeal?.lockedExchangeRate))) ||
+				(custom && Number(eventDeal?.customRate)) ||
+				Number(x.deal?.savedExchangeRate) ||
+				Number(eventDeal?.customRate) ||
+				1;
+			otherTalentPayout += computeArtistPayout(
+				{ dealType: x.deal.dealType, guaranteeAmount: x.deal.guaranteeAmount, details: x.deal.details },
+				{
+					gross: grossRevenue,
+					netGross,
+					costs: expensesBeforeArtist,
+					paidTickets: paidTickets,
+					totalAllotment: 0,
+					exchangeRate: r
+				}
+			);
+		}
+
+		const splitBase = netProfitBeforeArtist - additionalSupport - otherTalentPayout;
+
 		let backend = 0;
 		// Backend (Plus / Versus) is only triggered if Net Profit clears the split point
-		if (netProfitBeforeArtist > splitPoint) {
-			const overage = netProfitBeforeArtist - splitPoint;
+		if (splitBase > splitPoint) {
+			const overage = splitBase - splitPoint;
 			if (metricType === 'Flat') {
 				backend = metricAmount * exchangeRate;
 			} else if (metricType === '% of Net') {
@@ -255,26 +311,8 @@
 			artistPayout = guarantee; // Flat
 		}
 
-		// Additional Support (separate from the artist guarantee in the offer model).
-		// Budgeted by default; switch to actual when the show is in settlement.
-		// If actual hasn't been filled in yet, fall back to the budgeted figure.
-		const additionalSupportBudgeted = Number(eventDeal?.additional_support_budgeted) || 0;
-		// Distinguish "actual not entered" (null/undefined) from "actual is genuinely 0".
-		const hasActualSupport =
-			eventDeal?.additional_support_actual !== null &&
-			eventDeal?.additional_support_actual !== undefined &&
-			eventDeal?.additional_support_actual !== '';
-		const additionalSupportActual = hasActualSupport
-			? Number(eventDeal.additional_support_actual) || 0
-			: 0;
-		// ACTUAL column: use actual support if it exists, otherwise NO support (not budgeted).
-		// Projection columns: always budgeted.
-		const additionalSupport = useActualSupport
-			? additionalSupportActual
-			: additionalSupportBudgeted;
-
 		// 5. Final Calculations
-		const totalExpenses = expensesBeforeArtist + artistPayout + additionalSupport;
+		const totalExpenses = expensesBeforeArtist + artistPayout + otherTalentPayout + additionalSupport;
 		const netProfit = netGross + additionalRevenue - totalExpenses;
 
 		return {

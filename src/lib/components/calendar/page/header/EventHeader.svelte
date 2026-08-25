@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { fly } from 'svelte/transition';
 	import { invalidateAll, goto } from '$app/navigation';
 	import { supabase } from '$lib/supabase';
 	import { authStore } from '$lib/stores/authStore';
@@ -14,7 +15,6 @@
 	import CalendarLink from '$lib/components/calendar/page/header/CalendarLink.svelte'; // <-- NEW IMPORT
 	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
-	import OffersModal from '$lib/components/calendar/page/modals/OffersModal.svelte'; 
 	import { syncConfirmedShowToEvents } from '$lib/services/calendarEventLink';
 
 	type ExtendedEvent = CalendarEvent & {
@@ -33,6 +33,15 @@
 	export let tabs: string[];
 	export let activeTab: string;
 	export let isSidebarOpen: boolean = true;
+	// Hidden while the full-page Settings view is open (settings takes the full width).
+	export let hideSidebarToggle: boolean = false;
+	// Settings mode: the tab strip swaps to a back button + the settings tabs.
+	export let settingsMode: boolean = false;
+	export let settingsTab: 'settings' | 'templates' = 'settings';
+	const settingsTabs: ['settings' | 'templates', string][] = [
+		['settings', 'Settings'],
+		['templates', 'Templates']
+	];
 	export let userRole: string = 'Email Only';
 
 	export let isDeployed: boolean = false;
@@ -41,7 +50,8 @@
 
 	// --- PERMISSION LOGIC ---
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
-	$: isAdmin = $authStore?.profile?.role === 'Admin';
+	// Global profile Admins AND calendar_users with role Admin can open settings.
+	$: isAdmin = $authStore?.profile?.role === 'Admin' || userRole === 'Admin';
 	let isEditingTitle = false;
 	let editTitle = event.calendar?.title || 'Unnamed Event';
 	// New error state variables
@@ -50,7 +60,6 @@
 
 	// Dropdown states
 	let showStatusDrop = false;
-	let showOffersModal = false;
 
 	// Confirm Modal State
 	let showConfirmModal = false;
@@ -142,6 +151,8 @@
 			invalidateAll();
 		}
 	}
+
+
 
 	// === CONFIRM / CANCEL EVENT LOGIC ===
 	async function setupConfirmData() {
@@ -598,7 +609,7 @@
 				>
 			</a>
 
-			<div class="group relative flex items-center">
+			<div class="group relative flex items-center min-w-0 flex-1">
 				{#if isEditingTitle && isEditor}
 					<input
 						type="text"
@@ -610,7 +621,7 @@
 					/>
 				{:else}
 					<button
-						class="text-2xl font-black px-1 text-left transition-all {isEditor
+						class="text-2xl font-black px-1 text-left transition-all truncate max-w-full whitespace-nowrap {isEditor
 							? 'cursor-pointer'
 							: 'opacity-80'} 
 					{titleError
@@ -714,7 +725,7 @@
 				aria-label="Settings"
 				title={!isAdmin ? 'You do not have permission to change settings' : 'Settings'}
 				on:click={() => {
-					if (isAdmin) showOffersModal = true;
+					if (isAdmin) dispatch('openOfferSettings');
 				}}
 			>
 				<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -725,7 +736,7 @@
 				>
 			</button>
 
-			<HeaderActions {event} {parsedDetails} {venues} {isEditor} />
+			<HeaderActions {event} {parsedDetails} {venues} {isEditor} on:applyEventTemplate />
 		</div>
 	</div>
 
@@ -735,7 +746,7 @@
 		style="cursor: {!isEditor ? 'not-allowed' : 'default'}"
 	>
 		<div
-			class="flex items-center gap-3 -ml-3 transition-opacity {isEditor
+			class="flex items-center gap-3 -ml-3 flex-wrap transition-opacity [&_button]:whitespace-nowrap [&_span]:whitespace-nowrap {isEditor
 				? ''
 				: 'pointer-events-none opacity-80'}"
 		>
@@ -749,10 +760,48 @@
 	<div
 		class="mx-3 px-6 pt-2 bg-navbar flex items-end gap-8 overflow-x-auto rounded-2xl custom-scrollbar"
 	>
+		{#if settingsMode}
+			<!-- Settings strip: back button + settings tabs (swaps in smoothly) -->
+			<div class="flex items-end gap-8" in:fly={{ x: -16, duration: 200 }}>
+				<button
+					type="button"
+					on:click={() => dispatch('closeSettings')}
+					class="pb-2 text-gray2 hover:text-white transition-colors cursor-pointer"
+					aria-label="Back"
+					title="Back"
+				>
+					<svg
+						class="w-5 h-5"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					>
+						<polyline points="15 18 9 12 15 6"></polyline>
+					</svg>
+				</button>
+				{#each settingsTabs as [key, label] (key)}
+					<button
+						class="pb-3 text-sm font-bold uppercase tracking-wider transition-all whitespace-nowrap relative cursor-pointer
+							{settingsTab === key ? 'text-lime' : 'text-gray2 hover:text-white'}"
+						on:click={() => dispatch('settingsTabChange', key)}
+					>
+						{label}
+						{#if settingsTab === key}
+							<div class="absolute bottom-0 left-0 w-full h-[3px] bg-lime rounded-t-full"></div>
+						{/if}
+					</button>
+				{/each}
+			</div>
+		{:else}
 		{#each tabs as tab}
 			{@const isEnvironmentBlocked = isDeployed && !deployedAppTabs.includes(tab)}
 			{@const isRoleBlocked = !isEditor && tab !== 'Deals'}
-			{@const isDisabled = isEnvironmentBlocked || isRoleBlocked}
+			{@const isStageBlocked =
+				tab === 'T&C' && ['IN SETTLEMENT', 'SETTLED'].includes(event?.status)}
+			{@const isDisabled = isEnvironmentBlocked || isRoleBlocked || isStageBlocked}
 
 			<button
 				class="pb-3 text-sm font-bold uppercase tracking-wider transition-all whitespace-nowrap relative
@@ -767,7 +816,9 @@
 					? 'This tab is currently disabled in this environment'
 					: isRoleBlocked
 						? 'You do not have permission to view this tab'
-						: ''}
+						: isStageBlocked
+							? 'Terms are locked once the event is in settlement'
+							: ''}
 			>
 				{tab}
 				{#if activeTab === tab}
@@ -775,10 +826,13 @@
 				{/if}
 			</button>
 		{/each}
+		{/if}
 	</div>
 
 	<button
-		class="group absolute bottom-6 right-2 translate-y-1/2 w-11 h-11 bg-gray1 hover:border-lime border-2 border-gray2/30 rounded-full shadow-lg flex items-center justify-center z-[100] cursor-pointer transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
+		class="group absolute bottom-6 right-2 translate-y-1/2 w-11 h-11 bg-gray1 hover:border-lime border-2 border-gray2/30 rounded-full shadow-lg flex items-center justify-center z-[100] cursor-pointer transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)] {hideSidebarToggle
+			? 'hidden'
+			: ''}"
 		style="transform: translateY(50%) rotate({isSidebarOpen ? 0 : 180}deg);"
 		on:click={handleToggleClick}
 		aria-label={isSidebarOpen ? 'Hide sidebar' : 'Reveal sidebar'}
@@ -808,16 +862,5 @@
 		{otherEventsOnDayCount}
 		{otherEventsSameRoomCount}
 		on:confirm={executeConfirmChange}
-	/>
-{/if}
-
-{#if isAdmin}
-	<OffersModal
-		bind:isOpen={showOffersModal}
-		{event}
-		eventDealData={Array.isArray(event?.calendar_data)
-			? event.calendar_data[0]?.event_deal
-			: event?.calendar_data?.event_deal || event?.event_deal || {}}
-		on:success={() => invalidateAll()}
 	/>
 {/if}

@@ -7,6 +7,7 @@
 	import { themeStore } from '$lib/stores/themeStore';
 	import { hasPermission } from '$lib/utils/permissions';
 	import { initUserSettings } from '$lib/stores/userSettings';
+	import CommandPalette from '$lib/components/common/CommandPalette.svelte';
 	import '../app.css';
 
 	// Routes that require a logged-in user to access.
@@ -160,4 +161,7 @@
 	</div>
 {:else}
 	<slot />
+	{#if $authStore.profile}
+		<CommandPalette />
+	{/if}
 {/if}

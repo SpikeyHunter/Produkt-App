@@ -3,6 +3,9 @@
 	export let currency: string = 'CAD';
 	export let onRemove: () => void;
 	export let triggerSave: () => void;
+	// Template editor variant (Settings > Templates): hides the settlement-time
+	// columns (Actual Internal / Ext. Settlement) — everything else is identical.
+	export let templateMode: boolean = false;
 
 	const categories = ['General', 'Production','Marketing', 'Talent', 'Sponsor', 'Additional'];
 	const types = [
@@ -145,14 +148,14 @@
 		{ id: 'qty', label: 'QTY', width: 5 },
 		{ id: 'cost', label: 'Cost', width: 8 },
 		{ id: 'offerBudget', label: 'Offer Budget', width: 9 },
-		{ id: 'estimatedInternal', label: 'Est. Internal', width: 10 },
+		{ id: 'estimatedInternal', label: templateMode ? 'Estimated Internal' : 'Est. Internal', width: templateMode ? 12 : 10 },
 		{ id: 'actualInternal', label: 'Actual Internal', width: 10 },
 		{ id: 'externalSettlement', label: 'Ext. Settlement', width: 10 },
-		{ id: 'internalNotes', label: 'Internal Notes', width: 11 },
-		{ id: 'externalNotes', label: 'External Notes', width: 11 },
+		{ id: 'internalNotes', label: 'Internal Notes', width: templateMode ? 16 : 11 },
+		{ id: 'externalNotes', label: 'External Notes', width: templateMode ? 16 : 11 },
 		{ id: 'reported', label: 'Reported', width: 6 },
 		{ id: 'remove', label: 'Remove', width: 5 }
-	];
+	].filter((c) => !templateMode || (c.id !== 'actualInternal' && c.id !== 'externalSettlement'));
 
 	let resizingColIndex: number | null = null;
 	let startX = 0;
@@ -546,6 +549,7 @@
 							{/if}
 						</td>
 
+						{#if !templateMode}
 						<td class="px-2 py-2 border-r border-gray1 relative align-top pt-3 pb-1 text-right">
 							{#if focusedCell?.rowId === row.id && focusedCell?.field === 'actualInternal'}
 								<input
@@ -619,6 +623,8 @@
 							</div>
 						</td>
 
+						{/if}
+
 						<td class="px-3 py-2 border-r border-gray1">
 							<input
 								type="text"
@@ -680,6 +686,7 @@
 						>{formatCurrency(totals.estimated, currency)}</td
 					>
 
+					{#if !templateMode}
 					<td class="px-2 py-4 text-white truncate text-right align-top">
 						{formatCurrency(totals.actual, currency)}
 						{#if totalActualDiff !== 0}
@@ -705,6 +712,8 @@
 							</div>
 						{/if}
 					</td>
+
+					{/if}
 
 					<td colspan="4"></td>
 				</tr>

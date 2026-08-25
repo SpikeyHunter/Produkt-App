@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { portal } from '$lib/utils/portalUtils';
   
   export let isOpen = false;
   export let title = '';
@@ -98,8 +99,11 @@
 <svelte:window on:keydown={handleKeydown} />
 
 {#if isOpen}
-  <!-- Backdrop -->
+  <!-- Backdrop (portaled to <body>: ancestors with transform/filter/z-index
+       stacking contexts — page header, sidebar toggle — can otherwise trap and
+       overlap a position:fixed overlay) -->
   <div 
+    use:portal
     class="modal-backdrop {isClosing ? 'backdrop-exit' : 'backdrop-enter'} flex items-center justify-center p-4 overflow-y-auto"
     on:click={handleBackdropClick}
     on:keydown={handleKeydown}

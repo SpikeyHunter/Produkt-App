@@ -1,5 +1,8 @@
 <script lang="ts">
 	import ImportRevenueCSV from './ImportRevenueCSV.svelte';
+	import { portal } from '$lib/utils/portalUtils';
+	import { fade, fly } from 'svelte/transition';
+	import { listEventTemplates, type EventTemplate } from '$lib/services/templateService';
 
 	export let tickets: any[] = [];
 	export let financials: any;
@@ -7,6 +10,36 @@
 
 	let searchQuery = '';
 	let showImportModal = false;
+
+	// --- Ticket Scaling templates ---
+	let showTemplateModal = false;
+	let ticketTemplates: EventTemplate[] = [];
+	let templatesLoading = false;
+
+	async function openTicketTemplates() {
+		showTemplateModal = true;
+		templatesLoading = true;
+		ticketTemplates = (await listEventTemplates()).filter((t) => t.tickets.length > 0);
+		templatesLoading = false;
+	}
+
+	function applyTicketTemplate(t: EventTemplate) {
+		const rows = t.tickets.map((r) => ({
+			id: crypto.randomUUID(),
+			name: r.name || 'Tier',
+			allotment: Number(r.allotment) || 0,
+			comps: Number(r.comps) || 0,
+			kills: Number(r.kills) || 0,
+			price: Number(r.price) || 0,
+			estSold: Number(r.estSold) || 0,
+			sold: 0,
+			extSold: 0,
+			ticketFees: 0
+		}));
+		// Template's Ticket Scaling mode: Add appends, Overwrite replaces scaling.
+		tickets = t.addMode?.tickets !== false ? [...tickets, ...rows] : rows;
+		showTemplateModal = false;
+	}
 
 	let columns = [
 		{ id: 'drag', label: '', width: 4 },
@@ -17,7 +50,8 @@
 		{ id: 'sellable', label: 'Sellable', width: 8 },
 		{ id: 'price', label: 'Price', width: 9 },
 		{ id: 'estSold', label: 'Est. Sold', width: 7 },
-		{ id: 'sold', label: 'Sold', width: 7 },
+		{ id: 'sold', label: 'Act. Sold', width: 7 },
+		{ id: 'extSold', label: 'Ext. Sold', width: 7 },
 		{ id: 'actualGross', label: 'Actual gross', width: 9 },
 		{ id: 'ticketFees', label: 'Ticket fees', width: 8 },
 		{ id: 'taxBackedOut', label: 'Tax backed out', width: 9 },
@@ -138,6 +172,23 @@
 		isDragHandle = false;
 	}
 
+	// --- EXT. SOLD (settlement display) ---
+	// Mirrors Act. Sold until it's edited independently: changing Act. Sold
+	// always re-copies into Ext. Sold; editing Ext. Sold leaves Act. Sold alone.
+	let extSoldInitialized = false;
+	$: if (!extSoldInitialized && tickets.length > 0) {
+		tickets.forEach((t) => {
+			if (t.extSold == null || t.extSold === '') t.extSold = Number(t.sold) || 0;
+		});
+		tickets = tickets;
+		extSoldInitialized = true;
+	}
+
+	function syncExtSold(idx: number, e: Event) {
+		const val = (e.currentTarget as HTMLInputElement).value;
+		tickets[idx].extSold = val === '' ? 0 : Number(val) || 0;
+	}
+
 	// --- DATA PROCESSING ---
 	$: processedTickets = tickets.map((t, index) => {
 		const allotment = Number(t.allotment) || 0;
@@ -184,18 +235,19 @@
 		acc.sellable += t.sellable;
 		acc.estSold += (Number(t.estSold) || 0);
 		acc.sold += (Number(t.sold) || 0);
+		acc.extSold += t.extSold != null && t.extSold !== '' ? Number(t.extSold) || 0 : Number(t.sold) || 0;
 		acc.actualGross += t.actualGross;
 		acc.ticketFees += t.ticketFees;
 		acc.taxBackedOut += t.taxBackedOut;
 		acc.netGrossActual += t.netGrossActual;
 		return acc;
 	}, {
-		allotment: 0, comps: 0, kills: 0, sellable: 0, estSold: 0, sold: 0, 
+		allotment: 0, comps: 0, kills: 0, sellable: 0, estSold: 0, sold: 0, extSold: 0, 
 		actualGross: 0, ticketFees: 0, taxBackedOut: 0, netGrossActual: 0
 	});
 
 	function addRow() {
-		tickets = [...tickets, { id: crypto.randomUUID(), name: `Tier ${tickets.length + 1}`, allotment: 0, comps: 0, kills: 0, price: 0, estSold: 0, sold: 0, ticketFees: 0 }];
+		tickets = [...tickets, { id: crypto.randomUUID(), name: `Tier ${tickets.length + 1}`, allotment: 0, comps: 0, kills: 0, price: 0, estSold: 0, sold: 0, extSold: 0, ticketFees: 0 }];
 	}
 
 	function removeRow(id: string) {
@@ -253,7 +305,7 @@
 		const headerLabels = columns.filter(c => c.id !== 'drag' && c.id !== 'action').map(c => c.label);
 		const csvRows = [headerLabels.join(',')];
 		for (const t of processedTickets) {
-			const values = [`"${t.name || ''}"`, t.allotment, t.comps, t.kills, t.sellable, t.price, t.estSold, t.sold, t.actualGross, t.ticketFees, t.taxBackedOut, t.netGrossActual];
+			const values = [`"${t.name || ''}"`, t.allotment, t.comps, t.kills, t.sellable, t.price, t.estSold, t.sold, t.extSold ?? t.sold, t.actualGross, t.ticketFees, t.taxBackedOut, t.netGrossActual];
 			csvRows.push(values.join(','));
 		}
 		const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -267,7 +319,10 @@
 	}
 
 	function handleImport(e: CustomEvent<any[]>) {
-		const newTickets = e.detail;
+		const newTickets = e.detail.map((t: any) => ({
+			...t,
+			extSold: t.extSold ?? (Number(t.sold) || 0)
+		}));
 		tickets = [...tickets, ...newTickets];
 	}
 </script>
@@ -296,6 +351,9 @@
 			<input type="text" placeholder="Search tickets" bind:value={searchQuery} class="w-full bg-gray1  rounded-3xl px-4 py-1.5 text-white placeholder-gray2/40 focus:border-lime border-2  border-navbar focus:outline-none text-sm" />
 		</div>
 		<div class="flex items-center gap-3">
+			<button on:click={openTicketTemplates} class="flex items-center gap-2 px-4 py-2 bg-navbar text-gray2 text-sm font-bold rounded-3xl hover:bg-gray2/10 hover:cursor-pointer hover:text-white transition-colors">
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline stroke-linecap="round" stroke-linejoin="round" stroke-width="2" points="17 21 17 13 7 13 7 21"></polyline></svg> Load Template
+			</button>
 			<button on:click={() => showImportModal = true} class="flex items-center gap-2 px-4 py-2 bg-navbar text-gray2 text-sm font-bold rounded-3xl hover:bg-gray2/10 hover:cursor-pointer hover:text-white transition-colors">
 				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg> Import CSV
 			</button>
@@ -376,7 +434,10 @@
 							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].estSold} on:focus={() => handleFocus(row.originalIndex, 'estSold')} on:blur={(e) => checkEmpty(e, 'estSold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
 						</td>
 						<td class="px-2 py-2 border border-gray1">
-							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].sold} on:focus={() => handleFocus(row.originalIndex, 'sold')} on:blur={(e) => checkEmpty(e, 'sold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
+							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].sold} on:input={(e) => syncExtSold(row.originalIndex, e)} on:focus={() => handleFocus(row.originalIndex, 'sold')} on:blur={(e) => checkEmpty(e, 'sold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
+						</td>
+						<td class="px-2 py-2 border border-gray1">
+							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].extSold} on:blur={(e) => checkEmpty(e, 'extSold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
 						</td>
 						
 						<td class="px-2 py-2 text-gray2 font-medium truncate bg-gray2/5 text-right border border-gray1">{formatCurrency(row.actualGross, currency)}</td>
@@ -402,6 +463,7 @@
 					<td class="px-2 py-4 "></td>
 					<td class="px-2 py-4 text-white truncate text-right ">{totals.estSold}</td>
 					<td class="px-2 py-4 text-white truncate text-right ">{totals.sold}</td>
+					<td class="px-2 py-4 text-white truncate text-right ">{totals.extSold}</td>
 					
 					<td class="px-2 py-4 text-lime truncate text-right " title={formatCurrency(totals.actualGross, currency)}>{formatCurrency(totals.actualGross, currency)}</td>
 					<td class="px-2 py-4 text-lime truncate text-right " title={formatCurrency(totals.ticketFees, currency)}>{formatCurrency(totals.ticketFees, currency)}</td>
@@ -413,6 +475,58 @@
 			</tfoot>
 		</table>
 	</div>
+
+	{#if showTemplateModal}
+		<div
+			use:portal
+			class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4"
+			transition:fade={{ duration: 150 }}
+		>
+			<div
+				class="bg-navbar border border-gray2/10 rounded-3xl w-full max-w-lg flex flex-col shadow-2xl overflow-hidden max-h-[80vh]"
+				transition:fly={{ y: 20, duration: 200 }}
+			>
+				<div class="p-6 border-b border-gray2/10 flex justify-between items-center shrink-0">
+					<h2 class="text-xl font-bold text-white tracking-wide">Load Ticket Scaling</h2>
+					<button
+						type="button"
+						class="text-gray2 hover:text-white transition-colors cursor-pointer"
+						on:click={() => (showTemplateModal = false)}
+						aria-label="Close"
+					>
+						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+					</button>
+				</div>
+				<div class="p-6 flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2">
+					{#if templatesLoading}
+						<p class="text-gray2 font-bold text-sm py-4 text-center">Loading templates...</p>
+					{:else}
+						{#each ticketTemplates as t (t.id)}
+							<button
+								type="button"
+								on:click={() => applyTicketTemplate(t)}
+								class="flex items-center justify-between bg-gray1 rounded-2xl px-4 py-3 text-left hover:bg-gray1/60 transition-colors cursor-pointer group"
+							>
+								<div>
+									<p class="text-white font-bold text-sm group-hover:text-lime transition-colors">{t.name}</p>
+									<p class="text-gray2 text-xs font-medium mt-0.5">
+										{t.tickets.length} tiers · {t.addMode?.tickets !== false
+											? 'adds to current scaling'
+											: 'overwrites current scaling'}
+									</p>
+								</div>
+								<span class="text-xs font-black uppercase tracking-widest text-gray2 group-hover:text-lime transition-colors">Apply →</span>
+							</button>
+						{:else}
+							<p class="text-gray2 text-sm font-bold py-4 text-center">
+								No Ticket Scaling templates yet — create one in Settings → Templates.
+							</p>
+						{/each}
+					{/if}
+				</div>
+			</div>
+		</div>
+	{/if}
 </section>
 
 <ImportRevenueCSV bind:isOpen={showImportModal} on:import={handleImport} />

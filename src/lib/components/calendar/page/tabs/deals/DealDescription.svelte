@@ -5,11 +5,21 @@
 	export let description: DealDescription;
 
 	function decrement(section: 'hotels', field: 'nights' | 'rooms' | 'suites' | 'custom_amount') {
-		description[section][field] = Math.max(0, description[section][field] - 1);
+		// Nights can't drop below 1 while at least one room or suite is booked.
+		const floor = section === 'hotels' && field === 'nights' && hasRoomsOrSuites ? 1 : 0;
+		description[section][field] = Math.max(floor, description[section][field] - 1);
 	}
 
 	function increment(section: 'hotels', field: 'nights' | 'rooms' | 'suites' | 'custom_amount') {
 		description[section][field]++;
+	}
+
+	// Adding a room or suite implies at least one night — bump 0 nights up to 1
+	// (covers increments, manual edits and legacy deals saved with 0 nights).
+	$: hasRoomsOrSuites =
+		(Number(description?.hotels?.rooms) || 0) + (Number(description?.hotels?.suites) || 0) > 0;
+	$: if (description?.hotels && hasRoomsOrSuites && !(Number(description.hotels.nights) || 0)) {
+		description.hotels.nights = 1;
 	}
 
 	// Defensive init so binding never hits an undefined object (legacy deals).

@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { supabase } from '$lib/supabase';
 	import { slide } from 'svelte/transition';
-	import { computeArtistPayout } from '$lib/components/calendar/page/tabs/deals/dealEngine';
+	import { computeArtistPayout, includedTalentDeals } from '$lib/components/calendar/page/tabs/deals/dealEngine';
 
 	export let isSidebarOpen: boolean;
 	export let userRole: string;
@@ -84,12 +84,18 @@
 		viewedVersionNum = currentVersionNum;
 	}
 
-	// Reset when navigating to a new event
+	// Reset when navigating to a new event: seed from the page snapshot for an
+	// instant paint, then always confirm against the DB — the snapshot goes
+	// stale as soon as any tab saves its edits.
 	$: if (eventId && String(eventId) !== String(_currentEventId)) {
 		_currentEventId = eventId;
 		viewedVersionNum = currentVersionNum;
 		overrideData = null;
-		if (typeof window !== 'undefined') setupRealtime();
+		applyData(event?.calendar_data, eventId);
+		if (typeof window !== 'undefined') {
+			setupRealtime();
+			loadData();
+		}
 	}
 
 	let currentRevenue: any = {};
@@ -97,10 +103,6 @@
 	let currentDeal: any = {};
 	let lastSig = '';
 
-	// Whenever the event prop changes, apply it ONLY if we aren't previewing an alternate version
-	$: if (!overrideData) {
-		applyData(event?.calendar_data, eventId);
-	}
 
 	function applyData(calData: any, _id: any) {
 		// Build a cheap signature so we don't loop on identical data.
@@ -179,9 +181,20 @@
 		const financials = revenue?.financials || { taxRate: 0, taxType: 'Divisor', facilityFee: 0 };
 		const tickets: any[] = Array.isArray(revenue?.tickets) ? revenue.tickets : [];
 
-		// FX rate: prefer the deal's custom rate (matches the Pro Forma engine)
+		// FX rate: in Settlement/Settled prefer the Settlement Rate (custom or
+		// stamped at settlement generation); otherwise the Offer Rate chain
+		// (matches the Pro Forma engine and the deals tab).
+		const sidebarLocked = ['IN SETTLEMENT', 'SETTLED'].includes(event?.status);
+		const custom = deal?.useCustomRate === true;
+		const settleCustom = Number(deal?.customSettlementRate) || Number(deal?.customRate);
 		const exchangeRate =
-			(deal?.useCustomRate && Number(deal?.customRate)) || Number(deal?.customRate) || 1;
+			(sidebarLocked &&
+				((custom && settleCustom) ||
+					Number(deal?.headliner_deal?.savedSettlementRate) ||
+					Number(deal?.lockedExchangeRate))) ||
+			(custom && Number(deal?.customRate)) ||
+			Number(deal?.customRate) ||
+			1;
 
 		// --- Per-ticket rows: estimated vs actual gross + breakeven counts ---
 		const ticketRows = tickets
@@ -193,7 +206,10 @@
 				const kills = Number(t.kills) || 0;
 				const sellable = allotment - comps - kills;
 				const estSold = t.estSold != null ? Number(t.estSold) : sellable;
-				const sold = Number(t.sold) || 0;
+				const sold =
+					tab === 'External' && t.extSold != null && t.extSold !== ''
+						? Number(t.extSold) || 0
+						: Number(t.sold) || 0;
 				return {
 					name: t.name,
 					price,
@@ -216,7 +232,10 @@
 			const kills = Number(t.kills) || 0;
 			const sellable = allotment - comps - kills;
 			const estSold = t.estSold != null ? Number(t.estSold) : sellable;
-			const sold = Number(t.sold) || 0;
+			const sold =
+				tab === 'External' && t.extSold != null && t.extSold !== ''
+					? Number(t.extSold) || 0
+					: Number(t.sold) || 0;
 			const fees = (Number(t.ticketFees) || 0) + (Number(financials.facilityFee) || 0);
 
 			estGross += estSold * price;
@@ -260,7 +279,12 @@
 			arr.forEach((c: any) => {
 				estFixed += Number(c.estimatedInternal) || 0;
 				actFixed +=
-					Number(tab === 'Internal' ? c.actualInternal : c.externalSettlement) || 0;
+					tab === 'Internal'
+						? Number(c.actualInternal) ||
+							Number(c.externalSettlement) ||
+							Number(c.estimatedInternal) ||
+							0
+						: Number(c.externalSettlement) || 0;
 			});
 		});
 
@@ -273,7 +297,9 @@
 				switch (v.type) {
 					case 'Flat':
 						total += useActual
-							? Number(tab === 'Internal' ? v.actualInternal : v.externalSettlement) || m
+							? (tab === 'Internal'
+									? Number(v.actualInternal) || Number(v.externalSettlement) || m
+									: Number(v.externalSettlement) || m)
 							: m;
 						break;
 					case '% of Gross':
@@ -297,7 +323,14 @@
 			const est = t.estSold != null ? Number(t.estSold) : a - c - k;
 			return s + est;
 		}, 0);
-		const actPaid = tickets.reduce((s, t) => s + (Number(t.sold) || 0), 0);
+		const actPaid = tickets.reduce(
+			(s, t) =>
+				s +
+				(tab === 'External' && t.extSold != null && t.extSold !== ''
+					? Number(t.extSold) || 0
+					: Number(t.sold) || 0),
+			0
+		);
 		const estVariable = sumVariable(estGross, estNetGross, estPaid, false);
 		const actVariable = sumVariable(actGross, actNetGross, actPaid, true);
 
@@ -310,10 +343,41 @@
 			deal?.additional_support_actual !== '';
 		const supportActual = hasActualSupport ? Number(deal.additional_support_actual) || 0 : 0;
 
-		const estCosts = estFixed + estVariable + supportBudgeted;
-		const actCosts = actFixed + actVariable + supportActual;
+		const baseEstCosts = estFixed + estVariable + supportBudgeted;
+		const baseActCosts = actFixed + actVariable + supportActual;
 
 		const totalAllotment = tickets.reduce((s, t) => s + (Number(t.allotment) || 0), 0);
+
+		// Other deals that count as talent expenses: co-headliners plus support
+		// deals with "Include in Headliner Deal" on.
+		const rateFor = (d: any) =>
+			(sidebarLocked &&
+				((custom && settleCustom) ||
+					Number(d?.savedSettlementRate) ||
+					Number(deal?.lockedExchangeRate))) ||
+			(custom && Number(deal?.customRate)) ||
+			Number(d?.savedExchangeRate) ||
+			Number(deal?.customRate) ||
+			1;
+		const extraTalent = includedTalentDeals(deal).map((x) => {
+			const r = rateFor(x.deal);
+			const mk = (g: number, ng: number, c: number, paid: number) =>
+				computeArtistPayout(
+					{ dealType: x.deal.dealType, guaranteeAmount: x.deal.guaranteeAmount, details: x.deal.details },
+					{ gross: g, netGross: ng, costs: c, paidTickets: paid, totalAllotment, exchangeRate: r }
+				);
+			return {
+				name: x.name,
+				est: mk(estGross, estNetGross, baseEstCosts, estPaid),
+				act: mk(actGross, actNetGross, baseActCosts, actPaid)
+			};
+		});
+		const extraEst = extraTalent.reduce((s, t) => s + t.est, 0);
+		const extraAct = extraTalent.reduce((s, t) => s + t.act, 0);
+
+		// The headliner's split point includes the other talent as an expense.
+		const estCosts = baseEstCosts + extraEst;
+		const actCosts = baseActCosts + extraAct;
 		const estPayout = computeArtistPayout(hd, {
 			gross: estGross,
 			netGross: estNetGross,
@@ -333,6 +397,11 @@
 		const estExpenses = estPayout + estCosts;
 		const actExpenses = actPayout + actCosts;
 
+		const talentRows = [
+			{ name: headlinerName, est: estPayout, act: actPayout },
+			...extraTalent
+		];
+
 		const estNet = estNetGross - estExpenses;
 		const actNet = actNetGross - actExpenses;
 
@@ -350,6 +419,7 @@
 			netGross: { est: estNetGross, act: actNetGross },
 			expenses: { est: estExpenses, act: actExpenses },
 			guaranteeRow: { est: estPayout, act: actPayout },
+			talentRows,
 			variableRow: { est: estVariable, act: actVariable },
 			supportRow: { est: supportBudgeted, act: supportActual },
 			net: { est: estNet, act: actNet },
@@ -385,10 +455,10 @@
 					if (!row) return;
 					// Ignore other versions of the same calendar.
 					if (row.version_number != null && row.version_number !== viewedVersionNum) return;
-					lastSig = JSON.stringify([row.event_revenue, row.event_cost, row.event_deal]);
-					currentRevenue = row.event_revenue;
-					currentCost = row.event_cost;
-					currentDeal = row.event_deal;
+					// Realtime payloads omit unchanged JSON (TOASTed) columns — e.g. a
+					// Costs-tab save arrives without event_revenue. Never overwrite
+					// with a partial row; refetch the full row instead.
+					loadData();
 				}
 			)
 			.subscribe();
@@ -621,23 +691,25 @@
 
 						{#if openSections.expenses}
 							<div transition:slide|local class="flex flex-col gap-3 pt-1">
-								<div>
-									<div class="text-[12px] text-lime font-semibold mb-1">{model.headlinerName}</div>
-									<div class="grid grid-cols-2 gap-2">
-										<div class="text-center">
-											<div class="text-sm font-bold {valColor(-model.guaranteeRow.est)}">
-												{fmt(-model.guaranteeRow.est, model.currency)}
+								{#each model.talentRows as tr (tr.name)}
+									<div>
+										<div class="text-[12px] text-lime font-semibold mb-1">{tr.name}</div>
+										<div class="grid grid-cols-2 gap-2">
+											<div class="text-center">
+												<div class="text-sm font-bold {valColor(-tr.est)}">
+													{fmt(-tr.est, model.currency)}
+												</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
 											</div>
-											<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
-										</div>
-										<div class="text-center">
-											<div class="text-sm font-bold {valColor(-model.guaranteeRow.act)}">
-												{fmt(-model.guaranteeRow.act, model.currency)}
+											<div class="text-center">
+												<div class="text-sm font-bold {valColor(-tr.act)}">
+													{fmt(-tr.act, model.currency)}
+												</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
 											</div>
-											<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
 										</div>
 									</div>
-								</div>
+								{/each}
 								<div>
 									<div class="text-[12px] text-lime font-semibold mb-1">Variable Costs</div>
 									<div class="grid grid-cols-2 gap-2">

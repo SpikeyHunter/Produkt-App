@@ -3,6 +3,7 @@
 	import { supabase } from '$lib/supabase';
 	import FixedCosts from './FixedCosts.svelte';
 	import VariableCosts from './VariableCosts.svelte';
+	import LoadCostTemplateModal from '$lib/components/calendar/page/modals/LoadCostTemplateModal.svelte';
 	import { slide } from 'svelte/transition';
 
 	export let userRole: string = 'Email Only';
@@ -31,6 +32,36 @@
 
 	let fixedExpanded = true;
 	let variableExpanded = false;
+
+	// --- Cost templates ---
+	let showTemplateModal = false;
+
+	function openTemplateModal() {
+		if (isViewOnly) return;
+		showTemplateModal = true;
+	}
+
+	function handleApplyTemplate(
+		e: CustomEvent<{
+			fixedCosts: any[];
+			variableCosts: any[];
+			modes?: { fixed: boolean; variable: boolean };
+		}>
+	) {
+		// Per-section Add/Overwrite from the template: Add appends, Overwrite
+		// replaces that section entirely.
+		const addFixed = e.detail.modes?.fixed !== false;
+		const addVariable = e.detail.modes?.variable !== false;
+		eventCosts = {
+			fixedCosts: addFixed
+				? [...eventCosts.fixedCosts, ...e.detail.fixedCosts]
+				: e.detail.fixedCosts,
+			variableCosts: addVariable
+				? [...eventCosts.variableCosts, ...e.detail.variableCosts]
+				: e.detail.variableCosts
+		};
+		triggerSave();
+	}
 
 	export function triggerSave() {
 		if (isViewOnly) return;
@@ -159,6 +190,7 @@
 				bind:expanded={fixedExpanded}
 				{currency}
 				{triggerSave}
+				onLoadTemplate={openTemplateModal}
 			/>
 
 			<VariableCosts
@@ -167,7 +199,10 @@
 				{eventRevenue}
 				{currency}
 				{triggerSave}
+				onLoadTemplate={openTemplateModal}
 			/>
 		{/if}
 	</div>
+
+	<LoadCostTemplateModal bind:isOpen={showTemplateModal} on:apply={handleApplyTemplate} />
 {/if}

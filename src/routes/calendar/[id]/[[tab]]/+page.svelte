@@ -5,12 +5,20 @@
 	import { goto, replaceState } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { authStore } from '$lib/stores/authStore';
+	import { get } from 'svelte/store';
+	import {
+		userSettings,
+		initUserSettings,
+		saveCalendarSidebarOpen
+	} from '$lib/stores/userSettings';
 	import { invalidateAll } from '$app/navigation';
 	import { supabase } from '$lib/supabase';
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import EventHeader from '$lib/components/calendar/page/header/EventHeader.svelte';
 	import VenueSettingsModal from '$lib/components/calendar/VenueSettingsModal.svelte';
 	import EventSidebar from '$lib/components/calendar/page/sidebar/EventSidebar.svelte';
+	import EventSettingsView from '$lib/components/calendar/page/EventSettingsView.svelte';
+	import ApplyEventTemplateModal from '$lib/components/calendar/page/modals/ApplyEventTemplateModal.svelte';
 	import CalendarQuickSearch from '$lib/components/calendar/CalendarQuickSearch.svelte';
 
 	// --- IMPORT TAB COMPONENTS ---
@@ -20,9 +28,44 @@
 	import CostsTab from '$lib/components/calendar/page/tabs/costs/CostsTab.svelte';
 	import SetTimesTab from '$lib/components/calendar/page/tabs/settimes/SetTimesTab.svelte';
 	import ContactsTab from '$lib/components/calendar/page/tabs/ContactsTab.svelte';
-	import FilesTab from '$lib/components/calendar/page/tabs/FilesTab.svelte';
+	import TermsTab from '$lib/components/calendar/page/tabs/TermsTab.svelte';
 
 	let showQuickSearch = false;
+
+	// Full-page event settings (opened from the header gear) shown in place of
+	// the active tab's content. The header tab strip swaps to the settings tabs.
+	let showEventSettings = false;
+	let settingsTab: 'settings' | 'templates' = 'settings';
+	let templatesSection: 'text' | 'event' = 'text';
+
+	// "Manage Templates" from the Costs tab's Load Template modal jumps straight
+	// to Settings > Templates > Event Templates.
+	function openEventTemplates() {
+		templatesSection = 'event';
+		settingsTab = 'templates';
+		showEventSettings = true;
+	}
+	onMount(() => {
+		window.addEventListener('produkt:openEventTemplates', openEventTemplates);
+		return () => window.removeEventListener('produkt:openEventTemplates', openEventTemplates);
+	});
+	let settingsViewRef: any = null;
+
+	function openEventSettings() {
+		settingsTab = 'settings';
+		showEventSettings = true;
+	}
+
+	// Back goes through the view's unsaved-changes guard when available.
+	function closeEventSettings() {
+		if (settingsViewRef?.requestClose) settingsViewRef.requestClose();
+		else showEventSettings = false;
+	}
+
+	// Apply Event Template (header 3-dots). Applying bumps tabRefreshKey so the
+	// active tab remounts and reloads the fresh data from the DB.
+	let showApplyTemplate = false;
+	let tabRefreshKey = 0;
 
 	export let data: PageData;
 	$: ({ event, groupEvents, venues, tabSlug } = data);
@@ -43,6 +86,7 @@
 		_currentEventId = event.id;
 		viewedVersionNum = currentVersionNum;
 		overrideCalendarData = null;
+		showEventSettings = false;
 	}
 	// Snap back to current version when event status changes from Locked to Unlocked (e.g., Confirmed -> Hold)
 	let _currentEventStatus: string | null = null;
@@ -51,10 +95,11 @@
 		const oldStatus = _currentEventStatus;
 		_currentEventStatus = event.status;
 
-		const lockedStatuses = ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'];
-
-		// If it transitioned from a locked state to an unlocked state
-		if (oldStatus && lockedStatuses.includes(oldStatus) && !lockedStatuses.includes(event.status)) {
+		// Any status change snaps back to the active version. This keeps the page
+		// off the View Only lock when a status change moved current_version
+		// (e.g. In Settlement duplicating the offer into a Settlement version,
+		// or reverting back out of settlement).
+		if (oldStatus && viewedVersionNum !== currentVersionNum) {
 			viewedVersionNum = currentVersionNum;
 			overrideCalendarData = null;
 		}
@@ -79,7 +124,7 @@
 		}
 	}
 
-	const tabs = ['Deals', 'Revenue', 'Pro Forma', 'Costs', 'Set Times', 'Contacts', 'Files'];
+	const tabs = ['Deals', 'Revenue', 'Pro Forma', 'Costs', 'Set Times', 'Contacts', 'T&C'];
 
 	const tabComponents: Record<string, any> = {
 		Deals: DealsTab,
@@ -88,11 +133,35 @@
 		Costs: CostsTab,
 		'Set Times': SetTimesTab,
 		Contacts: ContactsTab,
-		Files: FilesTab
+		'T&C': TermsTab
 	};
 	let activeTab = tabs[0];
 
-	let isSidebarOpen = true;
+	// Initial value from localStorage (synchronous) so a closed sidebar renders
+	// closed immediately — no closing animation on refresh. user_profiles stays
+	// the cross-device source of truth and corrects this after load.
+	let isSidebarOpen = browser ? localStorage.getItem('calendar_sidebar_open') !== '0' : true;
+
+	// These tabs don't use the sidebar — it auto-closes there and re-opens (per
+	// the user's saved preference) when returning to the other tabs.
+	const noSidebarTabs = ['Set Times', 'Contacts', 'T&C'];
+
+	// T&C is locked once the event is in settlement — bounce back to Deals.
+	$: if (activeTab === 'T&C' && ['IN SETTLEMENT', 'SETTLED'].includes(event?.status)) {
+		activeTab = 'Deals';
+	}
+
+	function savedSidebarPref(): boolean {
+		const fromStore = get(userSettings).calendar_sidebar_open;
+		if (fromStore !== undefined) return fromStore !== false;
+		return browser ? localStorage.getItem('calendar_sidebar_open') !== '0' : true;
+	}
+
+	let _lastSidebarTab = '';
+	$: if (activeTab && activeTab !== _lastSidebarTab) {
+		_lastSidebarTab = activeTab;
+		isSidebarOpen = noSidebarTabs.includes(activeTab) ? false : savedSidebarPref();
+	}
 	let showSettingsModal = false;
 	let selectedSettingsVenueId: string | null = null;
 
@@ -101,7 +170,7 @@
 	let userRole = 'Email Only';
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 
-	const DeployedAppTabs = ['Deals', 'Revenue', 'Pro Forma', 'Costs', 'Set Times'];
+	const DeployedAppTabs = ['Deals', 'Revenue', 'Pro Forma', 'Costs', 'Set Times', 'T&C'];
 
 	let isDeployed = false;
 
@@ -130,6 +199,12 @@
 		if (typeof window !== 'undefined') {
 			window.addEventListener('switchViewedVersion', handleSwitchVersion);
 		}
+		// Restore the saved sidebar state (user_profiles.user_settings, realtime).
+		initUserSettings().then(() => {
+			const pref = get(userSettings).calendar_sidebar_open !== false;
+			localStorage.setItem('calendar_sidebar_open', pref ? '1' : '0');
+			isSidebarOpen = noSidebarTabs.includes(activeTab) ? false : pref;
+		});
 	});
 
 	onDestroy(() => {
@@ -208,6 +283,7 @@
 
 		if (userRole === 'Manager' && requestedTab !== 'Deals') return;
 		activeTab = requestedTab;
+		showEventSettings = false;
 		const slug = activeTab.toLowerCase().replace(/\s+/g, '-');
 
 		// Fixed router warning via native SvelteKit replaceState
@@ -221,6 +297,12 @@
 
 	function toggleSidebar() {
 		isSidebarOpen = !isSidebarOpen;
+		// Persist the preference only on tabs that normally show the sidebar —
+		// re-opening it on Set Times/Contacts/T&C/Files is session-only.
+		if (!noSidebarTabs.includes(activeTab)) {
+			localStorage.setItem('calendar_sidebar_open', isSidebarOpen ? '1' : '0');
+			saveCalendarSidebarOpen(isSidebarOpen);
+		}
 	}
 </script>
 
@@ -257,6 +339,13 @@
 						{isDeployed}
 						deployedAppTabs={DeployedAppTabs}
 						on:tabChange={handleTabChange}
+						on:openOfferSettings={openEventSettings}
+						on:applyEventTemplate={() => (showApplyTemplate = true)}
+						on:closeSettings={closeEventSettings}
+						on:settingsTabChange={(e) => (settingsTab = e.detail)}
+						settingsMode={showEventSettings}
+						{settingsTab}
+						hideSidebarToggle={showEventSettings}
 						on:openSettings={handleOpenSettings}
 						on:toggleSidebar={toggleSidebar}
 					/>
@@ -288,7 +377,23 @@
 							</div>
 						{/if}
 
-						{#key viewedVersionNum}
+						{#if showEventSettings}
+							<EventSettingsView
+								bind:this={settingsViewRef}
+								{event}
+								eventDealData={overrideCalendarData
+									? overrideCalendarData.event_deal
+									: event?.calendar_data?.event_deal || {}}
+								{viewedVersionNum}
+								activeTab={settingsTab}
+								templatesInitialSection={templatesSection}
+								on:close={() => {
+									showEventSettings = false;
+									templatesSection = 'text';
+								}}
+							/>
+						{:else}
+						{#key `${viewedVersionNum}:${tabRefreshKey}`}
 							<svelte:component
 								this={tabComponents[activeTab]}
 								{userRole}
@@ -302,8 +407,13 @@
 								{overrideCalendarData}
 							/>
 						{/key}
+						{/if}
 					</div>
+					{#if !showEventSettings}
+						{#if !showEventSettings}
 					<EventSidebar {isSidebarOpen} {userRole} {event} />
+				{/if}
+					{/if}
 				</div>
 			</div>
 		</slot>
@@ -322,6 +432,13 @@
 				{isDeployed}
 				deployedAppTabs={DeployedAppTabs}
 				on:tabChange={handleTabChange}
+				on:openOfferSettings={openEventSettings}
+				on:applyEventTemplate={() => (showApplyTemplate = true)}
+				on:closeSettings={closeEventSettings}
+				on:settingsTabChange={(e) => (settingsTab = e.detail)}
+				settingsMode={showEventSettings}
+				{settingsTab}
+				hideSidebarToggle={showEventSettings}
 				on:openSettings={handleOpenSettings}
 				on:toggleSidebar={toggleSidebar}
 			/>
@@ -352,7 +469,19 @@
 						</div>
 					{/if}
 
-					{#key viewedVersionNum}
+					{#if showEventSettings}
+						<EventSettingsView
+							bind:this={settingsViewRef}
+							{event}
+							eventDealData={overrideCalendarData
+								? overrideCalendarData.event_deal
+								: event?.calendar_data?.event_deal || {}}
+							{viewedVersionNum}
+							activeTab={settingsTab}
+							on:close={() => (showEventSettings = false)}
+						/>
+					{:else}
+					{#key `${viewedVersionNum}:${tabRefreshKey}`}
 						<svelte:component
 							this={tabComponents[activeTab]}
 							{userRole}
@@ -366,12 +495,22 @@
 							{overrideCalendarData}
 						/>
 					{/key}
+					{/if}
 				</div>
-				<EventSidebar {isSidebarOpen} {userRole} {event} />
+				{#if !showEventSettings}
+					<EventSidebar {isSidebarOpen} {userRole} {event} />
+				{/if}
 			</div>
 		</div>
 	</div>
 {/if}
+
+<ApplyEventTemplateModal
+	bind:isOpen={showApplyTemplate}
+	{event}
+	{viewedVersionNum}
+	on:applied={() => (tabRefreshKey += 1)}
+/>
 
 <style>
 	/* =========================================================
