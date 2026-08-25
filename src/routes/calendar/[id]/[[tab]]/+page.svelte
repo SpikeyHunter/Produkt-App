@@ -184,14 +184,15 @@
 		);
 
 		if (matchedTab) {
-			if (isDeployed && !DeployedAppTabs.includes(matchedTab)) {
+			// Editors/Admins get every tab in the deployed app too.
+			if (isDeployed && !isEditor && !DeployedAppTabs.includes(matchedTab)) {
 				activeTab = DeployedAppTabs[0] || tabs[0];
 			} else {
 				activeTab = matchedTab;
 			}
 		}
 	} else {
-		activeTab = isDeployed ? DeployedAppTabs[0] || tabs[0] : tabs[0];
+		activeTab = isDeployed && !isEditor ? DeployedAppTabs[0] || tabs[0] : tabs[0];
 	}
 
 	onMount(() => {
@@ -279,7 +280,7 @@
 
 	function handleTabChange(e: CustomEvent<string>) {
 		const requestedTab = e.detail;
-		if (isDeployed && !DeployedAppTabs.includes(requestedTab)) return;
+		if (isDeployed && !isEditor && !DeployedAppTabs.includes(requestedTab)) return;
 
 		if (userRole === 'Manager' && requestedTab !== 'Deals') return;
 		activeTab = requestedTab;

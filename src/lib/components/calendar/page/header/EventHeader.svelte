@@ -797,7 +797,7 @@
 			</div>
 		{:else}
 		{#each tabs as tab}
-			{@const isEnvironmentBlocked = isDeployed && !deployedAppTabs.includes(tab)}
+			{@const isEnvironmentBlocked = isDeployed && !isEditor && !deployedAppTabs.includes(tab)}
 			{@const isRoleBlocked = !isEditor && tab !== 'Deals'}
 			{@const isStageBlocked =
 				tab === 'T&C' && ['IN SETTLEMENT', 'SETTLED'].includes(event?.status)}
