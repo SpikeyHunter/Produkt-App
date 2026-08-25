@@ -37,7 +37,9 @@
 		return `${first.toLocaleString('en-US', { month: 'short', day: 'numeric' })} - ${last.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 	})();
 	const today = new Date();
-	let viewMonth = new Date(event.date + 'T00:00:00');
+	const todayStr = new Date().toISOString().split('T')[0];
+	// Dateless (bypass) events open on the current month.
+	let viewMonth = new Date((event.date || todayStr) + 'T00:00:00');
 	$: daysInMonth = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 0).getDate();
 	$: firstDayIndex = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1).getDay();
 
@@ -134,8 +136,8 @@
 
 	function openPopover() {
 		if (isDateLocked) return; // Guard clause to prevent opening if locked
-		stagedDates = activeHolds.map((h) => h.date);
-		viewMonth = new Date(event.date + 'T00:00:00');
+		stagedDates = activeHolds.map((h) => h.date).filter(Boolean);
+		viewMonth = new Date((event.date || todayStr) + 'T00:00:00');
 		showPopover = true;
 	}
 
@@ -311,6 +313,7 @@
 		<span class="text-xs font-medium text-gray2"
 			>{(() => {
 				if (activeHolds.length === 0) return 'No dates';
+				if (!activeHolds.some((h) => h.date)) return 'No date set';
 				const s = [...activeHolds].sort(
 					(a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
 				);
@@ -331,7 +334,7 @@
 
 	{#if showPopover}
 		<div
-			class="absolute left-0 top-[calc(100%+8px)] w-[300px] bg-navbar rounded-3xl shadow-2xl border border-gray2/20 p-5 z-50"
+			class="absolute left-0 top-[calc(100%+8px)] z-50 w-[300px] bg-navbar rounded-3xl shadow-2xl border border-gray2/20 p-5"
 		>
 			<div class="flex justify-between items-center mb-5">
 				<button

@@ -43,6 +43,16 @@
 	let notes = '';
 	let eventType: EventType | '' = '';
 	let priorityHold = false;
+	// Date Bypass: create the event without any dates (an "undefined hold").
+	let dateBypass = false;
+	$: if (dateBypass && eventStatus === 'CONFIRMED') eventStatus = 'HOLD';
+	// Checking bypass clears any dates already picked on the calendar.
+	$: if (dateBypass && dates.length > 0) {
+		dates = [];
+		selectedDateRows = [];
+		timeSettings = {};
+		manualHolds = {};
+	}
 	let manualHolds: Record<string, HoldLevel> = {};
 	let lastSelectedHoldLevel: HoldLevel | null = null;
 
@@ -103,12 +113,11 @@
 
 	$: isSaveDisabled =
 		saving ||
-		dates.length === 0 ||
 		selectedRooms.length === 0 ||
 		!eventType ||
 		!title ||
 		titleContainsType ||
-		!isTimeValid;
+		(!dateBypass && (dates.length === 0 || !isTimeValid));
 
 	const types: EventType[] = [
 		'Corpo',
@@ -268,6 +277,7 @@
 		eventType = '';
 		eventStatus = 'HOLD';
 		priorityHold = false;
+		dateBypass = false;
 		datesAsSingleEvents = false;
 		manualHolds = {};
 		selectedRooms = [];
@@ -660,6 +670,55 @@
 
 			let allSavedEvents = [];
 
+			// DATE BYPASS: create the hold with no dates. It lives outside the
+			// calendar grid (Undefined Holds) until dates are defined.
+			if (dateBypass) {
+				const { data: calData, error: calErr } = await supabase
+					.from('calendar')
+					.insert({
+						title: title,
+						creator_name: creatorName,
+						details: buildDetails(priorityHold)
+					})
+					.select('id')
+					.single();
+				if (calErr) throw calErr;
+
+				await supabase.from('calendar_data').insert({
+					calendar_id: calData.id,
+					event_deal: buildEventDeal(),
+					version_number: 1
+				});
+
+				const roomKey = selectedRooms[0];
+				const vName = roomKey ? roomKey.split(':::')[1] : null;
+				const roomName = roomKey ? roomKey.split(':::')[2] : null;
+				const { data: evData, error: evErr } = await supabase
+					.from('calendar_events')
+					.insert({
+						group_id: calData.id,
+						date: null,
+						status: 'HOLD',
+						hold_level: null,
+						venue: { category: vName, room: roomName },
+						time: { start: '00:00', end: '23:59' },
+						event_details: { is_target: false, is_challenge: false }
+					})
+					.select('*, calendar(*)');
+				if (evErr) throw evErr;
+
+				showConfirmModal = false;
+				const created = evData?.[0];
+				if (openModalAfter && created) {
+					closeSidebar();
+					goto(`/calendar/${created.short_id || created.id}`);
+				} else {
+					dispatch('success', { message: 'Undefined hold created — define its dates anytime.' });
+					closeSidebar();
+				}
+				return;
+			}
+
 			// 3. SCENARIO A: Single Events
 			if (datesAsSingleEvents) {
 				for (const dateStr of dates) {
@@ -910,11 +969,16 @@
 						on:click={() => (eventStatus = 'HOLD')}>Hold</button
 					>
 					<button
-						class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer {eventStatus ===
+						class="flex-1 py-1.5 text-xs font-bold rounded-lg transition-all {eventStatus ===
 						'CONFIRMED'
 							? 'bg-lime text-black'
-							: 'text-gray2 hover:text-white'}"
-						on:click={() => (eventStatus = 'CONFIRMED')}>Confirmed</button
+							: 'text-gray2 hover:text-white'} {dateBypass
+							? 'opacity-40 cursor-not-allowed'
+							: 'cursor-pointer'}"
+						title={dateBypass ? 'An event without a date cannot be confirmed' : ''}
+						on:click={() => {
+							if (!dateBypass) eventStatus = 'CONFIRMED';
+						}}>Confirmed</button
 					>
 				</div>
 
@@ -1278,7 +1342,9 @@
 							class="p-4 flex justify-between items-center border-b border-gray2/10 min-h-[72px]"
 						>
 							{#if dates.length === 0}
-								<span class="text-sm font-bold text-gray2/50 italic">Click on the calendar</span>
+								<span class="text-sm font-bold {dateBypass ? 'text-lime' : 'text-gray2/50 italic'}"
+									>{dateBypass ? 'Date bypassed' : 'Click on the calendar'}</span
+								>
 							{:else}
 								<span class="text-sm font-bold text-white"
 									>{dates.length} date{dates.length > 1 ? 's' : ''}</span
@@ -1303,6 +1369,26 @@
 								stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg
 							>
 						</button>
+
+						<label
+							class="flex items-center gap-2.5 px-4 py-3 border-t border-gray2/10 cursor-pointer"
+						>
+							<input type="checkbox" class="hidden" bind:checked={dateBypass} />
+							<div
+								class="w-4 h-4 rounded border flex items-center justify-center shrink-0 {dateBypass
+									? 'bg-lime border-lime'
+									: 'border-gray2/50'}"
+							>
+								{#if dateBypass}<svg
+										class="w-3 h-3 text-black"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="4"><polyline points="20 6 9 17 4 12"></polyline></svg
+									>{/if}
+							</div>
+							<span class="text-xs font-bold text-white">Date Bypass</span>
+						</label>
 					</div>
 
 					<div>

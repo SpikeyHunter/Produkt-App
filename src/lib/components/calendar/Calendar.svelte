@@ -11,6 +11,7 @@
 	import CalendarAddEvent from './CalendarAddEvent.svelte';
 	import CalendarViewEvent from './CalendarViewEvent.svelte';
 	import CalendarManageHolds from './CalendarManageHolds.svelte';
+	import CalendarUndefinedHolds from './CalendarUndefinedHolds.svelte';
 	import VenueSettingsModal from './VenueSettingsModal.svelte';
 	import CalendarShareAvails from './CalendarShareAvails.svelte';
 	import CalendarQuickSearch from './CalendarQuickSearch.svelte';
@@ -39,6 +40,9 @@
 	let stages: StageConfig[] = [];
 	let loading = true;
 	let listLayoutMode: 'list' | 'grid' = 'list';
+	// Events created with Date Bypass (no date yet).
+	let undefinedHoldEvents: any[] = [];
+	let showUndefinedHolds = false;
 	let currentListFilter: 'past' | 'all' | 'upcoming' = 'upcoming';
 
 	let selectedEvent: CalendarEvent | null = null;
@@ -324,6 +328,13 @@
 
 			if (error) throw error;
 
+			// Undefined holds: Date Bypass events with no date yet.
+			const { data: undef } = await supabase
+				.from('calendar_events')
+				.select('*, calendar(*)')
+				.is('date', null);
+			undefinedHoldEvents = (undef || []).filter((r: any) => r.status !== 'CANCELED');
+
 			allEvents = (data || []).map((row: any) => {
 				const isHold = row.status === 'HOLD' || row.status === 'PENDING';
 				// Applies masking logic depending on canViewHolds
@@ -562,6 +573,8 @@
 			bind:listFilterMode={currentListFilter}
 			bind:listLayoutMode
 			bind:showHiddenHolds
+			undefinedHoldsCount={undefinedHoldEvents.length}
+			on:openUndefinedHolds={() => (showUndefinedHolds = true)}
 			on:today={goToToday}
 			on:previous={previousPeriod}
 			on:next={nextPeriod}
@@ -571,6 +584,13 @@
 			on:jumpToDate={(e) => {
 				currentViewDate = e.detail;
 			}}
+		/>
+
+		<CalendarUndefinedHolds
+			bind:isOpen={showUndefinedHolds}
+			events={undefinedHoldEvents}
+			{venues}
+			on:refresh={() => loadEventsAndSettings(currentViewDate, true)}
 		/>
 
 		<div class="flex-1 overflow-hidden" class:hidden={viewType !== 'month'}>

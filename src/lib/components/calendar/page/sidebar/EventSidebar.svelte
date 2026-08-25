@@ -11,9 +11,16 @@
 
 	$: isEditor = ['Editor', 'Admin'].includes(userRole);
 
-	// Right-hand column label follows the active Budget Summary tab (Prism: Internal -> ACTUAL, External -> SETTLEMENT)
-	let budgetTab: 'Internal' | 'External' = 'External';
+	// Hold/Confirmed open on Internal (Prism-style EST | POTENTIAL); once the
+	// event is In Settlement/Settled the sidebar opens on External.
+	let budgetTab: 'Internal' | 'External' = 'Internal';
 	const budgetTabs: Array<'Internal' | 'External'> = ['Internal', 'External'];
+	$: statusLocked = ['IN SETTLEMENT', 'SETTLED'].includes(event?.status);
+	let budgetTabSeeded = false;
+	$: if (!budgetTabSeeded && event?.status) {
+		budgetTabSeeded = true;
+		budgetTab = statusLocked ? 'External' : 'Internal';
+	}
 
 	// Collapsible sections (mirror Prism's accordions)
 	let openSections: Record<string, boolean> = {
@@ -170,7 +177,8 @@
 
 	// Settlement vs Actual wording on the right column.
 	// Internal tab -> "ACTUAL"; External tab -> "SETTLEMENT" (matches your screenshots).
-	$: rightLabel = budgetTab === 'Internal' ? 'ACTUAL' : 'SETTLEMENT';
+	$: rightLabel =
+		budgetTab === 'Internal' ? (statusLocked ? 'ACTUAL' : 'POTENTIAL') : 'SETTLEMENT';
 
 	function computeModel(revenueData: any, costData: any, dealData: any, tab: 'Internal' | 'External') {
 		const revenue = parseJSON(revenueData);
@@ -196,6 +204,10 @@
 			Number(deal?.customRate) ||
 			1;
 
+		// Pre-settlement, the Internal tab's right column shows POTENTIAL
+		// (sellout) numbers, matching Prism; in settlement it shows actuals.
+		const usePotential = tab === 'Internal' && !sidebarLocked;
+
 		// --- Per-ticket rows: estimated vs actual gross + breakeven counts ---
 		const ticketRows = tickets
 			.filter((t) => Number(t.price) > 0) // skip comps row in the priced breakdown
@@ -214,7 +226,7 @@
 					name: t.name,
 					price,
 					estimated: estSold * price,
-					actual: sold * price
+					actual: (usePotential ? sellable : sold) * price
 				};
 			});
 
@@ -223,7 +235,8 @@
 			actGross = 0,
 			potentialGross = 0;
 		let estTicketFees = 0,
-			actTicketFees = 0;
+			actTicketFees = 0,
+			potTicketFees = 0;
 
 		tickets.forEach((t) => {
 			const price = Number(t.price) || 0;
@@ -243,6 +256,7 @@
 			potentialGross += sellable * price;
 			estTicketFees += estSold * fees;
 			actTicketFees += sold * fees;
+			potTicketFees += sellable * fees;
 		});
 
 		// --- Taxes (same logic as the Pro Forma engine) ---
@@ -262,6 +276,8 @@
 		const actTaxesFees = computeTax(actGross, actTicketFees);
 		const estNetGross = estGross - estTaxesFees;
 		const actNetGross = actGross - actTaxesFees;
+		const potTaxesFees = computeTax(potentialGross, potTicketFees);
+		const potNetGross = potentialGross - potTaxesFees;
 
 		// --- Expenses ---
 		// Artist payout is computed below via the shared deal engine, AFTER costs
@@ -269,15 +285,19 @@
 		const hd = deal?.headliner_deal || {};
 		const headlinerName = deal?.headliner_name || 'Headliner';
 
-		// Fixed costs: Internal tab -> actualInternal; External tab -> externalSettlement
+		// Fixed costs. Estimated side: Internal tab -> the internal estimates;
+		// External tab -> the reported offer budget (qty x cost). Right side:
+		// Internal -> actuals (with fallback chain); External -> settlement.
 		const fixedCosts = Array.isArray(cost?.fixedCosts) ? cost.fixedCosts : [];
-		let estFixed = 0,
+		let intEstFixed = 0,
+			budEstFixed = 0,
 			actFixed = 0;
 
 		fixedCosts.forEach((g: any) => {
 			const arr = Array.isArray(g.costs) ? g.costs : [];
 			arr.forEach((c: any) => {
-				estFixed += Number(c.estimatedInternal) || 0;
+				intEstFixed += Number(c.estimatedInternal) || 0;
+				if (c.reported !== false) budEstFixed += (Number(c.qty) || 0) * (Number(c.cost) || 0);
 				actFixed +=
 					tab === 'Internal'
 						? Number(c.actualInternal) ||
@@ -287,13 +307,20 @@
 						: Number(c.externalSettlement) || 0;
 			});
 		});
+		const estFixed = tab === 'Internal' ? intEstFixed : budEstFixed;
 
 		// Variable costs
 		const variableCosts = Array.isArray(cost?.variableCosts) ? cost.variableCosts : [];
-		const sumVariable = (gross: number, net: number, paid: number, useActual: boolean) => {
+		const sumVariable = (
+			gross: number,
+			net: number,
+			paid: number,
+			useActual: boolean,
+			amountField: 'internalAmount' | 'externalAmount' = 'internalAmount'
+		) => {
 			let total = 0;
 			variableCosts.forEach((v: any) => {
-				const m = Number(v.internalAmount) || 0;
+				const m = Number(v[amountField]) || 0;
 				switch (v.type) {
 					case 'Flat':
 						total += useActual
@@ -331,8 +358,9 @@
 					: Number(t.sold) || 0),
 			0
 		);
-		const estVariable = sumVariable(estGross, estNetGross, estPaid, false);
-		const actVariable = sumVariable(actGross, actNetGross, actPaid, true);
+		const variableField = tab === 'Internal' ? 'internalAmount' : ('externalAmount' as const);
+		const estVariable = sumVariable(estGross, estNetGross, estPaid, false, variableField);
+		const actVariable = sumVariable(actGross, actNetGross, actPaid, true, variableField);
 
 		// Additional support: budgeted always shown as ESTIMATED; right column uses actual
 		// (fall back to 0 when actual not entered, matching the Pro Forma rule).
@@ -343,8 +371,26 @@
 			deal?.additional_support_actual !== '';
 		const supportActual = hasActualSupport ? Number(deal.additional_support_actual) || 0 : 0;
 
+		const potPaid = tickets.reduce((s, t) => {
+			const a = Number(t.allotment) || 0,
+				c = Number(t.comps) || 0,
+				k = Number(t.kills) || 0;
+			return s + (a - c - k);
+		}, 0);
+		const potVariable = sumVariable(potentialGross, potNetGross, potPaid, false);
+
+		// The right column's inputs: potential (sellout) pre-settlement on the
+		// Internal tab, otherwise the actual/settlement figures.
+		const rGross = usePotential ? potentialGross : actGross;
+		const rTaxesFees = usePotential ? potTaxesFees : actTaxesFees;
+		const rNetGross = usePotential ? potNetGross : actNetGross;
+		const rPaid = usePotential ? potPaid : actPaid;
+		const rFixed = usePotential ? estFixed : actFixed;
+		const rVariable = usePotential ? potVariable : actVariable;
+		const rSupport = usePotential ? supportBudgeted : supportActual;
+
 		const baseEstCosts = estFixed + estVariable + supportBudgeted;
-		const baseActCosts = actFixed + actVariable + supportActual;
+		const baseActCosts = rFixed + rVariable + rSupport;
 
 		const totalAllotment = tickets.reduce((s, t) => s + (Number(t.allotment) || 0), 0);
 
@@ -369,7 +415,7 @@
 			return {
 				name: x.name,
 				est: mk(estGross, estNetGross, baseEstCosts, estPaid),
-				act: mk(actGross, actNetGross, baseActCosts, actPaid)
+				act: mk(rGross, rNetGross, baseActCosts, rPaid)
 			};
 		});
 		const extraEst = extraTalent.reduce((s, t) => s + t.est, 0);
@@ -387,47 +433,87 @@
 			exchangeRate
 		});
 		const actPayout = computeArtistPayout(hd, {
-			gross: actGross,
-			netGross: actNetGross,
+			gross: rGross,
+			netGross: rNetGross,
 			costs: actCosts,
-			paidTickets: actPaid,
+			paidTickets: rPaid,
 			totalAllotment,
 			exchangeRate
 		});
 		const estExpenses = estPayout + estCosts;
 		const actExpenses = actPayout + actCosts;
 
+		// Prism's sidebar lists talent + variable + support only — fixed costs
+		// stay out of the displayed Expenses/NET on BOTH tabs (they still count
+		// in the split-point basis above), so NET (Est.) matches across tabs.
+		const estExpensesDisplay = estExpenses - estFixed;
+		const actExpensesDisplay = actExpenses - rFixed;
+
 		const talentRows = [
 			{ name: headlinerName, est: estPayout, act: actPayout },
 			...extraTalent
 		];
 
-		const estNet = estNetGross - estExpenses;
-		const actNet = actNetGross - actExpenses;
+		const estNet = estNetGross - estExpensesDisplay;
+		const actNet = rNetGross - actExpensesDisplay;
 
-		// --- Show Health bar ---
-		const maxBar = Math.max(potentialGross, actGross, estExpenses, 1);
-		const flagPositive = actGross - estExpenses >= 0;
+		// --- Show Health bar: estimated gross pre-settlement, actual after;
+		// the expense marker mirrors Prism's internal expenses (no fixed).
+		// Always computed on the INTERNAL basis so it never shifts with the tab. ---
+		const healthGross = sidebarLocked ? actGross : estGross;
+		const intEstVariable =
+			tab === 'Internal'
+				? estVariable
+				: sumVariable(estGross, estNetGross, estPaid, false, 'internalAmount');
+		const healthBase = intEstFixed + intEstVariable + supportBudgeted;
+		const healthExtras = includedTalentDeals(deal).reduce(
+			(sum, x) =>
+				sum +
+				computeArtistPayout(
+					{ dealType: x.deal.dealType, guaranteeAmount: x.deal.guaranteeAmount, details: x.deal.details },
+					{
+						gross: estGross,
+						netGross: estNetGross,
+						costs: healthBase,
+						paidTickets: estPaid,
+						totalAllotment,
+						exchangeRate: rateFor(x.deal)
+					}
+				),
+			0
+		);
+		const healthPayout = computeArtistPayout(hd, {
+			gross: estGross,
+			netGross: estNetGross,
+			costs: healthBase + healthExtras,
+			paidTickets: estPaid,
+			totalAllotment,
+			exchangeRate
+		});
+		const healthExpenses = healthPayout + healthExtras + intEstVariable + supportBudgeted;
+		const maxBar = Math.max(potentialGross, healthGross, healthExpenses, 1);
+		const flagPositive = healthGross - healthExpenses >= 0;
 
 		return {
 			currency,
 			headlinerName,
 			potentialGross,
 			ticketRows,
-			gross: { est: estGross, act: actGross },
-			taxes: { est: estTaxesFees, act: actTaxesFees },
-			netGross: { est: estNetGross, act: actNetGross },
-			expenses: { est: estExpenses, act: actExpenses },
+			gross: { est: estGross, act: rGross },
+			taxes: { est: estTaxesFees, act: rTaxesFees },
+			netGross: { est: estNetGross, act: rNetGross },
+			expenses: { est: estExpensesDisplay, act: actExpensesDisplay },
 			guaranteeRow: { est: estPayout, act: actPayout },
 			talentRows,
-			variableRow: { est: estVariable, act: actVariable },
-			supportRow: { est: supportBudgeted, act: supportActual },
+			variableRow: { est: estVariable, act: rVariable },
+			supportRow: { est: supportBudgeted, act: rSupport },
 			net: { est: estNet, act: actNet },
 			health: {
-				actualGross: actGross,
-				expenses: estExpenses,
-				actualPct: Math.min((actGross / maxBar) * 100, 100) || 0,
-				expensePct: Math.min((estExpenses / maxBar) * 100, 100) || 0,
+				actualGross: healthGross,
+				grossLabel: sidebarLocked ? '(Act.)' : '(Est.)',
+				expenses: healthExpenses,
+				actualPct: Math.min((healthGross / maxBar) * 100, 100) || 0,
+				expensePct: Math.min((healthExpenses / maxBar) * 100, 100) || 0,
 				flagPositive
 			}
 		};
@@ -492,7 +578,7 @@
 				<h3 class="text-xs font-black text-lime uppercase tracking-widest mb-6">Show Health</h3>
 
 				<div class="text-[12px] text-center text-gray2 mb-10 font-medium leading-relaxed">
-					<strong class="text-white">Total Gross (Act.)</strong> out of
+					<strong class="text-white">Total Gross {model.health.grossLabel}</strong> out of
 					<span class="text-white font-bold">{fmtPlain(model.potentialGross, model.currency)}</span>
 					Potential Gross
 				</div>

@@ -6,7 +6,11 @@
 
 	export let tickets: any[] = [];
 	export let financials: any;
-	export let currency: string = 'CAD'; 
+	export let currency: string = 'CAD';
+	// HOLD events show the Prism-style potential view (no sold/actual columns);
+	// Confirmed shows estimates + real numbers; settlement is actual-sold mode.
+	export let eventStatus: string = '';
+	$: isHoldMode = eventStatus === 'HOLD';
 
 	let searchQuery = '';
 	let showImportModal = false;
@@ -41,7 +45,7 @@
 		showTemplateModal = false;
 	}
 
-	let columns = [
+	const fullColumns = [
 		{ id: 'drag', label: '', width: 4 },
 		{ id: 'name', label: 'Name', width: 11 },
 		{ id: 'allotment', label: 'Allotment', width: 7 },
@@ -58,6 +62,19 @@
 		{ id: 'netGrossActual', label: 'Net Gross', width: 9},
 		{ id: 'action', label: 'Remove', width: 6 } 
 	];
+	const holdColumns = [
+		{ id: 'drag', label: '', width: 4 },
+		{ id: 'name', label: 'Name', width: 16 },
+		{ id: 'allotment', label: 'Allotment', width: 11 },
+		{ id: 'comps', label: 'Comps', width: 9 },
+		{ id: 'kills', label: 'Kills', width: 8 },
+		{ id: 'sellable', label: 'Sellable', width: 10 },
+		{ id: 'price', label: 'Price', width: 12 },
+		{ id: 'estSold', label: 'Est. Sold', width: 11 },
+		{ id: 'potentialGross', label: 'Potential Gross', width: 13 },
+		{ id: 'action', label: 'Remove', width: 6 }
+	];
+	$: columns = isHoldMode ? holdColumns : fullColumns;
 
 	// --- RESIZING LOGIC ---
 	let resizingColIndex: number | null = null;
@@ -223,8 +240,10 @@
 		// 4. Calculate Net Gross (Gross minus Fees minus Tax)
 		const netGrossActual = actualGross - ticketFees - taxBackedOut;
 
+		const potentialGross = sellable * price;
+
 		return {
-			...t, sellable, actualGross, ticketFees, taxBackedOut, netGrossActual, originalIndex: index
+			...t, sellable, actualGross, ticketFees, taxBackedOut, netGrossActual, potentialGross, originalIndex: index
 		};
 	}).filter(t => t.name?.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -240,10 +259,11 @@
 		acc.ticketFees += t.ticketFees;
 		acc.taxBackedOut += t.taxBackedOut;
 		acc.netGrossActual += t.netGrossActual;
+		acc.potentialGross += t.potentialGross;
 		return acc;
 	}, {
 		allotment: 0, comps: 0, kills: 0, sellable: 0, estSold: 0, sold: 0, extSold: 0, 
-		actualGross: 0, ticketFees: 0, taxBackedOut: 0, netGrossActual: 0
+		actualGross: 0, ticketFees: 0, taxBackedOut: 0, netGrossActual: 0, potentialGross: 0
 	});
 
 	function addRow() {
@@ -433,6 +453,9 @@
 						<td class="px-2 py-2 border border-gray1">
 							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].estSold} on:focus={() => handleFocus(row.originalIndex, 'estSold')} on:blur={(e) => checkEmpty(e, 'estSold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
 						</td>
+						{#if isHoldMode}
+							<td class="px-2 py-2 text-white font-medium truncate bg-gray2/5 text-right border border-gray1">{formatCurrency(row.potentialGross, currency)}</td>
+						{:else}
 						<td class="px-2 py-2 border border-gray1">
 							<input type="number" use:selectOnFocus bind:value={tickets[row.originalIndex].sold} on:input={(e) => syncExtSold(row.originalIndex, e)} on:focus={() => handleFocus(row.originalIndex, 'sold')} on:blur={(e) => checkEmpty(e, 'sold', row.originalIndex)} class="w-full bg-transparent border-b border-transparent focus:border-lime focus:outline-none text-right" />
 						</td>
@@ -448,6 +471,7 @@
 						
 						<td class="px-2 py-2 text-gray2 font-medium truncate text-right border bg-gray2/5 border-gray1">{formatCurrency(row.taxBackedOut, currency)}</td>
 						<td class="px-2 py-2 text-gray2 font-bold truncate text-right border bg-gray2/5 border-gray1">{formatCurrency(row.netGrossActual, currency)}</td>
+						{/if}
 						
 						<td class="px-0 py-0 text-center border border-gray1"><button on:click={() => removeRow(row.id)} class="w-full h-full min-h-[32px] px-2 py-2 text-gray2 hover:text-red-500 hover:bg-problem/20 hover:cursor-pointer transition-colors font-bold text-lg block">×</button></td>
 					</tr>
@@ -462,6 +486,9 @@
 					<td class="px-2 py-4 text-white truncate text-right ">{totals.sellable}</td>
 					<td class="px-2 py-4 "></td>
 					<td class="px-2 py-4 text-white truncate text-right ">{totals.estSold}</td>
+					{#if isHoldMode}
+						<td class="px-2 py-4 text-lime truncate text-right " title={formatCurrency(totals.potentialGross, currency)}>{formatCurrency(totals.potentialGross, currency)}</td>
+					{:else}
 					<td class="px-2 py-4 text-white truncate text-right ">{totals.sold}</td>
 					<td class="px-2 py-4 text-white truncate text-right ">{totals.extSold}</td>
 					
@@ -469,6 +496,7 @@
 					<td class="px-2 py-4 text-lime truncate text-right " title={formatCurrency(totals.ticketFees, currency)}>{formatCurrency(totals.ticketFees, currency)}</td>
 					<td class="px-2 py-4 text-lime truncate text-right " title={formatCurrency(totals.taxBackedOut, currency)}>{formatCurrency(totals.taxBackedOut, currency)}</td>
 					<td class="px-2 py-4 text-lime truncate text-right " title={formatCurrency(totals.netGrossActual, currency)}>{formatCurrency(totals.netGrossActual, currency)}</td>
+					{/if}
 					
 					<td class=""></td>
 				</tr>

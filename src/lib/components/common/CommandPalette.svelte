@@ -8,7 +8,7 @@
 	// the document's pretty link in a new tab.
 
 	interface PaletteItem {
-		kind: 'Offer' | 'Settlement';
+		kind: 'Offer' | 'Settlement' | 'Hold';
 		dateDisplay: string;
 		dateSort: number;
 		artist: string;
@@ -72,15 +72,35 @@
 	async function loadFiles() {
 		loading = true;
 		try {
-			const [o, se] = await Promise.all([
+			const [o, se, undef] = await Promise.all([
 				supabase.storage.from('documents').list('offers', { limit: 1000 }),
-				supabase.storage.from('documents').list('settlements', { limit: 1000 })
+				supabase.storage.from('documents').list('settlements', { limit: 1000 }),
+				supabase
+					.from('calendar_events')
+					.select('id, short_id, status, calendar(title)')
+					.is('date', null)
 			]);
 			const names = [...(o.data || []), ...(se.data || [])].map((f) => f.name);
-			items = names
-				.map(itemFor)
-				.filter((x): x is PaletteItem => x !== null)
-				.sort((a, b) => b.dateSort - a.dateSort || a.artist.localeCompare(b.artist));
+			// Undefined holds (Date Bypass events): searchable by title / "hold" / "undefined".
+			const holdItems: PaletteItem[] = ((undef.data as any[]) || [])
+				.filter((r) => r.status === 'HOLD')
+				.map((r) => {
+					const cal = Array.isArray(r.calendar) ? r.calendar[0] : r.calendar;
+					const title = cal?.title || '(No Title)';
+					return {
+						kind: 'Hold' as const,
+						dateDisplay: 'No date',
+						dateSort: 0,
+						artist: title,
+						tag: 'Undefined',
+						url: `/calendar/${r.short_id || r.id}`,
+						haystack: `hold undefined event no date ${title}`.toLowerCase()
+					};
+				});
+			items = [
+				...names.map(itemFor).filter((x): x is PaletteItem => x !== null),
+				...holdItems
+			].sort((a, b) => b.dateSort - a.dateSort || a.artist.localeCompare(b.artist));
 		} catch (err) {
 			console.error('❌ [cmdk] Failed to list documents:', err);
 			items = [];

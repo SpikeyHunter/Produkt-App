@@ -73,6 +73,9 @@
 	// Safely extract and parse details
 	$: rawDetails = event.calendar?.details || event.details || {};
 	$: parsedDetails = typeof rawDetails === 'string' ? JSON.parse(rawDetails) : rawDetails;
+	let showNoDateBlock = false;
+	let noDateBlockTimer: any;
+
 	const statuses = [
 		{ value: 'CANCELED', label: 'Canceled', color: 'bg-problem' },
 		{ value: 'HOLD', label: 'Hold', color: 'bg-tentatif' },
@@ -133,6 +136,17 @@
 	async function setStatus(newStatus: string) {
 		showStatusDrop = false;
 		if (newStatus === event.status) return;
+
+		// Dateless (bypass) holds must get a date before advancing.
+		if (
+			!event.date &&
+			['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(newStatus)
+		) {
+			showNoDateBlock = true;
+			clearTimeout(noDateBlockTimer);
+			noDateBlockTimer = setTimeout(() => (showNoDateBlock = false), 3500);
+			return;
+		}
 		// Trigger modal for Confirm (unless from Settlement), Hold (from Confirmed), OR Canceled
 		if (
 			(newStatus === 'CONFIRMED' &&
@@ -863,4 +877,18 @@
 		{otherEventsSameRoomCount}
 		on:confirm={executeConfirmChange}
 	/>
+{/if}
+
+{#if showNoDateBlock}
+	<div
+		class="fixed top-6 left-1/2 -translate-x-1/2 z-[10000] bg-navbar border border-problem/60 text-white text-sm font-bold px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-2"
+	>
+		<svg class="w-4 h-4 text-problem shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+			<line x1="16" y1="2" x2="16" y2="6"></line>
+			<line x1="8" y1="2" x2="8" y2="6"></line>
+			<line x1="3" y1="10" x2="21" y2="10"></line>
+		</svg>
+		Define the event date first — this hold has no date yet.
+	</div>
 {/if}

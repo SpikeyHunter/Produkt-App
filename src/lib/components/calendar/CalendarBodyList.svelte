@@ -396,7 +396,7 @@
 									!canViewHolds}
 								<div
 									id={idx === 0 ? `date-${dateKey}` : undefined}
-									class="flex items-stretch bg-navbar border-2 border-navbar rounded-2xl mb-4 overflow-hidden transition-all hover:border-lime {isDimmed
+									class="flex items-center gap-3 bg-navbar border border-navbar rounded-xl mb-1.5 px-4 py-2 transition-all hover:border-lime {isDimmed
 										? 'opacity-40'
 										: ''} {isDisabled ? 'pointer-events-none' : 'cursor-pointer'}"
 									on:click={(e) => handleEventClick(event, e)}
@@ -404,32 +404,26 @@
 									role="button"
 									tabindex="0"
 								>
-									<div
-										class="w-40 shrink-0 flex flex-col items-center justify-center text-center p-4 border-r border-gray2/10"
-									>
-										<span class="text-xs text-gray2 font-bold uppercase tracking-widest"
-											>{fullWeekNames[dayData.dateObj.getDay()]}</span
+									<div class="w-44 shrink-0 flex items-baseline gap-1.5 whitespace-nowrap">
+										<span class="text-[10px] text-gray2 font-bold uppercase tracking-wider w-8 shrink-0"
+											>{fullWeekNames[dayData.dateObj.getDay()].slice(0, 3)}</span
 										>
-										<span class="text-4xl font-black text-white leading-none my-2"
-											>{dayData.dateObj.getDate()}</span
+										<span class="text-sm font-black text-white"
+											>{monthNames[dayData.dateObj.getMonth()]} {dayData.dateObj.getDate()}</span
 										>
-										<span class="text-sm font-bold text-lime uppercase"
-											>{monthNames[dayData.dateObj.getMonth()]}</span
-										>
-										<span class="text-sm text-gray2 font-bold mt-1"
+										<span class="text-[10px] text-gray2 font-bold"
 											>{dayData.dateObj.getFullYear()}</span
 										>
 									</div>
 
-									<div
-										class="w-48 shrink-0 flex flex-col justify-center items-center text-center border-r border-gray2/10 p-4"
-									>
-										<span class="text-md font-bold uppercase tracking-wider text-gray2">
-											{event.venue.room || 'No Stage Selected'}
-										</span>
+									<div class="w-36 shrink-0 text-[11px] font-bold uppercase tracking-wider text-gray2 truncate">
+										{event.venue.room || 'No Stage Selected'}
+									</div>
+
+									<div class="w-28 shrink-0">
 										{#if event.details?.type}
 											<span
-												class="text-sm font-bold px-3 py-1 mt-2 rounded-full shadow-sm"
+												class="inline-block max-w-full truncate text-[10px] font-bold px-2 py-0.5 rounded-full align-middle"
 												style="background-color: {typeColors[event.details.type] ||
 													'#828282'}; color: #000;"
 											>
@@ -438,44 +432,43 @@
 										{/if}
 									</div>
 
-									<div class="flex-1 flex flex-col justify-center p-4 pl-6">
-										<h2
-											class="font-black text-2xl tracking-wide {event.status === 'CANCELED'
-												? 'text-problem/60 line-through'
-												: 'text-gray3'}"
-										>
-											{formatEventTitle(event)}
-										</h2>
+									<h2
+										class="flex-1 min-w-0 truncate font-black text-base tracking-wide {event.status ===
+										'CANCELED'
+											? 'text-problem/60 line-through'
+											: 'text-gray3'}"
+									>
+										{formatEventTitle(event)}
+									</h2>
 
-										<div class="flex items-center gap-2 mt-3">
-											{#if event.status === 'CANCELED'}
-												<span
-													class="px-3 py-1 rounded-full text-xs font-bold shadow-sm border-2 border-solid border-problem text-problem bg-transparent"
-												>
-													✕ CANCELED
-												</span>
-											{:else if ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status)}
-												<span
-													class="px-3 py-1 rounded-full text-xs font-bold shadow-sm"
-													style="background-color: {color}; color: #000;"
-												>
-													✓ {event.status}
-												</span>
-											{:else}
-												<span
-													class="px-3 py-1 rounded-full text-xs font-bold shadow-sm border-2 border-solid"
-													style="color: {color}; border-color: {color}; background-color: transparent;"
-												>
-													{event.hold_level === 'P' ? 'P' : event.hold_level}
-												</span>
-											{/if}
-										</div>
+									<div class="shrink-0">
+										{#if event.status === 'CANCELED'}
+											<span
+												class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border border-solid border-problem text-problem bg-transparent whitespace-nowrap"
+											>
+												✕ CANCELED
+											</span>
+										{:else if ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status)}
+											<span
+												class="px-2.5 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap"
+												style="background-color: {color}; color: #000;"
+											>
+												✓ {event.status}
+											</span>
+										{:else}
+											<span
+												class="px-2.5 py-0.5 rounded-full text-[10px] font-bold border border-solid whitespace-nowrap"
+												style="color: {color}; border-color: {color}; background-color: transparent;"
+											>
+												{event.hold_level === 'P' ? 'P' : event.hold_level}
+											</span>
+										{/if}
 									</div>
 								</div>
 							{/each}
 						{/each}
 					{:else}
-						<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+						<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
 							{#each flatEvents as { dateKey, dateObj, event }, i}
 								{@const color = getBaseColor(event)}
 								{@const isDimmed =
@@ -488,7 +481,7 @@
 									id={i === 0 || flatEvents[i - 1].dateKey !== dateKey
 										? `date-${dateKey}`
 										: undefined}
-									class="bg-navbar border border-gray2/10 rounded-2xl p-5 flex flex-col gap-4 transition-all hover:border-lime/50 {isDimmed
+									class="bg-navbar border border-gray2/10 rounded-xl p-3 flex flex-col gap-2 transition-all hover:border-lime/50 {isDimmed
 										? 'opacity-40'
 										: ''} {isDisabled ? 'pointer-events-none' : 'cursor-pointer'}"
 									on:click={(e) => handleEventClick(event, e)}
@@ -496,47 +489,43 @@
 									role="button"
 									tabindex="0"
 								>
-									<div class="flex justify-between items-start border-b border-gray2/10 pb-4">
-										<div class="flex flex-col">
-											<span class="text-[10px] text-gray2 font-bold uppercase tracking-widest"
-												>{fullWeekNames[dateObj.getDay()]}</span
+									<div class="flex justify-between items-start border-b border-gray2/10 pb-2">
+										<div class="flex items-baseline gap-1.5 min-w-0">
+											<span class="text-[9px] text-gray2 font-bold uppercase tracking-wider shrink-0"
+												>{fullWeekNames[dateObj.getDay()].slice(0, 3)}</span
 											>
-											<span class="text-2xl font-black text-white leading-none mt-1"
+											<span class="text-sm font-black text-white whitespace-nowrap"
 												>{monthNames[dateObj.getMonth()]} {dateObj.getDate()}</span
 											>
-											<span class="text-xs text-gray2 font-bold mt-1">{dateObj.getFullYear()}</span>
+											<span class="text-[9px] text-gray2 font-bold">{dateObj.getFullYear()}</span>
 										</div>
-										<div class="text-right flex flex-col items-end gap-1">
+										{#if event.details?.type}
 											<span
-												class="text-xs font-bold uppercase max-w-[120px] text-right text-[#828282]"
+												class="text-[8px] font-bold px-2 py-0.5 rounded-full text-black shrink-0 ml-1"
+												style="background-color: {typeColors[event.details.type] || '#828282'};"
 											>
-												{event.venue.room || 'No Stage Selected'}
+												{event.details.type === 'Bazart Nuits' ? 'Nuits Bazart' : event.details.type}
 											</span>
-											{#if event.details?.type}
-												<span
-													class="text-[9px] font-bold px-3 py-1 mt-1 rounded-full text-black"
-													style="background-color: {typeColors[event.details.type] || '#828282'};"
-												>
-													{event.details.type === 'Bazart Nuits' ? 'Nuits Bazart' : event.details.type}
-												</span>
-											{/if}
-										</div>
+										{/if}
 									</div>
 
-									<div class="flex flex-col items-start gap-2">
-										<h3 class="font-black text-xl leading-tight text-white">
+									<div class="flex flex-col items-start gap-1.5 min-w-0">
+										<span class="text-[9px] font-bold uppercase tracking-wider text-[#828282] truncate max-w-full">
+											{event.venue.room || 'No Stage Selected'}
+										</span>
+										<h3 class="font-black text-sm leading-snug text-white truncate max-w-full">
 											{formatEventTitle(event)}
 										</h3>
 										{#if ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event.status)}
 											<span
-												class="px-3 py-1 rounded-full text-[10px] font-bold shadow-sm"
+												class="px-2 py-0.5 rounded-full text-[9px] font-bold shadow-sm"
 												style="background-color: {color}; color: #000;"
 											>
 												{event.status} ✓
 											</span>
 										{:else}
 											<span
-												class="px-3 py-1 rounded-full text-[10px] font-bold shadow-sm border border-solid"
+												class="px-2 py-0.5 rounded-full text-[9px] font-bold shadow-sm border border-solid"
 												style="color: {color}; border-color: {color}; background-color: transparent;"
 											>
 												{event.hold_level === 'P' ? 'P' : event.hold_level}

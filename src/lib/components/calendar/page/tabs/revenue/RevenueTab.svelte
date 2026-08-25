@@ -177,7 +177,7 @@
 {:else}
 	<div class="p-6 flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-8 bg-navbar">
 		{#if isInitialized}
-			<TicketManagement bind:tickets {financials} {currency} />
+			<TicketManagement bind:tickets {financials} {currency} eventStatus={event?.status || ''} />
 			<FacilityFee bind:financials onReset={venueFinancials ? resetToVenueSettings : null} />
 		{/if}
 	</div>

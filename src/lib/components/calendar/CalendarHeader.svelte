@@ -8,6 +8,7 @@
 	export let listLayoutMode: 'list' | 'grid' = 'list';
 	export let listFilterMode: 'past' | 'all' | 'upcoming' = 'all';
 	export let isEditor: boolean;
+	export let undefinedHoldsCount: number = 0;
 	export let showHiddenHolds: boolean = false; // Add this line
 
 	const dispatch = createEventDispatcher();
@@ -354,6 +355,23 @@
 
 	<div class="flex items-center gap-3">
 		{#if isEditor}
+			{#if undefinedHoldsCount > 0}
+				<div class="relative group flex items-center">
+					<button
+						class="px-3.5 py-2 bg-transparent border-2 border-[var(--color-border)]/30 text-[var(--color-gray2)] rounded-full text-xs font-bold hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-all cursor-pointer whitespace-nowrap"
+						on:click={() => dispatch('openUndefinedHolds')}
+					>
+						{undefinedHoldsCount} Hold{undefinedHoldsCount === 1 ? '' : 's'} - Undefined
+					</button>
+					<div
+						class="absolute right-0 top-full mt-2 px-3 py-1.5 bg-[var(--color-gray1)] text-[var(--color-white)] text-xs font-bold rounded-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-50"
+					>
+						There {undefinedHoldsCount === 1 ? 'is' : 'are'}
+						{undefinedHoldsCount} event{undefinedHoldsCount === 1 ? '' : 's'} on hold, without an
+						event date. Click to view
+					</div>
+				</div>
+			{/if}
 			<div class="relative group flex items-center">
 				<button
 					class="p-2.5 bg-transparent border-2 border-[var(--color-border)]/30 text-[var(--color-gray2)] rounded-full flex items-center justify-center hover:border-[var(--color-lime)] hover:text-[var(--color-lime)] transition-all cursor-pointer"
