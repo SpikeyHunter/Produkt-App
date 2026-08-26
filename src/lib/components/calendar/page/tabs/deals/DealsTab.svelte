@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { supabase } from '$lib/supabase';
 	import { portal } from '$lib/utils/portalUtils';
 	import DealCreator from './DealCreator.svelte';
@@ -461,6 +461,27 @@
 	$: offerRevenue = freshRevenue ?? parsedEventRevenue;
 	$: offerCost = freshCost ?? parsedEventCost;
 
+	// Same idea as loadFreshFinancials, for the deals themselves: sheets must
+	// reflect the DB as it is right now (support deals / budgets added this
+	// session included), even if local state lagged behind — no reload needed.
+	async function loadFreshDeals(): Promise<void> {
+		const targetId = event?.calendar?.id || event?.group_id || event?.id;
+		if (!targetId) return;
+		const { data } = await supabase
+			.from('calendar_data')
+			.select('event_deal')
+			.eq('calendar_id', targetId)
+			.eq('version_number', viewedVersionNum)
+			.maybeSingle();
+		const fresh = parseMaybeJson(data?.event_deal);
+		if (fresh && typeof fresh === 'object' && Object.keys(fresh).length > 0) {
+			eventDealData = fresh;
+			setCachedDealPayload(event, viewedVersionNum, fresh);
+			// Let deals / support / rates recompute before the caller reads them.
+			await tick();
+		}
+	}
+
 	// Light realtime: when this event's calendar_data row is updated (another
 	// user or another tab), refresh the local copies. Read-only — never writes,
 	// so it can't clobber unsaved local edits elsewhere.
@@ -881,6 +902,10 @@
 	function openOfferModal(deal: Deal) {
 		activeMenuId = null;
 		versionMenuId = null;
+		// Refresh in the background so the change-detection step compares
+		// against the live DB state, not a stale snapshot.
+		loadFreshDeals();
+		loadFreshFinancials();
 		// In Settlement / Settled: offers are frozen — settlement takes over.
 		if (isLockedStage) {
 			openSettlementModal(deal);
@@ -1072,9 +1097,11 @@
 
 		try {
 			// Always generate from the live DB state, never the page-load snapshot.
-			await loadFreshFinancials();
+			await Promise.all([loadFreshFinancials(), loadFreshDeals()]);
 
-			const deal = offerDeal;
+			// Re-point at the refreshed copy of this deal (same id, fresh fields).
+			const deal = deals.find((d) => d.id === offerDeal!.id) || offerDeal;
+			offerDeal = deal;
 			const history = dealOffers(deal);
 			const lastN = history.length ? Math.max(...history.map((h) => h.n)) : 0;
 			const n = mode === 'overwrite' && lastN > 0 ? lastN : lastN + 1;
@@ -1705,8 +1732,9 @@
 		settlementGenerating = true;
 		settlementError = '';
 		try {
-			await loadFreshFinancials();
-			const deal = settlementDeal;
+			await Promise.all([loadFreshFinancials(), loadFreshDeals()]);
+			const deal = deals.find((d) => d.id === settlementDeal!.id) || settlementDeal;
+			settlementDeal = deal;
 			const external = variantMode === 'external';
 
 			// Persist the adjustments on the deal first.
