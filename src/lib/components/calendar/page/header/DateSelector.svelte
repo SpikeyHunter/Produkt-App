@@ -184,6 +184,41 @@
 		);
 		const sortedNewDates = [...newDates].sort();
 
+		// Removing EVERY date never deletes the event — it becomes an undefined
+		// hold (date NULL, no hold level), manageable from Undefined Holds.
+		if (sortedNewDates.length === 0 && oldHolds.length > 0) {
+			const keep = oldHolds[0];
+			const extras = oldHolds.slice(1).map((h) => h.id);
+			try {
+				const { error } = await supabase
+					.from('calendar_events')
+					.update({ date: null, hold_level: null, status: 'HOLD' })
+					.eq('id', keep.id);
+				if (error) throw new Error(`Update Error: ${error.message}`);
+				if (extras.length > 0) {
+					const { error: delErr } = await supabase
+						.from('calendar_events')
+						.delete()
+						.in('id', extras);
+					if (delErr) throw new Error(`Delete Error: ${delErr.message}`);
+				}
+			} catch (err: any) {
+				console.error('🔥 DATABASE ERROR:', err);
+				alert(`Supabase Error:\n${err.message}`);
+				isSavingModification = false;
+				return;
+			}
+			await syncLinkedDateFromCalendar(event.group_id);
+			isSavingModification = false;
+			showModifyModal = false;
+			if (keep.id !== event.id) {
+				goto(`/calendar/${(keep as any).short_id || keep.id}`);
+			} else {
+				invalidateAll();
+			}
+			return;
+		}
+
 		const updates: { id: string; date: string }[] = [];
 		const inserts: any[] = [];
 		const deletes: string[] = [];
