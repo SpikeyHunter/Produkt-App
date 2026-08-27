@@ -27,7 +27,8 @@ const STORE_TO_DB: Record<string, string> = {
 	income_hospitality: 'income_hospitality',
 	income_other: 'income_other',
 	income_total_budget: 'income_total_budget',
-	budget_type: 'budget_type'
+	budget_type: 'budget_type',
+	apply_taxes: 'apply_taxes'
 };
 const DB_TO_STORE: Record<string, string> = Object.fromEntries(
 	Object.entries(STORE_TO_DB).map(([k, v]) => [v, k])
@@ -161,6 +162,7 @@ export function createBudgetSync() {
 	function rowToState(data: any) {
 		return {
 			budget_type: data.budget_type || 'Tour Prod',
+			apply_taxes: data.apply_taxes === true,
 			// numerics normalized (supabase can return numeric columns as strings)
 			income_total_budget: normalizeStoreValue('income_total_budget', data.income_total_budget),
 			income_artist: normalizeStoreValue('income_artist', data.income_artist),
@@ -459,7 +461,8 @@ export function createBudgetSync() {
 			.select(
 				`id, event_name, event_id, budget_type, income_total_budget,
 				 income_artist, income_technical, income_hospitality, income_other,
-				 expenses_artist_fee, expenses_technical, expenses_hospitality, expenses_other`
+				 expenses_artist_fee, expenses_technical, expenses_hospitality, expenses_other,
+				 apply_taxes`
 			)
 			.eq('id', id)
 			.single();

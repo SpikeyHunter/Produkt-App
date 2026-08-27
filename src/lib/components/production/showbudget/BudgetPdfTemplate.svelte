@@ -10,8 +10,10 @@
 		itemActualTotal,
 		itemsBudgetedTotal,
 		itemsActualTotal,
+		itemsHaveActuals,
 		subsBudgetedTotal,
-		subsActualTotal
+		subsActualTotal,
+		subsHaveActuals
 	} from '$lib/utils/budgetUtils';
 	import type { ExportOptions, BudgetItem, BudgetSubsection } from '$lib/types/budget';
 
@@ -83,10 +85,30 @@
 	$: netTotal = totalIncome - totalExpenses;
 	$: actualNetTotal = totalIncome - totalActualExpenses;
 
+	// +TX: GST 5% + QST 9.975% on the budget's expenses.
+	$: applyTaxes = budgetData?.apply_taxes === true;
+	$: gstAmount = totalExpenses * 0.05;
+	$: qstAmount = totalExpenses * 0.09975;
+	$: expensesWithTaxes = totalExpenses + gstAmount + qstAmount;
+
+	// Real actuals entered anywhere? If not, "act." columns are pure noise.
+	$: pdfHasActuals =
+		itemsHaveActuals(pdfArtistFee) ||
+		subsHaveActuals(pdfTechnical) ||
+		subsHaveActuals(pdfHospitality) ||
+		subsHaveActuals(pdfOther);
+
 	function sectionHeaderTotal(budgeted: number, actual: number): string {
 		if (options.amounts === 'budgeted') return formatMoney(budgeted);
 		if (options.amounts === 'actual') return formatMoney(actual);
-		return `${formatMoney(budgeted)} / act. ${formatMoney(actual)}`;
+		return pdfHasActuals ? `${formatMoney(budgeted)} / act. ${formatMoney(actual)}` : formatMoney(budgeted);
+	}
+
+	const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+	function formatEventDate(raw: any): string {
+		const m = String(raw || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+		if (!m) return String(raw || '');
+		return `${MONTH_LABELS[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
 	}
 </script>
 
@@ -97,11 +119,11 @@
 >
 	<div class="border-b-2 border-lime pb-4 mb-8 flex justify-between items-start">
 		<div>
-			<h1 class="text-4xl font-bold uppercase tracking-wider text-lime mb-2">
+			<h1 class="text-2xl font-bold uppercase tracking-wider text-lime mb-2">
 				{event?.event_name || 'Event Name'}
 			</h1>
-			<h2 class="text-lg font-bold uppercase tracking-wider text-gray3 mb-1">
-				{event?.event_date || ''}
+			<h2 class="text-base font-bold uppercase tracking-wider text-gray3 mb-1">
+				{formatEventDate(event?.event_date)}
 			</h2>
 			<div class="flex gap-4 text-gray2 text-sm uppercase tracking-wide font-bold">
 				<span>{budgetType} Budget</span>
@@ -289,20 +311,18 @@
 				</div>
 			{/if}
 
-			{#if showBudgeted}
-				<div class="flex justify-between items-center text-sm font-bold pt-3 border-t border-gray2/10">
-					<span class="text-gray2 uppercase tracking-wider">Total Expenses (Budgeted)</span>
-					<span class="font-bold text-problem text-lg font-mono">{formatMoney(totalExpenses * -1)}</span>
-				</div>
-			{/if}
-			{#if showActual}
-				<div class="flex justify-between items-center text-sm font-bold {showBudgeted ? 'pt-1' : 'pt-3 border-t border-gray2/10'}">
+			<div class="flex justify-between items-center text-sm font-bold pt-3 border-t border-gray2/10">
+				<span class="text-gray2 uppercase tracking-wider">Total Expenses</span>
+				<span></span>
+			</div>
+			{#if showActual && (options.amounts === 'actual' || pdfHasActuals)}
+				<div class="flex justify-between items-center text-sm font-bold pt-1">
 					<span class="text-gray2 uppercase tracking-wider">Total Expenses (Actual)</span>
 					<span class="font-bold text-problem text-lg font-mono">{formatMoney(totalActualExpenses * -1)}</span>
 				</div>
 			{/if}
 
-			<div class="pl-4 mt-2 mb-4 space-y-1.5 border-l-2 border-gray2/20">
+			<div class="pl-4 mt-2 mb-3 space-y-1.5 border-l-2 border-gray2/20">
 				{#if budgetType === 'Complete Prod' && pdfArtistFee.length > 0}
 					<div class="flex justify-between text-xs">
 						<span class="text-gray2">Artist Fee</span>
@@ -329,22 +349,49 @@
 				{/if}
 			</div>
 
-			<div class="border-t border-gray2/20 my-3"></div>
-			{#if showBudgeted}
-				<div class="flex justify-between items-center text-xl">
-					<span class="font-bold text-white uppercase tracking-wider">BUDGET TOTAL</span>
-					<span class="font-bold font-mono {netTotal >= 0 ? 'text-confirmed' : 'text-problem'}">
-						{formatMoney(netTotal)}
-					</span>
+			<div class="flex justify-between items-center text-sm font-bold pt-2 border-t border-gray2/20">
+				<span class="text-white uppercase tracking-wider">Subtotal</span>
+				<span class="font-bold text-problem text-base font-mono">{formatMoney(totalExpenses * -1)}</span>
+			</div>
+
+			{#if applyTaxes}
+				<div class="text-gray2 uppercase tracking-wider text-xs font-bold mt-4">Taxes:</div>
+				<div class="pl-4 mt-2 mb-3 space-y-1.5 border-l-2 border-gray2/20">
+					<div class="flex justify-between text-xs">
+						<span class="text-gray2">GST (5%)</span>
+						<span class="font-mono text-problem">{formatMoney(gstAmount * -1)}</span>
+					</div>
+					<div class="flex justify-between text-xs">
+						<span class="text-gray2">QST (9.975%)</span>
+						<span class="font-mono text-problem">{formatMoney(qstAmount * -1)}</span>
+					</div>
 				</div>
-			{/if}
-			{#if showActual}
-				<div class="flex justify-between items-center {showBudgeted ? 'text-base mt-1' : 'text-xl'}">
-					<span class="font-bold text-white uppercase tracking-wider">{showBudgeted ? 'Actual Total' : 'BUDGET TOTAL'}</span>
-					<span class="font-bold font-mono {actualNetTotal >= 0 ? 'text-confirmed' : 'text-problem'}">
-						{formatMoney(actualNetTotal)}
-					</span>
+				<div class="flex justify-between items-center text-sm font-bold pt-2 border-t border-gray2/20">
+					<span class="text-white uppercase tracking-wider">Subtotal</span>
+					<span class="font-bold text-problem text-base font-mono">{formatMoney((gstAmount + qstAmount) * -1)}</span>
 				</div>
+
+				<div class="flex justify-between items-center text-xl mt-3 pt-3 border-t-2 border-gray2/30">
+					<span class="font-bold text-white uppercase tracking-wider">Total</span>
+					<span class="font-bold font-mono text-problem">{formatMoney(expensesWithTaxes * -1)}</span>
+				</div>
+			{:else}
+				{#if showBudgeted}
+					<div class="flex justify-between items-center text-xl mt-3 pt-3 border-t border-gray2/20">
+						<span class="font-bold text-white uppercase tracking-wider">BUDGET TOTAL</span>
+						<span class="font-bold font-mono {netTotal >= 0 ? 'text-confirmed' : 'text-problem'}">
+							{formatMoney(netTotal)}
+						</span>
+					</div>
+				{/if}
+				{#if showActual && (options.amounts === 'actual' || pdfHasActuals)}
+					<div class="flex justify-between items-center {showBudgeted ? 'text-base mt-1' : 'text-xl mt-3 pt-3 border-t border-gray2/20'}">
+						<span class="font-bold text-white uppercase tracking-wider">{showBudgeted ? 'Actual Total' : 'BUDGET TOTAL'}</span>
+						<span class="font-bold font-mono {actualNetTotal >= 0 ? 'text-confirmed' : 'text-problem'}">
+							{formatMoney(actualNetTotal)}
+						</span>
+					</div>
+				{/if}
 			{/if}
 		</div>
 	</div>

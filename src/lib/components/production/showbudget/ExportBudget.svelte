@@ -113,6 +113,14 @@
 	$: netTotal = totalIncome - totalExpenses;
 	$: actualNet = totalIncome - actualExpenses;
 
+	$: applyTaxes = $budgetStore?.apply_taxes === true;
+
+	function toggleTaxes() {
+		if (!$budgetStore) return;
+		$budgetStore.apply_taxes = !$budgetStore.apply_taxes;
+		handleSave('apply_taxes');
+	}
+
 	// ---- Print-version PDF (8.5 x 11 in, black on white) -------------------
 	// Generated fully client-side (html2canvas + jsPDF) because the server
 	// pipeline ignores @page and imposes its own page size. Rules:
@@ -527,6 +535,8 @@
 							{expenseOther}
 							{budgetType}
 							{incomeTotalBudget}
+							{applyTaxes}
+							onToggleTaxes={toggleTaxes}
 						/>
 					</div>
 				</div>

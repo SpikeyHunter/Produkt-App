@@ -26,6 +26,17 @@
 	export let budgetType: string = 'Tour Prod';
 	export let incomeTotalBudget: number = 0;
 
+	// +TX: GST 5% + QST 9.975% on the whole budget, broken down at the bottom.
+	export let applyTaxes: boolean = false;
+	export let onToggleTaxes: (() => void) | null = null;
+
+	const GST_RATE = 0.05;
+	const QST_RATE = 0.09975;
+	// Taxes apply to the EXPENSES side of the budget.
+	$: gstAmount = totalExpenses * GST_RATE;
+	$: qstAmount = totalExpenses * QST_RATE;
+	$: expensesWithTaxes = totalExpenses + gstAmount + qstAmount;
+
 	let showDetails = false;
 </script>
 
@@ -61,6 +72,45 @@
 				<span class="font-bold {actualNet >= 0 ? 'text-confirmed' : 'text-problem'}">
 					{formatDisplay(actualNet)}
 				</span>
+			</div>
+		{/if}
+
+		<!-- +TX: taxes on the whole budget -->
+		<div class="flex justify-between items-center pt-2 mt-2 border-t border-gray2/10">
+			<span class="text-sm font-bold {applyTaxes ? 'text-white' : 'text-gray2'}">+ TX (GST / QST)</span>
+			<button
+				type="button"
+				role="switch"
+				aria-checked={applyTaxes}
+				aria-label="Apply GST and QST to the budget"
+				on:click={() => onToggleTaxes?.()}
+				class="relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent focus:outline-none transition-colors {applyTaxes
+					? 'bg-lime'
+					: 'bg-[#444]'}"
+			>
+				<span
+					aria-hidden="true"
+					class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-150 {applyTaxes
+						? 'translate-x-5'
+						: 'translate-x-0'}"
+				></span>
+			</button>
+		</div>
+
+		{#if applyTaxes}
+			<div class="space-y-1 pt-1" transition:slide|local={{ duration: 150 }}>
+				<div class="flex justify-between items-center text-sm">
+					<span class="text-gray2">GST (5%)</span>
+					<span class="font-bold text-gray3">{formatDisplay(gstAmount * -1)}</span>
+				</div>
+				<div class="flex justify-between items-center text-sm">
+					<span class="text-gray2">QST (9.975%)</span>
+					<span class="font-bold text-gray3">{formatDisplay(qstAmount * -1)}</span>
+				</div>
+				<div class="flex justify-between items-center text-base border-t border-gray2/20 pt-2 mt-1">
+					<span class="font-bold text-white">EXPENSES + TX</span>
+					<span class="font-bold text-problem">{formatDisplay(expensesWithTaxes * -1)}</span>
+				</div>
 			</div>
 		{/if}
 
