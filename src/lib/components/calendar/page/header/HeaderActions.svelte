@@ -34,6 +34,9 @@
 	let duplicateEventName = '';
 	let dupDatesMonth = new Date();
 	let dupStagedDates: string[] = [];
+	// Duplicate without dates (undefined hold) — default for a dateless source.
+	let dupNoDate = false;
+	$: if (dupNoDate && dupStagedDates.length > 0) dupStagedDates = [];
 
 	// Add this near your other modal states (around line 18)
 	let showDeleteHoldModal = false;
@@ -73,10 +76,66 @@
 
 	function openDuplicateModal() {
 		showMoreMenu = false;
-		duplicateEventName = `Copy of ${event.calendar?.title || event.title || 'Unnamed Event'}`;
-		dupStagedDates = [event.date];
-		dupDatesMonth = new Date(event.date + 'T00:00:00');
+		duplicateEventName = `${event.calendar?.title || event.title || 'Unnamed Event'} (DUPLICATE)`;
+		// A dateless (undefined) hold duplicates as another dateless hold.
+		dupNoDate = !event.date;
+		dupStagedDates = event.date ? [event.date] : [];
+		dupDatesMonth = new Date((event.date || new Date().toISOString().split('T')[0]) + 'T00:00:00');
 		showDuplicateModal = true;
+	}
+
+	/** Deep copy helper that also drops this event's generated-document history,
+	 *  so a duplicate never points at (or overwrites) the original's PDFs. */
+	function cloneDealPayload(raw: any): any {
+		let payload: any = raw;
+		if (typeof payload === 'string') {
+			try {
+				payload = JSON.parse(payload);
+				if (typeof payload === 'string') payload = JSON.parse(payload);
+			} catch {
+				return {};
+			}
+		}
+		if (!payload || typeof payload !== 'object') return {};
+		const copy = JSON.parse(JSON.stringify(payload));
+		// Deals live under headliner_deal / support_deal / support_deal_2 ...
+		for (const key of Object.keys(copy)) {
+			const val = copy[key];
+			if (val && typeof val === 'object' && /_deal(_\d+)?$/.test(key)) {
+				delete val.offers;
+				delete val.settlements;
+				delete val.settlementAdjustments;
+				delete val.savedSettlementRate;
+				delete val.savedSettlementRateAt;
+			}
+		}
+		delete copy.lockedExchangeRate;
+		delete copy.lockedExchangeRateAt;
+		return copy;
+	}
+
+	/** Copies every calendar_data version (deals, revenue, costs, contacts,
+	 *  pro forma, T&C) from the source event onto the duplicate. */
+	async function copyCalendarData(sourceGroupId: string, newGroupId: string, newEventIds: string[]) {
+		const { data: rows, error } = await supabase
+			.from('calendar_data')
+			.select('*')
+			.eq('calendar_id', sourceGroupId);
+		if (error || !rows || rows.length === 0) return;
+
+		const inserts = rows.map((row: any) => {
+			const copy: any = { ...row };
+			delete copy.id;
+			delete copy.created_at;
+			delete copy.updated_at;
+			copy.calendar_id = newGroupId;
+			copy.event_ids = newEventIds;
+			copy.event_deal = cloneDealPayload(row.event_deal);
+			return copy;
+		});
+
+		const { error: insErr } = await supabase.from('calendar_data').insert(inserts);
+		if (insErr) console.error('❌ [duplicate] Failed to copy calendar_data:', insErr);
 	}
 
 	function toggleDupDate(targetDate: string) {
@@ -87,10 +146,20 @@
 		}
 	}
 
-	function triggerDuplicateConfirm() {
+	async function triggerDuplicateConfirm() {
 		showDuplicateModal = false;
 		confirmPendingTask = 'duplicate';
 		confirmAction = 'confirm'; // Renders the green "Confirm Event" UI in the modal
+
+		// Only a duplicate that lands as CONFIRMED warrants the notification
+		// prompt — holds and dateless (undefined) duplicates save silently.
+		const duplicateWillBeConfirmed = event.status === 'CONFIRMED' && !dupNoDate;
+		if (!duplicateWillBeConfirmed) {
+			await executeConfirmTask(
+				new CustomEvent('confirm', { detail: { sendEmail: false, sendSms: false } })
+			);
+			return;
+		}
 		showCalendarConfirm = true;
 	}
 
@@ -135,11 +204,32 @@
 
 			// --- DUPLICATE LOGIC ---
 			else if (confirmPendingTask === 'duplicate') {
-				const { data: calData } = await supabase
+				let duplicateRouteId: string | null = null;
+				// Copy the whole calendar row (details, current_version, ...) so the
+				// duplicate is a standalone twin — never linked to the original.
+				const { data: srcCal } = await supabase
 					.from('calendar')
-					.insert({ title: duplicateEventName.trim(), details: parsedDetails })
+					.select('*')
+					.eq('id', event.group_id)
+					.maybeSingle();
+				const calInsert: any = { ...(srcCal || {}) };
+				delete calInsert.id;
+				delete calInsert.created_at;
+				delete calInsert.updated_at;
+				delete calInsert.short_id;
+				calInsert.title = duplicateEventName.trim();
+				calInsert.details = parsedDetails;
+				if (!calInsert.creator_name) {
+					calInsert.creator_name =
+						`${authUser?.first_name || ''} ${authUser?.last_name || ''}`.trim() || 'Unknown';
+				}
+
+				const { data: calData, error: calErr } = await supabase
+					.from('calendar')
+					.insert(calInsert)
 					.select()
 					.single();
+				if (calErr) throw calErr;
 
 				if (calData) {
 					let defaultLevelNum = 2;
@@ -160,7 +250,21 @@
 					}
 
 					const eventsToInsert = [];
-					for (const dupDate of dupStagedDates) {
+
+					if (dupNoDate) {
+						// Dateless duplicate: an undefined hold, like Date Bypass.
+						eventsToInsert.push({
+							group_id: calData.id,
+							date: null,
+							status: 'HOLD',
+							hold_level: null,
+							venue: event.venue || {},
+							time: event.time || {},
+							event_details: event.event_details || {}
+						});
+					}
+
+					for (const dupDate of dupNoDate ? [] : dupStagedDates) {
 						let statusToSet = event.status;
 						let holdLevelToSet = event.hold_level;
 
@@ -207,8 +311,20 @@
 						.select('*, calendar(*)');
 
 					if (insertedEvents && insertedEvents.length > 0) {
-						// Sync to Tech Schedule
+						// Land on the duplicate once it's fully built.
+						duplicateRouteId = String(insertedEvents[0].short_id || insertedEvents[0].id);
+
+						// Carry over deals, revenue, costs, contacts, T&C — every
+						// calendar_data version — minus generated offers/settlements.
+						await copyCalendarData(
+							String(event.group_id),
+							calData.id,
+							insertedEvents.map((e: any) => e.id)
+						);
+
+						// Sync to Tech Schedule (dateless holds have nothing to sync)
 						for (const newEv of insertedEvents) {
+							if (!newEv.date) continue;
 							try {
 								const syncPayload = {
 									...newEv,
@@ -238,7 +354,12 @@
 				}
 
 				showCalendarConfirm = false;
-				invalidateAll();
+				if (duplicateRouteId) {
+					// Open the new event (full reload of its page data).
+					await goto(`/calendar/${duplicateRouteId}`, { invalidateAll: true });
+				} else {
+					invalidateAll();
+				}
 			}
 		} catch (err) {
 			console.error('Execute Confirm Task Error:', err);
@@ -345,8 +466,28 @@
 						class="bg-navbar border border-gray2/20 rounded-xl px-4 py-3 text-white font-bold focus:border-lime transition-colors w-full"
 					/>
 				</div>
-				<div class="flex flex-col gap-2 mt-2">
-					<p class="text-xs font-bold text-gray2 uppercase tracking-wider">Select Dates</p>
+				<label class="flex items-center gap-2.5 cursor-pointer">
+					<input type="checkbox" class="hidden" bind:checked={dupNoDate} />
+					<div
+						class="w-4 h-4 rounded border flex items-center justify-center shrink-0 {dupNoDate
+							? 'bg-lime border-lime'
+							: 'border-gray2/50'}"
+					>
+						{#if dupNoDate}<svg
+								class="w-3 h-3 text-black"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="4"><polyline points="20 6 9 17 4 12"></polyline></svg
+							>{/if}
+					</div>
+					<span class="text-xs font-bold text-white">Date Bypass</span>
+				</label>
+
+				<div class="flex flex-col gap-2 mt-2 {dupNoDate ? 'opacity-40 pointer-events-none' : ''}">
+					<p class="text-xs font-bold text-gray2 uppercase tracking-wider">
+						{dupNoDate ? 'Dates bypassed' : 'Select Dates'}
+					</p>
 					<div class="bg-navbar border border-gray2/20 rounded-2xl p-4">
 						<div class="flex justify-between items-center mb-4">
 							<button
@@ -419,7 +560,8 @@
 				<button
 					class="py-2.5 px-6 rounded-xl font-black text-bg-primary bg-lime hover:bg-lime/90 transition-colors cursor-pointer disabled:opacity-50"
 					on:click={triggerDuplicateConfirm}
-					disabled={!duplicateEventName.trim() || dupStagedDates.length === 0}>Create</button
+					disabled={!duplicateEventName.trim() || (!dupNoDate && dupStagedDates.length === 0)}
+					>Create</button
 				>
 			</div>
 		</div>
