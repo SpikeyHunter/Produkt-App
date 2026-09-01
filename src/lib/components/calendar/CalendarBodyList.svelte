@@ -6,7 +6,7 @@
 		VenueSettings
 	} from '$lib/types/calendar-types';
 	import { createEventDispatcher, tick } from 'svelte';
-	import { slide } from 'svelte/transition';
+	import { slide } from 'svelte/transition';4
 
 	export let loading: boolean;
 	export let listEventsGrouped: GroupedEvents = {};

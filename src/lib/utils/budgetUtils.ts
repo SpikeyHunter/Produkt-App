@@ -81,17 +81,19 @@ export function itemBudgetedUnit(item: BudgetItem): number {
 	return num(item.price);
 }
 
-/** Actual unit price: typed in directly, or the sum of visible sub-items. */
+/** Actual unit price: typed in directly, or the sum of visible sub-items.
+ *  Independent from Budgeted — an empty Actual counts as 0, never as the
+ *  budgeted price, so the two columns always total separately. */
 export function itemActualUnit(item: BudgetItem): number {
 	if (hasChildren(item)) return itemsActualTotal(item.children);
-	return item.actual === null || item.actual === undefined ? num(item.price) : num(item.actual);
+	return num(item.actual);
 }
 
 export function itemBudgetedTotal(item: BudgetItem): number {
 	return itemBudgetedUnit(item) * (num(item.quantity) || 1);
 }
 
-/** Actual falls back to budgeted when not filled in, so partial actuals still make sense. */
+/** Actual line total (0 when no Actual was entered). */
 export function itemActualTotal(item: BudgetItem): number {
 	return itemActualUnit(item) * (num(item.quantity) || 1);
 }

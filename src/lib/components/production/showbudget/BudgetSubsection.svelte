@@ -226,7 +226,7 @@
 				{#if !hidden}
 					<span class="text-sm font-medium text-lime">- {formatMoney(subsectionBudgeted)}</span>
 					{#if hasActuals}
-						<span class="text-xs font-medium text-confirmed ml-1">act. {formatMoney(subsectionActual)}</span>
+						<span class="text-xs font-medium text-problem ml-1">act. {formatMoney(subsectionActual)}</span>
 					{/if}
 				{:else}
 					<span class="text-xs text-gray2 ml-1">(hidden — excluded from totals)</span>

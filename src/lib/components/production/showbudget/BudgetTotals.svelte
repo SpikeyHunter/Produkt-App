@@ -32,10 +32,14 @@
 
 	const GST_RATE = 0.05;
 	const QST_RATE = 0.09975;
-	// Taxes apply to the EXPENSES side of the budget.
+	// Taxes apply to the EXPENSES side — budgeted and actual are taxed
+	// independently, mirroring the two columns.
 	$: gstAmount = totalExpenses * GST_RATE;
 	$: qstAmount = totalExpenses * QST_RATE;
 	$: expensesWithTaxes = totalExpenses + gstAmount + qstAmount;
+	$: gstActual = actualExpenses * GST_RATE;
+	$: qstActual = actualExpenses * QST_RATE;
+	$: actualExpensesWithTaxes = actualExpenses + gstActual + qstActual;
 
 	let showDetails = false;
 </script>
@@ -55,7 +59,7 @@
 		{#if hasActuals}
 			<div class="flex justify-between items-center text-sm">
 				<span class="text-gray2">Expenses (Actual)</span>
-				<span class="font-bold text-confirmed">{formatDisplay(actualExpenses * -1)}</span>
+				<span class="font-bold text-problem">{formatDisplay(actualExpenses * -1)}</span>
 			</div>
 		{/if}
 
@@ -101,15 +105,30 @@
 			<div class="space-y-1 pt-1" transition:slide|local={{ duration: 150 }}>
 				<div class="flex justify-between items-center text-sm">
 					<span class="text-gray2">GST (5%)</span>
-					<span class="font-bold text-gray3">{formatDisplay(gstAmount * -1)}</span>
+					<span class="flex gap-3">
+						<span class="font-bold text-gray3">{formatDisplay(gstAmount * -1)}</span>
+						{#if hasActuals}
+							<span class="font-bold text-problem">{formatDisplay(gstActual * -1)}</span>
+						{/if}
+					</span>
 				</div>
 				<div class="flex justify-between items-center text-sm">
 					<span class="text-gray2">QST (9.975%)</span>
-					<span class="font-bold text-gray3">{formatDisplay(qstAmount * -1)}</span>
+					<span class="flex gap-3">
+						<span class="font-bold text-gray3">{formatDisplay(qstAmount * -1)}</span>
+						{#if hasActuals}
+							<span class="font-bold text-problem">{formatDisplay(qstActual * -1)}</span>
+						{/if}
+					</span>
 				</div>
 				<div class="flex justify-between items-center text-base border-t border-gray2/20 pt-2 mt-1">
 					<span class="font-bold text-white">EXPENSES + TX</span>
-					<span class="font-bold text-problem">{formatDisplay(expensesWithTaxes * -1)}</span>
+					<span class="flex gap-3">
+						<span class="font-bold text-gray3">{formatDisplay(expensesWithTaxes * -1)}</span>
+						{#if hasActuals}
+							<span class="font-bold text-problem">{formatDisplay(actualExpensesWithTaxes * -1)}</span>
+						{/if}
+					</span>
 				</div>
 			</div>
 		{/if}

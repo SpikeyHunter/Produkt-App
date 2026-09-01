@@ -85,7 +85,7 @@
 		<h4 class="text-lime font-bold text-sm uppercase">{title}</h4>
 		<span class="ml-1 text-sm font-bold text-white">- {formatMoney(categoryBudgeted)}</span>
 		{#if hasActuals}
-			<span class="ml-2 text-xs font-bold text-confirmed">act. {formatMoney(categoryActual)}</span>
+			<span class="ml-2 text-xs font-bold text-problem">act. {formatMoney(categoryActual)}</span>
 		{/if}
 	</div>
 

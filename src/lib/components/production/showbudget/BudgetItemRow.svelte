@@ -368,7 +368,7 @@
 		<!-- Actual $ — computed (read-only) when the line has sub-items -->
 		{#if kids}
 			<div
-				class="w-full rounded-lg px-2 py-1 text-[12px] bg-white/[0.03] border border-dashed border-white/10 {hasActual ? 'text-confirmed' : rowText} truncate cursor-default"
+				class="w-full rounded-lg px-2 py-1 text-[12px] bg-white/[0.03] border border-dashed border-white/10 {hasActual ? 'text-problem' : rowText} truncate cursor-default"
 				title="Sum of sub-items"
 			>
 				{formatMoney(itemActualUnit(item))}
@@ -379,7 +379,7 @@
 				disabled={item.hidden}
 				on:input={notifyUpdate}
 				on:blur={notifySave}
-				class="w-full {inputBg} {hasActual ? 'text-confirmed' : rowText} rounded-lg px-2 py-1 text-[12px] placeholder-gray2/60"
+				class="w-full {inputBg} {hasActual ? 'text-problem' : rowText} rounded-lg px-2 py-1 text-[12px] placeholder-gray2/60"
 			/>
 		{/if}
 
@@ -435,7 +435,7 @@
 		<div class="text-left leading-tight pl-2">
 			<div class="{rowText} text-[12px] font-medium whitespace-nowrap">{formatMoney(budgTotal)}</div>
 			{#if hasActual}
-				<div class="text-confirmed text-[10px] font-medium whitespace-nowrap">{formatMoney(actTotal)}</div>
+				<div class="text-problem text-[10px] font-medium whitespace-nowrap">{formatMoney(actTotal)}</div>
 			{/if}
 		</div>
 
