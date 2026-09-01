@@ -210,7 +210,7 @@ export async function generateAdvanceEmail(
     const emlContent = `Subject: ${subject}
 From: ${fromEmail}
 To: 
-CC: allanah@produkt.ca
+CC: allanah@produkt.ca, willis@produkt.ca, alexk@produkt.ca
 X-Unsent: 1
 Content-Type: text/html; charset=utf-8
 
