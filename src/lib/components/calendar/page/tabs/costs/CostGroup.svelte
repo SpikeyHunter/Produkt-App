@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { loadColumnWidths, createColumnResizer } from '$lib/utils/columnResize';
+
 	export let group: any;
 	export let currency: string = 'CAD';
 	export let onRemove: () => void;
@@ -142,7 +144,8 @@
 	}
 
 	// --- COLUMNS & RESIZING LOGIC ---
-	let columns = [
+	const COLS_KEY = templateMode ? 'cost-group-template' : 'cost-group';
+	let columns = loadColumnWidths(COLS_KEY, [
 		{ id: 'drag', label: '', width: 3 },
 		{ id: 'name', label: 'Name', width: 12 },
 		{ id: 'qty', label: 'QTY', width: 5 },
@@ -155,39 +158,22 @@
 		{ id: 'externalNotes', label: 'External Notes', width: templateMode ? 16 : 11 },
 		{ id: 'reported', label: 'Reported', width: 6 },
 		{ id: 'remove', label: 'Remove', width: 5 }
-	].filter((c) => !templateMode || (c.id !== 'actualInternal' && c.id !== 'externalSettlement'));
+	].filter((c) => !templateMode || (c.id !== 'actualInternal' && c.id !== 'externalSettlement')));
 
+	// Direct <col> writes during the drag (no re-render per move); state and
+	// the per-user layout are committed once on release.
+	let tableEl: HTMLTableElement;
 	let resizingColIndex: number | null = null;
-	let startX = 0;
-	let startWidth = 0;
-
-	function startResize(e: MouseEvent, index: number) {
-		if (columns[index].id === 'drag') return;
-		resizingColIndex = index;
-		startX = e.pageX;
-		startWidth = columns[index].width;
-
-		document.body.style.cursor = 'col-resize';
-		document.body.style.userSelect = 'none';
-
-		window.addEventListener('mousemove', doResize);
-		window.addEventListener('mouseup', stopResize);
-	}
-
-	function doResize(e: MouseEvent) {
-		if (resizingColIndex === null) return;
-		const diff = ((e.pageX - startX) / window.innerWidth) * 100;
-		columns[resizingColIndex].width = Math.max(2, startWidth + diff);
-		columns = [...columns];
-	}
-
-	function stopResize() {
-		resizingColIndex = null;
-		document.body.style.cursor = '';
-		document.body.style.userSelect = '';
-
-		window.removeEventListener('mousemove', doResize);
-		window.removeEventListener('mouseup', stopResize);
+	const resizer = createColumnResizer({
+		key: COLS_KEY,
+		getTable: () => tableEl,
+		getColumns: () => columns,
+		commit: (c) => (columns = c),
+		onStart: (i) => (resizingColIndex = i),
+		onEnd: () => (resizingColIndex = null)
+	});
+	function startResize(e: PointerEvent, index: number) {
+		resizer.pointerdown(e, index);
 	}
 
 	// --- DRAG AND DROP ---
@@ -402,7 +388,7 @@
 	</div>
 
 	<div class="w-full bg-navbar overflow-hidden border border-gray1 rounded-sm mt-2">
-		<table class="w-full text-xs text-white border-collapse">
+		<table class="w-full table-fixed text-xs text-white border-collapse" bind:this={tableEl}>
 			<colgroup>
 				{#each columns as col, i}
 					<col
@@ -417,7 +403,7 @@
 				<tr>
 					{#each columns as col, i}
 						<th
-							class="relative px-2 py-3 {col.id === 'name' ||
+							class="relative px-2 py-3 border-r border-gray1 last:border-r-0 {col.id === 'name' ||
 							col.id === 'internalNotes' ||
 							col.id === 'externalNotes'
 								? 'text-left'
@@ -429,9 +415,9 @@
 							{#if col.id !== 'drag' && col.id !== 'remove'}
 								<button
 									type="button"
-									class="resizer"
+									class="resizer {resizingColIndex === i ? 'active' : ''}"
 									aria-label="Resize column"
-									on:mousedown={(e) => startResize(e, i)}
+									on:pointerdown={(e) => startResize(e, i)}
 								></button>
 							{/if}
 						</th>
@@ -736,15 +722,32 @@
 
 	.resizer {
 		position: absolute;
-		right: 0;
+		right: -7px;
 		top: 0;
 		bottom: 0;
-		width: 5px;
+		width: 14px; /* generous grab zone straddling the column border */
 		cursor: col-resize;
 		user-select: none;
+		touch-action: none;
 		background: transparent;
 		border: none;
 		z-index: 10;
+	}
+	.resizer::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		top: 18%;
+		bottom: 18%;
+		width: 2px;
+		transform: translateX(-50%);
+		border-radius: 2px;
+		background: transparent;
+		transition: background 0.12s;
+	}
+	.resizer:hover::after,
+	.resizer.active::after {
+		background: #e1ff00;
 	}
 
 	.toggle-checkbox:checked {

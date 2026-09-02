@@ -4,7 +4,16 @@
 export type CalendarEntry = {
 	id: number;
 	date: string;
-	type: 'Arrival' | 'Departure' | 'Soundcheck' | 'Post-SC' | 'Show' | 'Post Show' | '';
+	type:
+		| 'Arrival'
+		| 'Departure'
+		| 'Soundcheck'
+		| 'Post-SC'
+		| 'Dinner'
+		| 'Post-Dinner'
+		| 'Show'
+		| 'Post Show'
+		| '';
 	driverName: string;
 	pickupTime: string;
 	pickupLocation: string;
@@ -90,7 +99,13 @@ type EventForAutofill = {
 	main_contact?: string | null;
 	artist_name?: string;
 	event_date?: string;
+	food_buyout?: string | null | { type?: string | null; details?: string };
 };
+
+// Default dinner window when hospitality has Dinner selected:
+// 7:45PM pickup (8PM seating) with the return pickup at 9PM.
+const DINNER_PICKUP_TIME = '19:45';
+const DINNER_RETURN_TIME = '21:00';
 
 // --- SIMPLIFIED HELPER FUNCTIONS (MATH-BASED) ---
 
@@ -621,6 +636,66 @@ export function autofillData(event: EventForAutofill): CalendarEntry[] {
 						flightInfo: '',
 						contact: contactForShow
 					}
+				);
+			}
+		}
+	}
+
+	// --- Dinner pickups (only when hospitality has Dinner selected) ---
+	{
+		let buyout: any = event.food_buyout;
+		try {
+			if (typeof buyout === 'string') buyout = JSON.parse(buyout);
+			if (typeof buyout === 'string') buyout = JSON.parse(buyout);
+		} catch {
+			buyout = null;
+		}
+		if (buyout && buyout.type === 'dinner') {
+			// The free-text detail is usually the restaurant — use it as the stop.
+			const restaurant = String(buyout.details || '').trim() || 'Restaurant';
+			const driverAssignment = getDriverAssignments(
+				roleData.totalPeople,
+				roleData.artistAndManager,
+				roleData.crew
+			);
+			const allPaxNames = [...roleData.artistAndManager, ...roleData.crew];
+			const contactForDinner = getContactForPassengers(allPaxNames, mainContactInfo);
+
+			const dinnerRows = (driver: string, pax: string) => [
+				{
+					id: Date.now() + Math.random(),
+					date: eventDateStr,
+					type: 'Dinner' as const,
+					driverName: driver,
+					pickupTime: DINNER_PICKUP_TIME,
+					pickupLocation: hotelName,
+					dropoffTime: minutesToTime(timeToMinutes(DINNER_PICKUP_TIME) + 15),
+					dropoffLocation: restaurant,
+					paxNames: pax,
+					flightInfo: '',
+					contact: contactForDinner
+				},
+				{
+					id: Date.now() + Math.random(),
+					date: eventDateStr,
+					type: 'Post-Dinner' as const,
+					driverName: driver,
+					pickupTime: DINNER_RETURN_TIME,
+					pickupLocation: restaurant,
+					dropoffTime: minutesToTime(timeToMinutes(DINNER_RETURN_TIME) + 15),
+					dropoffLocation: hotelName,
+					paxNames: pax,
+					flightInfo: '',
+					contact: contactForDinner
+				}
+			];
+
+			generatedEntries.push(
+				...dinnerRows(driverAssignment.car1Driver, driverAssignment.car1Passengers)
+			);
+			if (driverAssignment.car2Driver && driverAssignment.car2Passengers) {
+				generatedEntries.push(
+					...dinnerRows(driverAssignment.car2Driver, driverAssignment.car2Passengers)
 				);
 			}
 		}

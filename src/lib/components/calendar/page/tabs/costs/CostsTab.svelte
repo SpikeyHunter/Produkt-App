@@ -5,6 +5,8 @@
 	import VariableCosts from './VariableCosts.svelte';
 	import LoadCostTemplateModal from '$lib/components/calendar/page/modals/LoadCostTemplateModal.svelte';
 	import { slide } from 'svelte/transition';
+	import { getDefaultVariableExpenses } from '$lib/services/templateService';
+	import { computeArtistFeeTotals } from '$lib/components/calendar/page/tabs/deals/dealEngine';
 
 	export let userRole: string = 'Email Only';
 	export let event: any = null;
@@ -24,7 +26,12 @@
 		variableCosts: []
 	};
 	let eventRevenue: any = {};
+	let eventDealRaw: any = null;
 	let currency: string = 'CAD';
+
+	// Base for "% of Artist Fee" variable costs: every artist deal's payout at
+	// sellout / estimated / actual.
+	$: artistFee = computeArtistFeeTotals(eventDealRaw, eventRevenue, eventCosts, currency);
 	let saveTimeout: ReturnType<typeof setTimeout>;
 	let isSaving = false;
 	let isInitialized = false;
@@ -135,7 +142,7 @@
 
 		const { data: dbData } = await supabase
 			.from('calendar_data')
-			.select('event_cost, event_revenue')
+			.select('event_cost, event_revenue, event_deal')
 			.eq('calendar_id', targetId)
 			.eq('version_number', viewedVersionNum)
 			.single();
@@ -146,13 +153,17 @@
 				variableCosts: dbData.event_cost.variableCosts || []
 			};
 		} else {
-			eventCosts = { fixedCosts: [], variableCosts: [] };
+			// First costs for this event: seed the variable expenses flagged
+			// "Load in all events by default" in Settings > Templates.
+			const defaults = isViewOnly ? [] : await getDefaultVariableExpenses();
+			eventCosts = { fixedCosts: [], variableCosts: defaults };
 			if (!isViewOnly) triggerSave();
 		}
 
 		if (dbData?.event_revenue) {
 			eventRevenue = dbData.event_revenue;
 		}
+		eventDealRaw = dbData?.event_deal ?? null;
 
 		isInitialized = true;
 	}
@@ -197,6 +208,7 @@
 				bind:variableCosts={eventCosts.variableCosts}
 				bind:expanded={variableExpanded}
 				{eventRevenue}
+				{artistFee}
 				{currency}
 				{triggerSave}
 				onLoadTemplate={openTemplateModal}

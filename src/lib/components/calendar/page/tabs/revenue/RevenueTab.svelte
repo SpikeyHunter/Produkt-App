@@ -175,10 +175,17 @@
 		<p class="text-gray2 font-bold text-lg">You do not have permission to view this.</p>
 	</div>
 {:else}
-	<div class="p-6 flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-8 bg-navbar">
+	<div class="p-6 flex-1 overflow-y-auto lime-scrollbar flex flex-col gap-8 bg-navbar">
 		{#if isInitialized}
 			<TicketManagement bind:tickets {financials} {currency} eventStatus={event?.status || ''} />
 			<FacilityFee bind:financials onReset={venueFinancials ? resetToVenueSettings : null} />
 		{/if}
 	</div>
 {/if}
+
+<style>
+	.lime-scrollbar { scrollbar-width: thin; scrollbar-color: #e1ff00 transparent; }
+	.lime-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+	.lime-scrollbar::-webkit-scrollbar-thumb { background: #e1ff00; border-radius: 6px; }
+	.lime-scrollbar::-webkit-scrollbar-track { background: transparent; }
+</style>

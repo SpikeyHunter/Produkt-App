@@ -6,7 +6,16 @@
 export type CalendarEntry = {
 	id: number;
 	date: string;
-	type: 'Arrival' | 'Departure' | 'Soundcheck' | 'Post-SC' | 'Show' | 'Post Show' | '';
+	type:
+		| 'Arrival'
+		| 'Departure'
+		| 'Soundcheck'
+		| 'Post-SC'
+		| 'Dinner'
+		| 'Post-Dinner'
+		| 'Show'
+		| 'Post Show'
+		| '';
 	driverName: string;
 	pickupTime: string;
 	pickupLocation: string;

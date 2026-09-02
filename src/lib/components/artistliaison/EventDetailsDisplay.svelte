@@ -903,6 +903,17 @@
 											<input
 												type="radio"
 												name="food-{artistKey}"
+												value="room_credit"
+												bind:group={foodBuyoutData[artistKey].type}
+												on:change={() => saveFoodBuyout(artistKey)}
+												class="w-3 h-3 text-lime"
+											/>
+											<span class="text-xs text-white">Room Credit</span>
+										</label>
+										<label class="flex items-center gap-1 cursor-pointer">
+											<input
+												type="radio"
+												name="food-{artistKey}"
 												value={null}
 												bind:group={foodBuyoutData[artistKey].type}
 												on:change={() => saveFoodBuyout(artistKey)}
@@ -911,7 +922,32 @@
 											<span class="text-xs text-white">None</span>
 										</label>
 									</div>
-									{#if foodBuyoutData[artistKey] && foodBuyoutData[artistKey].type}
+									{#if foodBuyoutData[artistKey] && foodBuyoutData[artistKey].type === 'room_credit'}
+										<div class="grid grid-cols-2 gap-2">
+											<label class="flex items-center gap-1 bg-gray1 rounded px-2 py-1">
+												<span class="text-[10px] text-gray2 font-bold">Artist</span>
+												<input
+													type="number"
+													min="0"
+													bind:value={foodBuyoutData[artistKey].artist}
+													on:blur={() => saveFoodBuyout(artistKey)}
+													class="w-full bg-transparent text-white text-xs focus:outline-none text-right"
+												/>
+												<span class="text-[10px] text-gray2">$</span>
+											</label>
+											<label class="flex items-center gap-1 bg-gray1 rounded px-2 py-1">
+												<span class="text-[10px] text-gray2 font-bold">Crew</span>
+												<input
+													type="number"
+													min="0"
+													bind:value={foodBuyoutData[artistKey].crew}
+													on:blur={() => saveFoodBuyout(artistKey)}
+													class="w-full bg-transparent text-white text-xs focus:outline-none text-right"
+												/>
+												<span class="text-[10px] text-gray2">$</span>
+											</label>
+										</div>
+									{:else if foodBuyoutData[artistKey] && foodBuyoutData[artistKey].type}
 										<input
 											type="text"
 											placeholder="Details..."

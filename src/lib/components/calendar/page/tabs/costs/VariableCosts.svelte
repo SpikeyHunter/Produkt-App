@@ -1,20 +1,18 @@
 <script lang="ts">
     import { slide } from 'svelte/transition';
+    import { VARIABLE_COST_TYPES } from '$lib/components/calendar/page/tabs/deals/dealEngine';
+    import { loadColumnWidths, createColumnResizer } from '$lib/utils/columnResize';
 
     export let variableCosts: any[] = [];
     export let eventRevenue: any = {};
+    // Artist fee base (sum of every deal's payout) for "% of Artist Fee" rows.
+    export let artistFee: { sellout: number; est: number; actual: number } = { sellout: 0, est: 0, actual: 0 };
     export let currency: string = 'CAD';
     export let triggerSave: () => void;
     export let onLoadTemplate: (() => void) | null = null;
     export let expanded: boolean = false;
 
-    const variableTypes = [
-        'Flat',
-        '% of Gross',
-        '% of Net Gross',
-        '$ per Paid Ticket',
-        '$ per Attendee'
-    ];
+    const variableTypes = [...VARIABLE_COST_TYPES];
 
     // --- REVENUE MATH ---
     $: tickets = eventRevenue?.tickets || [];
@@ -54,9 +52,9 @@
         return { totalTickets, gross, netGross };
     }
 
-    $: sellableMetrics = calculateMetrics('allotment', true);
-    $: estMetrics = calculateMetrics('estSold');
-    $: actualMetrics = calculateMetrics('sold');
+    $: sellableMetrics = { ...calculateMetrics('allotment', true), artistFee: artistFee?.sellout || 0 };
+    $: estMetrics = { ...calculateMetrics('estSold'), artistFee: artistFee?.est || 0 };
+    $: actualMetrics = { ...calculateMetrics('sold'), artistFee: artistFee?.actual || 0 };
 
     function calcValue(type: string, amount: number, metrics: any) {
         amount = Number(amount) || 0;
@@ -66,6 +64,7 @@
             case '% of Net Gross': return (amount / 100) * metrics.netGross;
             case '$ per Paid Ticket': return amount * metrics.totalTickets;
             case '$ per Attendee': return amount * metrics.totalTickets;
+            case '% of Artist Fee': return (amount / 100) * (metrics.artistFee || 0);
             default: return amount;
         }
     }
@@ -200,7 +199,8 @@
     }
 
     // --- COLUMNS & RESIZING LOGIC ---
-    let columns = [
+    const COLS_KEY = 'variable-costs';
+    let columns = loadColumnWidths(COLS_KEY, [
         { id: 'drag', label: '', width: 3 },
         { id: 'name', label: 'Name', width: 14 },
         { id: 'extAmount', label: 'Ext. Amount', width: 8 },
@@ -211,39 +211,22 @@
         { id: 'externalSettlement', label: 'Ext. Settlement', width: 11 },
         { id: 'reported', label: 'Reported', width: 6 },
         { id: 'remove', label: 'Remove', width: 4 }
-    ];
+    ]);
 
+    // Direct <col> writes during the drag (no re-render per move); state and
+    // the per-user layout are committed once on release.
+    let tableEl: HTMLTableElement;
     let resizingColIndex: number | null = null;
-    let startX = 0;
-    let startWidth = 0;
-
-    function startResize(e: MouseEvent, index: number) {
-        if (columns[index].id === 'drag') return;
-
-        resizingColIndex = index;
-        startX = e.pageX;
-        startWidth = columns[index].width;
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-        window.addEventListener('mousemove', doResize);
-        window.addEventListener('mouseup', stopResize);
-
-    }
-    function doResize(e: MouseEvent) {
-        if (resizingColIndex === null) return;
-
-        const diff = ((e.pageX - startX) / window.innerWidth) * 100;
-        columns[resizingColIndex].width = Math.max(2, startWidth + diff);
-        columns = [...columns];
-
-    }
-    function stopResize() {
-        resizingColIndex = null;
-        document.body.style.cursor = '';
-
-        document.body.style.userSelect = '';
-        window.removeEventListener('mousemove', doResize);
-        window.removeEventListener('mouseup', stopResize);
+    const resizer = createColumnResizer({
+        key: COLS_KEY,
+        getTable: () => tableEl,
+        getColumns: () => columns,
+        commit: (c) => (columns = c),
+        onStart: (i) => (resizingColIndex = i),
+        onEnd: () => (resizingColIndex = null)
+    });
+    function startResize(e: PointerEvent, index: number) {
+        resizer.pointerdown(e, index);
     }
 
     // --- DRAG AND DROP ---
@@ -357,7 +340,7 @@
             </div>
 
             <div class="w-full overflow-hidden border-y border-gray1 mt-2">
-                <table class="w-full text-xs text-white border-collapse">
+                <table class="w-full table-fixed text-xs text-white border-collapse" bind:this={tableEl}>
                     <colgroup>
                         {#each columns as col, i}
                             <col style="width: {col.width}%; {resizingColIndex === i ? 'border: 1px solid #c4ef9b; background-color: rgba(196, 239, 155, 0.05);' : ''}" />
@@ -367,10 +350,10 @@
                     <thead class="text-xs tracking-wider text-gray2 font-bold bg-navbar border-b border-gray1">
                         <tr>
                             {#each columns as col, i}
-                                <th class="relative px-2 py-3 {col.id === 'name' ? 'text-left' : (col.id === 'drag' || col.id === 'remove' || col.id === 'reported' ? 'text-center' : 'text-right')}">
+                                <th class="relative px-2 py-3 border-r border-gray1 last:border-r-0 {col.id === 'name' ? 'text-left' : (col.id === 'drag' || col.id === 'remove' || col.id === 'reported' ? 'text-center' : 'text-right')}">
                                     <span class="truncate block">{col.label}</span>
                                     {#if col.id !== 'drag' && col.id !== 'remove'}
-                                        <button type="button" class="resizer" aria-label="Resize column" on:mousedown={(e) => startResize(e, i)}></button>
+                                        <button type="button" class="resizer {resizingColIndex === i ? 'active' : ''}" aria-label="Resize column" on:pointerdown={(e) => startResize(e, i)}></button>
                                     {/if}
                                 </th>
                             {/each}
@@ -536,9 +519,34 @@
     }
 
     .resizer {
-        position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
-        cursor: col-resize; user-select: none; background: transparent; border: none; z-index: 10;
-    }
+		position: absolute;
+		right: -7px;
+		top: 0;
+		bottom: 0;
+		width: 14px; /* generous grab zone straddling the column border */
+		cursor: col-resize;
+		user-select: none;
+		touch-action: none;
+		background: transparent;
+		border: none;
+		z-index: 10;
+	}
+	.resizer::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		top: 18%;
+		bottom: 18%;
+		width: 2px;
+		transform: translateX(-50%);
+		border-radius: 2px;
+		background: transparent;
+		transition: background 0.12s;
+	}
+	.resizer:hover::after,
+	.resizer.active::after {
+		background: #e1ff00;
+	}
 
     .toggle-checkbox:checked { right: 0; border-color: #e1ff00; }
     .toggle-checkbox:checked + .toggle-label { background-color: #e1ff00; }

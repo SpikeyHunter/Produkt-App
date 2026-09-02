@@ -89,7 +89,12 @@
 		custom_rider_text: ''
 	};
 	let hospoData: HospoData = JSON.parse(JSON.stringify(defaultHospoData));
-	let foodBuyout: { type: 'buyout' | 'dinner' | null; details: string } = {
+	let foodBuyout: {
+		type: 'buyout' | 'dinner' | 'room_credit' | null;
+		details: string;
+		artist?: number;
+		crew?: number;
+	} = {
 		type: null,
 		details: ''
 	};
@@ -414,14 +419,56 @@
 						>
 							Dinner
 						</button>
+						<button
+							type="button"
+							on:click={() => {
+								foodBuyout = { type: 'room_credit', details: '', artist: 0, crew: 0 };
+							}}
+							class="px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer border {foodBuyout.type ===
+							'room_credit'
+								? 'bg-lime text-black font-bold border-lime'
+								: 'bg-gray1 text-gray3 border-gray-600 hover:border-lime'}"
+						>
+							Room Credit
+						</button>
 					</div>
 
-					{#if foodBuyout.type}
+					{#if foodBuyout.type === 'room_credit'}
+						<!-- Room credit per artist / per crew (0 = not printed) -->
+						<div class="grid grid-cols-2 gap-3">
+							<label class="block">
+								<span class="block text-[10px] font-bold text-gray2 uppercase tracking-widest mb-1 ml-1">Artist</span>
+								<div class="flex items-center bg-gray1 rounded-lg border border-gray-600 focus-within:ring-2 focus-within:ring-lime">
+									<input
+										type="number"
+										min="0"
+										step="1"
+										bind:value={foodBuyout.artist}
+										class="w-full bg-transparent text-white text-sm px-4 py-2 focus:outline-none"
+									/>
+									<span class="pr-3 text-xs font-bold text-gray2">$CAD</span>
+								</div>
+							</label>
+							<label class="block">
+								<span class="block text-[10px] font-bold text-gray2 uppercase tracking-widest mb-1 ml-1">Crew</span>
+								<div class="flex items-center bg-gray1 rounded-lg border border-gray-600 focus-within:ring-2 focus-within:ring-lime">
+									<input
+										type="number"
+										min="0"
+										step="1"
+										bind:value={foodBuyout.crew}
+										class="w-full bg-transparent text-white text-sm px-4 py-2 focus:outline-none"
+									/>
+									<span class="pr-3 text-xs font-bold text-gray2">$CAD</span>
+								</div>
+							</label>
+						</div>
+					{:else if foodBuyout.type}
 						<input
 							type="text"
 							placeholder={foodBuyout.type === 'buyout'
 								? 'Enter amount (e.g., 50$)'
-								: 'Enter restaurant name or details'}
+								: 'Enter dinner details (free text)'}
 							bind:value={foodBuyout.details}
 							class="w-full bg-gray1 text-white text-sm rounded-lg px-4 py-2 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-lime border border-gray-600"
 						/>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
+	import { parseFoodBuyout as parseFoodBuyoutShared, formatFoodBuyoutLine } from '$lib/utils/foodBuyout';
 	import { portal } from '$lib/utils/portalUtils.js';
 	import { supabase } from '$lib/supabase.js';
 	import type { EventAdvance, HospoRiderInfo } from '$lib/types/events.js';
@@ -35,7 +36,12 @@
 	// Typed as CompleteHospoRiderInfo (not HospoRiderInfo) so `rider_sent_to_mihir`
 	// is a known property — otherwise assigning it inline trips TS2353.
 	let hospoRider: CompleteHospoRiderInfo | null = null;
-	let foodBuyout: { type: 'buyout' | 'dinner' | null; details: string } | null = null;
+	let foodBuyout: {
+		type: 'buyout' | 'dinner' | 'room_credit' | null;
+		details: string;
+		artist?: number;
+		crew?: number;
+	} | null = null;
 	let saving = false;
 	let showHospoModal = false;
 	let justCopied = false;
@@ -104,22 +110,7 @@
 			return { type: null, details: '' };
 		}
 
-		try {
-			let parsed = eventData.food_buyout;
-
-			if (typeof parsed === 'string') {
-				parsed = JSON.parse(parsed);
-			}
-
-			if (typeof parsed === 'string') {
-				parsed = JSON.parse(parsed);
-			}
-
-			return parsed;
-		} catch (e) {
-			console.error('Error parsing food_buyout:', e);
-			return { type: null, details: '' };
-		}
+		return parseFoodBuyoutShared(eventData.food_buyout);
 	}
 
 	$: hospoRider = parseHospoRider(event);
@@ -344,8 +335,12 @@
 			text += '- Snacks: Proteins bar, Nuts, Gum, Chips, Granola bar, etc.\n';
 		}
 
-		// **ADDED FOOD BUYOUT LINE**
-		text += '- Food Buyout: 50$CAD cash\n';
+		// Food buyout: None prints nothing; Cash / Dinner / Room Credit format
+		// through the shared helper.
+		{
+			const buyoutLine = formatFoodBuyoutLine(foodBuyout);
+			if (buyoutLine) text += `- ${buyoutLine}\n`;
+		}
 
 		// Custom requests
 		if (completeHospoRider.custom_requests?.length > 0) {
@@ -424,8 +419,10 @@
 			html += '- Snacks: Proteins bar, Nuts, Gum, Chips, Granola bar, etc.<br>';
 		}
 
-		// **ADDED FOOD BUYOUT LINE**
-		html += '- Food Buyout: 50$CAD cash<br>';
+		{
+			const buyoutLine = formatFoodBuyoutLine(foodBuyout);
+			if (buyoutLine) html += `- ${buyoutLine}<br>`;
+		}
 
 		// Custom requests
 		if (completeHospoRider.custom_requests?.length > 0) {
@@ -635,6 +632,15 @@
 								Dinner Buyout: {#if foodBuyout.details}<span class="font-normal text-gray-300"
 										>{foodBuyout.details}</span
 									>{/if}
+							{:else if foodBuyout.type === 'room_credit'}
+								Room Credit: <span class="font-normal text-gray-300"
+									>{[
+										(foodBuyout.artist || 0) > 0 ? `${foodBuyout.artist}$CAD/Artist` : '',
+										(foodBuyout.crew || 0) > 0 ? `${foodBuyout.crew}$CAD/Crew` : ''
+									]
+										.filter(Boolean)
+										.join(' & ') || '—'}</span
+								>
 							{/if}
 						</h3>
 					</div>

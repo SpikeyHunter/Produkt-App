@@ -180,11 +180,21 @@ export interface CostBreakdown {
  * @param external   true -> fixed uses externalSettlement & variable uses externalAmount;
  *                   false -> fixed uses *Internal & variable uses internalAmount
  */
+/** Every variable-cost type the Costs tab / templates can pick. */
+export const VARIABLE_COST_TYPES = [
+	'Flat',
+	'% of Gross',
+	'% of Net Gross',
+	'$ per Paid Ticket',
+	'$ per Attendee',
+	'% of Artist Fee'
+] as const;
+
 export function computeEventCosts(
 	cost: EventCostInput | null | undefined,
 	revenue: EventRevenueInput | null | undefined,
 	support: number = 0,
-	opts: { useActual?: boolean; external?: boolean } = {}
+	opts: { useActual?: boolean; external?: boolean; artistFee?: number } = {}
 ): CostBreakdown {
 	const useActual = opts.useActual !== false; // default to actual
 	const external = !!opts.external;
@@ -253,6 +263,12 @@ export function computeEventCosts(
 				break;
 			case '% of Net Gross':
 				variable += (m / 100) * netGross;
+				break;
+			case '% of Artist Fee':
+				// Internal overhead (e.g. 20% commission on artist fees). Only
+				// counted when the caller supplies the fee base — never part of
+				// the split-point basis, which would be circular.
+				variable += (m / 100) * (Number(opts.artistFee) || 0);
 				break;
 			case '$ per Paid Ticket':
 			case '$ per Attendee':
@@ -396,4 +412,142 @@ export function includedTalentDeals(raw: any): ParsedEventDeal[] {
 	return listEventDeals(raw).filter(
 		(d) => !d.isMain && (d.role === 'Headliner' || d.deal?.includeInHeadlinerDeal === true)
 	);
+}
+
+/**
+ * Sum of every artist deal's payout (guarantee + backend/bonuses) at three
+ * scenarios — sellout, estimated sold, actual sold. Used as the base for
+ * "% of Artist Fee" variable costs.
+ */
+export function computeArtistFeeTotals(
+	eventDeal: any,
+	revenue: any,
+	cost: any,
+	venueCurrency: string = 'CAD'
+): { sellout: number; est: number; actual: number } {
+	let payload: any = eventDeal;
+	try {
+		if (typeof payload === 'string') payload = JSON.parse(payload);
+		if (typeof payload === 'string') payload = JSON.parse(payload);
+	} catch {
+		payload = null;
+	}
+	if (!payload || typeof payload !== 'object') return { sellout: 0, est: 0, actual: 0 };
+
+	const deals = listEventDeals(payload);
+	if (deals.length === 0) return { sellout: 0, est: 0, actual: 0 };
+
+	const custom = payload.useCustomRate === true;
+	const rateFor = (d: any) => {
+		if (d?.dealCurrency && d.dealCurrency === venueCurrency) return 1;
+		return (
+			(custom && Number(payload.customRate)) ||
+			Number(d?.savedExchangeRate) ||
+			Number(payload.customRate) ||
+			1
+		);
+	};
+
+	const rev = revenue || {};
+	const tickets: any[] = Array.isArray(rev.tickets) ? rev.tickets : [];
+	const fin = rev.financials || {};
+	const taxRate = Number(fin.taxRate) || 0;
+	const taxType = fin.taxType || 'Divisor';
+	const facilityFee = Number(fin.facilityFee) || 0;
+
+	const metricsFor = (mode: 'sellout' | 'est' | 'actual') => {
+		let gross = 0,
+			paid = 0,
+			allot = 0,
+			fees = 0;
+		for (const t of tickets) {
+			const a = Number(t.allotment) || 0;
+			const sellable = a - (Number(t.comps) || 0) - (Number(t.kills) || 0);
+			const qty =
+				mode === 'sellout'
+					? sellable
+					: mode === 'est'
+						? t.estSold != null && t.estSold !== ''
+							? Number(t.estSold) || 0
+							: sellable
+						: Number(t.sold) || 0;
+			gross += qty * (Number(t.price) || 0);
+			paid += qty;
+			allot += a;
+			fees += qty * (Number(t.ticketFees) || 0) + qty * facilityFee;
+		}
+		const taxable = gross - fees;
+		const taxes =
+			taxType === 'Multiplier' ? taxable * (taxRate / 100) : taxable - taxable / (1 + taxRate / 100);
+		return { gross, netGross: gross - taxes - fees, paid, allot };
+	};
+
+	const c = cost || {};
+	const fixedFor = (actual: boolean) => {
+		let fixed = 0;
+		(Array.isArray(c.fixedCosts) ? c.fixedCosts : []).forEach((g: any) => {
+			(Array.isArray(g.costs) ? g.costs : []).forEach((line: any) => {
+				fixed += actual
+					? Number(line.actualInternal) ||
+						Number(line.externalSettlement) ||
+						Number(line.estimatedInternal) ||
+						0
+					: Number(line.estimatedInternal) || 0;
+			});
+		});
+		return fixed;
+	};
+	const variableFor = (m: { gross: number; netGross: number; paid: number }, actual: boolean) => {
+		let v = 0;
+		(Array.isArray(c.variableCosts) ? c.variableCosts : []).forEach((row: any) => {
+			const amt = Number(row.internalAmount) || 0;
+			switch (row.type) {
+				case 'Flat':
+					v += actual ? Number(row.actualInternal) || Number(row.externalSettlement) || amt : amt;
+					break;
+				case '% of Gross':
+					v += (amt / 100) * m.gross;
+					break;
+				case '% of Net Gross':
+					v += (amt / 100) * m.netGross;
+					break;
+				case '$ per Paid Ticket':
+				case '$ per Attendee':
+					v += amt * m.paid;
+					break;
+				// '% of Artist Fee' excluded on purpose (it's what we're computing).
+			}
+		});
+		return v;
+	};
+
+	const supportBudgeted = Number(payload.additional_support_budgeted) || 0;
+	const supportActual =
+		payload.additional_support_actual != null && payload.additional_support_actual !== ''
+			? Number(payload.additional_support_actual) || 0
+			: 0;
+
+	const totalFor = (mode: 'sellout' | 'est' | 'actual') => {
+		const m = metricsFor(mode);
+		const actual = mode === 'actual';
+		const costs = fixedFor(actual) + variableFor(m, actual) + (actual ? supportActual : supportBudgeted);
+		return deals.reduce(
+			(sum, d) =>
+				sum +
+				computeArtistPayout(
+					{ dealType: d.deal.dealType, guaranteeAmount: d.deal.guaranteeAmount, details: d.deal.details },
+					{
+						gross: m.gross,
+						netGross: m.netGross,
+						costs,
+						paidTickets: m.paid,
+						totalAllotment: m.allot,
+						exchangeRate: rateFor(d.deal)
+					}
+				),
+			0
+		);
+	};
+
+	return { sellout: totalFor('sellout'), est: totalFor('est'), actual: totalFor('actual') };
 }

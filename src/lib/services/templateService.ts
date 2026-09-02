@@ -134,6 +134,45 @@ export function templateCategoryHasContent(
 const COST_TYPE = 'COST_TEMPLATE'; // legacy combined fixed+variable templates
 const TC_TYPE = 'TC_TEMPLATE';
 const EVENT_TYPE = 'EVENT_TEMPLATE';
+const VARIABLE_TYPE = 'VARIABLE_TEMPLATE';
+
+// ---------------------------------------------------------------------------
+// Variable Expense templates: reusable variable-cost rows (e.g. "20% of Gross
+// Artist Fee"). Templates flagged loadByDefault are added to every new event.
+// ---------------------------------------------------------------------------
+
+export interface VariableExpenseTemplateRow {
+	id: string;
+	name: string;
+	externalAmount: number;
+	internalAmount: number;
+	type: string; // one of VARIABLE_COST_TYPES
+	estimatedInternal: number;
+	actualInternal: number;
+	externalSettlement: number;
+	reported: boolean;
+}
+
+export interface VariableExpenseTemplate {
+	id: string | null;
+	name: string;
+	loadByDefault: boolean;
+	items: VariableExpenseTemplateRow[];
+}
+
+export function normalizeVariableRow(raw: any): VariableExpenseTemplateRow {
+	return {
+		id: raw?.id || crypto.randomUUID(),
+		name: raw?.name ?? '',
+		externalAmount: Number(raw?.externalAmount) || 0,
+		internalAmount: Number(raw?.internalAmount) || 0,
+		type: raw?.type || 'Flat',
+		estimatedInternal: Number(raw?.estimatedInternal) || 0,
+		actualInternal: Number(raw?.actualInternal) || 0,
+		externalSettlement: Number(raw?.externalSettlement) || 0,
+		reported: raw?.reported !== false
+	};
+}
 
 function parseParams(raw: any): any {
 	if (!raw) return {};
@@ -415,4 +454,78 @@ export async function saveOfferEventDefaults(defaults: OfferEventDefaults): Prom
 		return false;
 	}
 	return true;
+}
+
+export async function listVariableExpenseTemplates(): Promise<VariableExpenseTemplate[]> {
+	const { data, error } = await supabase
+		.from('calendar_settings')
+		.select('id, setting_name, setting_params')
+		.eq('setting_type', VARIABLE_TYPE)
+		.order('setting_name', { ascending: true });
+	if (error) {
+		console.error('❌ [templates] Failed to list variable expense templates:', error);
+		return [];
+	}
+	return (data || []).map((row) => {
+		const p = parseParams(row.setting_params);
+		return {
+			id: row.id,
+			name: row.setting_name,
+			loadByDefault: p.loadByDefault === true,
+			items: Array.isArray(p.items) ? p.items.map(normalizeVariableRow) : []
+		};
+	});
+}
+
+export async function saveVariableExpenseTemplate(
+	tpl: VariableExpenseTemplate
+): Promise<string | null> {
+	const payload = {
+		setting_name: tpl.name,
+		setting_type: VARIABLE_TYPE,
+		setting_params: {
+			loadByDefault: tpl.loadByDefault === true,
+			items: (tpl.items || []).map(normalizeVariableRow)
+		}
+	};
+	if (tpl.id) {
+		const { error } = await supabase.from('calendar_settings').update(payload).eq('id', tpl.id);
+		if (error) {
+			console.error('❌ [templates] Failed to update variable expense template:', error);
+			return null;
+		}
+		return tpl.id;
+	}
+	const { data, error } = await supabase
+		.from('calendar_settings')
+		.insert([payload])
+		.select('id')
+		.single();
+	if (error) {
+		console.error('❌ [templates] Failed to create variable expense template:', error);
+		return null;
+	}
+	return data?.id ?? null;
+}
+
+/** Expands template rows into event_cost.variableCosts rows (fresh ids). */
+export function expandVariableTemplateRows(t: VariableExpenseTemplate): any[] {
+	return (t.items || []).map((r) => ({
+		id: crypto.randomUUID(),
+		name: r.name || 'Variable Cost',
+		type: r.type || 'Flat',
+		internalAmount: Number(r.internalAmount) || 0,
+		externalAmount: Number(r.externalAmount) || 0,
+		estimatedInternal: Number(r.estimatedInternal) || 0,
+		actualInternal: Number(r.actualInternal) || 0,
+		externalSettlement: Number(r.externalSettlement) || 0,
+		reported: r.reported !== false
+	}));
+}
+
+/** Variable-cost rows every new event starts with (templates flagged
+ *  "Load in all events by default"). */
+export async function getDefaultVariableExpenses(): Promise<any[]> {
+	const all = await listVariableExpenseTemplates();
+	return all.filter((t) => t.loadByDefault).flatMap(expandVariableTemplateRows);
 }

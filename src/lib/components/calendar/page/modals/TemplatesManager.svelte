@@ -3,6 +3,7 @@
 	import RichTextEditor from '$lib/components/common/RichTextEditor.svelte';
 	import Dropdown from '$lib/components/common/Dropdown.svelte';
 	import FixedCosts from '$lib/components/calendar/page/tabs/costs/FixedCosts.svelte';
+	import { VARIABLE_COST_TYPES } from '$lib/components/calendar/page/tabs/deals/dealEngine';
 	import { portal } from '$lib/utils/portalUtils';
 	import {
 		listEventTemplates,
@@ -15,19 +16,22 @@
 		normalizeAddMode,
 		EVENT_TEMPLATE_CATEGORIES,
 		EVENT_TYPE_OPTIONS,
+		listVariableExpenseTemplates,
+		saveVariableExpenseTemplate,
+		normalizeVariableRow,
+		type VariableExpenseTemplate,
 		type EventTemplate,
 		type TcTemplate,
 		type TextTemplateCategory
 	} from '$lib/services/templateService';
 
-	export let initialSection: 'text' | 'event' = 'text';
+	export let initialSection: 'text' | 'event' | 'variable' = 'text';
 	// Bound upward so the Settings view's back-button guard sees editor changes.
 	export let dirtyOut = false;
 
-	let section: 'text' | 'event' = initialSection;
+	let section: 'text' | 'event' | 'variable' = initialSection;
 
-	const variableTypes = ['Flat', '% of Gross', '% of Net Gross', '$ per Paid Ticket', '$ per Attendee'];
-	const variableTypeOptions = variableTypes.map((v) => ({ value: v, label: v }));
+	const variableTypeOptions = VARIABLE_COST_TYPES.map((v) => ({ value: v, label: v }));
 	const textCategoryOptions: { value: TextTemplateCategory; label: string }[] = [
 		{ value: 'Additional Terms and Conditions', label: 'Additional Terms and Conditions' },
 		{ value: 'Deal Terms', label: 'Deal Terms' }
@@ -37,21 +41,30 @@
 	let saving = false;
 	let eventTemplates: EventTemplate[] = [];
 	let tcTemplates: TcTemplate[] = [];
+	let varTemplates: VariableExpenseTemplate[] = [];
 	let search = '';
 
 	// null = list view; otherwise the template being edited
 	let editingEvent: EventTemplate | null = null;
 	let editingTc: TcTemplate | null = null;
+	let editingVar: VariableExpenseTemplate | null = null;
 
 	onMount(refresh);
 
 	async function refresh() {
 		loading = true;
-		[eventTemplates, tcTemplates] = await Promise.all([listEventTemplates(), listTcTemplates()]);
+		[eventTemplates, tcTemplates, varTemplates] = await Promise.all([
+			listEventTemplates(),
+			listTcTemplates(),
+			listVariableExpenseTemplates()
+		]);
 		loading = false;
 	}
 
 	$: filteredEvent = eventTemplates.filter((t) =>
+		t.name.toLowerCase().includes(search.toLowerCase())
+	);
+	$: filteredVar = varTemplates.filter((t) =>
 		t.name.toLowerCase().includes(search.toLowerCase())
 	);
 	// Sorted by Type A-Z, then Name A-Z.
@@ -69,7 +82,9 @@
 		? JSON.stringify(editingTc) !== editSnapshot
 		: editingEvent
 			? JSON.stringify(editingEvent) !== editSnapshot
-			: false;
+			: editingVar
+				? JSON.stringify(editingVar) !== editSnapshot
+				: false;
 	$: dirtyOut = editorDirty;
 
 	/** Runs the action immediately, or prompts first when the open editor has
@@ -94,6 +109,7 @@
 		showLeaveModal = false;
 		editingTc = null;
 		editingEvent = null;
+		editingVar = null;
 		pendingAction?.();
 		pendingAction = null;
 	}
@@ -102,14 +118,49 @@
 	export async function saveCurrent() {
 		if (editingTc) await saveTc();
 		else if (editingEvent) await saveEvent();
+		else if (editingVar) await saveVar();
 	}
 
-	function switchSection(next: 'text' | 'event') {
+	function switchSection(next: 'text' | 'event' | 'variable') {
 		guarded(() => {
 			section = next;
 			editingTc = null;
 			editingEvent = null;
+			editingVar = null;
 		});
+	}
+
+	// ---------------- Variable Expense templates ----------------
+	function newVarTemplate() {
+		editingVar = { id: null, name: '', loadByDefault: false, items: [] };
+		editSnapshot = JSON.stringify(editingVar);
+	}
+
+	function editVarTemplate(t: VariableExpenseTemplate) {
+		editingVar = JSON.parse(JSON.stringify(t));
+		editSnapshot = JSON.stringify(editingVar);
+	}
+
+	async function saveVar() {
+		if (!editingVar || !editingVar.name.trim() || saving) return;
+		saving = true;
+		await saveVariableExpenseTemplate(editingVar);
+		saving = false;
+		editingVar = null;
+		await refresh();
+	}
+
+	function addVarRow() {
+		if (!editingVar) return;
+		editingVar.items = [
+			...editingVar.items,
+			normalizeVariableRow({ name: `Variable Cost ${editingVar.items.length + 1}`, reported: true })
+		];
+	}
+
+	function removeVarRow(id: string) {
+		if (!editingVar) return;
+		editingVar.items = editingVar.items.filter((r) => r.id !== id);
 	}
 
 	// ---------------- Text templates ----------------
@@ -304,8 +355,17 @@
 			>
 				Event Templates
 			</button>
+			<button
+				type="button"
+				class="px-5 py-2 rounded-full text-sm font-black cursor-pointer {section === 'variable'
+					? 'bg-lime text-black'
+					: 'bg-gray1 text-gray2 hover:text-white'}"
+				on:click={() => switchSection('variable')}
+			>
+				Variable Expenses
+			</button>
 		</div>
-		{#if !editingTc && !editingEvent}
+		{#if !editingTc && !editingEvent && !editingVar}
 			<div class="relative">
 				<svg
 					class="w-4 h-4 text-gray2 absolute left-3.5 top-1/2 -translate-y-1/2"
@@ -762,6 +822,168 @@
 						type="button"
 						on:click={saveEvent}
 						disabled={saving || !editingEvent.name.trim()}
+						class="px-6 py-2.5 bg-lime text-black font-black text-sm rounded-full hover:opacity-90 cursor-pointer disabled:opacity-40"
+					>
+						{saving ? 'Saving...' : 'Save Template'}
+					</button>
+				</div>
+			</div>
+		{/if}
+	{:else if section === 'variable'}
+		{#if !editingVar}
+			<!-- Variable Expense template list -->
+			<div class="flex flex-col gap-2">
+				<div class="grid grid-cols-[1fr_200px_90px] gap-2 px-4 text-[10px] font-black uppercase tracking-widest text-gray2">
+					<span>Name</span><span>Default</span><span class="text-right">Actions</span>
+				</div>
+				{#each filteredVar as t (t.id)}
+					<div class="grid grid-cols-[1fr_200px_90px] gap-2 items-center bg-gray1 rounded-2xl px-4 py-2.5">
+						<div class="min-w-0">
+							<p class="text-white font-bold text-sm truncate">{t.name}</p>
+							<p class="text-gray2 text-xs font-medium mt-0.5">
+								{t.items.length} expense{t.items.length === 1 ? '' : 's'}
+							</p>
+						</div>
+						<p class="text-xs font-bold truncate {t.loadByDefault ? 'text-lime' : 'text-gray2'}">
+							{t.loadByDefault ? 'Loaded in all events' : '—'}
+						</p>
+						<div class="flex items-center gap-1 justify-end">
+							<button
+								type="button"
+								on:click={() => editVarTemplate(t)}
+								class="w-8 h-8 flex items-center justify-center rounded-lg text-gray2 hover:text-white cursor-pointer"
+								aria-label="Edit"
+							>
+								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg>
+							</button>
+							<button
+								type="button"
+								on:click={() => removeTemplateRow(t)}
+								class="w-8 h-8 flex items-center justify-center rounded-lg text-gray2 hover:text-problem cursor-pointer"
+								aria-label="Remove"
+							>
+								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+							</button>
+						</div>
+					</div>
+				{:else}
+					<p class="text-gray2 text-sm font-bold py-4 text-center">No variable expense templates yet.</p>
+				{/each}
+
+				<button
+					type="button"
+					on:click={newVarTemplate}
+					class="mt-1 px-2 text-lime font-bold flex items-center gap-2 hover:opacity-80 cursor-pointer w-max text-sm"
+				>
+					<span class="text-xl bg-lime text-black rounded-full w-5 h-5 flex items-center justify-center pb-0.5">+</span>
+					New Variable Expense Template
+				</button>
+			</div>
+		{:else}
+			<!-- Variable Expense template editor -->
+			<div class="flex flex-col gap-5">
+				<h4 class="text-sm font-black uppercase tracking-widest text-gray3">
+					{editingVar.id ? `Edit: ${editingVar.name}` : 'New Variable Expense Template'}
+				</h4>
+				<div class="flex items-end gap-6">
+					<div class="flex-1">
+						<label class="block text-[11px] font-bold text-gray2 mb-1.5 ml-1 uppercase tracking-widest" for="vt-name">Name</label>
+						<input
+							id="vt-name"
+							type="text"
+							bind:value={editingVar.name}
+							placeholder="Template name"
+							class="w-full bg-gray1 rounded-xl px-4 py-2 text-sm font-bold text-white placeholder-gray2 focus:outline-none"
+						/>
+					</div>
+					<div class="flex items-center gap-3 pb-2">
+						<span class="text-xs font-bold {editingVar.loadByDefault ? 'text-white' : 'text-gray2'}">Load in all events by default</span>
+						<button
+							type="button"
+							role="switch"
+							aria-checked={editingVar.loadByDefault}
+							aria-label="Load in all events by default"
+							on:click={() => editingVar && (editingVar.loadByDefault = !editingVar.loadByDefault)}
+							class="relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent focus:outline-none {editingVar.loadByDefault
+								? 'bg-lime'
+								: 'bg-[#444]'}"
+						>
+							<span
+								aria-hidden="true"
+								class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-150 {editingVar.loadByDefault
+									? 'translate-x-5'
+									: 'translate-x-0'}"
+							></span>
+						</button>
+					</div>
+				</div>
+
+				<div>
+					<div class="flex items-center justify-between mb-2">
+						<h5 class="text-sm font-black text-lime tracking-wide">Variable Expenses</h5>
+						<button type="button" on:click={addVarRow} class="px-4 py-2 bg-lime text-black text-sm font-bold rounded-3xl hover:opacity-90 transition-colors hover:cursor-pointer">Create Variable Cost</button>
+					</div>
+					<div class="w-full bg-navbar border border-gray1 rounded-sm overflow-x-auto custom-scrollbar">
+						<table class="w-full text-xs text-white border-collapse min-w-[980px]">
+							<colgroup><col /><col style="width:7rem" /><col style="width:7rem" /><col style="width:11rem" /><col style="width:7rem" /><col style="width:7rem" /><col style="width:7rem" /><col style="width:5.5rem" /><col style="width:4rem" /></colgroup>
+							<thead class="text-xs tracking-wider text-gray2 font-bold bg-navbar border-b border-gray1">
+								<tr>
+									<th class="{thCls} text-left">Name</th>
+									<th class="{thCls} text-right">Ext. Amount</th>
+									<th class="{thCls} text-right">Int. Amount</th>
+									<th class="{thCls} text-left">Type</th>
+									<th class="{thCls} text-right">Est. Internal</th>
+									<th class="{thCls} text-right">Actual Internal</th>
+									<th class="{thCls} text-right">Ext. Settlement</th>
+									<th class="{thCls} text-center">Reported</th>
+									<th class="{thCls} text-center">Remove</th>
+								</tr>
+							</thead>
+							<tbody class="divide-y divide-gray1 bg-gray1/20">
+								{#each editingVar.items as r (r.id)}
+									<tr class="border-b border-gray1">
+										<td class="px-3 py-2 border-r border-gray1"><input type="text" bind:value={r.name} class="{cellInput} text-left" /></td>
+										<td class="px-3 py-2 border-r border-gray1"><input type="number" step="0.01" bind:value={r.externalAmount} class="{cellInput} text-right" /></td>
+										<td class="px-3 py-2 border-r border-gray1"><input type="number" step="0.01" bind:value={r.internalAmount} class="{cellInput} text-right" /></td>
+										<td class="px-3 py-1 border-r border-gray1"><Dropdown options={variableTypeOptions} bind:value={r.type} small /></td>
+										<td class="px-3 py-2 border-r border-gray1"><input type="number" step="0.01" bind:value={r.estimatedInternal} class="{cellInput} text-right" /></td>
+										<td class="px-3 py-2 border-r border-gray1"><input type="number" step="0.01" bind:value={r.actualInternal} class="{cellInput} text-right" /></td>
+										<td class="px-3 py-2 border-r border-gray1"><input type="number" step="0.01" bind:value={r.externalSettlement} class="{cellInput} text-right" /></td>
+										<td class="px-2 py-2 border-r border-gray1 text-center">
+											<button
+												type="button"
+												role="switch"
+												aria-checked={r.reported}
+												aria-label="Reported"
+												on:click={() => (r.reported = !r.reported)}
+												class="relative inline-flex h-5 w-10 cursor-pointer rounded-full border-2 border-transparent focus:outline-none align-middle {r.reported ? 'bg-lime' : 'bg-[#444]'}"
+											>
+												<span aria-hidden="true" class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-150 {r.reported ? 'translate-x-5' : 'translate-x-0'}"></span>
+											</button>
+										</td>
+										<td class="px-0 py-0 text-center">
+											<button type="button" on:click={() => removeVarRow(r.id)} class="w-full h-full min-h-[40px] px-2 text-gray2 hover:text-red-500 hover:bg-red-500/10 hover:cursor-pointer transition-colors font-bold text-lg block">×</button>
+										</td>
+									</tr>
+								{:else}
+									<tr><td colspan="9" class="px-3 py-3 text-xs text-gray2 font-bold">No variable expenses yet.</td></tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				</div>
+
+				<div class="flex gap-3 justify-end">
+					<button
+						type="button"
+						on:click={() => guarded(() => (editingVar = null))}
+						class="px-6 py-2.5 bg-gray1 text-white font-bold text-sm rounded-full hover:bg-gray2/30 cursor-pointer"
+						>Cancel</button
+					>
+					<button
+						type="button"
+						on:click={saveVar}
+						disabled={saving || !editingVar.name.trim()}
 						class="px-6 py-2.5 bg-lime text-black font-black text-sm rounded-full hover:opacity-90 cursor-pointer disabled:opacity-40"
 					>
 						{saving ? 'Saving...' : 'Save Template'}

@@ -1,4 +1,5 @@
 import type { EventAdvance } from '$lib/services/eventsService';
+import { parseFoodBuyout, formatFoodBuyoutLine } from '$lib/utils/foodBuyout';
 
 // Helper to safely parse JSON data from the event object
 function parseJson(data: any): any {
@@ -151,9 +152,12 @@ export function generateProductionClipboardMessage(event: EventAdvance) {
 			hospoHtml.push(line);
 		}
 
-		const buyoutLine = '- Food Buyout: 50$CAD cash';
-		hospoText.push(buyoutLine);
-		hospoHtml.push(buyoutLine);
+		// Food buyout: nothing when None; otherwise the shared formatted line.
+		const buyout = formatFoodBuyoutLine(parseFoodBuyout(event.food_buyout));
+		if (buyout) {
+			hospoText.push(`- ${buyout}`);
+			hospoHtml.push(`- ${buyout}`);
+		}
 
 		parts.text.push(hospoText.join('\n'));
 		parts.html.push(hospoHtml.join('<br>'));

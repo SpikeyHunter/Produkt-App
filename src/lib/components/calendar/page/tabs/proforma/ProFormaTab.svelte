@@ -311,8 +311,18 @@
 			artistPayout = guarantee; // Flat
 		}
 
+		// "% of Artist Fee" variable costs: overhead on the artist payouts,
+		// computed after the deal math so they never feed the split point.
+		let artistFeeVariable = 0;
+		variableCosts.forEach((v: any) => {
+			if (v.type === '% of Artist Fee')
+				artistFeeVariable +=
+					((Number(v.internalAmount) || 0) / 100) * (artistPayout + otherTalentPayout);
+		});
+
 		// 5. Final Calculations
-		const totalExpenses = expensesBeforeArtist + artistPayout + otherTalentPayout + additionalSupport;
+		const totalExpenses =
+			expensesBeforeArtist + artistPayout + otherTalentPayout + additionalSupport + artistFeeVariable;
 		const netProfit = netGross + additionalRevenue - totalExpenses;
 
 		return {

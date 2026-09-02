@@ -1202,13 +1202,19 @@
 			const cost = offerCost || {};
 			const fixedGroupMap = new Map<
 				string,
-				{ rows: { name: string; amount: number }[]; total: number }
+				{
+					rows: { name: string; amount: number; notes?: string; cost?: number; qty?: number }[];
+					total: number;
+				}
 			>();
-			const pushFixed = (key: string, name: string, amount: number) => {
+			const pushFixed = (
+				key: string,
+				row: { name: string; amount: number; notes?: string; cost?: number; qty?: number }
+			) => {
 				if (!fixedGroupMap.has(key)) fixedGroupMap.set(key, { rows: [], total: 0 });
 				const g = fixedGroupMap.get(key)!;
-				g.rows.push({ name, amount });
-				g.total += amount;
+				g.rows.push(row);
+				g.total += row.amount;
 			};
 			(Array.isArray(cost.fixedCosts) ? cost.fixedCosts : []).forEach((g: any) => {
 				const key = `${g.category || 'General'} > ${g.type && g.type !== '(No Type)' ? g.type : 'General'}`;
@@ -1218,11 +1224,16 @@
 					const unit = Number(line.cost) || 0;
 					const amount = qty * unit;
 					if (amount === 0) return;
-					const name =
-						qty > 1
-							? `${line.name || 'Cost'} (${qty} @ ${cur}${moneyNum(unit)})`
-							: line.name || 'Cost';
-					pushFixed(key, name, amount);
+					// Notes: external wins when present, otherwise internal.
+					const notes =
+						String(line.externalNotes || '').trim() || String(line.internalNotes || '').trim();
+					pushFixed(key, {
+						name: line.name || 'Cost',
+						amount,
+						notes: notes || undefined,
+						cost: unit,
+						qty
+					});
 				});
 			});
 			const fixedTotal = Array.from(fixedGroupMap.values()).reduce((sum, g) => sum + g.total, 0);
@@ -1239,7 +1250,7 @@
 				switch (v.type) {
 					case 'Flat':
 						amount = m;
-						amountLabel = `$${moneyNum(m)}`;
+						amountLabel = `${cur} ${moneyNum(m)}`;
 						break;
 					case '% of Gross':
 						amount = (m / 100) * grossPotential;
@@ -1252,14 +1263,14 @@
 					case '$ per Paid Ticket':
 					case '$ per Attendee':
 						amount = m * sellablePotential;
-						amountLabel = `$${moneyNum(m)}`;
+						amountLabel = `${cur} ${moneyNum(m)}`;
 						break;
 				}
 				variableRows.push({
 					name: v.name || 'Variable Cost',
 					type: v.type || 'Flat',
 					amount: amountLabel,
-					potential: `$${moneyNum(amount)}`
+					potential: `${cur} ${moneyNum(amount)}`
 				});
 				variableTotal += amount;
 			});
@@ -1300,10 +1311,12 @@
 			// ---- This deal's walkout + offer band rows ----
 			const guarVenue = (Number(deal.guaranteeAmount) || 0) * rate;
 			const walkout = offerWalkoutVenue(deal, selloutCtx, rate);
+			// "USD$ 25,000.00 | CA$ 36,465.87" (deal currency | venue currency)
+			const dealPrefix = dealCur === 'USD' ? 'USD$' : currencyPrefix(dealCur);
 			const pair = (venueAmt: number) =>
 				conversion
-					? `$${moneyNum(rate > 0 ? venueAmt / rate : 0)} | ${cur}${moneyNum(venueAmt)}`
-					: `${cur}${moneyNum(venueAmt)}`;
+					? `${dealPrefix} ${moneyNum(rate > 0 ? venueAmt / rate : 0)} | ${cur} ${moneyNum(venueAmt)}`
+					: `${cur} ${moneyNum(venueAmt)}`;
 
 			// "(subject to w holding tax) plus 3 rooms for 1 night + ground + exemption"
 			const suffixParts: string[] = [];
@@ -1411,7 +1424,11 @@
 			}
 
 			// ---- Expense sections (variant-dependent, like Prism) ----
-			const expenseGroups: { title: string; rows: { name: string; amount: number }[]; total: number }[] = [];
+			const expenseGroups: {
+				title: string;
+				rows: { name: string; amount: number; notes?: string; cost?: number; qty?: number }[];
+				total: number;
+			}[] = [];
 			let fixedBandLabel: string;
 			let fixedBandTotal: number;
 
@@ -1463,42 +1480,55 @@
 
 			// ---- Event Summary rows ----
 			const taxLabel = `Ticket Sales Tax (${taxRate}% sales tax)`;
-			const summaryRows: { label: string; value: string; strong?: boolean }[] = [
-				{ label: 'Gross Potential', value: `${cur}${moneyNum(grossPotential)}` },
-				{ label: taxLabel, value: `-${cur}${moneyNum(taxes)}` }
+			const summaryRows: { label: string; value: string; strong?: boolean; strike?: boolean }[] = [
+				{ label: 'Gross Potential', value: `${cur} ${moneyNum(grossPotential)}` },
+				{ label: taxLabel, value: `-${cur} ${moneyNum(taxes)}` }
 			];
-			if (fees > 0) summaryRows.push({ label: 'Ticket Fees', value: `-${cur}${moneyNum(fees)}` });
+			if (fees > 0) summaryRows.push({ label: 'Ticket Fees', value: `-${cur} ${moneyNum(fees)}` });
 			summaryRows.push({
 				label: 'Net Gross Potential',
-				value: `${cur}${moneyNum(netGrossPotential)}`
+				value: `${cur} ${moneyNum(netGrossPotential)}`
 			});
 			if (splitPresentation) {
 				summaryRows.push({
 					label: 'Fixed Expenses',
-					value: `-${cur}${moneyNum(fixedBandTotal + variableTotal)}`
+					value: `-${cur} ${moneyNum(fixedBandTotal + variableTotal)}`
 				});
 				const netToSplit = netGrossPotential - (fixedBandTotal + variableTotal);
 				summaryRows.push({
 					label: 'Net Revenue to Split',
-					value: `${cur}${moneyNum(netToSplit)}`,
+					value: `${cur} ${moneyNum(netToSplit)}`,
 					strong: true
 				});
 				const pct = Number(deal.details?.metricAmount) || 0;
 				if (deal.details?.metricType?.startsWith('%') && pct > 0) {
+					const pctAmount = (pct / 100) * Math.max(0, netToSplit);
+					// Versus: whichever side wins is what the artist walks out with.
+					// When the guarantee beats the %, the % line is crossed out and
+					// the Guarantee is shown underneath.
+					const guaranteeWins = isSplitDeal && guarVenue > pctAmount;
 					summaryRows.push({
 						label: `${pct}% of Net Revenue`,
-						value: `${cur}${moneyNum((pct / 100) * Math.max(0, netToSplit))}`,
-						strong: true
+						value: `${cur} ${moneyNum(pctAmount)}`,
+						strong: !guaranteeWins,
+						strike: guaranteeWins
 					});
+					if (guaranteeWins) {
+						summaryRows.push({
+							label: 'Guarantee',
+							value: `${cur} ${moneyNum(guarVenue)}`,
+							strong: true
+						});
+					}
 				}
 			} else {
 				summaryRows.push({
 					label: 'Fixed Expenses + Artist Payout',
-					value: `-${cur}${moneyNum(fixedBandTotal)}`
+					value: `-${cur} ${moneyNum(fixedBandTotal)}`
 				});
 				summaryRows.push({
 					label: 'Variable Expenses',
-					value: `-${cur}${moneyNum(variableTotal)}`
+					value: `-${cur} ${moneyNum(variableTotal)}`
 				});
 			}
 
@@ -1599,13 +1629,13 @@
 				venueCurrency,
 				tickets,
 				scalingFooter: [
-					{ label: taxLabel, value: `-$${moneyNum(taxes)}`, underline: true },
-					{ label: 'Net Gross Potential', value: `$${moneyNum(netGrossPotential)}`, strong: true }
+					{ label: taxLabel, value: `-${cur} ${moneyNum(taxes)}`, underline: true },
+					{ label: 'Net Gross Potential', value: `${cur} ${moneyNum(netGrossPotential)}`, strong: true }
 				],
 				expenseSummaryLabel: splitPresentation ? 'Split Point Summary' : 'Expense Summary',
 				expenseSummaryValue: splitPresentation
-					? `Total: ${cur}${moneyNum(fixedBandTotal + variableTotal)}`
-					: `Total Expenses ${cur}${moneyNum(fixedBandTotal + variableTotal)}`,
+					? `Total: ${cur} ${moneyNum(fixedBandTotal + variableTotal)}`
+					: `Total Expenses ${cur} ${moneyNum(fixedBandTotal + variableTotal)}`,
 				totalExpenses: fixedBandTotal + variableTotal,
 				fixedBandLabel,
 				fixedBandTotal,
@@ -1928,10 +1958,11 @@
 				{ dealType: deal.dealType, guaranteeAmount: deal.guaranteeAmount, details: deal.details },
 				{ ...selloutCtxActual, costs: expensesExclSelf }
 			);
+			const dealPrefix = dealCur === 'USD' ? 'USD$' : currencyPrefix(dealCur);
 			const pair = (venueAmt: number, sign = '') =>
 				conversion
-					? `${sign}$${moneyNum(rate > 0 ? Math.abs(venueAmt) / rate : 0)} | ${cur}${moneyNum(Math.abs(venueAmt))}`
-					: `${sign}${cur}${moneyNum(Math.abs(venueAmt))}`;
+					? `${sign}${dealPrefix} ${moneyNum(rate > 0 ? Math.abs(venueAmt) / rate : 0)} | ${cur} ${moneyNum(Math.abs(venueAmt))}`
+					: `${sign}${cur} ${moneyNum(Math.abs(venueAmt))}`;
 
 			// ---- Band: deal sentence + withholding + adjustments + remaining ----
 			const suffixParts: string[] = [];
@@ -1979,16 +2010,16 @@
 			const netToSplit = netGross - expensesExclSelf;
 			const manualAdjVenue = cleanAdj.reduce((sum, a) => sum + (Number(a.amount) || 0) * rate, 0);
 			const profitLoss = netToSplit - walkout - manualAdjVenue;
-			const signed = (v: number) => `${v < 0 ? '-' : ''}${cur}${moneyNum(Math.abs(v))}`;
+			const signed = (v: number) => `${v < 0 ? '-' : ''}${cur} ${moneyNum(Math.abs(v))}`;
 			const eventSummary: { label: string; value: string; strong?: boolean; strike?: boolean }[] = [
-				{ label: 'Gross', value: `${cur}${moneyNum(gross)}` },
-				{ label: `Ticket Sales Tax (${taxRate}% sales tax)`, value: `-${cur}${moneyNum(taxes)}` }
+				{ label: 'Gross', value: `${cur} ${moneyNum(gross)}` },
+				{ label: `Ticket Sales Tax (${taxRate}% sales tax)`, value: `-${cur} ${moneyNum(taxes)}` }
 			];
-			if (fees > 0) eventSummary.push({ label: 'Ticket Fees', value: `-${cur}${moneyNum(fees)}` });
-			eventSummary.push({ label: 'Net Gross', value: `${cur}${moneyNum(netGross)}`, strong: true });
-			eventSummary.push({ label: 'Fixed Expenses', value: `-${cur}${moneyNum(fixedActualTotal + otherTalentTotal + supportActual)}` });
-			eventSummary.push({ label: 'Variable Expenses', value: `-${cur}${moneyNum(variableTotal)}` });
-			eventSummary.push({ label: 'Net Revenue to Split', value: `${cur}${moneyNum(netToSplit)}`, strong: true });
+			if (fees > 0) eventSummary.push({ label: 'Ticket Fees', value: `-${cur} ${moneyNum(fees)}` });
+			eventSummary.push({ label: 'Net Gross', value: `${cur} ${moneyNum(netGross)}`, strong: true });
+			eventSummary.push({ label: 'Fixed Expenses', value: `-${cur} ${moneyNum(fixedActualTotal + otherTalentTotal + supportActual)}` });
+			eventSummary.push({ label: 'Variable Expenses', value: `-${cur} ${moneyNum(variableTotal)}` });
+			eventSummary.push({ label: 'Net Revenue to Split', value: `${cur} ${moneyNum(netToSplit)}`, strong: true });
 			const pct = Number(deal.details?.metricAmount) || 0;
 			const backendShare = (pct / 100) * Math.max(0, netToSplit);
 			// Versus: cross out the side that didn't win.
@@ -1996,14 +2027,14 @@
 			if (isSplitDeal && deal.details?.metricType?.startsWith('%') && pct > 0) {
 				eventSummary.push({
 					label: `${pct}% of Net Revenue`,
-					value: `${cur}${moneyNum(backendShare)}`,
+					value: `${cur} ${moneyNum(backendShare)}`,
 					strike: versus && backendShare < guarVenue
 				});
 			}
 			if (guarVenue > 0 && !isSupportSheet)
 				eventSummary.push({
 					label: 'Guarantee',
-					value: `${cur}${moneyNum(guarVenue)}`,
+					value: `${cur} ${moneyNum(guarVenue)}`,
 					strike: versus && backendShare >= guarVenue
 				});
 			if (!isSupportSheet) {
@@ -2081,15 +2112,15 @@
 				scalingFooter: [
 					{
 						label: `Ticket Sales Tax (${taxRate}% sales tax)`,
-						value: `-$${moneyNum(taxes)}`,
+						value: `-${cur} ${moneyNum(taxes)}`,
 						underline: true
 					},
-					{ label: 'Net Gross', value: `$${moneyNum(netGross)}`, strong: true }
+					{ label: 'Net Gross', value: `${cur} ${moneyNum(netGross)}`, strong: true }
 				],
 				expenseSummaryLabel: splitPresentation ? 'Split Point Summary' : 'Expense Summary',
 				expenseSummaryValue: splitPresentation
-					? `Total: ${cur}${moneyNum(splitTotal)}`
-					: `Total Expenses ${cur}${moneyNum(splitTotal)}`,
+					? `Total: ${cur} ${moneyNum(splitTotal)}`
+					: `Total Expenses ${cur} ${moneyNum(splitTotal)}`,
 				totalExpenses: splitTotal,
 				fixedBandLabel: splitPresentation ? 'Fixed Expenses' : 'Fixed Expenses + Artist Payout',
 				fixedBandTotal: splitTotal,

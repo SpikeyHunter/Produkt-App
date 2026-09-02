@@ -3,6 +3,7 @@
 	import { portal } from '$lib/utils/portalUtils';
 	import { fade, fly } from 'svelte/transition';
 	import { listEventTemplates, type EventTemplate } from '$lib/services/templateService';
+	import { loadColumnWidths, createColumnResizer } from '$lib/utils/columnResize';
 
 	export let tickets: any[] = [];
 	export let financials: any;
@@ -45,7 +46,7 @@
 		showTemplateModal = false;
 	}
 
-	const fullColumns = [
+	let fullColumns = loadColumnWidths('tickets-full', [
 		{ id: 'drag', label: '', width: 4 },
 		{ id: 'name', label: 'Name', width: 11 },
 		{ id: 'allotment', label: 'Allotment', width: 7 },
@@ -61,8 +62,8 @@
 		{ id: 'taxBackedOut', label: 'Tax backed out', width: 9 },
 		{ id: 'netGrossActual', label: 'Net Gross', width: 9},
 		{ id: 'action', label: 'Remove', width: 6 } 
-	];
-	const holdColumns = [
+	]);
+	let holdColumns = loadColumnWidths('tickets-hold', [
 		{ id: 'drag', label: '', width: 4 },
 		{ id: 'name', label: 'Name', width: 16 },
 		{ id: 'allotment', label: 'Allotment', width: 11 },
@@ -73,40 +74,29 @@
 		{ id: 'estSold', label: 'Est. Sold', width: 11 },
 		{ id: 'potentialGross', label: 'Potential Gross', width: 13 },
 		{ id: 'action', label: 'Remove', width: 6 }
-	];
+	]);
 	$: columns = isHoldMode ? holdColumns : fullColumns;
 
 	// --- RESIZING LOGIC ---
+	// Direct <col> writes during the drag (no re-render per move); state and
+	// the per-user layout are committed once on release.
+	let tableEl: HTMLTableElement;
 	let resizingColIndex: number | null = null;
-	let startX = 0;
-	let startWidth = 0;
-
-	function startResize(e: MouseEvent, index: number) {
-		if (columns[index].id === 'drag') return; 
-		resizingColIndex = index;
-		startX = e.pageX;
-		startWidth = columns[index].width;
-		
-		document.body.style.cursor = 'col-resize';
-		document.body.style.userSelect = 'none';
-		
-		window.addEventListener('mousemove', doResize);
-		window.addEventListener('mouseup', stopResize);
-	}
-
-	function doResize(e: MouseEvent) {
-		if (resizingColIndex === null) return;
-		const diff = (e.pageX - startX) / window.innerWidth * 100;
-		columns[resizingColIndex].width = Math.max(2, startWidth + diff); 
-		columns = [...columns];
-	}
-
-	function stopResize() {
-		resizingColIndex = null;
-		document.body.style.cursor = '';
-		document.body.style.userSelect = '';
-		window.removeEventListener('mousemove', doResize);
-		window.removeEventListener('mouseup', stopResize);
+	$: colsKey = isHoldMode ? 'tickets-hold' : 'tickets-full';
+	const resizer = createColumnResizer({
+		key: () => colsKey,
+		getTable: () => tableEl,
+		getColumns: () => columns,
+		commit: (c) => {
+			if (isHoldMode) holdColumns = c;
+			else fullColumns = c;
+			columns = c;
+		},
+		onStart: (i) => (resizingColIndex = i),
+		onEnd: () => (resizingColIndex = null)
+	});
+	function startResize(e: PointerEvent, index: number) {
+		resizer.pointerdown(e, index);
 	}
 
 	// --- DRAG AND DROP ---
@@ -357,9 +347,39 @@
 	}
 
 	.resizer {
-		position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
-		cursor: col-resize; user-select: none; background: transparent; border: none; z-index: 10;
+		position: absolute;
+		right: -7px;
+		top: 0;
+		bottom: 0;
+		width: 14px; /* generous grab zone straddling the column border */
+		cursor: col-resize;
+		user-select: none;
+		touch-action: none;
+		background: transparent;
+		border: none;
+		z-index: 10;
 	}
+	.resizer::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		top: 18%;
+		bottom: 18%;
+		width: 2px;
+		transform: translateX(-50%);
+		border-radius: 2px;
+		background: transparent;
+		transition: background 0.12s;
+	}
+	.resizer:hover::after,
+	.resizer.active::after {
+		background: #e1ff00;
+	}
+	/* Thin lime scrollbar (matches the vertical one) */
+	.lime-scrollbar { scrollbar-width: thin; scrollbar-color: #e1ff00 transparent; }
+	.lime-scrollbar::-webkit-scrollbar { height: 6px; width: 6px; }
+	.lime-scrollbar::-webkit-scrollbar-thumb { background: #e1ff00; border-radius: 6px; }
+	.lime-scrollbar::-webkit-scrollbar-track { background: transparent; }
 	
 </style>
 
@@ -384,8 +404,9 @@
 		</div>
 	</div>
 
-	<div class="w-full bg-navbar overflow-hidden">
-		<table class="w-full text-xs text-white border-collapse">
+	<!-- Scrolls sideways when the window is narrower than the table -->
+	<div class="w-full bg-navbar overflow-x-auto lime-scrollbar pb-1">
+		<table class="w-full table-fixed text-xs text-white border-collapse {isHoldMode ? 'min-w-[640px]' : 'min-w-[1120px]'}" bind:this={tableEl}>
 			
 			<colgroup>
 				{#each columns as col, i}
@@ -398,10 +419,10 @@
 			<thead class="text-xs tracking-wider text-gray3">
 				<tr>
 					{#each columns as col, i}
-						<th class="relative px-2 py-3 {col.id === 'name' ? 'text-left' : (col.id === 'drag' || col.id === 'action' ? 'text-center' : 'text-right')}">
+						<th class="relative px-2 py-3 border-r border-gray1 last:border-r-0 {col.id === 'name' ? 'text-left' : (col.id === 'drag' || col.id === 'action' ? 'text-center' : 'text-right')}">
 							<span class="truncate block">{col.label}</span>
 							{#if col.id !== 'drag' && col.id !== 'action'}
-								<button type="button" class="resizer" aria-label="Resize column" on:mousedown={(e) => startResize(e, i)}></button>
+								<button type="button" class="resizer {resizingColIndex === i ? 'active' : ''}" aria-label="Resize column" on:pointerdown={(e) => startResize(e, i)}></button>
 							{/if}
 						</th>
 					{/each}

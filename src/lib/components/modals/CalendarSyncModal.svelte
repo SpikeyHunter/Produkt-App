@@ -139,7 +139,9 @@
 		'Soundcheck',
 		'Post-SC',
 		'Show',
-		'Post Show'
+		'Post Show',
+		'Dinner',
+		'Post-Dinner'
 	];
 	const defaultEventTypes: CalendarEntry['type'][] = [
 		'Arrival',
@@ -159,6 +161,9 @@
 			case 'Soundcheck':
 			case 'Post-SC':
 				return 'bg-[#c4b5fd] text-black hover:bg-[#a78bfa]'; // info purple
+			case 'Dinner':
+			case 'Post-Dinner':
+				return 'bg-[#fdba74] text-black hover:bg-[#fb923c]'; // dinner orange
 			case 'Show':
 			case 'Post Show':
 				return 'bg-[#FCA5A5] text-black hover:bg-[#f87171]'; // problem red
@@ -246,7 +251,9 @@
 			type === 'Soundcheck' ||
 			type === 'Show' ||
 			type === 'Post-SC' ||
-			type === 'Post Show'
+			type === 'Post Show' ||
+			type === 'Dinner' ||
+			type === 'Post-Dinner'
 		) {
 			duration = 15;
 		}

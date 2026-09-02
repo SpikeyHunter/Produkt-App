@@ -38,7 +38,15 @@ export interface OfferExpenseGroup {
 	title: string; // "Talent Pay" / "General > Venue"
 	// 'expense' -> single amount column; 'bav' -> Budget | Actual | Variance
 	mode?: 'expense' | 'bav';
-	rows: { name: string; amount: number; budget?: number; variance?: number }[];
+	rows: {
+		name: string;
+		amount: number;
+		notes?: string; // external notes (priority) or internal notes
+		cost?: number; // unit cost
+		qty?: number;
+		budget?: number;
+		variance?: number;
+	}[];
 	total: number;
 	budgetTotal?: number; // bav totals row
 	varianceTotal?: number;
@@ -344,6 +352,8 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 	let logo = data.logoUrl ? await loadLogo(data.logoUrl, true) : null;
 	if (!logo && data.logoFallbackUrl) logo = await loadLogo(data.logoFallbackUrl, false);
 	const cur = currencyPrefix(data.venueCurrency);
+	// "CA$ 25.00" / "-CA$ 1,234.00" — every venue-currency amount on the sheet.
+	const money = (v: number) => `${v < 0 ? '-' : ''}${cur} ${moneyNum(Math.abs(Number(v) || 0))}`;
 
 	let y = MARGIN;
 
@@ -443,51 +453,56 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		y = doc.lastAutoTable.finalY + 0.05;
 	};
 
-	// ------------------------------------------------------ centered masthead
-	if (logo) {
-		const logoH = 0.55;
-		const logoW = (logo.w / logo.h) * logoH;
-		doc.addImage(logo.dataUrl, 'PNG', (PAGE_W - logoW) / 2, y, logoW, logoH);
-		y += logoH + 0.16;
-	}
+	// ------------------------------------------ compact left-aligned masthead
+	// Artist - date / venue (room) / address lines on the left, logo top-right.
+	{
+		const headTop = y;
+		let logoH = 0;
+		if (logo) {
+			logoH = 0.62;
+			const logoW = (logo.w / logo.h) * logoH;
+			doc.addImage(logo.dataUrl, 'PNG', PAGE_W - MARGIN - logoW, headTop, logoW, logoH);
+		}
+		const textMaxW = CONTENT_W - (logo ? (logo.w / logo.h) * 0.62 + 0.3 : 0);
 
-	// Artist + date band: solid lime (#E1FF00), black text, centered, square.
-	y += 0.04;
-	doc.setFontSize(15);
-	const artistPart = data.artistName;
-	const datePart = ` - ${data.dateLabel}`;
-	doc.setFont('helvetica', 'bold');
-	const wArtist = doc.getTextWidth(artistPart);
-	doc.setFont('helvetica', 'normal');
-	const wDate = doc.getTextWidth(datePart);
-	const padX = 0.24;
-	const bandH = 0.34;
-	const bandW = wArtist + wDate + padX * 2;
-	const bandX = (PAGE_W - bandW) / 2;
-	doc.setFillColor(LIME[0], LIME[1], LIME[2]);
-	doc.rect(bandX, y, bandW, bandH, 'F');
-	doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
-	doc.setFont('helvetica', 'bold');
-	doc.text(artistPart, bandX + padX, y + 0.235);
-	doc.setFont('helvetica', 'normal');
-	doc.text(datePart, bandX + padX + wArtist, y + 0.235);
-	y += bandH + 0.1;
+		// Artist + date in a solid lime box (left-aligned), black text.
+		doc.setFontSize(14);
+		doc.setFont('helvetica', 'bold');
+		const artistPart = data.artistName;
+		const datePart = data.dateLabel ? ` - ${data.dateLabel}` : '';
+		const wArtist = doc.getTextWidth(artistPart);
+		doc.setFont('helvetica', 'normal');
+		const wDate = doc.getTextWidth(datePart);
+		const padX = 0.14;
+		const boxH = 0.32;
+		const boxW = Math.min(wArtist + wDate + padX * 2, textMaxW);
+		doc.setFillColor(LIME[0], LIME[1], LIME[2]);
+		doc.rect(MARGIN, y, boxW, boxH, 'F');
+		doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+		doc.setFont('helvetica', 'bold');
+		doc.text(artistPart, MARGIN + padX, y + 0.22);
+		doc.setFont('helvetica', 'normal');
+		doc.text(datePart, MARGIN + padX + wArtist, y + 0.22);
+		y += boxH + 0.08;
 
-	doc.setFontSize(11.5);
-	doc.text(
-		data.venueRoom ? `${data.venueName} (${data.venueRoom})` : data.venueName,
-		PAGE_W / 2,
-		y + 0.1,
-		{ align: 'center' }
-	);
-	y += 0.2;
-	doc.setFontSize(8.5);
-	doc.setTextColor(GRAY1[0], GRAY1[1], GRAY1[2]);
-	for (const line of data.venueAddress) {
-		doc.text(line, PAGE_W / 2, y + 0.08, { align: 'center' });
-		y += 0.145;
+		// Venue + address line up with the artist name (same left edge).
+		const textX = MARGIN + padX;
+		doc.setFontSize(10);
+		doc.setFont('helvetica', 'normal');
+		doc.text(
+			data.venueRoom ? `${data.venueName} (${data.venueRoom})` : data.venueName,
+			textX,
+			y + 0.12
+		);
+		y += 0.19;
+		doc.setFontSize(8.5);
+		doc.setTextColor(GRAY1[0], GRAY1[1], GRAY1[2]);
+		for (const line of data.venueAddress) {
+			doc.text(doc.splitTextToSize(line, textMaxW - padX)[0] || line, textX, y + 0.1);
+			y += 0.14;
+		}
+		y = Math.max(y, headTop + logoH) + 0.16;
 	}
-	y += 0.12;
 
 	// ------------------------------------------------------ offer summary band
 	if (data.bandRightHeader) {
@@ -499,7 +514,7 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		doc.setFont('helvetica', 'bold');
 		doc.setFontSize(8.5);
 		doc.setTextColor(0, 0, 0);
-		doc.text(`${data.role} ${isSettlement ? 'Settlement' : 'Offer'}`, MARGIN + 0.08, y + 0.145);
+		doc.text(`${data.role} ${isSettlement ? 'Settlement' : 'Offer'}: ${data.artistName}`, MARGIN + 0.08, y + 0.145);
 		doc.setFont('helvetica', 'normal');
 		doc.text(data.bandRightHeader, PAGE_W - MARGIN - 0.08, y + 0.145, { align: 'right' });
 		if (data.fxNote) {
@@ -508,7 +523,7 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		}
 		y += bandH; // flush against the tinted deal row below
 	} else {
-		bar(`${data.role} ${isSettlement ? 'Settlement' : 'Offer'}`, data.fxNote || '', MARGIN, CONTENT_W, false, true);
+		bar(`${data.role} ${isSettlement ? 'Settlement' : 'Offer'}: ${data.artistName}`, data.fxNote || '', MARGIN, CONTENT_W, false, true);
 		y -= 0.04; // flush against the tinted deal row below
 	}
 	for (const row of data.offerRows) {
@@ -599,11 +614,7 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 	// ---------------------------------------------------------- ticket scaling
 	if (data.tickets.length > 0) {
 		ensureSpace(0.6);
-		bar(
-			isSettlement
-				? `Sales Breakdown (Currencies below are in ${cur})`
-				: `Ticket Scaling (Currencies below are in ${cur})`
-		);
+		bar(isSettlement ? 'Sales Breakdown' : 'Ticket Scaling');
 		y -= 0.05; // header row sits flush inside the band
 		const totals = data.tickets.reduce(
 			(acc, t) => {
@@ -629,17 +640,17 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 							int(t.comps),
 							int(t.sellable),
 							int(Number(t.sold) || 0),
-							`$${moneyNum(t.price)}`,
-							`$${moneyNum(t.gross)}`
+							money(t.price),
+							money(t.gross)
 						]
 					: [
 							t.name,
 							int(t.allotment),
 							int(t.comps),
 							int(t.sellable),
-							`$${moneyNum(t.price)}`,
+							money(t.price),
 							t.breakEven != null ? int(t.breakEven) : '—',
-							`$${moneyNum(t.gross)}`
+							money(t.gross)
 						]
 			),
 			foot: [
@@ -650,7 +661,7 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 							int(totals.sellable),
 							int(totals.sold),
 							'',
-							`$${moneyNum(totals.gross)}`
+							money(totals.gross)
 						]
 					: [
 							'Totals',
@@ -659,7 +670,7 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 							int(totals.sellable),
 							'',
 							'',
-							`$${moneyNum(totals.gross)}`
+							money(totals.gross)
 						]
 			],
 			headStyles: {
@@ -709,126 +720,134 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 	ensureSpace(0.6);
 	bar(
 		data.expenseSummaryLabel || 'Expense Summary',
-		data.expenseSummaryValue || `Total Expenses ${cur}${moneyNum(data.totalExpenses)}`
+		data.expenseSummaryValue || `Total Expenses ${money(data.totalExpenses)}`
 	);
-	bar(
-		`${data.fixedBandLabel} (Currencies below are in ${cur})`,
-		`${cur}${moneyNum(data.fixedBandTotal)}`,
-		MARGIN,
-		CONTENT_W,
-		true
-	);
-	// Expense groups flow in two columns, shortest-column-first (Prism-style:
-	// General>General left, Production>Additional right, Talent Pay below, ...).
+	bar(data.fixedBandLabel, money(data.fixedBandTotal), MARGIN, CONTENT_W, true);
+
+	// Expense groups stack full width: Talent Pay first (when present), then
+	// one block per cost group with Name | Notes | Cost | Qty | Total.
 	{
-		const colW2 = CONTENT_W / 2 - 0.07;
-		const colX = [MARGIN, MARGIN + CONTENT_W / 2 + 0.07];
-		let colY: [number, number] = [y, y];
 		const rowLineH = 0.135;
+		const x = MARGIN;
+		const w = CONTENT_W;
+		// Column right edges (offer mode)
+		const cTotal = x + w - 0.08;
+		const cQty = cTotal - 1.05;
+		const cCost = cQty - 0.55;
+		const notesRight = cCost - 1.05;
+		const notesW = 2.1;
+		const notesLeft = notesRight - notesW;
+		const nameW = notesLeft - (x + 0.08) - 0.12;
+		// bav columns (settlements)
+		const cB = x + w - 1.4;
+		const cA = x + w - 0.72;
+		const cV = x + w - 0.08;
+		const bavNameW = w - 2.3;
 
-		const rowLines = (name: string, w: number): string[] =>
-			doc.splitTextToSize(name, w - 1.05);
+		const signedMoney = (v: number) => money(v);
 
-		const groupHeight = (g: (typeof data.expenseGroups)[number], w: number): number => {
-			let h = 0.16; // header
-			for (const r of g.rows) h += rowLines(r.name, w).length * rowLineH + 0.035;
-			h += 0.15; // totals row
-			return h + 0.07;
+		const rowHeight = (g: (typeof data.expenseGroups)[number], r: (typeof g.rows)[number]) => {
+			const bav = g.mode === 'bav';
+			doc.setFontSize(bav ? 7.5 : 8);
+			const nameLines = doc.splitTextToSize(r.name || '', bav ? bavNameW : nameW).length;
+			const noteLines = bav || !r.notes ? 0 : doc.splitTextToSize(r.notes, notesW).length;
+			return Math.max(nameLines, noteLines, 1) * rowLineH + 0.035;
+		};
+		const groupHeight = (g: (typeof data.expenseGroups)[number]) => {
+			let h = 0.16;
+			for (const r of g.rows) h += rowHeight(g, r);
+			return h + 0.15 + 0.08;
 		};
 
-		const signedMoney = (v: number) => `${v < 0 ? '-' : ''}$${moneyNum(Math.abs(v))}`;
-
-		const renderGroup = (
-			g: (typeof data.expenseGroups)[number],
-			x: number,
-			w: number,
-			startY: number
-		): number => {
+		const renderHeader = (g: (typeof data.expenseGroups)[number]) => {
 			const bav = g.mode === 'bav';
-			// bav column x positions (right-aligned): Budget | Actual | Variance
-			const cB = x + w - 1.4;
-			const cA = x + w - 0.72;
-			const cV = x + w - 0.08;
-			const nameW = bav ? w - 2.2 : w;
-			let gy = startY;
 			doc.setFont('helvetica', 'bold');
 			doc.setFontSize(8);
 			doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
-			doc.text(g.title, x + 0.08, gy + 0.1);
+			doc.text(g.title, x + 0.08, y + 0.1);
 			doc.setFont('helvetica', 'normal');
-			doc.setFontSize(bav ? 7 : 8);
+			doc.setFontSize(7);
 			doc.setTextColor(MUTED[0], MUTED[1], MUTED[2]);
 			if (bav) {
-				doc.text('Budget', cB, gy + 0.1, { align: 'right' });
-				doc.text('Actual', cA, gy + 0.1, { align: 'right' });
-				doc.text('Variance', cV, gy + 0.1, { align: 'right' });
+				doc.text('Budget', cB, y + 0.1, { align: 'right' });
+				doc.text('Actual', cA, y + 0.1, { align: 'right' });
+				doc.text('Variance', cV, y + 0.1, { align: 'right' });
 			} else {
-				doc.text('Expense', x + w - 0.08, gy + 0.1, { align: 'right' });
+				doc.text('Notes', notesLeft, y + 0.1);
+				doc.text('Cost', cCost, y + 0.1, { align: 'right' });
+				doc.text('Qty', cQty, y + 0.1, { align: 'right' });
+				doc.text('Total', cTotal, y + 0.1, { align: 'right' });
 			}
-			hairline(x, x + w, gy + 0.15, LINE);
-			gy += 0.16;
-			for (const r of g.rows) {
-				const lines = doc.splitTextToSize(r.name, bav ? nameW : w - 1.05);
-				doc.setFont('helvetica', 'normal');
-				doc.setFontSize(bav ? 7.5 : 8);
-				doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
-				let ly = gy + 0.105;
-				for (const line of lines) {
-					doc.text(line, x + 0.08, ly);
-					ly += rowLineH;
-				}
-				if (bav) {
-					doc.text(signedMoney(Number(r.budget) || 0), cB, gy + 0.105, { align: 'right' });
-					doc.text(signedMoney(r.amount), cA, gy + 0.105, { align: 'right' });
-					doc.text(signedMoney(Number(r.variance) || 0), cV, gy + 0.105, { align: 'right' });
-				} else {
-					doc.text(`$${moneyNum(r.amount)}`, x + w - 0.08, gy + 0.105, { align: 'right' });
-				}
-				gy += lines.length * rowLineH + 0.035;
+			hairline(x, x + w, y + 0.15, LINE);
+			y += 0.16;
+		};
+
+		const renderRow = (g: (typeof data.expenseGroups)[number], r: (typeof g.rows)[number]) => {
+			const bav = g.mode === 'bav';
+			const h = rowHeight(g, r);
+			ensureSpace(h);
+			doc.setFont('helvetica', 'normal');
+			doc.setFontSize(bav ? 7.5 : 8);
+			doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+			const nameLines = doc.splitTextToSize(r.name || '', bav ? bavNameW : nameW);
+			let ly = y + 0.105;
+			for (const line of nameLines) {
+				doc.text(line, x + 0.08, ly);
+				ly += rowLineH;
 			}
-			// Totals
+			if (bav) {
+				doc.text(signedMoney(Number(r.budget) || 0), cB, y + 0.105, { align: 'right' });
+				doc.text(signedMoney(r.amount), cA, y + 0.105, { align: 'right' });
+				doc.text(signedMoney(Number(r.variance) || 0), cV, y + 0.105, { align: 'right' });
+			} else {
+				if (r.notes) {
+					doc.setTextColor(GRAY1[0], GRAY1[1], GRAY1[2]);
+					let ny = y + 0.105;
+					for (const line of doc.splitTextToSize(r.notes, notesW)) {
+						doc.text(line, notesLeft, ny);
+						ny += rowLineH;
+					}
+					doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+				}
+				if (r.cost != null) doc.text(money(r.cost), cCost, y + 0.105, { align: 'right' });
+				if (r.qty != null) doc.text(String(r.qty), cQty, y + 0.105, { align: 'right' });
+				doc.text(money(r.amount), cTotal, y + 0.105, { align: 'right' });
+			}
+			y += h;
+		};
+
+		const renderTotals = (g: (typeof data.expenseGroups)[number]) => {
+			const bav = g.mode === 'bav';
+			ensureSpace(0.16);
 			doc.setFont('helvetica', 'bold');
 			doc.setFontSize(bav ? 7.5 : 8);
 			doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
-			doc.text('Totals', x + 0.08, gy + 0.105);
+			doc.text('Totals', x + 0.08, y + 0.105);
 			if (bav) {
-				doc.text(signedMoney(Number(g.budgetTotal) || 0), cB, gy + 0.105, { align: 'right' });
-				doc.text(signedMoney(g.total), cA, gy + 0.105, { align: 'right' });
-				doc.text(signedMoney(Number(g.varianceTotal) || 0), cV, gy + 0.105, { align: 'right' });
+				doc.text(signedMoney(Number(g.budgetTotal) || 0), cB, y + 0.105, { align: 'right' });
+				doc.text(signedMoney(g.total), cA, y + 0.105, { align: 'right' });
+				doc.text(signedMoney(Number(g.varianceTotal) || 0), cV, y + 0.105, { align: 'right' });
 			} else {
-				doc.text(`$${moneyNum(g.total)}`, x + w - 0.08, gy + 0.105, { align: 'right' });
+				doc.text(money(g.total), cTotal, y + 0.105, { align: 'right' });
 			}
-			hairline(x, x + w, gy + 0.15, LINE);
-			gy += 0.15;
-			return gy + 0.07;
+			hairline(x, x + w, y + 0.15, LINE);
+			y += 0.15 + 0.08;
 		};
 
 		for (const group of data.expenseGroups) {
-			const h = groupHeight(group, colW2);
-			let c: 0 | 1 = colY[0] <= colY[1] ? 0 : 1;
-			if (colY[c] + h > FOOT_LIMIT) {
-				const other: 0 | 1 = c === 0 ? 1 : 0;
-				if (colY[other] + h <= FOOT_LIMIT) {
-					c = other;
-				} else {
-					doc.addPage();
-					colY = [MARGIN, MARGIN];
-					c = 0;
-				}
-			}
-			colY[c] = renderGroup(group, colX[c], colW2, colY[c]);
+			// Whole group moves to the next page when it fits on one; otherwise
+			// it flows row by row.
+			const gh = groupHeight(group);
+			if (gh <= FOOT_LIMIT - MARGIN) ensureSpace(gh);
+			else ensureSpace(0.4);
+			renderHeader(group);
+			for (const r of group.rows) renderRow(group, r);
+			renderTotals(group);
 		}
-		y = Math.max(colY[0], colY[1]);
 	}
 
 	ensureSpace(0.5);
-	bar(
-		`Variable Expenses (Currencies below are in ${cur})`,
-		`${cur}${moneyNum(data.variableTotal)}`,
-		MARGIN,
-		CONTENT_W,
-		true
-	);
+	bar('Variable Expenses', money(data.variableTotal), MARGIN, CONTENT_W, true);
 	y -= 0.05; // header row sits flush inside the band
 	baseTable({
 		headStyles: {
@@ -842,7 +861,7 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		head: [['Type', 'Amount', isSettlement ? 'Total' : 'Total Potential']],
 		body: [
 			...data.variableRows.map((r) => [`${r.name} (${r.type})`, r.amount, r.potential]),
-			['Totals:', '', `$${moneyNum(data.variableTotal)}`]
+			['Totals:', '', money(data.variableTotal)]
 		],
 		columnStyles: {
 			0: { cellWidth: 3.4 },
@@ -879,7 +898,7 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 	// Rich layout: bold/italic/underline runs, indents, blank lines, justified
 	// text. Whole paragraphs move to the next page instead of splitting, and a
 	// heading always stays attached to the start of its paragraph.
-	const renderTermBlocks = (blocks: TermBlock[]) => {
+	const termsEngine = (() => {
 		const lineH = 0.12;
 		const bodySize = 7.5;
 
@@ -993,6 +1012,41 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 			}
 		};
 
+		const geom = (block: TermBlock) => {
+			const indentX = MARGIN + 0.08 + block.indent * 0.22 + (block.kind === 'bullet' ? 0.14 : 0);
+			return { indentX, maxW: CONTENT_W - (indentX - MARGIN) - 0.08 };
+		};
+
+		/** Rendered height of one block (used for keep-together decisions). */
+		const blockHeight = (block: TermBlock): number => {
+			if (block.kind === 'space') return lineH * 0.7;
+			if (block.kind === 'heading') return 0.06 + lineH + 0.03;
+			const { maxW } = geom(block);
+			return layoutLines(block.runs, maxW, bodySize).length * lineH + 0.03;
+		};
+
+		/** Height of a run of consecutive bullets starting at index `i`. */
+		const bulletRunHeight = (blocks: TermBlock[], i: number): number => {
+			let h = 0;
+			for (let k = i; k < blocks.length && blocks[k].kind === 'bullet'; k++) h += blockHeight(blocks[k]);
+			return h;
+		};
+
+		/** Height of the section's opening unit: everything up to (and
+		 *  including) the first paragraph, or the first full bullet run — so a
+		 *  section never opens with a lonely bar/heading at a page bottom. */
+		const leadHeight = (blocks: TermBlock[]): number => {
+			let h = 0;
+			for (let i = 0; i < blocks.length; i++) {
+				const b = blocks[i];
+				if (b.kind === 'bullet') return h + bulletRunHeight(blocks, i);
+				h += blockHeight(b);
+				if (b.kind === 'para') return h;
+			}
+			return h;
+		};
+
+		const render = (blocks: TermBlock[]) => {
 		for (let bi = 0; bi < blocks.length; bi++) {
 			const block = blocks[bi];
 			if (block.kind === 'space') {
@@ -1001,14 +1055,17 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 				continue;
 			}
 
-			const indentX = MARGIN + 0.08 + block.indent * 0.22 + (block.kind === 'bullet' ? 0.14 : 0);
-			const maxW = CONTENT_W - (indentX - MARGIN) - 0.08;
+			const { indentX, maxW } = geom(block);
 
 			if (block.kind === 'heading') {
-				// Keep the heading attached to the first two lines of what follows.
+				// Keep the heading attached to what follows: the whole bullet run
+				// (when it fits on a page) or the first two lines of a paragraph.
 				const nextBlock = blocks[bi + 1];
 				let followH = lineH * 2;
-				if (nextBlock && nextBlock.kind !== 'space' && nextBlock.kind !== 'heading') {
+				if (nextBlock && nextBlock.kind === 'bullet') {
+					const runH = bulletRunHeight(blocks, bi + 1);
+					followH = runH <= FOOT_LIMIT - MARGIN - 0.3 ? runH : lineH * 2;
+				} else if (nextBlock && nextBlock.kind === 'para') {
 					const nextLines = layoutLines(nextBlock.runs, maxW, bodySize);
 					followH = Math.min(nextLines.length, 2) * lineH;
 				}
@@ -1020,6 +1077,12 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 				doc.text(block.runs.map((r) => r.text).join('').trim(), indentX, y + 0.08);
 				y += lineH + 0.03;
 				continue;
+			}
+
+			// A bullet list moves to the next page as a unit when it fits on one.
+			if (block.kind === 'bullet' && (bi === 0 || blocks[bi - 1].kind !== 'bullet')) {
+				const runH = bulletRunHeight(blocks, bi);
+				if (runH <= FOOT_LIMIT - MARGIN) ensureSpace(runH);
 			}
 
 			const lines = layoutLines(block.runs, maxW, bodySize);
@@ -1039,7 +1102,11 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 			});
 			y += 0.03;
 		}
-	};
+		};
+
+		return { render, leadHeight };
+	})();
+	const renderTermBlocks = termsEngine.render;
 
 	// -------------------------------------------------------------- deal terms
 	// Settlement sheets never print terms — those live on the offer only.
@@ -1048,7 +1115,16 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		!isSettlement &&
 		(!!data.dealTermsLine || dealTermsBlocks.length > 0 || (data.depositLines?.length ?? 0) > 0);
 	if (hasDealTerms) {
-	ensureSpace(0.5 + Math.min(dealTermsBlocks.length, 3) * 0.14);
+	// Never orphan the section bar: the bar + expiry + deposits + the opening
+	// heading/paragraph/bullet-run move to the next page together.
+	{
+		const need =
+			0.25 +
+			(data.dealTermsLine ? 0.28 : 0) +
+			(data.depositLines?.length ? data.depositLines.length * 0.15 + 0.06 : 0) +
+			termsEngine.leadHeight(dealTermsBlocks);
+		ensureSpace(Math.min(need, FOOT_LIMIT - MARGIN));
+	}
 	bar('Deal Terms');
 	if (data.dealTermsLine) {
 		doc.setFont('helvetica', 'bold');
@@ -1080,7 +1156,7 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 
 	const termBlocks = isSettlement ? [] : parseTermBlocks(data.termsAndConditions || '');
 	if (termBlocks.length > 0) {
-		ensureSpace(0.6);
+		ensureSpace(Math.min(0.25 + termsEngine.leadHeight(termBlocks), FOOT_LIMIT - MARGIN));
 		bar('Additional Deal Terms');
 		renderTermBlocks(termBlocks);
 		y += 0.1;

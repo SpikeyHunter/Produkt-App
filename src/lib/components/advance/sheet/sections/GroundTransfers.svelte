@@ -97,6 +97,10 @@
 			) {
 				groupKey = 'Soundcheck Transfers';
 			}
+			// Group Dinner and Post-Dinner together (same as soundcheck)
+			else if (transfer.type === 'Dinner' || transfer.type === 'Post-Dinner') {
+				groupKey = 'Dinner Transfers';
+			}
 			// Keep Arrival and Departure separate
 			else if (transfer.type === 'Arrival') {
 				groupKey = 'Airport Transfers - Arrival';
@@ -114,6 +118,7 @@
 		const displayOrder = [
 			'Airport Transfers - Arrival',
 			'Soundcheck Transfers',
+			'Dinner Transfers',
 			'Show Transfers',
 			'Airport Transfers - Departure'
 		];

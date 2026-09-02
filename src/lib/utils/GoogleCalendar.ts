@@ -138,6 +138,11 @@ const getReminderMinutes = (type: string): number => {
 	return type === 'Arrival' || type === 'Departure' ? 30 : 15;
 };
 
+// Calendar block length: airport runs are 60 min, every other pickup 15 min.
+const getEventDurationMinutes = (type: string): number => {
+	return type === 'Arrival' || type === 'Departure' ? 60 : 15;
+};
+
 const findEventById = async (eventId: string): Promise<any> => {
 	try {
 		const response = await calendar.events.get({ calendarId: CALENDAR_ID, eventId });
@@ -228,7 +233,9 @@ export async function syncToCalendar(
 			const exactStartTime = combineDateAndTime(row.date, row.pickupTime);
 			const roundedStartTime =
 				row.type === 'Arrival' ? roundToNearest15(exactStartTime) : roundUp15(exactStartTime);
-			const endTime = new Date(roundedStartTime.getTime() + 60 * 60000);
+			const endTime = new Date(
+				roundedStartTime.getTime() + getEventDurationMinutes(row.type) * 60000
+			);
 
 			if (isNaN(exactStartTime.getTime())) {
 				console.warn(`Skipping row with invalid date/time:`, row);

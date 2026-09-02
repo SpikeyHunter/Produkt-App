@@ -17,6 +17,7 @@
 	import ArtistSearch from '$lib/components/calendar/page/tabs/deals/ArtistSearch.svelte';
 	import CalendarConfirm from '$lib/components/calendar/CalendarConfirm.svelte';
 	import { getNextAvailableHold, calculateHoldShifts } from '$lib/utils/holdManager';
+	import { getDefaultVariableExpenses } from '$lib/services/templateService';
 	import { syncEventToTechSchedule } from '$lib/services/techScheduleSync';
 	import { syncConfirmedShowToEvents } from '$lib/services/calendarEventLink';
 
@@ -670,6 +671,10 @@
 
 			let allSavedEvents = [];
 
+			// Variable expenses flagged "Load in all events by default" (Settings >
+			// Templates > Variable Expenses) seed every new event's costs.
+			const defaultVariableExpenses = await getDefaultVariableExpenses();
+
 			// DATE BYPASS: create the hold with no dates. It lives outside the
 			// calendar grid (Undefined Holds) until dates are defined.
 			if (dateBypass) {
@@ -687,6 +692,7 @@
 				await supabase.from('calendar_data').insert({
 					calendar_id: calData.id,
 					event_deal: buildEventDeal(),
+					event_cost: { fixedCosts: [], variableCosts: defaultVariableExpenses },
 					version_number: 1
 				});
 
@@ -744,6 +750,7 @@
 						await supabase.from('calendar_data').insert({
 							calendar_id: calData.id,
 							event_deal: buildEventDeal(),
+							event_cost: { fixedCosts: [], variableCosts: defaultVariableExpenses },
 							version_number: 1
 						});
 
@@ -800,6 +807,7 @@
 					await supabase.from('calendar_data').insert({
 						calendar_id: sharedGroupId,
 						event_deal: buildEventDeal(),
+						event_cost: { fixedCosts: [], variableCosts: defaultVariableExpenses },
 						version_number: 1
 					});
 

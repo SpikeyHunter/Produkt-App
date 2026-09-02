@@ -320,6 +320,8 @@
 		) => {
 			let total = 0;
 			variableCosts.forEach((v: any) => {
+				// The external view only carries reported rows (same as the sheets).
+				if (amountField === 'externalAmount' && v.reported === false) return;
 				const m = Number(v[amountField]) || 0;
 				switch (v.type) {
 					case 'Flat':
@@ -446,8 +448,18 @@
 		// Prism's sidebar lists talent + variable + support only — fixed costs
 		// stay out of the displayed Expenses/NET on BOTH tabs (they still count
 		// in the split-point basis above), so NET (Est.) matches across tabs.
-		const estExpensesDisplay = estExpenses - estFixed;
-		const actExpensesDisplay = actExpenses - rFixed;
+		// "% of Artist Fee" rows are internal overhead on the artist payouts —
+		// added after the payout math so they never feed the split point.
+		const feeRows = variableCosts.filter(
+			(v: any) =>
+				v.type === '% of Artist Fee' && !(variableField === 'externalAmount' && v.reported === false)
+		);
+		const feePct = feeRows.reduce((s: number, v: any) => s + (Number(v[variableField]) || 0), 0) / 100;
+		const feeVarEst = feePct * (estPayout + extraEst);
+		const feeVarAct = feePct * (actPayout + extraAct);
+
+		const estExpensesDisplay = estExpenses - estFixed + feeVarEst;
+		const actExpensesDisplay = actExpenses - rFixed + feeVarAct;
 
 		const talentRows = [
 			{ name: headlinerName, est: estPayout, act: actPayout },
@@ -490,7 +502,16 @@
 			totalAllotment,
 			exchangeRate
 		});
-		const healthExpenses = healthPayout + healthExtras + intEstVariable + supportBudgeted;
+		const healthFeePct =
+			variableCosts
+				.filter((v: any) => v.type === '% of Artist Fee')
+				.reduce((s: number, v: any) => s + (Number(v.internalAmount) || 0), 0) / 100;
+		const healthExpenses =
+			healthPayout +
+			healthExtras +
+			intEstVariable +
+			supportBudgeted +
+			healthFeePct * (healthPayout + healthExtras);
 		const maxBar = Math.max(potentialGross, healthGross, healthExpenses, 1);
 		const flagPositive = healthGross - healthExpenses >= 0;
 
@@ -505,7 +526,7 @@
 			expenses: { est: estExpensesDisplay, act: actExpensesDisplay },
 			guaranteeRow: { est: estPayout, act: actPayout },
 			talentRows,
-			variableRow: { est: estVariable, act: rVariable },
+			variableRow: { est: estVariable + feeVarEst, act: rVariable + feeVarAct },
 			supportRow: { est: supportBudgeted, act: rSupport },
 			net: { est: estNet, act: actNet },
 			health: {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Section from '../Section.svelte';
+	import { parseFoodBuyout } from '$lib/utils/foodBuyout';
 	import ContentBox from '../ContentBox.svelte';
 	import type { EventAdvance } from '$lib/types/events';
 
@@ -111,6 +112,34 @@
 		return items;
 	})();
 
+	// --- FOOD BUYOUT / ROOM CREDIT / DINNER ---
+	// Printed under the hospitality list: a heading plus its bullet(s), or a
+	// single inline line for a cash buyout. None prints nothing.
+	$: foodBuyoutBlock = ((): { title: string; items: string[]; inline: boolean } | null => {
+		const fb = parseFoodBuyout(event.food_buyout);
+		if (!fb.type) return null;
+
+		if (fb.type === 'room_credit') {
+			const items: string[] = [];
+			if ((fb.artist || 0) > 0) items.push(`${fb.artist}$CAD/Artist`);
+			if ((fb.crew || 0) > 0) items.push(`${fb.crew}$CAD/Crew`);
+			return items.length > 0 ? { title: 'Room Credit:', items, inline: false } : null;
+		}
+
+		if (fb.type === 'dinner') {
+			const detail = String(fb.details || '').trim();
+			return { title: 'Dinner:', items: [detail || 'Dinner provided'], inline: false };
+		}
+
+		// Cash buyout — one line: "Food Buyout: 50$CAD cash"
+		const amount = String(fb.details || '').match(/\d+(?:[.,]\d+)?/)?.[0]?.replace(',', '.');
+		return {
+			title: 'Food Buyout:',
+			items: [amount ? `${amount}$CAD cash` : 'cash'],
+			inline: true
+		};
+	})();
+
 	// --- GUESTLIST (FIXED) ---
 	$: guestlistText = ((): string => {
 		const guestlistData = parseRiderData(event.guestlist);
@@ -161,6 +190,22 @@
 						<div>• {item}</div>
 					{/each}
 				</div>
+
+				{#if foodBuyoutBlock}
+					{#if foodBuyoutBlock.inline}
+						<div class="text-white mt-3">
+							<span class="font-bold">{foodBuyoutBlock.title}</span>
+							{foodBuyoutBlock.items[0]}
+						</div>
+					{:else}
+						<h4 class="text-white text-sm font-bold mt-3 mb-1">{foodBuyoutBlock.title}</h4>
+						<div class="text-white space-y-1">
+							{#each foodBuyoutBlock.items as item}
+								<div>• {item}</div>
+							{/each}
+						</div>
+					{/if}
+				{/if}
 			</ContentBox>
 		</div>
 

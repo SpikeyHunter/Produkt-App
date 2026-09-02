@@ -5,13 +5,17 @@
 	import {
 		listEventTemplates,
 		templateCategoryHasContent,
-		type EventTemplate
+		listVariableExpenseTemplates,
+		expandVariableTemplateRows,
+		type EventTemplate,
+		type VariableExpenseTemplate
 	} from '$lib/services/templateService';
 	export let isOpen = false;
 
 	const dispatch = createEventDispatcher();
 
 	let templates: EventTemplate[] = [];
+	let varTemplates: VariableExpenseTemplate[] = [];
 	let loading = false;
 
 	$: if (isOpen) load();
@@ -19,11 +23,13 @@
 	async function load() {
 		loading = true;
 		// Costs tab loads templates that carry fixed and/or variable costs.
-		templates = (await listEventTemplates()).filter(
+		const [all, vars] = await Promise.all([listEventTemplates(), listVariableExpenseTemplates()]);
+		templates = all.filter(
 			(t) =>
 				templateCategoryHasContent(t, 'Fixed Costs') ||
 				templateCategoryHasContent(t, 'Variable Costs')
 		);
+		varTemplates = vars.filter((t) => t.items.length > 0);
 		loading = false;
 	}
 
@@ -65,6 +71,17 @@
 			templateName: t.name,
 			// Per-section Add/Overwrite behavior stored on the template.
 			modes: { fixed: t.addMode?.fixed !== false, variable: t.addMode?.variable !== false }
+		});
+		isOpen = false;
+	}
+
+	/** Variable Expense templates only add rows — never replace. */
+	function applyVariableTemplate(t: VariableExpenseTemplate) {
+		dispatch('apply', {
+			fixedCosts: [],
+			variableCosts: expandVariableTemplateRows(t),
+			templateName: t.name,
+			modes: { fixed: true, variable: true }
 		});
 		isOpen = false;
 	}
@@ -138,6 +155,32 @@
 								No cost templates yet — create one via Manage Templates.
 							</p>
 						{/each}
+
+						{#if varTemplates.length > 0}
+							<div class="px-1 pt-3 pb-1 text-[10px] font-black uppercase tracking-widest text-gray2">
+								Variable Expenses
+							</div>
+							{#each varTemplates as t (t.id)}
+								<button
+									type="button"
+									on:click={() => applyVariableTemplate(t)}
+									class="flex items-center justify-between bg-gray1 rounded-2xl px-4 py-3 text-left hover:bg-gray1/60 transition-colors cursor-pointer group"
+								>
+									<div>
+										<p class="text-white font-bold text-sm group-hover:text-lime transition-colors">
+											{t.name}
+										</p>
+										<p class="text-gray2 text-xs font-medium mt-0.5">
+											{t.items.length} variable expense{t.items.length === 1 ? '' : 's'} — adds to current
+											{#if t.loadByDefault}· loaded in all events by default{/if}
+										</p>
+									</div>
+									<span class="text-xs font-black uppercase tracking-widest text-gray2 group-hover:text-lime transition-colors">
+										Apply →
+									</span>
+								</button>
+							{/each}
+						{/if}
 					</div>
 				{/if}
 			</div>
