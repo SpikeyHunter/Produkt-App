@@ -1,11 +1,15 @@
 <script lang="ts">
-	import type { DailyCount, EventData } from '$lib/types/dailycount';
+	import { formatEventDateShort, type DailyCount, type EventData, type EffectiveCount } from '$lib/types/dailycount';
 	import { createEventDispatcher } from 'svelte';
 	import { draw, fade } from 'svelte/transition';
 
 	export let dailyCounts: DailyCount[] = [];
 	export let activeEvents: EventData[] = [];
 	export let dateRange: string[] = [];
+	// Own + linked + reported totals (display only — the chart math below
+	// keeps reading raw dailyCounts).
+	export let effectiveCounts: Record<number, EffectiveCount> = {};
+	const countFor = (id: number) => effectiveCounts[id] || { total: 0, ga: 0, vip: 0 };
 
 	const dispatch = createEventDispatcher();
 	
@@ -310,10 +314,13 @@
 						<span class="font-bold text-xs truncate" style="color: {item.uiTextColor}; transition: color 0.3s ease;">
 							{item.event_name}
 						</span>
-						<span class="text-[10px] text-[var(--color-gray3)] truncate mt-0.5">
-							{item.event_id}{#if item.event_venue} - {item.event_venue}{/if}
+						<span class="text-[10px] text-gray3 truncate mt-0.5">
+							{formatEventDateShort(item.event_date)}{item.event_venue ? ` - ${item.event_venue}` : ''}
 						</span>
-						<span class="text-[10px] text-white truncate mt-0.5">{item.event_date}</span>
+						<span class="text-[10px] font-bold truncate mt-0.5">
+							<span class="text-lime">{countFor(item.event_id).total} SOLD</span>
+							<span class="text-white"> (GA {countFor(item.event_id).ga}/VIP {countFor(item.event_id).vip})</span>
+						</span>
 					</div>
 				</div>
 			{/each}

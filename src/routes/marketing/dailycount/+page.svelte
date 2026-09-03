@@ -2,7 +2,12 @@
 	import { onMount, onDestroy } from 'svelte';
 	import MainLayout from '$lib/components/MainLayout.svelte';
 	import { supabase } from '$lib/supabase';
-	import type { DailyCount, EventData } from '$lib/types/dailycount';
+	import {
+		isReservationsEvent,
+		type DailyCount,
+		type EventData,
+		type EffectiveCount
+	} from '$lib/types/dailycount';
 
 	// FIX: Removed `resolveColorCollisions` from imports so it stops overriding database colors!
 	import { extractDominantColor } from '$lib/utils/color';
@@ -12,6 +17,9 @@
 	import DailyChart from '$lib/components/marketing/dailycount/DailyChart.svelte';
 
 	let allEvents: EventData[] = [];
+	// Every event row (no keyword filtering) — the pool for "Link to another
+	// event", which must include passes etc. Only Réservations are excluded.
+	let allEventsRaw: EventData[] = [];
 	let dailyCounts: DailyCount[] = [];
 	let fullDateRange: string[] = [];
 	let dateRange: string[] = [];
@@ -38,6 +46,40 @@
 		'oktoberfest',
 		'race week'
 	];
+
+	$: linkableEvents = allEventsRaw.filter((e) => !isReservationsEvent(e.event_name));
+
+	// Latest raw count per event (the chart keeps using dailyCounts directly).
+	$: latestByEvent = (() => {
+		const m = new Map<number, DailyCount>();
+		for (const c of dailyCounts) m.set(c.event_id, c); // ordered by report_date asc
+		return m;
+	})();
+
+	// Effective counts = own latest + linked event's latest + reported tickets.
+	// Used everywhere a total is displayed (selector, top 3, summary) — never
+	// by the chart.
+	$: effectiveCounts = (() => {
+		const out: Record<number, EffectiveCount> = {};
+		for (const e of allEventsRaw) {
+			const own = latestByEvent.get(e.event_id);
+			const linked = e.linked_event_id ? latestByEvent.get(e.linked_event_id) : undefined;
+			const reported = Number(e.reported_count) || 0;
+			const base = own?.total || 0;
+			const linkedTotal = linked?.total || 0;
+			out[e.event_id] = {
+				base,
+				linked: linkedTotal,
+				linkedGa: linked?.ga || 0,
+				linkedVip: linked?.vip || 0,
+				reported,
+				ga: (own?.ga || 0) + (linked?.ga || 0),
+				vip: (own?.vip || 0) + (linked?.vip || 0),
+				total: base + linkedTotal + reported
+			};
+		}
+		return out;
+	})();
 
 	$: eventsWithData = allEvents.filter((e) => {
 		const countsForEvent = dailyCounts.filter((c) => c.event_id === e.event_id);
@@ -89,7 +131,7 @@
 		const { data: eventData, error: eventError } = await supabase
 			.from('events')
 			.select(
-				'event_id, event_name, event_date, event_status, event_flyer, event_venue, stage_type, color, pinned'
+				'event_id, event_name, event_date, event_status, event_flyer, event_venue, stage_type, color, pinned, linked_event_id, reported_count'
 			);
 
 		if (eventError) {
@@ -104,6 +146,7 @@
 		if (countData) dailyCounts = countData as DailyCount[];
 
 		if (eventData) {
+			allEventsRaw = eventData as EventData[];
 			const validEvents = eventData.filter((e) => {
 				if (e.pinned) return true; // ALWAYS keep pinned events
 
@@ -127,6 +170,46 @@
 
 			console.log('[+page.svelte] Successfully mapped colors on load.');
 			allEvents = eventsWithColors;
+			// Keep the raw pool's colors in sync too (used by the link dropdown).
+			const colorById = new Map(eventsWithColors.map((e) => [e.event_id, e.color]));
+			allEventsRaw = allEventsRaw.map((e) => ({ ...e, color: colorById.get(e.event_id) ?? e.color }));
+		}
+	}
+
+	function patchEventEverywhere(id: number, patch: Partial<EventData>) {
+		allEvents = allEvents.map((ev) => (ev.event_id === id ? { ...ev, ...patch } : ev));
+		allEventsRaw = allEventsRaw.map((ev) => (ev.event_id === id ? { ...ev, ...patch } : ev));
+		if (selectedEventForInfo && selectedEventForInfo.event_id === id) {
+			selectedEventForInfo = { ...selectedEventForInfo, ...patch };
+		}
+	}
+
+	// Link (or unlink) another event whose tickets fold into this one.
+	async function handleLinkChanged(e: CustomEvent<{ id: number; linkedId: number | null }>) {
+		const { id, linkedId } = e.detail;
+		const previous = allEventsRaw.find((ev) => ev.event_id === id)?.linked_event_id ?? null;
+		patchEventEverywhere(id, { linked_event_id: linkedId });
+		const { error } = await supabase
+			.from('events')
+			.update({ linked_event_id: linkedId })
+			.eq('event_id', id);
+		if (error) {
+			console.error('[+page.svelte] Failed to save linked event:', error.message);
+			alert(`Failed to link event: ${error.message}`);
+			patchEventEverywhere(id, { linked_event_id: previous });
+		}
+	}
+
+	// Manually reported tickets (summary/totals only — the chart ignores them).
+	async function handleReportedCountChanged(e: CustomEvent<{ id: number; count: number }>) {
+		const { id, count } = e.detail;
+		const previous = allEventsRaw.find((ev) => ev.event_id === id)?.reported_count ?? 0;
+		patchEventEverywhere(id, { reported_count: count });
+		const { error } = await supabase.from('events').update({ reported_count: count }).eq('event_id', id);
+		if (error) {
+			console.error('[+page.svelte] Failed to save reported count:', error.message);
+			alert(`Failed to save reported count: ${error.message}`);
+			patchEventEverywhere(id, { reported_count: previous });
 		}
 	}
 
@@ -270,6 +353,7 @@
 				{dailyCounts}
 				{activeEvents}
 				{dateRange}
+				{effectiveCounts}
 				on:eventClicked={handleEventClicked}
 				on:unselectEvent={() => (selectedEventForInfo = null)}
 			/>
@@ -282,8 +366,12 @@
 				bind:selectedCustomIds
 				{selectedEventForInfo}
 				{latestCountForSelected}
+				{effectiveCounts}
+				{linkableEvents}
 				{minAvailableDate}
 				{maxAvailableDate}
+				on:linkChanged={handleLinkChanged}
+				on:reportedCountChanged={handleReportedCountChanged}
 				on:selectionChanged={handleSelectionChange}
 				on:closeInfoPanel={() => (selectedEventForInfo = null)}
 				on:colorChanged={handleColorChange}

@@ -1,12 +1,103 @@
 <script lang="ts">
-	import type { EventData, DailyCount } from '$lib/types/dailycount';
-	import { createEventDispatcher, onDestroy } from 'svelte';
+	import {
+		formatEventDateShort,
+		type EventData,
+		type DailyCount,
+		type EffectiveCount
+	} from '$lib/types/dailycount';
+	import { createEventDispatcher, onDestroy, tick } from 'svelte';
 	import { slide, fly } from 'svelte/transition';
+	import { portal } from '$lib/utils/portalUtils';
 
 	export let selectedEventForInfo: EventData | null = null;
 	export let latestCountForSelected: DailyCount | null = null;
+	export let effectiveCounts: Record<number, EffectiveCount> = {};
+	export let linkableEvents: EventData[] = [];
 
 	const dispatch = createEventDispatcher();
+
+	const emptyCount: EffectiveCount = {
+		total: 0, ga: 0, vip: 0, base: 0, linked: 0, linkedGa: 0, linkedVip: 0, reported: 0
+	};
+	$: effective = selectedEventForInfo
+		? effectiveCounts[selectedEventForInfo.event_id] || emptyCount
+		: emptyCount;
+	const countLineFor = (id: number) => {
+		const c = effectiveCounts[id] || emptyCount;
+		return `${c.total} - (GA: ${c.ga} / VIP: ${c.vip})`;
+	};
+
+	// ---------- Link to another event ----------
+	$: linkedEvent = selectedEventForInfo?.linked_event_id
+		? linkableEvents.find((e) => e.event_id === selectedEventForInfo!.linked_event_id) || null
+		: null;
+
+	let showLinkDropdown = false;
+	let linkSearch = '';
+	let linkBtnEl: HTMLButtonElement;
+	let linkMenuEl: HTMLDivElement | null = null;
+	let linkMenuStyle = '';
+
+	$: linkOptions = linkableEvents
+		.filter((e) => e.event_id !== selectedEventForInfo?.event_id)
+		.filter((e) => {
+			if (!linkSearch) return true;
+			const q = linkSearch.toLowerCase();
+			return (
+				e.event_name.toLowerCase().includes(q) ||
+				formatEventDateShort(e.event_date).toLowerCase().includes(q)
+			);
+		})
+		.sort((a, b) => new Date(b.event_date || 0).getTime() - new Date(a.event_date || 0).getTime());
+
+	async function openLinkDropdown() {
+		if (!linkBtnEl) return;
+		const r = linkBtnEl.getBoundingClientRect();
+		const menuH = 360;
+		const spaceBelow = window.innerHeight - r.bottom;
+		const openUp = spaceBelow < menuH + 12 && r.top > spaceBelow;
+		// Portaled + fixed so the aside's overflow never clips it.
+		linkMenuStyle =
+			`position: fixed; left: ${r.left}px; width: ${r.width}px; ` +
+			(openUp ? `bottom: ${window.innerHeight - r.top + 6}px;` : `top: ${r.bottom + 6}px;`);
+		linkSearch = '';
+		showLinkDropdown = true;
+		await tick();
+		linkMenuEl?.querySelector('input')?.focus();
+	}
+
+	function pickLinkedEvent(e: EventData | null) {
+		if (!selectedEventForInfo) return;
+		showLinkDropdown = false;
+		dispatch('linkChanged', { id: selectedEventForInfo.event_id, linkedId: e ? e.event_id : null });
+	}
+
+	function onDocClickLink(e: MouseEvent) {
+		if (!showLinkDropdown) return;
+		const t = e.target as Node;
+		if (linkBtnEl?.contains(t) || linkMenuEl?.contains(t)) return;
+		showLinkDropdown = false;
+	}
+
+	// ---------- Reported count ----------
+	let reportedDraft = 0;
+	let reportedEventId: number | null = null;
+	let reportedTimer: ReturnType<typeof setTimeout> | null = null;
+
+	$: if (selectedEventForInfo && reportedEventId !== selectedEventForInfo.event_id) {
+		reportedEventId = selectedEventForInfo.event_id;
+		reportedDraft = Number(selectedEventForInfo.reported_count) || 0;
+	}
+
+	function commitReported(value: number) {
+		if (!selectedEventForInfo) return;
+		reportedDraft = Math.max(0, Math.round(Number(value) || 0));
+		if (reportedTimer) clearTimeout(reportedTimer);
+		const id = selectedEventForInfo.event_id;
+		const count = reportedDraft;
+		reportedTimer = setTimeout(() => dispatch('reportedCountChanged', { id, count }), 350);
+	}
+	const bumpReported = (delta: number) => commitReported(reportedDraft + delta);
 
 	let isPickingColor = false;
 	let showCustomPicker = false;
@@ -301,18 +392,18 @@
 			</button>
 		</div>
 
-		<div class="mb-5 mt-2">
+		<div class="mb-3 mt-1">
 			<h2 class="text-xl font-bold text-lime leading-tight mb-1">
 				{selectedEventForInfo.event_name}
 			</h2>
 			<p class="text-[11px] text-gray2 mb-0.5">
-				ID: {selectedEventForInfo.event_id}{#if selectedEventForInfo.event_venue}
+				{formatEventDateShort(selectedEventForInfo.event_date)}{#if selectedEventForInfo.event_venue}
 					- {selectedEventForInfo.event_venue}{/if}
 			</p>
-			<p class="text-[11px] text-white">{selectedEventForInfo.event_date}</p>
+			<p class="text-[11px] text-white">{countLineFor(selectedEventForInfo.event_id)}</p>
 		</div>
 
-		<div class="flex gap-4 mb-4 relative">
+		<div class="flex gap-4 mb-3 relative">
 			<div class="w-32 h-auto shrink-0 relative">
 				{#if selectedEventForInfo.event_flyer}
 					<button
@@ -495,17 +586,136 @@
 			</div>
 		{/if}
 
-		<div class="bg-gray1/40 rounded-xl p-4 mb-4">
-			<h3 class="text-sm font-bold uppercase text-gray3 mb-3">Ticket Count Summary</h3>
-			<div class="space-y-2 text-sm">
-				<div class="flex justify-between border-b border-gray2/10 pb-2"><span class="text-lime">TOTAL</span><span class="font-bold text-lime">{latestCountForSelected?.total || 0}</span></div>
-				<div class="flex justify-between pl-2"><span class="text-gray2">GA</span><span class="font-bold text-white">{latestCountForSelected?.ga || 0}</span></div>
-				<div class="flex justify-between pl-2"><span class="text-gray2">VIP</span><span class="font-bold text-white">{latestCountForSelected?.vip || 0}</span></div>
+		<div class="bg-gray1/40 rounded-xl p-3 mb-3">
+			<h3 class="text-sm font-bold uppercase text-gray3 mb-2">Ticket Count Summary</h3>
+			<div class="space-y-1.5 text-sm">
+				<div class="flex justify-between border-b border-gray2/10 pb-2"><span class="text-lime">TOTAL</span><span class="font-bold text-lime">{effective.total}</span></div>
+				<div class="flex justify-between pl-2"><span class="text-gray2">GA</span><span class="font-bold text-white">{effective.ga}</span></div>
+				<div class="flex justify-between pl-2"><span class="text-gray2">VIP</span><span class="font-bold text-white">{effective.vip}</span></div>
+				{#if linkedEvent}
+					<div class="flex justify-between pl-2 text-[11px]">
+						<span class="text-gray2 truncate pr-2">Linked · {linkedEvent.event_name}</span>
+						<span class="font-bold text-white shrink-0">+{effective.linked}</span>
+					</div>
+				{/if}
+				{#if effective.reported > 0}
+					<div class="flex justify-between pl-2 text-[11px]">
+						<span class="text-gray2">Reported</span>
+						<span class="font-bold text-white">+{effective.reported}</span>
+					</div>
+				{/if}
 			</div>
 		</div>
 
-		<div class="text-[13px] font-bold text-gray2 text-center w-full mb-4">
+		<div class="text-[12px] font-bold text-gray2 text-center w-full mb-3">
 			Last update -<span class="text-lime ml-1">{formatToEasternTime(latestCountForSelected?.report_generated_at)}</span>
+		</div>
+
+		<!-- Link to another event: its tickets fold into this event's counts -->
+		<div class="bg-gray1/40 rounded-xl p-3 mb-3">
+			<div class="flex items-center justify-between mb-2">
+				<h3 class="text-sm font-bold uppercase text-gray3">Link to another event</h3>
+				{#if linkedEvent}
+					<button
+						type="button"
+						on:click={() => pickLinkedEvent(null)}
+						class="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-problem/15 text-problem border border-problem/40 hover:bg-problem hover:text-black transition-colors cursor-pointer outline-none"
+					>
+						Unlink
+					</button>
+				{/if}
+			</div>
+			<button
+				type="button"
+				bind:this={linkBtnEl}
+				on:click={() => (showLinkDropdown ? (showLinkDropdown = false) : openLinkDropdown())}
+				class="w-full bg-gray1 rounded-xl px-3 py-2 flex items-center gap-3 text-left outline-none cursor-pointer hover:bg-gray1/80 transition-colors"
+			>
+				{#if linkedEvent}
+					<div class="w-9 h-9 shrink-0 rounded-md overflow-hidden bg-black">
+						{#if linkedEvent.event_flyer}<img class="w-full h-full object-cover" src={linkedEvent.event_flyer} alt={linkedEvent.event_name} />{/if}
+					</div>
+					<div class="flex flex-col min-w-0 flex-1">
+						<span class="text-white text-xs font-bold truncate">{linkedEvent.event_name}</span>
+						<span class="text-gray2 text-[10px] truncate">{formatEventDateShort(linkedEvent.event_date)} · {countLineFor(linkedEvent.event_id)}</span>
+					</div>
+				{:else}
+					<span class="flex-1 text-xs font-bold text-gray2">No linked event</span>
+				{/if}
+				<svg class="w-3.5 h-3.5 shrink-0 text-gray2 transition-transform {showLinkDropdown ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"></path></svg>
+			</button>
+		</div>
+
+		<!-- Reported count: manual tickets added to the totals (not the chart) -->
+		<div class="bg-gray1/40 rounded-xl p-3 mb-3">
+			<div class="flex items-center justify-between mb-2">
+				<h3 class="text-sm font-bold uppercase text-gray3">Reported Count</h3>
+				<span class="text-[10px] text-gray2 font-bold">Add tickets to count</span>
+			</div>
+			<div class="flex items-center gap-2">
+				<button
+					type="button"
+					on:click={() => bumpReported(-25)}
+					class="w-9 h-9 rounded-full bg-gray1 text-white font-black text-lg flex items-center justify-center hover:bg-gray2/30 cursor-pointer outline-none"
+					aria-label="Remove 25 tickets"
+				>−</button>
+				<input
+					type="number"
+					min="0"
+					step="25"
+					value={reportedDraft}
+					on:input={(e) => commitReported(Number(e.currentTarget.value))}
+					class="flex-1 min-w-0 bg-gray1 text-white text-center font-bold rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-lime no-spinners"
+				/>
+				<button
+					type="button"
+					on:click={() => bumpReported(25)}
+					class="w-9 h-9 rounded-full bg-lime text-black font-black text-lg flex items-center justify-center hover:opacity-90 cursor-pointer outline-none"
+					aria-label="Add 25 tickets"
+				>+</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<svelte:window on:click|capture={onDocClickLink} on:resize={() => (showLinkDropdown = false)} on:keydown={(e) => e.key === 'Escape' && (showLinkDropdown = false)} />
+
+{#if showLinkDropdown}
+	<div
+		use:portal
+		bind:this={linkMenuEl}
+		style={linkMenuStyle}
+		class="bg-navbar border border-gray1 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.6)] z-[10050] flex flex-col overflow-hidden"
+	>
+		<div class="p-2 border-b border-gray1">
+			<input
+				type="text"
+				placeholder="Search events..."
+				bind:value={linkSearch}
+				class="w-full bg-gray1 text-white rounded-lg px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-lime"
+			/>
+		</div>
+		<div class="max-h-[300px] overflow-y-auto custom-scrollbar p-1.5 space-y-1">
+			{#each linkOptions as e (e.event_id)}
+				<button
+					type="button"
+					on:click={() => pickLinkedEvent(e)}
+					class="w-full flex items-center gap-2.5 p-1.5 rounded-lg text-left cursor-pointer outline-none transition-colors {linkedEvent?.event_id === e.event_id ? 'bg-lime/10 border border-lime' : 'border border-transparent hover:bg-gray1'}"
+				>
+					<div class="w-8 h-8 shrink-0 rounded-md overflow-hidden bg-gray1">
+						{#if e.event_flyer}<img class="w-full h-full object-cover" src={e.event_flyer} alt={e.event_name} />{/if}
+					</div>
+					<div class="flex flex-col min-w-0 flex-1">
+						<span class="text-[11px] truncate leading-tight">
+							<span class="text-white font-bold">{e.event_name}</span>
+							<span class="text-gray2"> · {formatEventDateShort(e.event_date)}{#if e.event_venue} · {e.event_venue}{/if}</span>
+						</span>
+						<span class="text-lime text-[10px] font-bold truncate leading-tight mt-0.5">{countLineFor(e.event_id)}</span>
+					</div>
+				</button>
+			{:else}
+				<p class="text-gray2 text-xs text-center py-4">No events match.</p>
+			{/each}
 		</div>
 	</div>
 {/if}
