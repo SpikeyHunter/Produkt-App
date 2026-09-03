@@ -112,6 +112,35 @@
 		return items;
 	})();
 
+	// --- SOUNDCHECK ---
+	// One line under SFX: the window when it's booked, otherwise its status.
+	// Nothing prints when there's no soundcheck.
+	$: soundcheckLine = ((): string | null => {
+		const sc = parseRiderData(event.soundcheck);
+		if (!sc) return null;
+
+		const to12h = (t: string): string => {
+			const [h, m] = String(t || '').split(':');
+			let hour = parseInt(h, 10);
+			if (isNaN(hour)) return '';
+			const ampm = hour >= 12 ? 'PM' : 'AM';
+			hour = hour % 12 || 12;
+			return `${hour}:${m}${ampm}`;
+		};
+
+		// Legacy shape: { enabled: boolean, start_time, end_time }
+		const status = sc.status ?? (sc.enabled === true ? 'yes' : sc.enabled === false ? 'no' : null);
+		if (!status || status === 'no') return null;
+
+		if (status === 'yes' && sc.start_time && sc.end_time) {
+			const from = to12h(sc.start_time);
+			const to = to12h(sc.end_time);
+			return from && to ? `From ${from} to ${to}` : 'TBD';
+		}
+		if (status === 'asked') return 'Asked';
+		return 'TBD';
+	})();
+
 	// --- FOOD BUYOUT / ROOM CREDIT / DINNER ---
 	// Printed under the hospitality list: a heading plus its bullet(s), or a
 	// single inline line for a cash buyout. None prints nothing.
@@ -180,6 +209,11 @@
 							<div>• {item}</div>
 						{/each}
 					</div>
+				{/if}
+
+				{#if soundcheckLine}
+					<h3 class="text-lime text-sm font-bold uppercase tracking-wider mt-4 mb-2">Soundcheck:</h3>
+					<div class="text-white">• {soundcheckLine}</div>
 				{/if}
 			</ContentBox>
 
