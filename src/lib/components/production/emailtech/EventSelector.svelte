@@ -25,26 +25,6 @@
       return STATUS_CONFIG[statusKey] || STATUS_CONFIG['todo'];
   }
 
-  $: multiSelectEnabledDates = (() => {
-    const datesWithVenues = events.reduce((acc, event) => {
-        if (!event.event_date) return acc;
-        if (!acc.has(event.event_date)) {
-            acc.set(event.event_date, new Set<string>());
-        }
-        if(event.event_venue) acc.get(event.event_date)?.add(event.event_venue);
-        return acc;
-    }, new Map<string, Set<string>>());
-
-    const enabledDates = new Set<string>();
-  
-    for (const [date, venues] of datesWithVenues.entries()) {
-        if (venues.has('New City Gas') && venues.size > 1) {
-            enabledDates.add(date);
-        }
-    }
-    return enabledDates;
-  })();
-
   $: uniqueEvents = events.reduce((acc: EmailTechEvent[], current: EmailTechEvent) => {
     if (!acc.find((item: EmailTechEvent) => item.event_id === current.event_id)) {
       acc.push(current);
@@ -81,43 +61,30 @@
       );
     });
 
+  // Clicking a row always selects THAT event only — two shows on the same day
+  // stay separate emails unless they're linked on purpose.
   function handleEventClick(clickedEvent: EmailTechEvent) {
-    const date = clickedEvent.event_date;
-    const isSpecialPair = date && 
-                         events.some(e => e.event_date === date && e.event_venue === 'New City Gas') &&
-                         events.some(e => e.event_date === date && e.event_venue === 'Bazart');
-    
-    if (isSpecialPair) {
-      const ncgEvent = events.find(e => e.event_date === date && e.event_venue === 'New City Gas');
-      const bazartEvent = events.find(e => e.event_date === date && e.event_venue === 'Bazart');
-      
-      if (ncgEvent && bazartEvent) {
-        selectedEvents = [ncgEvent, bazartEvent];
-        showDropdown = false;
-        dispatch('select', selectedEvents);
-        return;
-      }
-    }
-    
-    selectEvent(clickedEvent);
+    const isOnlySelection =
+      selectedEvents.length === 1 && selectedEvents[0].id === clickedEvent.id;
+
+    selectedEvents = isOnlySelection ? [] : [clickedEvent];
+    showDropdown = false;
+    dispatch('select', selectedEvents);
   }
 
-  function selectEvent(eventToAdd: EmailTechEvent) {
-    const isSelected = selectedEvents.some(e => e.id === eventToAdd.id);
-    if (isSelected) {
-      selectedEvents = selectedEvents.filter(e => e.id !== eventToAdd.id);
-    } else {
-      const firstSelected = selectedEvents[0];
-      const isMultiSelectDate = firstSelected?.event_date && multiSelectEnabledDates.has(firstSelected.event_date);
-      
-      if (isMultiSelectDate && firstSelected.event_date === eventToAdd.event_date && selectedEvents.length < 2) {
-        selectedEvents = [...selectedEvents, eventToAdd];
-      } else {
-        selectedEvents = [eventToAdd];
-      }
-    }
-    
-    showDropdown = false;
+  /** Can this row be linked to (or unlinked from) the current selection? */
+  function canLink(event: EmailTechEvent): boolean {
+    const first = selectedEvents[0];
+    if (!first || first.id === event.id) return false;
+    return !!event.event_date && event.event_date === first.event_date;
+  }
+
+  // Explicit link/unlink — keeps the dropdown open so several can be combined.
+  function toggleLink(event: EmailTechEvent) {
+    const isLinked = selectedEvents.some(e => e.id === event.id);
+    selectedEvents = isLinked
+      ? selectedEvents.filter(e => e.id !== event.id)
+      : [...selectedEvents, event];
     dispatch('select', selectedEvents);
   }
   
@@ -206,11 +173,17 @@
             {:else if filteredEvents.length > 0}
                 {#each filteredEvents as event (event.id)}
                     {@const isCurrentlySelected = selectedEvents.some(e => e.id === event.id)}
+                    {@const isPrimary = selectedEvents[0]?.id === event.id}
+                    {@const linkable = canLink(event)}
                     {@const statusInfo = getStatusDetails(event)}
-                    <button 
-                    on:click={() => handleEventClick(event)} 
-                    class="group w-full text-left p-3 hover:bg-gray1 transition-colors flex items-center gap-4 border-b border-gray1 last:border-b-0 cursor-pointer"
-                    >
+                    <div class="group relative flex items-center gap-4 p-3 hover:bg-gray1 transition-colors border-b border-gray1 last:border-b-0">
+                    <button
+                    type="button"
+                    on:click={() => handleEventClick(event)}
+                    class="absolute inset-0 w-full h-full cursor-pointer bg-transparent border-none outline-none"
+                    aria-label={`Select ${event.event_name}`}
+                    ></button>
+                    <div class="pointer-events-none relative flex items-center gap-4 w-full">
                         {#if event.event_flyer}
                         <img src={event.event_flyer} alt={event.event_name} class="w-12 h-15 object-cover rounded flex-shrink-0" />
                         {:else}
@@ -234,12 +207,33 @@
                             </span>
                         </div>
                         </div>
+                        <!-- Linking is opt-in: same-day shows are separate emails by default -->
+                        {#if isCurrentlySelected && !isPrimary}
+                        <button
+                            type="button"
+                            on:click|stopPropagation={() => toggleLink(event)}
+                            class="pointer-events-auto relative z-10 flex-shrink-0 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full bg-lime text-black hover:opacity-80 transition-opacity cursor-pointer outline-none"
+                            title="Unlink from this email"
+                        >
+                            Linked
+                        </button>
+                        {:else if linkable}
+                        <button
+                            type="button"
+                            on:click|stopPropagation={() => toggleLink(event)}
+                            class="pointer-events-auto relative z-10 flex-shrink-0 text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full border border-lime/50 text-lime hover:bg-lime hover:text-black transition-colors cursor-pointer outline-none"
+                            title="Link to the selected event (one combined email)"
+                        >
+                            + Link
+                        </button>
+                        {/if}
                         {#if isCurrentlySelected}
                         <svg class="w-5 h-5 text-lime flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
                             <polyline points="20 6 9 17 4 12" />
                         </svg>
                         {/if}
-                    </button>
+                    </div>
+                    </div>
                 {/each}
             {:else}
                 <div class="p-4 text-center text-gray2 text-sm">

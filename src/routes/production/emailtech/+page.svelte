@@ -76,15 +76,9 @@
             return;
         }
 
-        const main = selection[0];
-        if (selection.length === 1 && main.event_venue === 'New City Gas') {
-            const bazart = events.find(
-                (e) => e.event_date === main.event_date && e.event_venue === 'Bazart'
-            );
-            selectedEvents = bazart ? [main, bazart] : [main];
-        } else {
-            selectedEvents = selection;
-        }
+        // Take the selection exactly as given — events are only combined when
+        // the user links them in the selector.
+        selectedEvents = selection;
 
         const primaryEvent = selectedEvents[0];
         crewAssignments = primaryEvent.crew || {};
