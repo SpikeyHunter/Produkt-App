@@ -34,13 +34,7 @@ const STORE_TO_DB: Record<string, string> = {
 const DB_TO_STORE: Record<string, string> = Object.fromEntries(
 	Object.entries(STORE_TO_DB).map(([k, v]) => [v, k])
 );
-const JSON_KEYS = new Set([
-	'artist_fee',
-	'technical',
-	'hospitality',
-	'other_expenses',
-	'income_enabled'
-]);
+const JSON_KEYS = new Set(['artist_fee', 'technical', 'hospitality', 'other_expenses']);
 
 export interface IncomeEnabled {
 	artist: boolean;
@@ -100,6 +94,9 @@ function normalizeStoreValue(key: string, value: any): any {
 		const parsed = typeof value === 'string' ? safeParse(value) : value;
 		return SIMPLE_JSON_KEYS.has(key) ? normalizeItems(parsed) : normalizeSubsections(parsed);
 	}
+	// Small jsonb objects (not section lists) keep their own shape.
+	if (key === 'income_enabled') return normalizeIncomeEnabled(value);
+	if (key === 'apply_taxes') return value === true;
 	if (key === 'budget_type') return value || 'Tour Prod';
 	// numeric income columns (realtime delivers numerics as strings)
 	if (value === null || value === undefined || value === '') return null;
@@ -196,7 +193,7 @@ export function createBudgetSync() {
 			budget_type: data.budget_type || 'Tour Prod',
 			apply_taxes: data.apply_taxes === true,
 			// Which income sources apply to this budget (all on by default).
-			income_enabled: normalizeIncomeEnabled(data.income_enabled),
+			income_enabled: normalizeStoreValue('income_enabled', data.income_enabled),
 			// numerics normalized (supabase can return numeric columns as strings)
 			income_total_budget: normalizeStoreValue('income_total_budget', data.income_total_budget),
 			income_artist: normalizeStoreValue('income_artist', data.income_artist),
