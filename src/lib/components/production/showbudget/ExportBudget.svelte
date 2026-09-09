@@ -122,10 +122,11 @@
 		subsHaveActuals($budgetStore?.hospitality) ||
 		subsHaveActuals($budgetStore?.other_expenses);
 
-	$: netTotal = totalIncome - totalExpenses;
-	$: actualNet = totalIncome - actualExpenses;
-
 	$: applyTaxes = $budgetStore?.apply_taxes === true;
+	// NET = budget − expenses, taxes included when + TX is on (matches the PDF).
+	$: taxRate = applyTaxes ? 0.05 + 0.09975 : 0;
+	$: netTotal = totalIncome - totalExpenses * (1 + taxRate);
+	$: actualNet = totalIncome - actualExpenses * (1 + taxRate);
 
 	function toggleTaxes() {
 		if (!$budgetStore) return;

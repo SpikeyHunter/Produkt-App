@@ -61,6 +61,8 @@
 			subsBudgetedTotal(s.hospitality || []) +
 			subsBudgetedTotal(s.other_expenses || []);
 		if (type === 'Complete Prod') expenses += itemsBudgetedTotal(s.artist_fee || []);
+		// GST + QST when the budget has + TX on (same rule as the totals panel).
+		if (s.apply_taxes === true) expenses *= 1 + 0.05 + 0.09975;
 		return incomeTotalFor(s) - expenses;
 	}
 

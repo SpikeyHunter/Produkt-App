@@ -83,17 +83,52 @@
 		return base;
 	})();
 
-	$: netTotal = totalIncome - totalExpenses;
-	$: actualNetTotal = totalIncome - totalActualExpenses;
+	// TOTAL = budget − expenses, taxes included when they apply.
+	$: netTotal = totalIncome - expensesWithTaxes;
+	$: actualNetTotal = totalIncome - actualExpensesWithTaxes;
 
 	// +TX: GST 5% + QST 9.975%, computed independently on each expense column.
 	$: applyTaxes = budgetData?.apply_taxes === true;
-	$: gstAmount = totalExpenses * 0.05;
-	$: qstAmount = totalExpenses * 0.09975;
+	$: gstAmount = applyTaxes ? totalExpenses * 0.05 : 0;
+	$: qstAmount = applyTaxes ? totalExpenses * 0.09975 : 0;
 	$: expensesWithTaxes = totalExpenses + gstAmount + qstAmount;
-	$: gstActual = totalActualExpenses * 0.05;
-	$: qstActual = totalActualExpenses * 0.09975;
+	$: gstActual = applyTaxes ? totalActualExpenses * 0.05 : 0;
+	$: qstActual = applyTaxes ? totalActualExpenses * 0.09975 : 0;
 	$: actualExpensesWithTaxes = totalActualExpenses + gstActual + qstActual;
+
+	// Income breakdown — only the sources that apply to this budget.
+	$: incomeRows = (
+		budgetType === 'Internal Prod'
+			? [{ show: true, label: 'Total Budget', amount: incomeTotalBudget }]
+			: [
+					{
+						show: budgetType === 'Complete Prod' && incomeEnabled.artist,
+						label: 'Artist Fee',
+						amount: incomeArtist
+					},
+					{ show: incomeEnabled.technical, label: 'Technical', amount: incomeTechnical },
+					{ show: incomeEnabled.hospitality, label: 'Hospitality', amount: incomeHospitality },
+					{ show: incomeEnabled.other, label: 'Other', amount: incomeOther }
+				]
+	).filter((r) => r.show);
+
+	// Expense breakdown — only the sections that actually printed.
+	$: expenseRows = [
+		{
+			show: budgetType === 'Complete Prod' && pdfArtistFee.length > 0,
+			label: 'Artist Fee',
+			b: totalArtistFee,
+			a: actArtistFee
+		},
+		{ show: pdfTechnical.length > 0, label: 'Technical', b: totalTechnical, a: actTechnical },
+		{
+			show: pdfHospitality.length > 0,
+			label: 'Hospitality',
+			b: totalHospitality,
+			a: actHospitality
+		},
+		{ show: pdfOther.length > 0, label: 'Other Expenses', b: totalOther, a: actOther }
+	].filter((r) => r.show);
 
 	function sectionHeaderTotal(budgeted: number, actual: number): string {
 		if (options.amounts === 'budgeted') return formatMoney(budgeted);
@@ -280,150 +315,125 @@
 	<div class="pdf-section mt-8 pt-6 border-t-2 border-gray2/30 break-inside-avoid">
 		<h2 class="text-xl font-bold text-white mb-4 uppercase">Summary</h2>
 		<div class="bg-gray2/10 rounded-lg p-6 border border-gray2/20">
+			{#if options.amounts === 'both'}
+				<div class="flex justify-end gap-8 text-[10px] uppercase tracking-wider text-gray2 mb-2">
+					<span class="w-28 text-right">Budgeted</span>
+					<span class="w-28 text-right">Actual</span>
+				</div>
+			{/if}
+
+			<!-- TOTAL BUDGET (income) — only the sources that apply -->
 			{#if options.includeIncome}
 				<div class="flex justify-between items-center text-sm font-bold">
 					<span class="text-gray2 uppercase tracking-wider">Total Budget</span>
 					<span class="font-bold text-confirmed text-lg font-mono">{formatMoney(totalIncome)}</span>
 				</div>
 				<div class="pl-4 mt-2 mb-4 space-y-1.5 border-l-2 border-gray2/20">
-					{#if budgetType === 'Internal Prod'}
+					{#each incomeRows as row}
 						<div class="flex justify-between text-xs">
-							<span class="text-gray2">Total Budget</span>
-							<span class="text-white font-mono">{formatMoney(incomeTotalBudget)}</span>
+							<span class="text-gray2">{row.label}</span>
+							<span class="text-white font-mono">{formatMoney(row.amount)}</span>
 						</div>
-					{:else}
-						{#if budgetType === 'Complete Prod'}
-							<div class="flex justify-between text-xs">
-								<span class="text-gray2">Artist Fee</span>
-								<span class="text-white font-mono">{formatMoney(incomeArtist)}</span>
-							</div>
-						{/if}
-						<div class="flex justify-between text-xs">
-							<span class="text-gray2">Technical</span>
-							<span class="text-white font-mono">{formatMoney(incomeTechnical)}</span>
-						</div>
-						<div class="flex justify-between text-xs">
-							<span class="text-gray2">Hospitality</span>
-							<span class="text-white font-mono">{formatMoney(incomeHospitality)}</span>
-						</div>
-						<div class="flex justify-between text-xs">
-							<span class="text-gray2">Other</span>
-							<span class="text-white font-mono">{formatMoney(incomeOther)}</span>
-						</div>
-					{/if}
+					{/each}
 				</div>
 			{/if}
 
-			<!-- Expenses: Budgeted and Actual are independent columns; only the
-			     selected mode(s) are printed. -->
+			<!-- TOTAL EXPENSES: sections, then taxes, then the taxed total -->
 			<div class="flex justify-between items-center text-sm font-bold pt-3 border-t border-gray2/10">
 				<span class="text-gray2 uppercase tracking-wider">Total Expenses</span>
-				{#if options.amounts === 'both'}
-					<span class="flex gap-8 text-[10px] uppercase tracking-wider text-gray2">
-						<span class="w-28 text-right">Budgeted</span>
-						<span class="w-28 text-right">Actual</span>
-					</span>
-				{/if}
-			</div>
-
-			<div class="pl-4 mt-2 mb-3 space-y-1.5 border-l-2 border-gray2/20">
-				{#each [{ show: budgetType === 'Complete Prod' && pdfArtistFee.length > 0, label: 'Artist Fee', b: totalArtistFee, a: actArtistFee }, { show: pdfTechnical.length > 0, label: 'Technical', b: totalTechnical, a: actTechnical }, { show: pdfHospitality.length > 0, label: 'Hospitality', b: totalHospitality, a: actHospitality }, { show: pdfOther.length > 0, label: 'Other Expenses', b: totalOther, a: actOther }] as row}
-					{#if row.show}
-						<div class="flex justify-between text-xs">
-							<span class="text-gray2">{row.label}</span>
-							<span class="flex gap-8">
-								{#if showBudgeted}
-									<span class="text-problem font-mono w-28 text-right">{formatMoney(row.b * -1)}</span>
-								{/if}
-								{#if showActual}
-									<span class="text-problem font-mono w-28 text-right">{formatMoney(row.a * -1)}</span>
-								{/if}
-							</span>
-						</div>
-					{/if}
-				{/each}
-			</div>
-
-			<div class="flex justify-between items-center text-sm font-bold pt-2 border-t border-gray2/20">
-				<span class="text-white uppercase tracking-wider">Subtotal</span>
 				<span class="flex gap-8">
 					{#if showBudgeted}
-						<span class="font-bold text-problem text-base font-mono w-28 text-right">{formatMoney(totalExpenses * -1)}</span>
+						<span class="font-bold text-problem text-lg font-mono w-28 text-right">{formatMoney(expensesWithTaxes * -1)}</span>
 					{/if}
 					{#if showActual}
-						<span class="font-bold text-problem text-base font-mono w-28 text-right">{formatMoney(totalActualExpenses * -1)}</span>
+						<span class="font-bold text-problem text-lg font-mono w-28 text-right">{formatMoney(actualExpensesWithTaxes * -1)}</span>
 					{/if}
 				</span>
 			</div>
 
-			{#if applyTaxes}
-				<div class="text-gray2 uppercase tracking-wider text-xs font-bold mt-4">Taxes:</div>
-				<div class="pl-4 mt-2 mb-3 space-y-1.5 border-l-2 border-gray2/20">
+			<div class="pl-4 mt-2 space-y-1.5 border-l-2 border-gray2/20">
+				{#each expenseRows as row}
 					<div class="flex justify-between text-xs">
-						<span class="text-gray2">GST (5%)</span>
+						<span class="text-gray2">{row.label}</span>
 						<span class="flex gap-8">
 							{#if showBudgeted}
-								<span class="font-mono text-problem w-28 text-right">{formatMoney(gstAmount * -1)}</span>
+								<span class="text-problem font-mono w-28 text-right">{formatMoney(row.b * -1)}</span>
 							{/if}
 							{#if showActual}
-								<span class="font-mono text-problem w-28 text-right">{formatMoney(gstActual * -1)}</span>
+								<span class="text-problem font-mono w-28 text-right">{formatMoney(row.a * -1)}</span>
 							{/if}
 						</span>
 					</div>
-					<div class="flex justify-between text-xs">
-						<span class="text-gray2">QST (9.975%)</span>
-						<span class="flex gap-8">
-							{#if showBudgeted}
-								<span class="font-mono text-problem w-28 text-right">{formatMoney(qstAmount * -1)}</span>
-							{/if}
-							{#if showActual}
-								<span class="font-mono text-problem w-28 text-right">{formatMoney(qstActual * -1)}</span>
-							{/if}
-						</span>
-					</div>
-				</div>
-				<div class="flex justify-between items-center text-sm font-bold pt-2 border-t border-gray2/20">
+				{/each}
+
+				<div class="flex justify-between items-center text-xs font-bold pt-1.5 mt-1.5 border-t border-gray2/20">
 					<span class="text-white uppercase tracking-wider">Subtotal</span>
 					<span class="flex gap-8">
 						{#if showBudgeted}
-							<span class="font-bold text-problem text-base font-mono w-28 text-right">{formatMoney((gstAmount + qstAmount) * -1)}</span>
+							<span class="font-bold text-problem font-mono w-28 text-right">{formatMoney(totalExpenses * -1)}</span>
 						{/if}
 						{#if showActual}
-							<span class="font-bold text-problem text-base font-mono w-28 text-right">{formatMoney((gstActual + qstActual) * -1)}</span>
+							<span class="font-bold text-problem font-mono w-28 text-right">{formatMoney(totalActualExpenses * -1)}</span>
 						{/if}
 					</span>
 				</div>
 
-				<div class="flex justify-between items-center text-xl mt-3 pt-3 border-t-2 border-gray2/30">
-					<span class="font-bold text-white uppercase tracking-wider">Total</span>
-					<span class="flex gap-8">
-						{#if showBudgeted}
-							<span class="font-bold font-mono text-problem w-28 text-right">{formatMoney(expensesWithTaxes * -1)}</span>
-						{/if}
-						{#if showActual}
-							<span class="font-bold font-mono text-problem w-28 text-right">{formatMoney(actualExpensesWithTaxes * -1)}</span>
-						{/if}
-					</span>
-				</div>
-			{:else}
-				<div class="flex justify-between items-center text-xl mt-3 pt-3 border-t border-gray2/20">
-					<span class="font-bold text-white uppercase tracking-wider">
-						{options.includeIncome ? 'BUDGET TOTAL' : 'Total'}
-					</span>
-					<span class="flex gap-8">
-						{#if showBudgeted}
-							<span class="font-bold font-mono w-28 text-right {netTotal >= 0 ? 'text-confirmed' : 'text-problem'}">
-								{formatMoney(netTotal)}
+				{#if applyTaxes}
+					<div class="text-gray2 uppercase tracking-wider text-[10px] font-bold pt-2">Taxes</div>
+					<div class="pl-3 space-y-1.5 border-l border-gray2/20">
+						<div class="flex justify-between text-xs">
+							<span class="text-gray2">GST (5%)</span>
+							<span class="flex gap-8">
+								{#if showBudgeted}
+									<span class="font-mono text-problem w-28 text-right">{formatMoney(gstAmount * -1)}</span>
+								{/if}
+								{#if showActual}
+									<span class="font-mono text-problem w-28 text-right">{formatMoney(gstActual * -1)}</span>
+								{/if}
 							</span>
-						{/if}
-						{#if showActual}
-							<span class="font-bold font-mono w-28 text-right {actualNetTotal >= 0 ? 'text-confirmed' : 'text-problem'}">
-								{formatMoney(actualNetTotal)}
+						</div>
+						<div class="flex justify-between text-xs">
+							<span class="text-gray2">QST (9.975%)</span>
+							<span class="flex gap-8">
+								{#if showBudgeted}
+									<span class="font-mono text-problem w-28 text-right">{formatMoney(qstAmount * -1)}</span>
+								{/if}
+								{#if showActual}
+									<span class="font-mono text-problem w-28 text-right">{formatMoney(qstActual * -1)}</span>
+								{/if}
 							</span>
-						{/if}
-					</span>
-				</div>
-			{/if}
+						</div>
+					</div>
+					<div class="flex justify-between items-center text-xs font-bold pt-1.5 mt-1.5 border-t border-gray2/20">
+						<span class="text-white uppercase tracking-wider">Subtotal</span>
+						<span class="flex gap-8">
+							{#if showBudgeted}
+								<span class="font-bold text-problem font-mono w-28 text-right">{formatMoney((gstAmount + qstAmount) * -1)}</span>
+							{/if}
+							{#if showActual}
+								<span class="font-bold text-problem font-mono w-28 text-right">{formatMoney((gstActual + qstActual) * -1)}</span>
+							{/if}
+						</span>
+					</div>
+				{/if}
+			</div>
+
+			<!-- TOTAL = budget − expenses (taxes included) -->
+			<div class="flex justify-between items-center text-xl mt-4 pt-3 border-t-2 border-gray2/30">
+				<span class="font-bold text-white uppercase tracking-wider">Total</span>
+				<span class="flex gap-8">
+					{#if showBudgeted}
+						<span class="font-bold font-mono w-28 text-right {options.includeIncome ? (netTotal >= 0 ? 'text-confirmed' : 'text-problem') : 'text-problem'}">
+							{formatMoney(options.includeIncome ? netTotal : expensesWithTaxes * -1)}
+						</span>
+					{/if}
+					{#if showActual}
+						<span class="font-bold font-mono w-28 text-right {options.includeIncome ? (actualNetTotal >= 0 ? 'text-confirmed' : 'text-problem') : 'text-problem'}">
+							{formatMoney(options.includeIncome ? actualNetTotal : actualExpensesWithTaxes * -1)}
+						</span>
+					{/if}
+				</span>
+			</div>
 		</div>
 	</div>
 </div>
