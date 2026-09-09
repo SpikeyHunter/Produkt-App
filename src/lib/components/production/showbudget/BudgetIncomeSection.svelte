@@ -4,6 +4,9 @@
 
 	export let label: string;
 	export let amount: number | null;
+	// null = this source can't be switched off (e.g. Internal Prod total budget)
+	export let enabled: boolean | null = null;
+	$: isOff = enabled === false;
 
 	const dispatch = createEventDispatcher();
 	
@@ -66,22 +69,45 @@
 </script>
 
 <div>
-	<label for={label} class="text-gray2 text-xs uppercase tracking-wider mb-1 block">
-		{label}
-	</label>
-	<div class="relative">
+	<div class="flex items-center justify-between mb-1">
+		<label for={label} class="text-gray2 text-xs uppercase tracking-wider block">
+			{label}
+		</label>
+		{#if enabled !== null}
+			<!-- Switch a source off when it doesn't apply to this budget -->
+			<button
+				type="button"
+				role="switch"
+				aria-checked={enabled}
+				aria-label={`Toggle ${label} income`}
+				on:click={() => dispatch('toggle', !enabled)}
+				class="relative inline-flex h-4 w-8 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none {enabled
+					? 'bg-lime'
+					: 'bg-[#444]'}"
+			>
+				<span
+					aria-hidden="true"
+					class="pointer-events-none inline-block h-3 w-3 transform rounded-full bg-black shadow ring-0 transition duration-150 {enabled
+						? 'translate-x-4'
+						: 'translate-x-0'}"
+				></span>
+			</button>
+		{/if}
+	</div>
+	<div class="relative {isOff ? 'opacity-40' : ''}">
 		<span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray2">$</span>
-		
+
 		<input
 			type="text"
 			id={label}
 			bind:this={inputElement}
 			bind:value={displayValue}
+			disabled={isOff}
 			on:focus={handleFocus}
 			on:blur={handleBlur}
 			on:keydown={handleKeyDown}
-			placeholder="0.00"
-			class="w-full bg-navbar text-white rounded-lg pl-8 pr-3 py-2 text-sm placeholder-gray2 focus:outline-none focus:ring-2 focus:ring-lime"
+			placeholder={isOff ? 'Not applicable' : '0.00'}
+			class="w-full bg-navbar text-white rounded-lg pl-8 pr-3 py-2 text-sm placeholder-gray2 focus:outline-none focus:ring-2 focus:ring-lime disabled:cursor-not-allowed"
 		/>
 	</div>
 </div>

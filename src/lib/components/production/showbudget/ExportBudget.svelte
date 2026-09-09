@@ -5,6 +5,7 @@
 
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
+	import { normalizeIncomeEnabled } from '$lib/utils/budgetSync';
 	import { slide } from 'svelte/transition';
 	import type { Writable, Readable } from 'svelte/store';
 	import BudgetIncomeSection from './BudgetIncomeSection.svelte';
@@ -68,17 +69,28 @@
 	// Variables
 	$: budgetType = $budgetStore?.budget_type || 'Tour Prod';
 
+	// Income sources can be switched off when they don't apply to a budget.
+	$: incomeEnabled = normalizeIncomeEnabled($budgetStore?.income_enabled);
+
 	$: incomeTotalBudget = Number($budgetStore?.income_total_budget) || 0;
-	$: incomeArtist = Number($budgetStore?.income_artist) || 0;
-	$: incomeTechnical = Number($budgetStore?.income_technical) || 0;
-	$: incomeHospitality = Number($budgetStore?.income_hospitality) || 0;
-	$: incomeOther = Number($budgetStore?.income_other) || 0;
+	$: incomeArtist = incomeEnabled.artist ? Number($budgetStore?.income_artist) || 0 : 0;
+	$: incomeTechnical = incomeEnabled.technical ? Number($budgetStore?.income_technical) || 0 : 0;
+	$: incomeHospitality = incomeEnabled.hospitality
+		? Number($budgetStore?.income_hospitality) || 0
+		: 0;
+	$: incomeOther = incomeEnabled.other ? Number($budgetStore?.income_other) || 0 : 0;
 
 	$: totalIncome = (() => {
 		if (budgetType === 'Internal Prod') return incomeTotalBudget;
 		if (budgetType === 'Tour Prod') return incomeTechnical + incomeHospitality + incomeOther;
 		return incomeArtist + incomeTechnical + incomeHospitality + incomeOther;
 	})();
+
+	function toggleIncome(key: 'artist' | 'technical' | 'hospitality' | 'other', on: boolean) {
+		if (!$budgetStore) return;
+		$budgetStore.income_enabled = { ...normalizeIncomeEnabled($budgetStore.income_enabled), [key]: on };
+		handleSave('income_enabled');
+	}
 
 	// Budgeted expenses (hidden rows/sections excluded by the utils)
 	$: expenseArtist = itemsBudgetedTotal($budgetStore?.artist_fee);
@@ -490,6 +502,8 @@
 									<BudgetIncomeSection
 										label="Artist Fee"
 										bind:amount={$budgetStore.income_artist}
+										enabled={incomeEnabled.artist}
+										on:toggle={(e) => toggleIncome('artist', e.detail)}
 										on:update={handleIncomeUpdate}
 										on:save={() => handleSave('income_artist')}
 									/>
@@ -498,18 +512,24 @@
 								<BudgetIncomeSection
 									label="Technical"
 									bind:amount={$budgetStore.income_technical}
+									enabled={incomeEnabled.technical}
+									on:toggle={(e) => toggleIncome('technical', e.detail)}
 									on:update={handleIncomeUpdate}
 									on:save={() => handleSave('income_technical')}
 								/>
 								<BudgetIncomeSection
 									label="Hospitality"
 									bind:amount={$budgetStore.income_hospitality}
+									enabled={incomeEnabled.hospitality}
+									on:toggle={(e) => toggleIncome('hospitality', e.detail)}
 									on:update={handleIncomeUpdate}
 									on:save={() => handleSave('income_hospitality')}
 								/>
 								<BudgetIncomeSection
 									label="Other Expenses"
 									bind:amount={$budgetStore.income_other}
+									enabled={incomeEnabled.other}
+									on:toggle={(e) => toggleIncome('other', e.detail)}
 									on:update={handleIncomeUpdate}
 									on:save={() => handleSave('income_other')}
 								/>

@@ -383,25 +383,34 @@
 			/>
 		{/if}
 
-		<!-- Qty -->
-		<input
-			type="number"
-			min="0"
-			max="99999"
-			step="1"
-			bind:value={item.quantity}
-			disabled={item.hidden}
-			on:input={(e) => {
-				// keep quantities sane (and inside the column) — 5 digits max
-				const n = Number(e.currentTarget.value);
-				if (n > 99999) item.quantity = 99999;
-				notifyUpdate();
-			}}
-			on:keydown={commitOnEnter}
-			on:blur={notifySave}
-			placeholder="1"
-			class="w-full min-w-0 {inputBg} {rowText} rounded-lg px-1 py-1 text-[12px] placeholder-gray2 text-center"
-		/>
+		<!-- Qty — N/A when the line regroups sub-items (its total is their sum) -->
+		{#if kids}
+			<div
+				class="w-full min-w-0 rounded-lg px-1 py-1 text-[12px] bg-white/[0.03] border border-dashed border-white/10 text-gray2 text-center cursor-default"
+				title="Not applicable — this line is the sum of its sub-items"
+			>
+				–
+			</div>
+		{:else}
+			<input
+				type="number"
+				min="0"
+				max="99999"
+				step="1"
+				bind:value={item.quantity}
+				disabled={item.hidden}
+				on:input={(e) => {
+					// keep quantities sane (and inside the column) — 5 digits max
+					const n = Number(e.currentTarget.value);
+					if (n > 99999) item.quantity = 99999;
+					notifyUpdate();
+				}}
+				on:keydown={commitOnEnter}
+				on:blur={notifySave}
+				placeholder="1"
+				class="w-full min-w-0 {inputBg} {rowText} rounded-lg px-1 py-1 text-[12px] placeholder-gray2 text-center"
+			/>
+		{/if}
 
 		<!-- Unit -->
 		<div class="relative">

@@ -28,12 +28,44 @@ const STORE_TO_DB: Record<string, string> = {
 	income_other: 'income_other',
 	income_total_budget: 'income_total_budget',
 	budget_type: 'budget_type',
-	apply_taxes: 'apply_taxes'
+	apply_taxes: 'apply_taxes',
+	income_enabled: 'income_enabled'
 };
 const DB_TO_STORE: Record<string, string> = Object.fromEntries(
 	Object.entries(STORE_TO_DB).map(([k, v]) => [v, k])
 );
-const JSON_KEYS = new Set(['artist_fee', 'technical', 'hospitality', 'other_expenses']);
+const JSON_KEYS = new Set([
+	'artist_fee',
+	'technical',
+	'hospitality',
+	'other_expenses',
+	'income_enabled'
+]);
+
+export interface IncomeEnabled {
+	artist: boolean;
+	technical: boolean;
+	hospitality: boolean;
+	other: boolean;
+}
+
+/** Income sources default to ON, so existing budgets are unchanged. */
+export function normalizeIncomeEnabled(raw: any): IncomeEnabled {
+	let v: any = raw;
+	if (typeof v === 'string') {
+		try {
+			v = JSON.parse(v);
+		} catch {
+			v = null;
+		}
+	}
+	return {
+		artist: v?.artist !== false,
+		technical: v?.technical !== false,
+		hospitality: v?.hospitality !== false,
+		other: v?.other !== false
+	};
+}
 const SIMPLE_JSON_KEYS = new Set(['artist_fee']); // flat item lists (no subsections)
 
 // Minimal, greppable logs: filter the console on "[budget]".
@@ -163,6 +195,8 @@ export function createBudgetSync() {
 		return {
 			budget_type: data.budget_type || 'Tour Prod',
 			apply_taxes: data.apply_taxes === true,
+			// Which income sources apply to this budget (all on by default).
+			income_enabled: normalizeIncomeEnabled(data.income_enabled),
 			// numerics normalized (supabase can return numeric columns as strings)
 			income_total_budget: normalizeStoreValue('income_total_budget', data.income_total_budget),
 			income_artist: normalizeStoreValue('income_artist', data.income_artist),
@@ -462,7 +496,7 @@ export function createBudgetSync() {
 				`id, event_name, event_id, budget_type, income_total_budget,
 				 income_artist, income_technical, income_hospitality, income_other,
 				 expenses_artist_fee, expenses_technical, expenses_hospitality, expenses_other,
-				 apply_taxes`
+				 apply_taxes, income_enabled`
 			)
 			.eq('id', id)
 			.single();

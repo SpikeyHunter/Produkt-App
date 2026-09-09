@@ -11,8 +11,10 @@
 		itemsBudgetedTotal,
 		itemsActualTotal,
 		subsBudgetedTotal,
-		subsActualTotal
+		subsActualTotal,
+		hasChildren
 	} from '$lib/utils/budgetUtils';
+	import { normalizeIncomeEnabled } from '$lib/utils/budgetSync';
 	import type { ExportOptions, BudgetItem, BudgetSubsection } from '$lib/types/budget';
 
 	export let budgetData: any;
@@ -30,12 +32,13 @@
 	$: showBudgeted = options.amounts === 'both' || options.amounts === 'budgeted';
 	$: showActual = options.amounts === 'both' || options.amounts === 'actual';
 
-	// Income
+	// Income — sources switched off for this budget are skipped entirely.
+	$: incomeEnabled = normalizeIncomeEnabled(budgetData?.income_enabled);
 	$: incomeTotalBudget = safeNum(budgetData?.income_total_budget);
-	$: incomeArtist = safeNum(budgetData?.income_artist);
-	$: incomeTechnical = safeNum(budgetData?.income_technical);
-	$: incomeHospitality = safeNum(budgetData?.income_hospitality);
-	$: incomeOther = safeNum(budgetData?.income_other);
+	$: incomeArtist = incomeEnabled.artist ? safeNum(budgetData?.income_artist) : 0;
+	$: incomeTechnical = incomeEnabled.technical ? safeNum(budgetData?.income_technical) : 0;
+	$: incomeHospitality = incomeEnabled.hospitality ? safeNum(budgetData?.income_hospitality) : 0;
+	$: incomeOther = incomeEnabled.other ? safeNum(budgetData?.income_other) : 0;
 
 	$: totalIncome = (() => {
 		if (budgetType === 'Internal Prod') return incomeTotalBudget;
@@ -148,24 +151,30 @@
 				</div>
 			{:else}
 				<div class="grid grid-cols-2 gap-4">
-					{#if budgetType === 'Complete Prod'}
+					{#if budgetType === 'Complete Prod' && incomeEnabled.artist}
 						<div class="bg-gray2/10 p-4 rounded border border-gray2/20">
 							<span class="text-gray2 text-xs uppercase block mb-1">Artist Fee</span>
 							<span class="text-confirmed font-bold font-mono text-xl">{formatMoney(incomeArtist)}</span>
 						</div>
 					{/if}
-					<div class="bg-gray2/10 p-4 rounded border border-gray2/20">
-						<span class="text-gray2 text-xs uppercase block mb-1">Technical</span>
-						<span class="text-confirmed font-bold font-mono text-xl">{formatMoney(incomeTechnical)}</span>
-					</div>
-					<div class="bg-gray2/10 p-4 rounded border border-gray2/20">
-						<span class="text-gray2 text-xs uppercase block mb-1">Hospitality</span>
-						<span class="text-confirmed font-bold font-mono text-xl">{formatMoney(incomeHospitality)}</span>
-					</div>
-					<div class="bg-gray2/10 p-4 rounded border border-gray2/20">
-						<span class="text-gray2 text-xs uppercase block mb-1">Other</span>
-						<span class="text-confirmed font-bold font-mono text-xl">{formatMoney(incomeOther)}</span>
-					</div>
+					{#if incomeEnabled.technical}
+						<div class="bg-gray2/10 p-4 rounded border border-gray2/20">
+							<span class="text-gray2 text-xs uppercase block mb-1">Technical</span>
+							<span class="text-confirmed font-bold font-mono text-xl">{formatMoney(incomeTechnical)}</span>
+						</div>
+					{/if}
+					{#if incomeEnabled.hospitality}
+						<div class="bg-gray2/10 p-4 rounded border border-gray2/20">
+							<span class="text-gray2 text-xs uppercase block mb-1">Hospitality</span>
+							<span class="text-confirmed font-bold font-mono text-xl">{formatMoney(incomeHospitality)}</span>
+						</div>
+					{/if}
+					{#if incomeEnabled.other}
+						<div class="bg-gray2/10 p-4 rounded border border-gray2/20">
+							<span class="text-gray2 text-xs uppercase block mb-1">Other</span>
+							<span class="text-confirmed font-bold font-mono text-xl">{formatMoney(incomeOther)}</span>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -193,7 +202,7 @@
 					{#each pdfArtistFee as item}
 						<div class="flex justify-between items-center py-2 border-b border-gray2/10 last:border-0 text-sm {item.flagged ? 'text-problem' : ''}">
 							<span class="{item.flagged ? 'text-problem' : 'text-white'}">
-								{safeNum(item.quantity) || 1}x {item.name || 'Item'}{item.flagged ? ' *' : ''}
+								{hasChildren(item) ? '' : `${safeNum(item.quantity) || 1}x `}{item.name || 'Item'}{item.flagged ? ' *' : ''}
 							</span>
 							<span class="flex gap-8">
 								{#if showBudgeted}
@@ -227,7 +236,7 @@
 								{#each sub.items as item}
 									<div class="flex justify-between items-center py-1.5 border-b border-gray2/10 last:border-0 text-sm">
 										<span class="{item.flagged ? 'text-problem' : 'text-white'}">
-											{safeNum(item.quantity) || 1}x {item.name}{item.flagged ? ' *' : ''}
+											{hasChildren(item) ? '' : `${safeNum(item.quantity) || 1}x `}{item.name}{item.flagged ? ' *' : ''}
 										</span>
 										<span class="flex gap-8">
 											{#if showBudgeted}

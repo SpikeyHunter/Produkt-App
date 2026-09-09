@@ -90,11 +90,14 @@ export function itemActualUnit(item: BudgetItem): number {
 }
 
 export function itemBudgetedTotal(item: BudgetItem): number {
+	// A line with sub-items is just their sum — its own Qty is N/A.
+	if (hasChildren(item)) return itemBudgetedUnit(item);
 	return itemBudgetedUnit(item) * (num(item.quantity) || 1);
 }
 
 /** Actual line total (0 when no Actual was entered). */
 export function itemActualTotal(item: BudgetItem): number {
+	if (hasChildren(item)) return itemActualUnit(item);
 	return itemActualUnit(item) * (num(item.quantity) || 1);
 }
 
@@ -148,11 +151,26 @@ export function subsHaveActuals(subs: BudgetSubsection[] | undefined | null): bo
 	return (subs || []).some((s) => !s.hidden && itemsHaveActuals(s.items));
 }
 
-/** Total budget (income side) for a show_budget row, respecting budget_type. */
+/** Total budget (income side) for a show_budget row, respecting budget_type
+ *  and any income sources switched off for that budget. */
 export function incomeTotalFor(row: any): number {
 	const type = row?.budget_type || 'Tour Prod';
 	if (type === 'Internal Prod') return num(row?.income_total_budget);
-	const base = num(row?.income_technical) + num(row?.income_hospitality) + num(row?.income_other);
-	if (type === 'Complete Prod') return base + num(row?.income_artist);
-	return base;
+
+	let enabled: any = row?.income_enabled;
+	if (typeof enabled === 'string') {
+		try {
+			enabled = JSON.parse(enabled);
+		} catch {
+			enabled = null;
+		}
+	}
+	const on = (key: string) => enabled?.[key] !== false;
+
+	let total = 0;
+	if (on('technical')) total += num(row?.income_technical);
+	if (on('hospitality')) total += num(row?.income_hospitality);
+	if (on('other')) total += num(row?.income_other);
+	if (type === 'Complete Prod' && on('artist')) total += num(row?.income_artist);
+	return total;
 }
