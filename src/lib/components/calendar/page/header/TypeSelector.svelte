@@ -83,8 +83,11 @@
 		}
 	});
 
-	const LOCKED_STATUSES = ['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'];
+	// A confirmed show can still change type (it asks first, and the tech
+	// schedule + Google Calendar follow). Settlement stages stay locked.
+	const LOCKED_STATUSES = ['IN SETTLEMENT', 'SETTLED'];
 	$: isStatusLocked = LOCKED_STATUSES.includes(event?.status);
+	$: isConfirmed = event?.status === 'CONFIRMED';
 
 	// Locked if looking at an alternate version OR if the event status is locked
 	$: isAlternateVersion = viewedVersionNum > 0 && viewedVersionNum !== currentVersionNum;
@@ -162,24 +165,25 @@
 			event.details = parsedDetails;
 			await supabase.from('calendar').update({ details: parsedDetails }).eq('id', event.group_id);
 			await updateLinkedShowVenue(event.group_id, newType);
-			if (event.status === 'CONFIRMED') {
-				const { data: techRows } = await supabase
-					.from('schedule_techs')
-					.select('*')
-					.eq('group_id', event.group_id);
+		}
 
-				if (techRows && techRows.length > 0) {
-					for (const row of techRows) {
-						if (row.type !== newType) {
-							const updatedRow = { ...row, type: newType };
-							await supabase.from('schedule_techs').update({ type: newType }).eq('id', row.id);
-							try {
-								await syncRowToCalendar(updatedRow, 'UPDATE', row);
-							} catch (err) {
-								console.error('Failed to sync type change to Google Calendar:', err);
-							}
-						}
-					}
+		// Confirmed show: its tech schedule rows (linked by group_id) take the
+		// new type — updated in place, never re-inserted, so nothing duplicates —
+		// and each one pushes an UPDATE to Google Calendar.
+		if (event.status === 'CONFIRMED' && viewedVersionNum === currentVersionNum) {
+			const { data: techRows } = await supabase
+				.from('schedule_techs')
+				.select('*')
+				.eq('group_id', event.group_id);
+
+			for (const row of techRows || []) {
+				if (row.type === newType) continue;
+				const updatedRow = { ...row, type: newType };
+				await supabase.from('schedule_techs').update({ type: newType }).eq('id', row.id);
+				try {
+					await syncRowToCalendar(updatedRow, 'UPDATE', row);
+				} catch (err) {
+					console.error('Failed to sync type change to Google Calendar:', err);
 				}
 			}
 		}
@@ -302,6 +306,10 @@
 
 <CalendarModify
 	show={showModifyModal}
+	title={isConfirmed ? 'Change the type of a confirmed show?' : 'Modify Event'}
+	message={isConfirmed
+		? 'This show is confirmed. Its tech schedule and the Google Calendar entries will be updated to the new type — nothing is duplicated.'
+		: 'Please confirm the changes to this event. Notifications will be sent to opted-in users.'}
 	oldType={oldTypeToPass}
 	newType={newTypeToPass}
 	saving={isSavingModification}
