@@ -1,39 +1,33 @@
 <script context="module" lang="ts">
 	// Version beacon — every file in this bundle must print the SAME tag.
-	console.log('[budget] BudgetTotals ui-v4 loaded');
+	console.log('[budget] BudgetTotals ui-v6 loaded');
 </script>
 
 <script lang="ts">
 	import { slide } from 'svelte/transition';
 	import { formatDisplay } from '$lib/utils/budgetUtils';
+	import type { CategoryBreakdown } from '$lib/utils/budgetUtils';
 
 	export let totalIncome: number = 0;
-	export let totalExpenses: number = 0; // budgeted
-	export let netTotal: number = 0; // budgeted
+	export let totalExpenses: number = 0; // budgeted, before taxes
+	export let netTotal: number = 0; // income − expenses (taxes included)
 
 	export let actualExpenses: number = 0;
 	export let actualNet: number = 0;
 	export let hasActuals: boolean = false;
 
-	export let incomeArtist: number = 0;
-	export let expenseArtist: number = 0;
-	export let incomeTechnical: number = 0;
-	export let expenseTechnical: number = 0;
-	export let incomeHospitality: number = 0;
-	export let expenseHospitality: number = 0;
-	export let incomeOther: number = 0;
-	export let expenseOther: number = 0;
-	export let budgetType: string = 'Tour Prod';
-	export let incomeTotalBudget: number = 0;
+	/** Per-category Budget vs Expenses (income fenced to that category) */
+	export let breakdown: CategoryBreakdown[] = [];
+	/** Budget that isn't fenced to any one category */
+	export let pooledBudget: number = 0;
+	export let pooledLabel: string = 'Pooled budget';
 
-	// +TX: GST 5% + QST 9.975% on the whole budget, broken down at the bottom.
+	// +TX: GST 5% + QST 9.975% on the expense side, broken down at the bottom.
 	export let applyTaxes: boolean = false;
 	export let onToggleTaxes: (() => void) | null = null;
 
 	const GST_RATE = 0.05;
 	const QST_RATE = 0.09975;
-	// Taxes apply to the EXPENSES side — budgeted and actual are taxed
-	// independently, mirroring the two columns.
 	$: gstAmount = totalExpenses * GST_RATE;
 	$: qstAmount = totalExpenses * QST_RATE;
 	$: expensesWithTaxes = totalExpenses + gstAmount + qstAmount;
@@ -79,7 +73,7 @@
 			</div>
 		{/if}
 
-		<!-- +TX: taxes on the whole budget -->
+		<!-- +TX: taxes on the expense side -->
 		<div class="flex justify-between items-center pt-2 mt-2 border-t border-gray2/10">
 			<span class="text-sm font-bold {applyTaxes ? 'text-white' : 'text-gray2'}">+ TX (GST / QST)</span>
 			<button
@@ -150,139 +144,44 @@
 
 		{#if showDetails}
 			<div transition:slide|local={{ duration: 200 }} class="space-y-3 pt-2 text-xs">
-				{#if budgetType === 'Internal Prod'}
+				{#if pooledBudget !== 0}
 					<div>
-						<div class="text-white font-bold mb-1">Budget Overview</div>
+						<div class="text-white font-bold mb-1">{pooledLabel}</div>
 						<div class="pl-3 space-y-0.5 border-l-2 border-gray2/20">
 							<div class="flex justify-between">
-								<span class="text-gray2">Total Budget:</span>
-								<span class="text-gray3">{formatDisplay(incomeTotalBudget)}</span>
+								<span class="text-gray2">Covers any section:</span>
+								<span class="text-gray3">{formatDisplay(pooledBudget)}</span>
 							</div>
 						</div>
 					</div>
 				{/if}
 
-				{#if budgetType === 'Complete Prod'}
-					{@const artistDiff = incomeArtist - expenseArtist}
+				{#each breakdown as cat (cat.key)}
+					{@const diff = cat.budget - cat.expenses}
 					<div>
-						<div class="text-white font-bold mb-1">Artist Fee</div>
+						<div class="text-white font-bold mb-1">{cat.label}</div>
 						<div class="pl-3 space-y-0.5 border-l-2 border-gray2/20">
-							<div class="flex justify-between">
-								<span class="text-gray2">Budget:</span>
-								<span class="text-gray3">{formatDisplay(incomeArtist)}</span>
-							</div>
+							{#if cat.budget !== 0}
+								<div class="flex justify-between">
+									<span class="text-gray2">Budget:</span>
+									<span class="text-gray3">{formatDisplay(cat.budget)}</span>
+								</div>
+							{/if}
 							<div class="flex justify-between">
 								<span class="text-gray2">Expenses:</span>
-								<span class="text-gray3">{formatDisplay(expenseArtist * -1)}</span>
+								<span class="text-gray3">{formatDisplay(cat.expenses * -1)}</span>
 							</div>
-							<div class="flex justify-between pt-1 mt-1 border-t border-gray2/10 font-bold">
-								<span class="text-gray2">Net:</span>
-								<span class={artistDiff >= 0 ? 'text-confirmed' : 'text-problem'}>
-									{formatDisplay(artistDiff)}
-								</span>
-							</div>
+							{#if cat.budget !== 0}
+								<div class="flex justify-between pt-1 mt-1 border-t border-gray2/10 font-bold">
+									<span class="text-gray2">Net:</span>
+									<span class={diff >= 0 ? 'text-confirmed' : 'text-problem'}>
+										{formatDisplay(diff)}
+									</span>
+								</div>
+							{/if}
 						</div>
 					</div>
-				{/if}
-
-				{#if budgetType !== 'Internal Prod'}
-					{@const techDiff = incomeTechnical - expenseTechnical}
-					<div>
-						<div class="text-white font-bold mb-1">Technical</div>
-						<div class="pl-3 space-y-0.5 border-l-2 border-gray2/20">
-							<div class="flex justify-between">
-								<span class="text-gray2">Budget:</span>
-								<span class="text-gray3">{formatDisplay(incomeTechnical)}</span>
-							</div>
-							<div class="flex justify-between">
-								<span class="text-gray2">Expenses:</span>
-								<span class="text-gray3">{formatDisplay(expenseTechnical * -1)}</span>
-							</div>
-							<div class="flex justify-between pt-1 mt-1 border-t border-gray2/10 font-bold">
-								<span class="text-gray2">Net:</span>
-								<span class={techDiff >= 0 ? 'text-confirmed' : 'text-problem'}>
-									{formatDisplay(techDiff)}
-								</span>
-							</div>
-						</div>
-					</div>
-				{:else}
-					<div>
-						<div class="text-white font-bold mb-1">Technical</div>
-						<div class="pl-3 space-y-0.5 border-l-2 border-gray2/20">
-							<div class="flex justify-between">
-								<span class="text-gray2">Expenses:</span>
-								<span class="text-gray3">{formatDisplay(expenseTechnical * -1)}</span>
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				{#if budgetType !== 'Internal Prod'}
-					{@const hospoDiff = incomeHospitality - expenseHospitality}
-					<div>
-						<div class="text-white font-bold mb-1">Hospitality</div>
-						<div class="pl-3 space-y-0.5 border-l-2 border-gray2/20">
-							<div class="flex justify-between">
-								<span class="text-gray2">Budget:</span>
-								<span class="text-gray3">{formatDisplay(incomeHospitality)}</span>
-							</div>
-							<div class="flex justify-between">
-								<span class="text-gray2">Expenses:</span>
-								<span class="text-gray3">{formatDisplay(expenseHospitality * -1)}</span>
-							</div>
-							<div class="flex justify-between pt-1 mt-1 border-t border-gray2/10 font-bold">
-								<span class="text-gray2">Net:</span>
-								<span class={hospoDiff >= 0 ? 'text-confirmed' : 'text-problem'}>
-									{formatDisplay(hospoDiff)}
-								</span>
-							</div>
-						</div>
-					</div>
-				{:else}
-					<div>
-						<div class="text-white font-bold mb-1">Hospitality</div>
-						<div class="pl-3 space-y-0.5 border-l-2 border-gray2/20">
-							<div class="flex justify-between">
-								<span class="text-gray2">Expenses:</span>
-								<span class="text-gray3">{formatDisplay(expenseHospitality * -1)}</span>
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				{#if budgetType !== 'Internal Prod'}
-					{@const otherDiff = incomeOther - expenseOther}
-					<div>
-						<div class="text-white font-bold mb-1">Other Expenses</div>
-						<div class="pl-3 space-y-0.5 border-l-2 border-gray2/20">
-							<div class="flex justify-between">
-								<span class="text-gray2">Budget:</span>
-								<span class="text-gray3">{formatDisplay(incomeOther)}</span>
-							</div>
-							<div class="flex justify-between">
-								<span class="text-gray2">Expenses:</span>
-								<span class="text-gray3">{formatDisplay(expenseOther * -1)}</span>
-							</div>
-							<div class="flex justify-between pt-1 mt-1 border-t border-gray2/10 font-bold">
-								<span class="text-gray2">Net:</span>
-								<span class={otherDiff >= 0 ? 'text-confirmed' : 'text-problem'}>
-									{formatDisplay(otherDiff)}
-								</span>
-							</div>
-						</div>
-					</div>
-				{:else}
-					<div>
-						<div class="text-white font-bold mb-1">Other Expenses</div>
-						<div class="pl-3 space-y-0.5 border-l-2 border-gray2/20">
-							<div class="flex justify-between">
-								<span class="text-gray2">Expenses:</span>
-								<span class="text-gray3">{formatDisplay(expenseOther * -1)}</span>
-							</div>
-						</div>
-					</div>
-				{/if}
+				{/each}
 			</div>
 		{/if}
 	</div>

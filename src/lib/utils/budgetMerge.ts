@@ -17,7 +17,7 @@
  * by us survives even if the other side deleted it (better to keep data than
  * to lose it silently).
  */
-import type { BudgetItem, BudgetSubsection } from '$lib/types/budget';
+import type { BudgetItem, BudgetSubsection, ExpenseCategory } from '$lib/types/budget';
 
 /** Deterministic stringify so comparisons ignore key order. */
 export function sig(value: any): string {
@@ -69,6 +69,9 @@ function mergeItem(base: BudgetItem | undefined, local: BudgetItem, remote: Budg
 		unit: pick(base.unit, local.unit, remote.unit),
 		hidden: pick(base.hidden, local.hidden, remote.hidden),
 		flagged: pick(base.flagged, local.flagged, remote.flagged),
+		allocation: pick(base.allocation, local.allocation, remote.allocation),
+		fenced: pick(base.fenced, local.fenced, remote.fenced),
+		note: pick(base.note, local.note, remote.note),
 		collapsed: local.collapsed, // display-only, always ours
 		children: mergeItems(base.children, local.children, remote.children)
 	};
@@ -112,6 +115,10 @@ function mergeSection(
 		...local,
 		name: pick(base.name, local.name, remote.name),
 		hidden: pick(base.hidden, local.hidden, remote.hidden),
+		target: pick(base.target, local.target, remote.target),
+		fenced: pick(base.fenced, local.fenced, remote.fenced),
+		amount: pick(base.amount, local.amount, remote.amount),
+		ownedBy: pick(base.ownedBy, local.ownedBy, remote.ownedBy),
 		items: mergeItems(base.items, local.items, remote.items)
 	};
 }
@@ -142,11 +149,54 @@ export function mergeSections(
 	return out;
 }
 
+function mergeCategory(
+	base: ExpenseCategory | undefined,
+	local: ExpenseCategory,
+	remote: ExpenseCategory
+): ExpenseCategory {
+	if (!base) return local;
+	return {
+		...local,
+		name: pick(base.name, local.name, remote.name),
+		hidden: pick(base.hidden, local.hidden, remote.hidden),
+		ownedBy: pick(base.ownedBy, local.ownedBy, remote.ownedBy),
+		subsections: mergeSections(base.subsections, local.subsections, remote.subsections)
+	};
+}
+
+/** Custom expense categories — same id-keyed rules as sections. */
+export function mergeCategories(
+	base: ExpenseCategory[] | null | undefined,
+	local: ExpenseCategory[] | null | undefined,
+	remote: ExpenseCategory[] | null | undefined
+): ExpenseCategory[] {
+	const L = local || [];
+	const R = remote || [];
+	const baseMap = byId(base);
+	const localMap = byId(L);
+	const remoteMap = byId(R);
+
+	const out: ExpenseCategory[] = [];
+	for (const l of L) {
+		const b = baseMap.get(l.id);
+		const r = remoteMap.get(l.id);
+		out.push(r ? mergeCategory(b, l, r) : l);
+	}
+
+	R.forEach((r, idx) => {
+		if (localMap.has(r.id) || baseMap.has(r.id)) return;
+		out.splice(Math.min(idx, out.length), 0, r);
+	});
+
+	return out;
+}
+
+const SECTION_COLUMNS = new Set(['technical', 'hospitality', 'other_expenses', 'income']);
+
 /** Merge one store column. Scalars fall back to the same "ours if changed" rule. */
 export function mergeColumn(storeKey: string, base: any, local: any, remote: any): any {
 	if (storeKey === 'artist_fee') return mergeItems(base, local, remote);
-	if (storeKey === 'technical' || storeKey === 'hospitality' || storeKey === 'other_expenses') {
-		return mergeSections(base, local, remote);
-	}
+	if (SECTION_COLUMNS.has(storeKey)) return mergeSections(base, local, remote);
+	if (storeKey === 'custom_expenses') return mergeCategories(base, local, remote);
 	return pick(base, local, remote);
 }

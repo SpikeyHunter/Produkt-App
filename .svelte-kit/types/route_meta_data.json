@@ -56,6 +56,18 @@
 	"/api/contract-analyze": [
 		"src/routes/api/contract-analyze/+server.ts"
 	],
+	"/api/corpo/classify": [
+		"src/routes/api/corpo/classify/+server.ts"
+	],
+	"/api/corpo/extract": [
+		"src/routes/api/corpo/extract/+server.ts"
+	],
+	"/api/corpo/health": [
+		"src/routes/api/corpo/health/+server.ts"
+	],
+	"/api/corpo/send-email": [
+		"src/routes/api/corpo/send-email/+server.ts"
+	],
 	"/api/deezer/search": [
 		"src/routes/api/deezer/search/+server.ts"
 	],
@@ -177,6 +189,9 @@
 	"/marketing/dailycount": [],
 	"/marketing/eventsinfo": [],
 	"/ncgapp/controlcenter": [],
+	"/offer/[artist]/[n]": [
+		"src/routes/offer/[artist]/[n]/+server.ts"
+	],
 	"/privacy": [],
 	"/production/backline": [
 		"src/routes/production/backline/+page.server.ts"
@@ -189,6 +204,9 @@
 	"/schedules/tech": [],
 	"/settimes": [],
 	"/settings": [],
+	"/settlement/[artist]/[variant]": [
+		"src/routes/settlement/[artist]/[variant]/+server.ts"
+	],
 	"/sultanshepard/djshow": [],
 	"/sultanshepard/djshow/[id]": [
 		"src/routes/sultanshepard/djshow/[id]/+page.ts"

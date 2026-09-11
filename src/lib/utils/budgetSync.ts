@@ -11,7 +11,11 @@
 
 import { writable, get, type Writable } from 'svelte/store';
 import { supabase } from '$lib/supabase.js';
-import { normalizeItems, normalizeSubsections } from '$lib/utils/budgetUtils';
+import {
+	normalizeItems,
+	normalizeSubsections,
+	normalizeExpenseCategories
+} from '$lib/utils/budgetUtils';
 import { mergeColumn } from '$lib/utils/budgetMerge';
 
 export type SavingState = 'idle' | 'saving' | 'saved' | 'error';
@@ -29,12 +33,29 @@ const STORE_TO_DB: Record<string, string> = {
 	income_total_budget: 'income_total_budget',
 	budget_type: 'budget_type',
 	apply_taxes: 'apply_taxes',
-	income_enabled: 'income_enabled'
+	income_enabled: 'income_enabled',
+	// Budget builder (v6): income lines with allocations + custom categories.
+	income: 'income_sections',
+	custom_expenses: 'custom_expenses'
 };
+
+/** Columns added by the budget builder. Missing = the migration hasn't run. */
+export const NEW_COLUMNS = ['income_sections', 'custom_expenses'];
+export const SCHEMA_SQL =
+	'alter table public.show_budget\n' +
+	'  add column if not exists income_sections jsonb,\n' +
+	'  add column if not exists custom_expenses jsonb;';
 const DB_TO_STORE: Record<string, string> = Object.fromEntries(
 	Object.entries(STORE_TO_DB).map(([k, v]) => [v, k])
 );
-const JSON_KEYS = new Set(['artist_fee', 'technical', 'hospitality', 'other_expenses']);
+const JSON_KEYS = new Set([
+	'artist_fee',
+	'technical',
+	'hospitality',
+	'other_expenses',
+	'income',
+	'custom_expenses'
+]);
 
 export interface IncomeEnabled {
 	artist: boolean;
@@ -65,7 +86,7 @@ const SIMPLE_JSON_KEYS = new Set(['artist_fee']); // flat item lists (no subsect
 // Minimal, greppable logs: filter the console on "[budget]".
 // SYNC_VERSION prints at startup — if you don't see it, the old file is still
 // being served (hard-refresh / restart dev server).
-export const SYNC_VERSION = 'sync-v5';
+export const SYNC_VERSION = 'sync-v6';
 const DEBUG = true;
 const log = (...args: any[]) => DEBUG && console.log('[budget]', ...args);
 
@@ -92,7 +113,9 @@ function stableStringify(value: any): string {
 function normalizeStoreValue(key: string, value: any): any {
 	if (JSON_KEYS.has(key)) {
 		const parsed = typeof value === 'string' ? safeParse(value) : value;
-		return SIMPLE_JSON_KEYS.has(key) ? normalizeItems(parsed) : normalizeSubsections(parsed);
+		if (SIMPLE_JSON_KEYS.has(key)) return normalizeItems(parsed);
+		if (key === 'custom_expenses') return normalizeExpenseCategories(parsed);
+		return normalizeSubsections(parsed);
 	}
 	// Small jsonb objects (not section lists) keep their own shape.
 	if (key === 'income_enabled') return normalizeIncomeEnabled(value);
@@ -131,6 +154,9 @@ export function createBudgetSync() {
 	const savingState: Writable<SavingState> = writable('idle');
 	const canUndo = writable(false);
 	const canRedo = writable(false);
+	// DB columns the budget builder needs but the table doesn't have yet.
+	const missingColumns: Writable<string[]> = writable([]);
+	let missingCols = new Set<string>();
 
 	let budgetId: number | null = null;
 	let channel: ReturnType<typeof supabase.channel> | null = null;
@@ -190,6 +216,9 @@ export function createBudgetSync() {
 
 	function rowToState(data: any) {
 		return {
+			// Custom budgets only — the other types keep the fixed income fields.
+			income: normalizeStoreValue('income', data.income_sections),
+			custom_expenses: normalizeStoreValue('custom_expenses', data.custom_expenses),
 			budget_type: data.budget_type || 'Tour Prod',
 			apply_taxes: data.apply_taxes === true,
 			// Which income sources apply to this budget (all on by default).
@@ -330,11 +359,7 @@ export function createBudgetSync() {
 		try {
 			const { data, error: readErr } = await supabase
 				.from('show_budget')
-				.select(
-					`id, budget_type, income_total_budget, income_artist, income_technical,
-					 income_hospitality, income_other, expenses_artist_fee, expenses_technical,
-					 expenses_hospitality, expenses_other`
-				)
+				.select('*')
 				.eq('id', budgetId)
 				.single();
 			if (readErr) log('pre-save read failed (writing local state):', readErr.message);
@@ -359,8 +384,14 @@ export function createBudgetSync() {
 
 		// --- 3. Merge our columns into the server's current state.
 		const payload: Record<string, any> = {};
+		const skipped: string[] = [];
 		for (const storeKey of keys) {
 			const dbCol = STORE_TO_DB[storeKey];
+			// The table predates this column — writing it would fail every retry.
+			if (missingCols.has(dbCol)) {
+				skipped.push(dbCol);
+				continue;
+			}
 			// Normalize the local value first: what we compare, write, and keep as
 			// baseline must be byte-identical to what the DB echoes back, otherwise
 			// every save falsely looks like a concurrent remote change.
@@ -381,6 +412,14 @@ export function createBudgetSync() {
 			}
 			payload[dbCol] = value;
 			rememberSent(dbCol, stableStringify(normalizeStoreValue(storeKey, value)));
+		}
+		if (skipped.length) {
+			log('flush: SKIPPED (column missing in show_budget):', skipped.join(', '), '— run:', SCHEMA_SQL);
+		}
+		if (Object.keys(payload).length === 0) {
+			saveInFlight = false;
+			savingState.set('idle');
+			return true;
 		}
 		for (const storeKey of keys) {
 			if (!JSON_KEYS.has(storeKey)) continue;
@@ -423,7 +462,9 @@ export function createBudgetSync() {
 
 		// The server now holds exactly what we wrote -> that's the new ancestor.
 		for (const storeKey of keys) {
-			baseline[storeKey] = clone(payload[STORE_TO_DB[storeKey]]);
+			const dbCol = STORE_TO_DB[storeKey];
+			if (!(dbCol in payload)) continue;
+			baseline[storeKey] = clone(payload[dbCol]);
 		}
 		log('flush: saved in', Date.now() - t0, 'ms');
 
@@ -487,16 +528,9 @@ export function createBudgetSync() {
 		log('loading budget', id, '…');
 		savingState.set('idle');
 
-		const { data, error } = await supabase
-			.from('show_budget')
-			.select(
-				`id, event_name, event_id, budget_type, income_total_budget,
-				 income_artist, income_technical, income_hospitality, income_other,
-				 expenses_artist_fee, expenses_technical, expenses_hospitality, expenses_other,
-				 apply_taxes, income_enabled`
-			)
-			.eq('id', id)
-			.single();
+		// `*` so a column added later shows up without touching this file — and
+		// so we can see which of the newer columns the table actually has.
+		const { data, error } = await supabase.from('show_budget').select('*').eq('id', id).single();
 
 		if (error || !data) {
 			console.error('Error loading budget details:', error);
@@ -504,6 +538,17 @@ export function createBudgetSync() {
 			budgetId = null;
 			updateUndoFlags();
 			return false;
+		}
+
+		missingCols = new Set(NEW_COLUMNS.filter((c) => !(c in data)));
+		missingColumns.set(Array.from(missingCols));
+		if (missingCols.size) {
+			console.warn(
+				'[budget] schema: show_budget is missing ' +
+					Array.from(missingCols).join(', ') +
+					' — income allocation and custom categories cannot be saved until you run:\n' +
+					SCHEMA_SQL
+			);
 		}
 
 		const loaded = rowToState(data);
@@ -544,7 +589,20 @@ export function createBudgetSync() {
 		unsubscribe();
 	}
 
-	return { store, savingState, canUndo, canRedo, load, clear, markDirty, flush, undo, redo, destroy };
+	return {
+		store,
+		savingState,
+		canUndo,
+		canRedo,
+		missingColumns,
+		load,
+		clear,
+		markDirty,
+		flush,
+		undo,
+		redo,
+		destroy
+	};
 }
 
 export type BudgetSync = ReturnType<typeof createBudgetSync>;

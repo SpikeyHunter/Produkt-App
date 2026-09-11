@@ -16,14 +16,36 @@ import { writable, get } from 'svelte/store';
 const log = (...args: any[]) => console.log('[budget]', ...args);
 import type { Writable } from 'svelte/store';
 
-export type StoreKey = 'artist_fee' | 'technical' | 'hospitality' | 'other_expenses';
+/**
+ * Which list a thing lives in. Beyond the four built-in expense categories this
+ * is also 'income' and, for custom budgets, 'custom:<category uuid>' — so it's
+ * a plain string and the helpers below resolve it.
+ */
+export type StoreKey = string;
 
-export const STORE_TO_DB: Record<StoreKey, string> = {
+export const STORE_TO_DB: Record<string, string> = {
 	artist_fee: 'expenses_artist_fee',
 	technical: 'expenses_technical',
 	hospitality: 'expenses_hospitality',
-	other_expenses: 'expenses_other'
+	other_expenses: 'expenses_other',
+	income: 'income_sections'
 };
+
+export const isCustomCat = (cat: string) => cat.startsWith('custom:');
+export const customCatId = (cat: string) => cat.slice('custom:'.length);
+
+/** DB column a category writes to (every custom category shares one column). */
+export function dbColumnFor(cat: StoreKey): string {
+	return isCustomCat(cat) ? 'custom_expenses' : STORE_TO_DB[cat];
+}
+
+/** Store key a category writes to — what markDirty() expects. */
+export function storeKeyFor(cat: StoreKey): string {
+	return isCustomCat(cat) ? 'custom_expenses' : cat;
+}
+
+/** Income and expenses never mix, even though they share the row machinery. */
+const sideOf = (cat: StoreKey) => (cat === 'income' ? 'income' : 'expense');
 
 /** Where a thing lives. `sub` is -1 for flat categories (Artist Fee). */
 export type DragPath = {
@@ -91,6 +113,13 @@ export function endDrag() {
 
 function sectionsOf(state: any, cat: StoreKey): any[] | null {
 	if (cat === 'artist_fee') return null; // flat category, no sections
+	if (isCustomCat(cat)) {
+		const id = customCatId(cat);
+		const found = (state?.custom_expenses || []).find((c: any) => c?.id === id);
+		if (!found) return null;
+		if (!Array.isArray(found.subsections)) found.subsections = [];
+		return found.subsections;
+	}
 	return Array.isArray(state?.[cat]) ? state[cat] : null;
 }
 
@@ -167,6 +196,11 @@ export function canDrop(src: DragPayload | null, dest: DropTarget): boolean {
 	const sectionTarget = dest.kind === 'section' || dest.kind === 'sections-end';
 	const childTarget = dest.kind === 'child' || dest.kind === 'children-end';
 
+	// Income lines and expense lines are different things — never swap sides.
+	if (sideOf(src.path.cat) !== sideOf(dest.path.cat)) return false;
+	// An income line has no sub-items.
+	if (src.path.cat === 'income' && childTarget) return false;
+
 	// Sections only ever go where sections go, and vice versa.
 	if (src.kind === 'section') {
 		if (!sectionTarget) return false;
@@ -230,13 +264,17 @@ export function dropOn(dest: DropTarget): void {
 	to.splice(insertAt, 0, node);
 
 	// Reassign the touched category arrays so Svelte sees new references.
-	const cats: StoreKey[] = Array.from(new Set([src.path.cat, dest.path.cat])) as StoreKey[];
+	const cats: StoreKey[] = Array.from(new Set([src.path.cat, dest.path.cat]));
 	const next = { ...state };
-	for (const cat of cats) next[cat] = Array.isArray(next[cat]) ? [...next[cat]] : next[cat];
+	for (const cat of cats) {
+		const key = storeKeyFor(cat);
+		if (Array.isArray(next[key])) next[key] = [...next[key]];
+	}
 	ctxStore.set(next);
 
-	log('dnd: moved, saving', cats.join(', '));
-	ctxSave?.(cats.map((c) => STORE_TO_DB[c]));
+	const columns = Array.from(new Set(cats.map((c) => dbColumnFor(c)).filter(Boolean)));
+	log('dnd: moved, saving', columns.join(', '));
+	ctxSave?.(columns);
 }
 
 /** Which half of the row the pointer is on — drives the insertion line. */

@@ -13,8 +13,8 @@
 		formatDisplay,
 		normalizeItems,
 		normalizeSubsections,
-		itemsBudgetedTotal,
-		subsBudgetedTotal,
+		normalizeExpenseCategories,
+		totalExpensesOf,
 		incomeTotalFor
 	} from '$lib/utils/budgetUtils';
 
@@ -67,15 +67,14 @@
 
 	/** Budgeted expenses total of the sheet — the number that actually reflects the budget. */
 	function sheetTotal(row: any): number {
-		const type = row.budget_type || 'Tour Prod';
-		const base =
-			subsBudgetedTotal(normalizeSubsections(safeParse(row.expenses_technical))) +
-			subsBudgetedTotal(normalizeSubsections(safeParse(row.expenses_hospitality))) +
-			subsBudgetedTotal(normalizeSubsections(safeParse(row.expenses_other)));
-		if (type === 'Complete Prod') {
-			return base + itemsBudgetedTotal(normalizeItems(safeParse(row.expenses_artist_fee)));
-		}
-		return base;
+		return totalExpensesOf({
+			budget_type: row.budget_type || 'Tour Prod',
+			artist_fee: normalizeItems(safeParse(row.expenses_artist_fee)),
+			technical: normalizeSubsections(safeParse(row.expenses_technical)),
+			hospitality: normalizeSubsections(safeParse(row.expenses_hospitality)),
+			other_expenses: normalizeSubsections(safeParse(row.expenses_other)),
+			custom_expenses: normalizeExpenseCategories(safeParse(row.custom_expenses))
+		});
 	}
 
 	/** Net = income − budgeted expenses (same math as the totals panel). */

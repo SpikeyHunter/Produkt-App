@@ -12,6 +12,15 @@ export type Preset = {
 	unit: string | null;
 };
 
+/**
+ * Where an income line's money is fenced:
+ *   'all'            -> general pool: covers any expense, anywhere
+ *   'cat:<storeKey>' -> one whole expense category (technical, custom:<id>, ...)
+ *   'sec:<uuid>'     -> one expense section (e.g. "Labour - Setup/Teardown")
+ */
+export type AllocationTarget = string;
+export const POOL_TARGET = 'all';
+
 export type BudgetItem = {
 	id: string;
 	name: string;
@@ -29,6 +38,15 @@ export type BudgetItem = {
 	children: BudgetItem[];
 	/** Sub-items folded away in the UI (display only) */
 	collapsed: boolean;
+	/**
+	 * INCOME lines only: the expense section this line owns (`sec:<id>`).
+	 * Remembered even when unlinked, so the link icon can switch back on.
+	 */
+	allocation?: AllocationTarget | null;
+	/** INCOME lines only: link on = spend it only on `allocation`. */
+	fenced?: boolean;
+	/** Free-text note (income lines: where the money comes from) */
+	note?: string;
 };
 
 export type BudgetSubsection = {
@@ -37,17 +55,42 @@ export type BudgetSubsection = {
 	/** Whole section excluded from totals + PDF when true */
 	hidden: boolean;
 	items: BudgetItem[];
+	/** INCOME sections only: the expense category this budget corresponds to. */
+	target?: AllocationTarget | null;
+	/** INCOME sections only: true = spend it only on `target`, false = anywhere. */
+	fenced?: boolean;
+	/** INCOME sections only: typed straight in, used while it has no lines. */
+	amount?: number | null;
+	/** EXPENSE sections: id of the income line that created it (name is locked). */
+	ownedBy?: string | null;
 };
+
+/** A user-defined expense category (budget type "Custom"). */
+export type ExpenseCategory = {
+	id: string;
+	name: string;
+	hidden: boolean;
+	subsections: BudgetSubsection[];
+	/** id of the income section that created it (name is locked) */
+	ownedBy?: string | null;
+};
+
+export type BudgetTypeName = 'Tour Prod' | 'Internal Prod' | 'Complete Prod' | 'Custom';
+
+export const BUDGET_TYPES: BudgetTypeName[] = [
+	'Tour Prod',
+	'Internal Prod',
+	'Complete Prod',
+	'Custom'
+];
 
 export type AmountsMode = 'both' | 'budgeted' | 'actual';
 
 export type ExportOptions = {
 	amounts: AmountsMode;
-	sections: {
-		artist_fee: boolean;
-		technical: boolean;
-		hospitality: boolean;
-		other_expenses: boolean;
-	};
+	/** Keyed by store key ('technical', 'custom:<id>', ...). Missing = included. */
+	sections: Record<string, boolean>;
 	includeIncome: boolean;
+	/** Print the "Budget allocation" breakdown block */
+	includeAllocation: boolean;
 };

@@ -5,23 +5,31 @@
 
 <script lang="ts">
 	import { createEventDispatcher, tick } from 'svelte';
-	import { normalizeIncomeEnabled } from '$lib/utils/budgetSync';
 	import { slide } from 'svelte/transition';
 	import type { Writable, Readable } from 'svelte/store';
-	import BudgetIncomeSection from './BudgetIncomeSection.svelte';
 	import BudgetTotals from './BudgetTotals.svelte';
+	import BudgetAllocation from './BudgetAllocation.svelte';
+	import BudgetIncomePanel from './BudgetIncomePanel.svelte';
+	import BudgetIncomeSection from './BudgetIncomeSection.svelte';
+	import { normalizeIncomeEnabled } from '$lib/utils/budgetSync';
 	import PresetManager from './PresetManager.svelte';
 	import BudgetPdfTemplate from './BudgetPdfTemplate.svelte';
 	import DropdownButton from '$lib/components/buttons/DropdownButton.svelte';
 	import {
-		itemsBudgetedTotal,
-		itemsActualTotal,
-		itemsHaveActuals,
-		subsBudgetedTotal,
-		subsActualTotal,
-		subsHaveActuals
+		expenseCategoriesOf,
+		categoryFromBuiltIn,
+		categoryBreakdown,
+		categoryBudgeted,
+		categoryActual,
+		computeAllocation,
+		allocationsOf,
+		totalIncomeOf,
+		totalExpensesOf,
+		totalActualExpensesOf,
+		hasAnyActuals
 	} from '$lib/utils/budgetUtils';
 	import type { ExportOptions } from '$lib/types/budget';
+	import { BUDGET_TYPES, POOL_TARGET } from '$lib/types/budget';
 	import { env } from '$env/dynamic/public';
 	import { portal } from '$lib/utils/portalUtils';
 
@@ -36,19 +44,25 @@
 	let sheetContainer: HTMLDivElement;
 	let showExportOptions = false;
 
-	const budgetTypeOptions = ['Tour Prod', 'Internal Prod', 'Complete Prod'];
+	const budgetTypeOptions = [...BUDGET_TYPES];
 	const amountOptions: { value: ExportOptions['amounts']; label: string }[] = [
 		{ value: 'both', label: 'Budgeted + Actual' },
 		{ value: 'budgeted', label: 'Budgeted only' },
 		{ value: 'actual', label: 'Actual only' }
 	];
 
-	// Export options (hidden rows/sections are always excluded automatically)
+	// Export options (hidden rows/sections are always excluded automatically).
+	// `sections` is keyed by category key — a missing key means "included".
 	let exportOptions: ExportOptions = {
 		amounts: 'both',
-		sections: { artist_fee: true, technical: true, hospitality: true, other_expenses: true },
-		includeIncome: true
+		sections: {},
+		includeIncome: true,
+		includeAllocation: true
 	};
+	const sectionOn = (opts: ExportOptions, key: string) => opts.sections[key] !== false;
+	function toggleSection(key: string, on: boolean) {
+		exportOptions = { ...exportOptions, sections: { ...exportOptions.sections, [key]: on } };
+	}
 
 	function handleSave(key: string) {
 		if (!$budgetStore) return;
@@ -57,7 +71,20 @@
 
 	function handleBudgetTypeSelect(e: CustomEvent) {
 		if (!$budgetStore) return;
-		$budgetStore.budget_type = e.detail;
+		const next = e.detail;
+		// First switch to Custom: copy the sections already in the budget so
+		// nothing disappears — they can then be renamed, reordered or dropped.
+		if (next === 'Custom' && ($budgetStore.custom_expenses || []).length === 0) {
+			const seeded = expenseCategoriesOf({ ...$budgetStore, budget_type: 'Complete Prod' })
+				.map((cat) => categoryFromBuiltIn($budgetStore, cat.key, cat.label))
+				.filter((cat) => cat.subsections.length > 0);
+			if (seeded.length) {
+				$budgetStore.custom_expenses = seeded;
+				handleSave('custom_expenses');
+				console.log('[budget] custom: seeded', seeded.length, 'categories from the standard sections');
+			}
+		}
+		$budgetStore.budget_type = next;
 		handleSave('budget_type');
 	}
 
@@ -66,61 +93,61 @@
 		$budgetStore = $budgetStore;
 	}
 
-	// Variables
-	$: budgetType = $budgetStore?.budget_type || 'Tour Prod';
-
-	// Income sources can be switched off when they don't apply to a budget.
-	$: incomeEnabled = normalizeIncomeEnabled($budgetStore?.income_enabled);
-
-	$: incomeTotalBudget = Number($budgetStore?.income_total_budget) || 0;
-	$: incomeArtist = incomeEnabled.artist ? Number($budgetStore?.income_artist) || 0 : 0;
-	$: incomeTechnical = incomeEnabled.technical ? Number($budgetStore?.income_technical) || 0 : 0;
-	$: incomeHospitality = incomeEnabled.hospitality
-		? Number($budgetStore?.income_hospitality) || 0
-		: 0;
-	$: incomeOther = incomeEnabled.other ? Number($budgetStore?.income_other) || 0 : 0;
-
-	$: totalIncome = (() => {
-		if (budgetType === 'Internal Prod') return incomeTotalBudget;
-		if (budgetType === 'Tour Prod') return incomeTechnical + incomeHospitality + incomeOther;
-		return incomeArtist + incomeTechnical + incomeHospitality + incomeOther;
-	})();
-
 	function toggleIncome(key: 'artist' | 'technical' | 'hospitality' | 'other', on: boolean) {
 		if (!$budgetStore) return;
 		$budgetStore.income_enabled = { ...normalizeIncomeEnabled($budgetStore.income_enabled), [key]: on };
 		handleSave('income_enabled');
 	}
 
-	// Budgeted expenses (hidden rows/sections excluded by the utils)
-	$: expenseArtist = itemsBudgetedTotal($budgetStore?.artist_fee);
-	$: expenseTechnical = subsBudgetedTotal($budgetStore?.technical);
-	$: expenseHospitality = subsBudgetedTotal($budgetStore?.hospitality);
-	$: expenseOther = subsBudgetedTotal($budgetStore?.other_expenses);
+	$: budgetType = $budgetStore?.budget_type || 'Tour Prod';
 
-	$: totalExpenses = (() => {
-		const base = expenseTechnical + expenseHospitality + expenseOther;
-		if (budgetType === 'Complete Prod') return base + expenseArtist;
-		return base;
-	})();
+	$: isCustom = budgetType === 'Custom';
 
-	// Actual expenses (actual falls back to budgeted per line)
-	$: actualArtist = itemsActualTotal($budgetStore?.artist_fee);
-	$: actualTechnical = subsActualTotal($budgetStore?.technical);
-	$: actualHospitality = subsActualTotal($budgetStore?.hospitality);
-	$: actualOther = subsActualTotal($budgetStore?.other_expenses);
+	// Tour / Internal / Complete keep their fixed income fields; Custom uses the
+	// income builder. totalIncomeOf() knows which model applies.
+	$: incomeEnabled = normalizeIncomeEnabled($budgetStore?.income_enabled);
+	$: incomeTotalBudget = Number($budgetStore?.income_total_budget) || 0;
+	$: incomeArtist = incomeEnabled.artist ? Number($budgetStore?.income_artist) || 0 : 0;
+	$: incomeTechnical = incomeEnabled.technical ? Number($budgetStore?.income_technical) || 0 : 0;
+	$: incomeHospitality = incomeEnabled.hospitality ? Number($budgetStore?.income_hospitality) || 0 : 0;
+	$: incomeOther = incomeEnabled.other ? Number($budgetStore?.income_other) || 0 : 0;
+	$: totalIncome = $budgetStore ? totalIncomeOf($budgetStore) : 0;
 
-	$: actualExpenses = (() => {
-		const base = actualTechnical + actualHospitality + actualOther;
-		if (budgetType === 'Complete Prod') return base + actualArtist;
-		return base;
-	})();
+	// Budgeted / actual expenses across every category (hidden rows excluded)
+	$: totalExpenses = $budgetStore ? totalExpensesOf($budgetStore) : 0;
+	$: actualExpenses = $budgetStore ? totalActualExpensesOf($budgetStore) : 0;
+	$: hasActuals = $budgetStore ? hasAnyActuals($budgetStore) : false;
 
-	$: hasActuals =
-		itemsHaveActuals($budgetStore?.artist_fee) ||
-		subsHaveActuals($budgetStore?.technical) ||
-		subsHaveActuals($budgetStore?.hospitality) ||
-		subsHaveActuals($budgetStore?.other_expenses);
+	$: categories = $budgetStore ? expenseCategoriesOf($budgetStore) : [];
+
+	// Breakdown under "Show Details": the fixed pairing for the standard types,
+	// the allocation model for Custom.
+	$: legacyBreakdown = categories.map((cat) => ({
+		key: cat.key,
+		label: cat.label,
+		budget:
+			budgetType === 'Internal Prod'
+				? 0
+				: cat.key === 'artist_fee'
+					? incomeArtist
+					: cat.key === 'technical'
+						? incomeTechnical
+						: cat.key === 'hospitality'
+							? incomeHospitality
+							: incomeOther,
+		expenses: categoryBudgeted(cat),
+		actual: categoryActual(cat)
+	}));
+	$: breakdown = $budgetStore ? (isCustom ? categoryBreakdown($budgetStore) : legacyBreakdown) : [];
+	$: allocReport = isCustom && $budgetStore ? computeAllocation($budgetStore) : null;
+	$: pooledBudget = isCustom
+		? $budgetStore
+			? allocationsOf($budgetStore).get(POOL_TARGET) || 0
+			: 0
+		: budgetType === 'Internal Prod'
+			? incomeTotalBudget
+			: 0;
+	$: pooledLabel = isCustom ? 'Pooled budget' : 'Total Budget';
 
 	$: applyTaxes = $budgetStore?.apply_taxes === true;
 	// NET = budget − expenses, taxes included when + TX is on (matches the PDF).
@@ -485,58 +512,63 @@
 
 			<div class="flex-1 flex flex-col justify-between overflow-y-auto custom-scroll p-3">
 				<div class="space-y-3">
-					<div class="bg-gray1 rounded-lg p-3">
-						<h3 class="text-white font-bold text-base mb-2 pb-2 border-b border-gray2/20">
-							Budget / Income (+)
-						</h3>
+					{#if isCustom}
+						<BudgetIncomePanel {budgetStore} on:save={(e) => handleSave(e.detail.key)} />
+					{:else}
+						<!-- Tour / Internal / Complete: the fixed income fields, unchanged -->
+						<div class="bg-gray1 rounded-lg p-3">
+							<h3 class="text-white font-bold text-base mb-2 pb-2 border-b border-gray2/20">
+								Budget / Income (+)
+							</h3>
 
-						<div class="grid grid-cols-1 gap-3">
-							{#if budgetType === 'Internal Prod'}
-								<BudgetIncomeSection
-									label="Total Budget"
-									bind:amount={$budgetStore.income_total_budget}
-									on:update={handleIncomeUpdate}
-									on:save={() => handleSave('income_total_budget')}
-								/>
-							{:else}
-								{#if budgetType === 'Complete Prod'}
+							<div class="grid grid-cols-1 gap-3">
+								{#if budgetType === 'Internal Prod'}
 									<BudgetIncomeSection
-										label="Artist Fee"
-										bind:amount={$budgetStore.income_artist}
-										enabled={incomeEnabled.artist}
-										on:toggle={(e) => toggleIncome('artist', e.detail)}
+										label="Total Budget"
+										bind:amount={$budgetStore.income_total_budget}
 										on:update={handleIncomeUpdate}
-										on:save={() => handleSave('income_artist')}
+										on:save={() => handleSave('income_total_budget')}
+									/>
+								{:else}
+									{#if budgetType === 'Complete Prod'}
+										<BudgetIncomeSection
+											label="Artist Fee"
+											bind:amount={$budgetStore.income_artist}
+											enabled={incomeEnabled.artist}
+											on:toggle={(e) => toggleIncome('artist', e.detail)}
+											on:update={handleIncomeUpdate}
+											on:save={() => handleSave('income_artist')}
+										/>
+									{/if}
+
+									<BudgetIncomeSection
+										label="Technical"
+										bind:amount={$budgetStore.income_technical}
+										enabled={incomeEnabled.technical}
+										on:toggle={(e) => toggleIncome('technical', e.detail)}
+										on:update={handleIncomeUpdate}
+										on:save={() => handleSave('income_technical')}
+									/>
+									<BudgetIncomeSection
+										label="Hospitality"
+										bind:amount={$budgetStore.income_hospitality}
+										enabled={incomeEnabled.hospitality}
+										on:toggle={(e) => toggleIncome('hospitality', e.detail)}
+										on:update={handleIncomeUpdate}
+										on:save={() => handleSave('income_hospitality')}
+									/>
+									<BudgetIncomeSection
+										label="Other Expenses"
+										bind:amount={$budgetStore.income_other}
+										enabled={incomeEnabled.other}
+										on:toggle={(e) => toggleIncome('other', e.detail)}
+										on:update={handleIncomeUpdate}
+										on:save={() => handleSave('income_other')}
 									/>
 								{/if}
-
-								<BudgetIncomeSection
-									label="Technical"
-									bind:amount={$budgetStore.income_technical}
-									enabled={incomeEnabled.technical}
-									on:toggle={(e) => toggleIncome('technical', e.detail)}
-									on:update={handleIncomeUpdate}
-									on:save={() => handleSave('income_technical')}
-								/>
-								<BudgetIncomeSection
-									label="Hospitality"
-									bind:amount={$budgetStore.income_hospitality}
-									enabled={incomeEnabled.hospitality}
-									on:toggle={(e) => toggleIncome('hospitality', e.detail)}
-									on:update={handleIncomeUpdate}
-									on:save={() => handleSave('income_hospitality')}
-								/>
-								<BudgetIncomeSection
-									label="Other Expenses"
-									bind:amount={$budgetStore.income_other}
-									enabled={incomeEnabled.other}
-									on:toggle={(e) => toggleIncome('other', e.detail)}
-									on:update={handleIncomeUpdate}
-									on:save={() => handleSave('income_other')}
-								/>
-							{/if}
+							</div>
 						</div>
-					</div>
+					{/if}
 
 					<div class="bg-gray1 rounded-lg p-3">
 						<BudgetTotals
@@ -546,20 +578,17 @@
 							{actualExpenses}
 							{actualNet}
 							{hasActuals}
-							{incomeArtist}
-							{expenseArtist}
-							{incomeTechnical}
-							{expenseTechnical}
-							{incomeHospitality}
-							{expenseHospitality}
-							{incomeOther}
-							{expenseOther}
-							{budgetType}
-							{incomeTotalBudget}
+							{breakdown}
+							{pooledBudget}
+							{pooledLabel}
 							{applyTaxes}
 							onToggleTaxes={toggleTaxes}
 						/>
 					</div>
+
+					{#if isCustom}
+						<BudgetAllocation report={allocReport} />
+					{/if}
 				</div>
 
 				<div class="mt-3">
@@ -591,28 +620,27 @@
 							<div>
 								<p class="text-gray2 uppercase tracking-wider mb-1.5">Sections</p>
 								<div class="flex flex-col gap-1">
-									{#if budgetType === 'Complete Prod'}
+									{#each categories as cat (cat.key)}
 										<label class="flex items-center gap-2 text-white cursor-pointer">
-											<input type="checkbox" bind:checked={exportOptions.sections.artist_fee} class="accent-[#e1ff00]" />
-											Artist Fee
+											<input
+												type="checkbox"
+												checked={sectionOn(exportOptions, cat.key)}
+												on:change={(e) => toggleSection(cat.key, e.currentTarget.checked)}
+												class="accent-[#e1ff00]"
+											/>
+											{cat.label}
 										</label>
-									{/if}
-									<label class="flex items-center gap-2 text-white cursor-pointer">
-										<input type="checkbox" bind:checked={exportOptions.sections.technical} class="accent-[#e1ff00]" />
-										Technical
-									</label>
-									<label class="flex items-center gap-2 text-white cursor-pointer">
-										<input type="checkbox" bind:checked={exportOptions.sections.hospitality} class="accent-[#e1ff00]" />
-										Hospitality
-									</label>
-									<label class="flex items-center gap-2 text-white cursor-pointer">
-										<input type="checkbox" bind:checked={exportOptions.sections.other_expenses} class="accent-[#e1ff00]" />
-										Other Expenses
-									</label>
+									{/each}
 									<label class="flex items-center gap-2 text-white cursor-pointer">
 										<input type="checkbox" bind:checked={exportOptions.includeIncome} class="accent-[#e1ff00]" />
 										Income section
 									</label>
+									{#if isCustom}
+										<label class="flex items-center gap-2 text-white cursor-pointer">
+											<input type="checkbox" bind:checked={exportOptions.includeAllocation} class="accent-[#e1ff00]" />
+											Allocation breakdown
+										</label>
+									{/if}
 								</div>
 								<p class="text-gray2/70 mt-1.5">Hidden lines and hidden sections are always excluded.</p>
 							</div>

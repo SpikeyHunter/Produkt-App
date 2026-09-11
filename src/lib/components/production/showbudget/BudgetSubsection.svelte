@@ -5,7 +5,7 @@
 
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
-	import { formatMoney, itemsBudgetedTotal, itemsActualTotal, itemsHaveActuals, hasChildren, blankItem } from '$lib/utils/budgetUtils';
+	import { formatMoney, formatShort, itemsBudgetedTotal, itemsActualTotal, itemsHaveActuals, hasChildren, blankItem } from '$lib/utils/budgetUtils';
 	import { supabase } from '$lib/supabase.js';
 	import type { Preset, BudgetItem } from '$lib/types/budget';
 	import BudgetItemRow from './BudgetItemRow.svelte';
@@ -22,6 +22,10 @@
 	export let subIndex: number;
 	export let items: BudgetItem[] = [];
 	export let presetRefreshTrigger = 0;
+	/** money fenced to this section, and what has been spent against it */
+	export let allocation: { allocated: number; spent: number } | null = null;
+	/** created by a budget line: the name follows it and can't be edited here */
+	export let owned = false;
 
 	// drag & drop
 	let sectionEl: HTMLElement;
@@ -167,6 +171,7 @@
 	$: subsectionBudgeted = itemsBudgetedTotal(items);
 	$: subsectionActual = itemsActualTotal(items);
 	$: hasActuals = itemsHaveActuals(items);
+	$: allocLeft = allocation ? allocation.allocated - allocation.spent : 0;
 </script>
 
 <div
@@ -203,7 +208,7 @@
 				<line x1="4" y1="16" x2="20" y2="16" />
 			</svg>
 		</button>
-		{#if isEditingName}
+		{#if isEditingName && !owned}
 			<input
 				type="text"
 				bind:value={name}
@@ -216,17 +221,34 @@
 			/>
 		{:else}
 			<div class="min-w-0 truncate">
-				<button
-					type="button"
-					class="text-white font-bold text-sm cursor-pointer hover:text-lime"
-					on:click={() => (isEditingName = true)}
-				>
-					{name}
-				</button>
+				{#if owned}
+					<span
+						class="text-white font-bold text-sm"
+						title="Created by the budget line of the same name — rename it there"
+					>{name}</span>
+				{:else}
+					<button
+						type="button"
+						class="text-white font-bold text-sm cursor-pointer hover:text-lime"
+						on:click={() => (isEditingName = true)}
+					>
+						{name}
+					</button>
+				{/if}
 				{#if !hidden}
 					<span class="text-sm font-medium text-lime">- {formatMoney(subsectionBudgeted)}</span>
 					{#if hasActuals}
 						<span class="text-xs font-medium text-problem ml-1">act. {formatMoney(subsectionActual)}</span>
+					{/if}
+					{#if allocation}
+						<span
+							class="ml-1 px-1.5 py-[1px] rounded-2xl text-sm font-bold whitespace-nowrap {allocLeft < 0 ? 'bg-problem/20 text-problem' : 'bg-confirmed/15 text-confirmed'}"
+							title="Budget earmarked for this section. Going over draws from the pooled budget."
+						>
+							{formatShort(allocation.allocated)} allocated · {allocLeft < 0
+								? `over by ${formatShort(-allocLeft)}`
+								: `${formatShort(allocLeft)} left`}
+						</span>
 					{/if}
 				{:else}
 					<span class="text-xs text-gray2 ml-1">(hidden — excluded from totals)</span>
@@ -278,8 +300,11 @@
 			<button
 				type="button"
 				on:click={() => dispatch('delete')}
-				class="w-6 h-6 flex items-center justify-center rounded text-gray2 hover:text-problem cursor-pointer transition-colors"
-				title="Delete section"
+				disabled={owned}
+				class="w-6 h-6 flex items-center justify-center rounded transition-colors {owned
+					? 'text-gray2/30 cursor-not-allowed'
+					: 'text-gray2 hover:text-problem cursor-pointer'}"
+				title={owned ? 'Comes from a budget line — unlink or delete it there' : 'Delete section'}
 				aria-label="Delete section"
 			>
 				<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">

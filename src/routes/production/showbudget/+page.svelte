@@ -5,11 +5,7 @@
 	import BudgetDetailsDisplay from '$lib/components/production/showbudget/BudgetDetailsDisplay.svelte';
 	import ExportBudget from '$lib/components/production/showbudget/ExportBudget.svelte';
 	import { createBudgetSync } from '$lib/utils/budgetSync';
-	import {
-		subsBudgetedTotal,
-		itemsBudgetedTotal,
-		incomeTotalFor
-	} from '$lib/utils/budgetUtils';
+	import { totalExpensesOf, incomeTotalFor } from '$lib/utils/budgetUtils';
 
 	let selectedEvent: any = null;
 	let isExporting = false;
@@ -20,6 +16,7 @@
 	const sync = createBudgetSync();
 	const budgetStore = sync.store;
 	const savingState = sync.savingState;
+	const missingColumns = sync.missingColumns;
 
 	onMount(() => {
 		blog('page mounted');
@@ -55,12 +52,7 @@
 	$: liveNet = $budgetStore ? computeLiveNet($budgetStore) : null;
 
 	function computeLiveNet(s: any): number {
-		const type = s.budget_type || 'Tour Prod';
-		let expenses =
-			subsBudgetedTotal(s.technical || []) +
-			subsBudgetedTotal(s.hospitality || []) +
-			subsBudgetedTotal(s.other_expenses || []);
-		if (type === 'Complete Prod') expenses += itemsBudgetedTotal(s.artist_fee || []);
+		let expenses = totalExpensesOf(s);
 		// GST + QST when the budget has + TX on (same rule as the totals panel).
 		if (s.apply_taxes === true) expenses *= 1 + 0.05 + 0.09975;
 		return incomeTotalFor(s) - expenses;
@@ -101,7 +93,12 @@
 			</div>
 
 			<div class="details-column">
-				<BudgetDetailsDisplay {budgetStore} {presetRefreshTrigger} on:save={handleSave} />
+				<BudgetDetailsDisplay
+					{budgetStore}
+					{presetRefreshTrigger}
+					missingColumns={$missingColumns}
+					on:save={handleSave}
+				/>
 			</div>
 
 			<div class="export-column">
