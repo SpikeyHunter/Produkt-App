@@ -68,6 +68,8 @@ export interface OfferPdfData {
 
 	// Centered masthead
 	artistName: string;
+	/** Calendar event title — the bold name in the lime box (artist when empty) */
+	eventName?: string;
 	dateLabel: string; // "September 6, 2026"
 	role: string; // Headliner | Support
 	venueName: string;
@@ -465,10 +467,11 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		}
 		const textMaxW = CONTENT_W - (logo ? (logo.w / logo.h) * 0.62 + 0.3 : 0);
 
-		// Artist + date in a solid lime box (left-aligned), black text.
+		// Event name (bold) + date in a solid lime box, black text. The artist is
+		// already named on the "Headliner Offer:" line right below.
 		doc.setFontSize(14);
 		doc.setFont('helvetica', 'bold');
-		const artistPart = data.artistName;
+		const artistPart = (data.eventName || '').trim() || data.artistName;
 		const datePart = data.dateLabel ? ` - ${data.dateLabel}` : '';
 		const wArtist = doc.getTextWidth(artistPart);
 		doc.setFont('helvetica', 'normal');
@@ -846,6 +849,9 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		}
 	}
 
+	// Variable expenses only print when there are some — an empty table with a
+	// 0.00 total is just noise on the sheet.
+	if (data.variableRows.length > 0) {
 	ensureSpace(0.5);
 	bar('Variable Expenses', money(data.variableTotal), MARGIN, CONTENT_W, true);
 	y -= 0.05; // header row sits flush inside the band
@@ -876,6 +882,7 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		}
 	});
 	y += 0.1;
+	}
 
 	// --------------------------------------------------------------- contacts
 	if (data.contacts.length > 0) {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
+	import { claimCommandK } from '$lib/utils/commandK';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import MainLayout from '$lib/components/MainLayout.svelte';
@@ -59,6 +60,10 @@
 	let urlReady = false;
 
 	/* --------------------------------------------------------- lifecycle ---- */
+
+	// This page has its own ⌘K palette — keep the layout's document palette out.
+	const releaseCommandK = claimCommandK();
+	onDestroy(() => releaseCommandK());
 
 	onMount(async () => {
 		// Restore the last layout before the first list paints.

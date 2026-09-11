@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { commandKClaimed } from '$lib/utils/commandK';
 	import { tick } from 'svelte';
 	import { supabase } from '$lib/supabase';
 
@@ -131,12 +132,28 @@
 	$: if (results && sel >= results.length) sel = Math.max(0, results.length - 1);
 
 	function openItem(it: PaletteItem) {
-		window.open(it.url, '_blank', 'noopener');
+		// Close first: if the browser blocks or throws on the new tab, the
+		// palette must not be left hanging open behind it.
 		closePalette();
+		// A real anchor click is what Safari treats most reliably as a user
+		// gesture — window.open() from a keyboard handler can be swallowed.
+		const a = document.createElement('a');
+		a.href = it.url;
+		a.target = '_blank';
+		a.rel = 'noopener';
+		document.body.appendChild(a);
+		try {
+			a.click();
+		} finally {
+			a.remove();
+		}
 	}
 
 	function onWindowKeydown(e: KeyboardEvent) {
 		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+			// A page with its own palette (calendar, offers, talent payments)
+			// owns the shortcut — don't open a second one over it.
+			if (commandKClaimed() && !open) return;
 			e.preventDefault();
 			open ? closePalette() : openPalette();
 			return;

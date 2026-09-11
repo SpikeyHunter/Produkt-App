@@ -4,10 +4,52 @@
 	import { supabase } from '$lib/supabase';
 	import type { CalendarEvent } from '$lib/types/calendar-types';
 	import CalendarModify from '../../CalendarModify.svelte';
+	import CalendarCopyHold from '../../CalendarCopyHold.svelte';
 	import { syncLinkedDateFromCalendar } from '$lib/services/calendarEventLink';
+	import { getNextAvailableHold } from '$lib/utils/holdManager';
+	import type { VenueSettings } from '$lib/types/calendar-types';
 
 	export let event: CalendarEvent;
 	export let groupEvents: CalendarEvent[];
+	/** needed to number new holds the same way the calendar does */
+	export let venues: VenueSettings[] = [];
+
+	$: eventTitle = (event as any)?.calendar?.title || (event as any)?.title || 'Unnamed Event';
+	$: hasHolds = activeHolds.some((h) => h.status === 'HOLD' || h.status === 'PENDING');
+
+	/**
+	 * Hold level for a date this event doesn't have yet — the same H1/H2/...
+	 * numbering the calendar's Manage Holds uses. `virtual` carries the holds
+	 * created earlier in the same batch so two new dates never collide.
+	 */
+	async function nextHoldLevelFor(
+		date: string,
+		virtual: Pick<CalendarEvent, 'date' | 'status' | 'hold_level' | 'venue'>[]
+	) {
+		let category = '';
+		let room = '';
+		try {
+			const v = typeof event.venue === 'string' ? JSON.parse(event.venue) : event.venue || {};
+			category = v.category || '';
+			room = v.room || '';
+		} catch (e) {}
+
+		const { data } = await supabase
+			.from('calendar_events')
+			.select('id, date, status, hold_level, venue')
+			.eq('date', date)
+			.eq('status', 'HOLD');
+		const level = getNextAvailableHold({
+			date,
+			category,
+			room,
+			existingEvents: [...(data || []), ...virtual] as any,
+			isPriority: false,
+			venues
+		});
+		virtual.push({ date, status: 'HOLD', hold_level: level, venue: { category, room } as any });
+		return level;
+	}
 
 	let showPopover = false;
 	let popupRef: HTMLElement;
@@ -219,15 +261,26 @@
 			return;
 		}
 
-		const updates: { id: string; date: string }[] = [];
+		const updates: { id: string; date: string; hold_level?: string | null }[] = [];
 		const inserts: any[] = [];
 		const deletes: string[] = [];
 		let currentEventDeleted = false;
+		// A plain hold gets a real H# on every new date. Pending ('P') and
+		// confirmed rows keep what they have, exactly as before.
+		const numberHolds = event.status === 'HOLD' && event.hold_level !== 'P';
+		const virtual: Pick<CalendarEvent, 'date' | 'status' | 'hold_level' | 'venue'>[] = [];
 		const maxLen = Math.max(oldHolds.length, sortedNewDates.length);
 		for (let i = 0; i < maxLen; i++) {
 			if (i < oldHolds.length && i < sortedNewDates.length) {
 				if (oldHolds[i].date !== sortedNewDates[i]) {
-					updates.push({ id: oldHolds[i].id, date: sortedNewDates[i] });
+					updates.push({
+						id: oldHolds[i].id,
+						date: sortedNewDates[i],
+						// moved to another day: its old number may be taken there
+						...(numberHolds
+							? { hold_level: await nextHoldLevelFor(sortedNewDates[i], virtual) }
+							: {})
+					});
 				}
 			} else if (i < sortedNewDates.length) {
 				// STRICT WHITELIST: Only include columns that exist in the 'calendar_events' table schema
@@ -235,7 +288,9 @@
 					group_id: event.group_id,
 					date: sortedNewDates[i],
 					status: event.status,
-					hold_level: event.hold_level,
+					hold_level: numberHolds
+						? await nextHoldLevelFor(sortedNewDates[i], virtual)
+						: event.hold_level,
 					venue: event.venue,
 					time: event.time,
 					event_details: event.event_details
@@ -249,7 +304,9 @@
 		try {
 			if (updates.length > 0) {
 				for (const u of updates) {
-					const { error } = await supabase.from('calendar_events').update({ date: u.date }).eq('id', u.id);
+					const patch: any = { date: u.date };
+					if (u.hold_level !== undefined) patch.hold_level = u.hold_level;
+					const { error } = await supabase.from('calendar_events').update(patch).eq('id', u.id);
 					if (error) throw new Error(`Update Error: ${error.message}`);
 				}
 			}
@@ -458,6 +515,26 @@
 					on:click={promptModifyDates}>{isConfirmedStatus ? 'Confirm' : 'Update'}</button
 				>
 			</div>
+
+			{#if hasHolds}
+				<!-- Same clipboard output as the calendar's Manage Holds. The gap lives
+				     on a wrapper: app.css forces `margin: 0 !important` on every button. -->
+				<div class="mt-3">
+				<CalendarCopyHold groupId={event.group_id} {eventTitle} let:copyHolds let:loading>
+					<button
+						class="w-full py-2 rounded-xl border border-gray2/20 text-white hover:bg-white/5 text-sm font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+						on:click|stopPropagation={copyHolds}
+						disabled={loading}
+					>
+						<svg class="w-4 h-4 text-gray2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+							<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+						</svg>
+						Copy Holds
+					</button>
+				</CalendarCopyHold>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

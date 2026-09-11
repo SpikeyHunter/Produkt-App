@@ -764,7 +764,7 @@
 				? ''
 				: 'pointer-events-none opacity-80'}"
 		>
-			<DateSelector {event} {groupEvents} />
+			<DateSelector {event} {groupEvents} {venues} />
 			<TimeSelector {event} />
 			<VenueSelector {event} {groupEvents} {venues} on:openSettings />
 			<TypeSelector {event} {parsedDetails} />

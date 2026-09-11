@@ -21,6 +21,8 @@
 		removeOfferPdf,
 		openOffer,
 		openOfferPretty,
+		downloadOfferPretty,
+		buildOfferDownloadName,
 		openSettlementPretty,
 		type OfferHistoryEntry
 	} from '$lib/services/offerService';
@@ -655,6 +657,20 @@
 				settlementLabel(se).toLowerCase().includes(q) ||
 				formatOfferDate(se.generatedAt).toLowerCase().includes(q)
 		);
+	}
+
+	/** "Produkt Offer - KREAM (KREAM Liquid:Lab 2027) - 20270501 - V3.pdf" */
+	function offerFileNameFor(deal: Deal, n: number): string {
+		return buildOfferDownloadName(deal.artistName, event?.calendar?.title || '', eventDate, n);
+	}
+
+	/** Open the pretty link, with the proper file name for the viewer's Save. */
+	function viewOffer(deal: Deal, n: number) {
+		openOfferPretty(deal.artistName, n, { fileName: offerFileNameFor(deal, n) });
+	}
+
+	function downloadOffer(deal: Deal, n: number) {
+		downloadOfferPretty(deal.artistName, n, offerFileNameFor(deal, n));
 	}
 
 	function latestOffer(deal: Deal | null): OfferHistoryEntry | null {
@@ -1577,7 +1593,7 @@
 					? `${fmtLongDate(eventDates[0])} - ${fmtLongDate(eventDates[eventDates.length - 1])}`
 					: eventDate
 						? fmtLongDate(eventDate)
-						: event?.calendar?.title || '';
+						: '';
 
 			// ---- Event details (Prism: Age Limit, Offer Sent, Date, Doors, Curfew) ----
 			let expiryDays = 14;
@@ -1616,6 +1632,7 @@
 				offerNumber: n,
 				generatedAt: new Date(),
 				artistName: deal.artistName,
+				eventName: event?.calendar?.title || '',
 				dateLabel,
 				role: deal.role,
 				venueName,
@@ -1697,7 +1714,7 @@
 			lastGeneratedPath = path;
 			lastGeneratedNumber = n;
 			// Open the PDF right away and dismiss the modal — no done step.
-			openOfferPretty(deal.artistName, n);
+			viewOffer(deal, n);
 			closeOfferModal();
 		} catch (err) {
 			console.error('❌ [offers] Failed to generate offer:', err);
@@ -2093,7 +2110,8 @@
 				offerNumber: 0,
 				generatedAt: new Date(),
 				artistName: deal.artistName,
-				dateLabel: eventDate ? fmtLongDate(eventDate) : event?.calendar?.title || '',
+				eventName: event?.calendar?.title || '',
+				dateLabel: eventDate ? fmtLongDate(eventDate) : '',
 				role: deal.role,
 				venueName,
 				venueRoom,
@@ -2594,7 +2612,7 @@
 																			const se = latestSettlement(deal);
 																			se ? openSettlementPretty(deal.artistName, se.variant) : openSettlementModal(deal);
 																		} else if (latest) {
-																			openOfferPretty(deal.artistName, latest.n);
+																			viewOffer(deal, latest.n);
 																		} else {
 																			openOfferModal(deal);
 																		}
@@ -2723,7 +2741,7 @@
 																			>
 																				<button
 																					on:click={() => {
-																						openOfferPretty(deal.artistName, o.n);
+																						viewOffer(deal, o.n);
 																						versionMenuId = null;
 																					}}
 																					class="flex-1 text-left px-3 py-2 text-sm font-bold text-white group-hover/offerrow:text-lime transition-colors flex items-center justify-between gap-2 cursor-pointer min-w-0"
@@ -2741,6 +2759,27 @@
 																					<span class="text-[10px] text-gray2 font-bold shrink-0"
 																						>{formatOfferDate(o.generatedAt)}</span
 																					>
+																				</button>
+																				<button
+																					type="button"
+																					on:click|stopPropagation={() => downloadOffer(deal, o.n)}
+																					title={`Download Offer ${o.n}`}
+																					class="w-7 h-7 shrink-0 flex items-center justify-center rounded-lg transition-colors cursor-pointer text-gray2 hover:text-lime hover:bg-lime/10"
+																					aria-label="Download offer"
+																				>
+																					<svg
+																						class="w-3.5 h-3.5 pointer-events-none"
+																						viewBox="0 0 24 24"
+																						fill="none"
+																						stroke="currentColor"
+																						stroke-width="2"
+																						stroke-linecap="round"
+																						stroke-linejoin="round"
+																					>
+																						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+																						<polyline points="7 10 12 15 17 10"></polyline>
+																						<line x1="12" y1="15" x2="12" y2="3"></line>
+																					</svg>
 																				</button>
 																				{#if canEditAndManage}
 																					<button
@@ -2872,7 +2911,7 @@
 																						{#each offerVersionsFor(deal, '') as o (o.n)}
 																							<button
 																								on:click={() => {
-																									openOfferPretty(deal.artistName, o.n);
+																									viewOffer(deal, o.n);
 																									activeMenuId = null;
 																								}}
 																								class="w-full text-left px-3 py-2 text-sm font-bold text-white hover:bg-lime/10 hover:text-lime transition-colors flex items-center justify-between gap-2 cursor-pointer"
@@ -3060,7 +3099,7 @@
 																			const se = latestSettlement(deal);
 																			se ? openSettlementPretty(deal.artistName, se.variant) : openSettlementModal(deal);
 																		} else if (latest) {
-																			openOfferPretty(deal.artistName, latest.n);
+																			viewOffer(deal, latest.n);
 																		} else {
 																			openOfferModal(deal);
 																		}
@@ -3189,7 +3228,7 @@
 																			>
 																				<button
 																					on:click={() => {
-																						openOfferPretty(deal.artistName, o.n);
+																						viewOffer(deal, o.n);
 																						versionMenuId = null;
 																					}}
 																					class="flex-1 text-left px-3 py-2 text-sm font-bold text-white group-hover/offerrow:text-lime transition-colors flex items-center justify-between gap-2 cursor-pointer min-w-0"
@@ -3207,6 +3246,27 @@
 																					<span class="text-[10px] text-gray2 font-bold shrink-0"
 																						>{formatOfferDate(o.generatedAt)}</span
 																					>
+																				</button>
+																				<button
+																					type="button"
+																					on:click|stopPropagation={() => downloadOffer(deal, o.n)}
+																					title={`Download Offer ${o.n}`}
+																					class="w-7 h-7 shrink-0 flex items-center justify-center rounded-lg transition-colors cursor-pointer text-gray2 hover:text-lime hover:bg-lime/10"
+																					aria-label="Download offer"
+																				>
+																					<svg
+																						class="w-3.5 h-3.5 pointer-events-none"
+																						viewBox="0 0 24 24"
+																						fill="none"
+																						stroke="currentColor"
+																						stroke-width="2"
+																						stroke-linecap="round"
+																						stroke-linejoin="round"
+																					>
+																						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+																						<polyline points="7 10 12 15 17 10"></polyline>
+																						<line x1="12" y1="15" x2="12" y2="3"></line>
+																					</svg>
 																				</button>
 																				{#if canEditAndManage}
 																					<button
@@ -3338,7 +3398,7 @@
 																						{#each offerVersionsFor(deal, '') as o (o.n)}
 																							<button
 																								on:click={() => {
-																									openOfferPretty(deal.artistName, o.n);
+																									viewOffer(deal, o.n);
 																									activeMenuId = null;
 																								}}
 																								class="w-full text-left px-3 py-2 text-sm font-bold text-white hover:bg-lime/10 hover:text-lime transition-colors flex items-center justify-between gap-2 cursor-pointer"
@@ -4000,7 +4060,7 @@
 									on:click={() => {
 										const d = offerDeal;
 										closeOfferModal();
-										if (latestEntry && d) openOfferPretty(d.artistName, latestEntry.n);
+										if (latestEntry && d) viewOffer(d, latestEntry.n);
 									}}
 								>
 									View Offer {latestEntry.n}
@@ -4066,7 +4126,7 @@
 									type="button"
 									class="px-6 py-3 bg-lime text-black font-bold rounded-full hover:opacity-80 transition-opacity cursor-pointer"
 									on:click={() =>
-										offerDeal && openOfferPretty(offerDeal.artistName, lastGeneratedNumber)}
+										offerDeal && viewOffer(offerDeal, lastGeneratedNumber)}
 								>
 									Open PDF
 								</button>

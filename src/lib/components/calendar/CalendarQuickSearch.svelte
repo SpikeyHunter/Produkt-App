@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
+	import { claimCommandK } from '$lib/utils/commandK';
 	import { fade, fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { cubicOut } from 'svelte/easing';
@@ -208,6 +209,17 @@
 		if (event.hold_level === 'P') return 'P';
 		return '';
 	}
+
+	// Own ⌘K while this palette can actually open, so the layout's document
+	// palette doesn't pop up underneath it.
+	let releaseCommandK: (() => void) | null = null;
+	$: if (canEdit && !releaseCommandK) {
+		releaseCommandK = claimCommandK();
+	} else if (!canEdit && releaseCommandK) {
+		releaseCommandK();
+		releaseCommandK = null;
+	}
+	onDestroy(() => releaseCommandK?.());
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		if (!canEdit) return;

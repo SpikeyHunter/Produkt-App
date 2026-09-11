@@ -89,12 +89,103 @@ export async function getOfferUrl(path: string): Promise<string | null> {
 }
 
 /** Shareable pretty link: /offer/<Artist-name>/<n> (works on any host). */
-export function offerPrettyUrl(artistName: string, n: number): string {
-	return `/offer/${encodeURIComponent(sanitizeForFileName(artistName))}/${n}`;
+/**
+ * The name a browser saves the PDF under:
+ *   "Produkt Offer - KREAM (KREAM Liquid:Lab 2027) - 20270501 - V1.pdf"
+ * Only characters a filesystem refuses are swapped out.
+ */
+export function buildOfferDownloadName(
+	artistName: string,
+	eventName: string,
+	eventDate: string,
+	n: number
+): string {
+	const clean = (x: string) =>
+		(x || '')
+			.replace(/[\/\\:*?"<>|\r\n]/g, '-')
+			.replace(/\s+/g, ' ')
+			.trim();
+	const artist = clean(artistName) || 'Artist';
+	const ev = clean(eventName);
+	const ymd = /^\d{4}-\d{2}-\d{2}/.test(eventDate || '')
+		? eventDate.slice(0, 10).replace(/-/g, '')
+		: 'no-date';
+	return `Produkt Offer - ${artist}${ev && ev !== artist ? ` (${ev})` : ''} - ${ymd} - V${n}.pdf`;
 }
 
-export function openOfferPretty(artistName: string, n: number): void {
-	window.open(offerPrettyUrl(artistName, n), '_blank', 'noopener');
+export type OfferLinkOptions = {
+	/** name the browser's Save / Download uses */
+	fileName?: string;
+	/** true = served as an attachment, so the browser saves instead of viewing */
+	download?: boolean;
+};
+
+export function offerPrettyUrl(artistName: string, n: number, opts: OfferLinkOptions = {}): string {
+	const base = `/offer/${encodeURIComponent(sanitizeForFileName(artistName))}/${n}`;
+	const q = new URLSearchParams();
+	if (opts.fileName) q.set('name', opts.fileName);
+	if (opts.download) q.set('dl', '1');
+	const qs = q.toString();
+	return qs ? `${base}?${qs}` : base;
+}
+
+export function openOfferPretty(artistName: string, n: number, opts: OfferLinkOptions = {}): void {
+	window.open(offerPrettyUrl(artistName, n, opts), '_blank', 'noopener');
+}
+
+/**
+ * Save the PDF, asking where and under what name first.
+ *
+ * Chrome / Edge / Electron expose a native "Save as" dialog (File System
+ * Access API) with the file name pre-filled. Safari and Firefox don't have
+ * one a page can open, so there the file goes through a normal download —
+ * whether the browser asks for a location is its own download setting
+ * (Safari › Settings › General › File download location › Ask for each download).
+ */
+export async function downloadOfferPretty(
+	artistName: string,
+	n: number,
+	fileName: string
+): Promise<void> {
+	const url = offerPrettyUrl(artistName, n, { fileName, download: true });
+
+	const picker = (window as any).showSaveFilePicker;
+	if (typeof picker === 'function') {
+		let handle: any;
+		try {
+			// Must be the first await: the dialog only opens inside the click.
+			handle = await picker({
+				suggestedName: fileName,
+				types: [{ description: 'PDF document', accept: { 'application/pdf': ['.pdf'] } }]
+			});
+		} catch (err: any) {
+			if (err?.name === 'AbortError') return; // user cancelled — nothing to do
+			handle = null; // picker unavailable here (sandboxed frame etc.) — fall back
+		}
+		if (handle) {
+			try {
+				const res = await fetch(url);
+				if (!res.ok) throw new Error(`HTTP ${res.status}`);
+				const writable = await handle.createWritable();
+				await writable.write(await res.blob());
+				await writable.close();
+				return;
+			} catch (err) {
+				console.error('[offer] save-as failed, falling back to a plain download', err);
+			}
+		}
+	}
+
+	// Plain download — a real anchor click, which Safari honours.
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = fileName;
+	document.body.appendChild(a);
+	try {
+		a.click();
+	} finally {
+		a.remove();
+	}
 }
 
 /** Shareable pretty link: /settlement/<Artist-name>/<Ext|Int>. */
