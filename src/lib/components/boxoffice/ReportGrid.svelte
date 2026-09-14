@@ -232,27 +232,32 @@
         }, 400);
     }
 
+    /** Only the sections that differ from what's on screen — ⌘Z must not
+     *  rewrite (and re-save) all five sections every time. */
+    function diffFromCurrent(restored: any) {
+        const updates: any = {};
+        BOX_OFFICE_CATEGORIES.forEach((cat) => {
+            if (!restored[cat]) return;
+            if (JSON.stringify(restored[cat]) !== JSON.stringify(reportData?.[cat])) {
+                updates[cat] = restored[cat];
+            }
+        });
+        return updates;
+    }
+
     function undo() {
         if (historyIndex > 0) {
             historyIndex--;
-            const restored = history[historyIndex];
-            const updates: any = {};
-            BOX_OFFICE_CATEGORIES.forEach((cat) => {
-                if (restored[cat]) updates[cat] = restored[cat];
-            });
-            dispatch('update', updates);
+            const updates = diffFromCurrent(history[historyIndex]);
+            if (Object.keys(updates).length) dispatch('update', updates);
         }
     }
 
     function redo() {
         if (historyIndex < history.length - 1) {
             historyIndex++;
-            const restored = history[historyIndex];
-            const updates: any = {};
-            BOX_OFFICE_CATEGORIES.forEach((cat) => {
-                if (restored[cat]) updates[cat] = restored[cat];
-            });
-            dispatch('update', updates);
+            const updates = diffFromCurrent(history[historyIndex]);
+            if (Object.keys(updates).length) dispatch('update', updates);
         }
     }
 

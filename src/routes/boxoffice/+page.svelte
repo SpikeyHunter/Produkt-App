@@ -25,6 +25,16 @@
 	let editingCategories = new Set<string>();
 	let editCategoryTimeouts: Record<string, any> = {};
 
+	// Save feedback. A write that fails — or that touches no row (expired
+	// session, missing report) — used to vanish into the console while the
+	// grid kept showing the edits; on reload everything looked "reset".
+	type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+	let saveState: SaveState = 'idle';
+	let saveError = '';
+	let saveAttempt = 0;
+	let savedFlashTimer: any = null;
+	let loadError = '';
+
 	let showPdfPreview = false;
 	let isDeletingPdf = false;
 
@@ -126,6 +136,11 @@
 	}
 
 	async function handleEventSelect(event: CustomEvent) {
+		// Don't let the previous report's debounced edits ride over to this one.
+		if (saveTimeout) {
+			clearTimeout(saveTimeout);
+			await flushSave(selectedEvent?.event_id);
+		}
 		selectedEvent = event.detail;
 		showAllEvents = false;
 		if (selectedEvent) {
@@ -136,39 +151,69 @@
 	}
 
 	async function loadReport(eventId: number) {
+		loadError = '';
 		const { data, error } = await supabase
 			.from('box_office_reports')
 			.select('*')
 			.eq('event_id', eventId)
 			.maybeSingle();
-		if (!data) {
-			const newReport = {
-				event_id: eventId,
-				status: 'todo',
-				online: DEFAULT_TICKETS.online,
-				door: DEFAULT_TICKETS.door,
-				table_tickets: DEFAULT_TICKETS.table_tickets,
-				comp: DEFAULT_TICKETS.comp,
-				other: DEFAULT_TICKETS.other
-			};
-			const { data: inserted } = await supabase
-				.from('box_office_reports')
-				.insert(newReport)
-				.select()
-				.single();
-			reportData = inserted;
 
-			if (selectedEvent) {
-				selectedEvent.box_office_reports = [inserted];
-				selectedEvent = { ...selectedEvent };
-				const eventIndex = events.findIndex((e) => e.event_id === eventId);
-				if (eventIndex > -1) {
-					events[eventIndex].box_office_reports = [inserted];
-					events = [...events];
-				}
-			}
-		} else {
+		// A failed read is not "no report yet" — inserting defaults over an
+		// existing report (or showing an empty grid) is exactly the reset the
+		// team saw. Say so and stop.
+		if (error) {
+			console.error('[boxoffice] load failed:', error);
+			loadError = `Could not load this report (${error.message}). Check your connection and try again.`;
+			reportData = null;
+			return;
+		}
+
+		if (data) {
 			reportData = data;
+			return;
+		}
+
+		// First time this event is opened: create the blank report. If another
+		// device created it a moment ago, keep theirs (ignoreDuplicates) and
+		// read it back instead of failing.
+		const newReport = {
+			event_id: eventId,
+			status: 'todo',
+			online: DEFAULT_TICKETS.online,
+			door: DEFAULT_TICKETS.door,
+			table_tickets: DEFAULT_TICKETS.table_tickets,
+			comp: DEFAULT_TICKETS.comp,
+			other: DEFAULT_TICKETS.other
+		};
+		const { error: insErr } = await supabase
+			.from('box_office_reports')
+			.upsert(newReport, { onConflict: 'event_id', ignoreDuplicates: true });
+		if (insErr) {
+			console.error('[boxoffice] create failed:', insErr);
+			loadError = `Could not create the report (${insErr.message}). You may be signed out — reload the page.`;
+			reportData = null;
+			return;
+		}
+		const { data: created, error: reErr } = await supabase
+			.from('box_office_reports')
+			.select('*')
+			.eq('event_id', eventId)
+			.single();
+		if (reErr || !created) {
+			loadError = 'Could not load the new report. Reload the page.';
+			reportData = null;
+			return;
+		}
+		reportData = created;
+
+		if (selectedEvent) {
+			selectedEvent.box_office_reports = [created];
+			selectedEvent = { ...selectedEvent };
+			const eventIndex = events.findIndex((e) => e.event_id === eventId);
+			if (eventIndex > -1) {
+				events[eventIndex].box_office_reports = [created];
+				events = [...events];
+			}
 		}
 	}
 
@@ -251,19 +296,85 @@
 		}
 
 		pendingUpdates = { ...pendingUpdates, ...updates };
+		saveState = 'saving';
+		scheduleFlush(800);
+	}
+
+	function scheduleFlush(ms: number) {
 		if (saveTimeout) clearTimeout(saveTimeout);
+		// Pin the event now: switching events during the debounce must not
+		// send this payload to the newly selected report.
+		const eventId = selectedEvent?.event_id;
+		saveTimeout = setTimeout(() => flushSave(eventId), ms);
+	}
 
-		saveTimeout = setTimeout(async () => {
-			const payload = { ...pendingUpdates };
-			pendingUpdates = {};
+	async function flushSave(eventId: number | null | undefined) {
+		saveTimeout = null;
+		if (!eventId || Object.keys(pendingUpdates).length === 0) return;
+		const payload = { ...pendingUpdates };
 
-			const { error } = await supabase
-				.from('box_office_reports')
-				.update(payload)
-				.eq('event_id', selectedEvent.event_id);
+		// Writes need a live session: an expired one makes RLS quietly match
+		// zero rows, which is a silent data loss. Check before, not after.
+		const { data: sess } = await supabase.auth.getSession();
+		if (!sess?.session) {
+			saveState = 'error';
+			saveError = 'You are signed out — your edits are kept on this page. Sign in again in another tab, then they will save.';
+			saveAttempt++;
+			saveTimeout = setTimeout(() => flushSave(eventId), 5000);
+			return;
+		}
 
-			if (error) console.error('Error saving report:', error);
-		}, 800);
+		const { data, error } = await supabase
+			.from('box_office_reports')
+			.update(payload)
+			.eq('event_id', eventId)
+			.select('event_id');
+
+		const wroteNothing = !error && (!data || data.length === 0);
+		if (error || wroteNothing) {
+			console.error('[boxoffice] save failed:', error?.message || 'no row was updated', payload);
+			saveState = 'error';
+			saveError = error
+				? `Save failed: ${error.message}`
+				: 'Save failed: the report row was not found (it may have been deleted). Reload the page.';
+			saveAttempt++;
+			// keep the payload and retry; nothing typed is thrown away
+			saveTimeout = setTimeout(() => flushSave(eventId), Math.min(30000, 2000 * saveAttempt));
+			return;
+		}
+
+		// Drop only what this write carried — edits made meanwhile stay queued.
+		for (const key of Object.keys(payload)) {
+			if (pendingUpdates[key] === payload[key]) delete pendingUpdates[key];
+		}
+		pendingUpdates = { ...pendingUpdates };
+		saveAttempt = 0;
+		saveError = '';
+
+		if (Object.keys(pendingUpdates).length > 0) {
+			scheduleFlush(300);
+			return;
+		}
+		saveState = 'saved';
+		if (savedFlashTimer) clearTimeout(savedFlashTimer);
+		savedFlashTimer = setTimeout(() => {
+			if (saveState === 'saved') saveState = 'idle';
+		}, 2000);
+	}
+
+	function retrySaveNow() {
+		if (saveTimeout) clearTimeout(saveTimeout);
+		saveAttempt = 0;
+		flushSave(selectedEvent?.event_id);
+	}
+
+	// Leaving with unsaved edits: send them now and warn.
+	function handleBeforeUnload(e: BeforeUnloadEvent) {
+		if (Object.keys(pendingUpdates).length === 0) return;
+		if (saveTimeout) clearTimeout(saveTimeout);
+		flushSave(selectedEvent?.event_id);
+		e.preventDefault();
+		e.returnValue = '';
 	}
 
 	async function handleResetReport() {
@@ -323,7 +434,7 @@
 	<title>Box Office</title>
 </svelte:head>
 
-<svelte:window bind:innerWidth />
+<svelte:window bind:innerWidth on:beforeunload={handleBeforeUnload} />
 
 <MainLayout>
 	<div class="p-2 sm:p-3 lg:p-4 h-[calc(100vh-64px)] box-border">
@@ -392,6 +503,43 @@
 					<div class="pane rounded-xl overflow-hidden shadow-lg bg-[#1e1e1e] relative">
 						{#if selectedEvent && reportData}
 							<ReportGrid {reportData} on:update={handleUpdate} />
+
+							<!-- Save state: never let a failed write look like a saved one -->
+							{#if saveState === 'error'}
+								<div class="absolute left-3 right-3 bottom-3 z-30 bg-problem text-white rounded-xl px-4 py-2.5 shadow-2xl flex items-center gap-3">
+									<svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+										<line x1="12" y1="9" x2="12" y2="13" />
+										<line x1="12" y1="17" x2="12.01" y2="17" />
+									</svg>
+									<div class="flex-1 min-w-0 text-sm font-bold leading-snug">
+										<div>NOT SAVED — {saveError}</div>
+										<div class="text-[11px] opacity-80 font-medium">Retrying automatically. Don't close this page until it says Saved.</div>
+									</div>
+									<button
+										type="button"
+										on:click={retrySaveNow}
+										class="shrink-0 px-3 py-1.5 rounded-lg bg-white text-problem text-xs font-black cursor-pointer hover:bg-white/90"
+									>
+										Retry now
+									</button>
+								</div>
+							{:else if saveState === 'saving'}
+								<div class="absolute right-3 bottom-3 z-30 text-[11px] font-bold text-gray2 bg-black/50 rounded-full px-3 py-1">Saving…</div>
+							{:else if saveState === 'saved'}
+								<div class="absolute right-3 bottom-3 z-30 text-[11px] font-bold text-lime bg-black/50 rounded-full px-3 py-1">Saved</div>
+							{/if}
+						{:else if selectedEvent && loadError}
+							<div class="h-full flex flex-col items-center justify-center text-center px-6 gap-3">
+								<p class="text-problem font-bold text-sm">{loadError}</p>
+								<button
+									type="button"
+									on:click={() => selectedEvent && loadReport(selectedEvent.event_id)}
+									class="px-4 py-2 rounded-full bg-lime text-black text-xs font-black cursor-pointer"
+								>
+									Try again
+								</button>
+							</div>
 						{:else}
 							<div class="h-full flex items-center justify-center text-gray2 font-bold opacity-50 text-center px-6">
 								Select an event to view Box Office report
