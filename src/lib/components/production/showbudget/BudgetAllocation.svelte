@@ -13,7 +13,7 @@
 
 	export let report: AllocationReport | null = null;
 
-	let open = true;
+	let open = false; // collapsed until asked for — the badges already say most of it
 
 	$: rows = report?.rows || [];
 	$: pool = report?.pool;

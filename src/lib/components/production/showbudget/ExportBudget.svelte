@@ -57,7 +57,8 @@
 		amounts: 'both',
 		sections: {},
 		includeIncome: true,
-		includeAllocation: true
+		includeAllocation: true,
+		includeSummary: true
 	};
 	const sectionOn = (opts: ExportOptions, key: string) => opts.sections[key] !== false;
 	function toggleSection(key: string, on: boolean) {
@@ -306,7 +307,8 @@
 			// would cross a page edge. A heading right above it comes along.
 			const rootRect = root.getBoundingClientRect();
 			const atoms: { top: number; bottom: number }[] = [];
-			root.querySelectorAll('.pdf-section').forEach((node) => {
+			// Cards are atoms; inside a long (.pdf-flow) card each row is one.
+			root.querySelectorAll('.pdf-section, .pdf-flow .pdf-row').forEach((node) => {
 				const el = node as HTMLElement;
 				const r = el.getBoundingClientRect();
 				let top = r.top - rootRect.top;
@@ -634,6 +636,10 @@
 									<label class="flex items-center gap-2 text-white cursor-pointer">
 										<input type="checkbox" bind:checked={exportOptions.includeIncome} class="accent-[#e1ff00]" />
 										Income section
+									</label>
+									<label class="flex items-center gap-2 text-white cursor-pointer">
+										<input type="checkbox" bind:checked={exportOptions.includeSummary} class="accent-[#e1ff00]" />
+										Summary
 									</label>
 									{#if isCustom}
 										<label class="flex items-center gap-2 text-white cursor-pointer">

@@ -93,4 +93,6 @@ export type ExportOptions = {
 	includeIncome: boolean;
 	/** Print the "Budget allocation" breakdown block */
 	includeAllocation: boolean;
+	/** Print the Summary card at the end (default true) */
+	includeSummary?: boolean;
 };
