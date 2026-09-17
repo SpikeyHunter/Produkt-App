@@ -58,6 +58,17 @@
 		details.afterType = afterOptions[0] as any;
 	}
 
+	// One selector drives every bonus: keep what's stored in step with it, so
+	// older readers of `switchesAt` can't disagree with the screen.
+	$: afterMode = String(details.afterType || '');
+	$: if (
+		(afterMode === '% Sell Through' || afterMode === '# Tickets Sold' || afterMode === 'Manual Split Point') &&
+		Array.isArray(details.bonuses) &&
+		details.bonuses.some((b) => String(b.switchesAt) !== afterMode)
+	) {
+		details.bonuses = details.bonuses.map((b) => ({ ...b, switchesAt: afterMode as any }));
+	}
+
 	function addBonus() {
 		details.bonuses = [
 			...details.bonuses,

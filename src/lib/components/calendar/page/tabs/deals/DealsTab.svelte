@@ -9,7 +9,8 @@
 		computeArtistPayout,
 		computeBackend,
 		computeEventCosts,
-		formatDealSummary
+		formatDealSummary,
+		bonusThresholdMode
 	} from '$lib/components/calendar/page/tabs/deals/dealEngine';
 	import { syncDealSetTimesToTimetable } from '$lib/services/timetableSync';
 	import { getCachedDealPayload, setCachedDealPayload } from './eventDealCache';
@@ -1094,7 +1095,7 @@
 						Number(b.bonusAmount) || (i === 0 ? Number(d.details!.metricAmount) || 0 : 0);
 					const at = Number(b.atAmount) || 0;
 					const achieved =
-						b.switchesAt === '% Sell Through'
+						bonusThresholdMode(d.details, b) === '% Sell Through'
 							? ctx.totalAllotment > 0 && (ctx.paidTickets / ctx.totalAllotment) * 100 >= at
 							: ctx.paidTickets >= at;
 					if (achieved) sum += amt * rate;
@@ -1396,13 +1397,13 @@
 							Number(b.bonusAmount) || (i === 0 ? Number(deal.details?.metricAmount) || 0 : 0);
 						const at = Number(b.atAmount) || 0;
 						const achieved =
-							b.switchesAt === '% Sell Through'
+							bonusThresholdMode(deal.details, b) === '% Sell Through'
 								? totalAllotment > 0 && (sellablePotential / totalAllotment) * 100 >= at
 								: sellablePotential >= at;
 						// Offers translate % sell-through into the actual ticket count:
 						// "after 2500 (100%) sold". Deal tab summaries stay untouched.
 						const atText =
-							b.switchesAt === '% Sell Through'
+							bonusThresholdMode(deal.details, b) === '% Sell Through'
 								? `${Math.round((at / 100) * sellablePotential).toLocaleString('en-US')} (${at}%) sold`
 								: `${at} tickets sold`;
 						offerRows.push({

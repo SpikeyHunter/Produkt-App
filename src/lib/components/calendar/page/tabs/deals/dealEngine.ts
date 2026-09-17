@@ -31,6 +31,24 @@ export interface DealContext {
 }
 
 /**
+ * Which threshold a Plus bonus is measured against.
+ *
+ * The deal UI has ONE "after" selector for every bonus (details.afterType).
+ * Each bonus also stores a `switchesAt`, but that is only what it was created
+ * with — it goes stale when the selector is changed afterwards (a deal built
+ * as "% Sell Through", then switched to "# Tickets Sold", kept bonuses that
+ * still said "%", so "2250 tickets" was read as 2250 %). The deal-level value
+ * is the truth whenever it is a threshold type.
+ */
+export function bonusThresholdMode(details: any, bonus: any): string {
+	const after = String(details?.afterType || '');
+	if (after === '% Sell Through' || after === '# Tickets Sold' || after === 'Manual Split Point') {
+		return after;
+	}
+	return String(bonus?.switchesAt || after);
+}
+
+/**
  * The guaranteed minimum, converted to venue currency.
  */
 export function guaranteeInVenueCurrency(deal: HeadlinerDeal, exchangeRate: number): number {
@@ -88,7 +106,7 @@ export function computeBackend(deal: HeadlinerDeal, ctx: DealContext): number {
 			? rawBonuses.map((b: any, i: number) => ({
 					amount: Number(b.bonusAmount) || (i === 0 ? metricAmount : 0),
 					at: Number(b.atAmount) || 0,
-					mode: b.switchesAt || afterType
+					mode: bonusThresholdMode(d, b)
 				}))
 			: [{ amount: metricAmount, at: splitPoint, mode: afterType }];
 
