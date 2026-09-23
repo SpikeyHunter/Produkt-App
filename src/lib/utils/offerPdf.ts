@@ -86,6 +86,8 @@ export interface OfferPdfData {
 	// Two-column block
 	eventDetails: OfferKvRow[];
 	eventSummary: OfferKvRow[];
+	/** Full-width bullet list under the two-column block (deal notes) */
+	additionalNotes?: string[];
 
 	// Ticket scaling
 	venueCurrency: string;
@@ -101,6 +103,9 @@ export interface OfferPdfData {
 	expenseGroups: OfferExpenseGroup[];
 	variableRows: { name: string; type: string; amount: string; potential: string }[];
 	variableTotal: number;
+	/** Produkt commission — its own band, never mixed into variable expenses */
+	commissionRows?: { name: string; type: string; amount: string; potential: string }[];
+	commissionTotal?: number;
 
 	contacts: OfferContactRow[];
 
@@ -199,7 +204,12 @@ interface TermBlock {
 	kind: 'heading' | 'para' | 'bullet' | 'space';
 	runs: TermRun[];
 	indent: number; // 0-based indent level (execCommand indent / blockquote)
+	/** heading blocks: 1-6, so H1..H6 print at different sizes (matches the editor) */
+	level?: number;
 }
+
+/** Point size per heading level. Level 6 sits at body size, in small caps. */
+const HEADING_SIZE: Record<number, number> = { 1: 13, 2: 11, 3: 10, 4: 9, 5: 8.2, 6: 7.5 };
 
 const BR_MARK = '\u0000';
 
@@ -279,7 +289,13 @@ export function parseTermBlocks(content: string): TermBlock[] {
 			const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
 
 			if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) {
-				if (text) blocks.push({ kind: 'heading', runs: [{ text, bold: true, italic: false, underline: false }], indent });
+				if (text)
+					blocks.push({
+						kind: 'heading',
+						runs: [{ text, bold: true, italic: false, underline: false }],
+						indent,
+						level: Number(tag.slice(1)) || 3
+					});
 				return;
 			}
 			if (tag === 'li') {
@@ -303,7 +319,7 @@ export function parseTermBlocks(content: string): TermBlock[] {
 				// A paragraph that's fully bold reads as a heading (house style).
 				const inner = el.children.length === 1 ? el.children[0].tagName.toLowerCase() : '';
 				if ((inner === 'b' || inner === 'strong') && el.children[0].textContent?.trim() === text && text) {
-					blocks.push({ kind: 'heading', runs: [{ text, bold: true, italic: false, underline: false }], indent });
+					blocks.push({ kind: 'heading', runs: [{ text, bold: true, italic: false, underline: false }], indent, level: 3 });
 					return;
 				}
 				if (el.querySelector('li')) {
@@ -336,7 +352,7 @@ export function parseTermBlocks(content: string): TermBlock[] {
 		const line = rawLine.trim();
 		if (!line) continue;
 		if (line.startsWith('# '))
-			blocks.push({ kind: 'heading', runs: [{ text: line.slice(2), bold: true, italic: false, underline: false }], indent: 0 });
+			blocks.push({ kind: 'heading', runs: [{ text: line.slice(2), bold: true, italic: false, underline: false }], indent: 0, level: 2 });
 		else blocks.push({ kind: 'para', runs: [{ text: line, bold: false, italic: false, underline: false }], indent: 0 });
 	}
 	return blocks;
@@ -532,7 +548,13 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 	for (const row of data.offerRows) {
 		doc.setFontSize(8.5);
 		const labelLines = doc.splitTextToSize(row.label, CONTENT_W - 2.3);
-		const noteLines = row.note ? doc.splitTextToSize(row.note, CONTENT_W - 2.3) : [];
+		// A note may carry explicit line breaks ("(subject to w holding tax)" +
+		// "(Offer is inclusive of support)"); wrap each of them separately.
+		const noteLines: string[] = row.note
+			? row.note
+					.split('\n')
+					.flatMap((part: string) => doc.splitTextToSize(part, CONTENT_W - 2.3) as string[])
+			: [];
 		const h = Math.max(0.24, labelLines.length * 0.135 + noteLines.length * 0.12 + 0.11);
 		ensureSpace(h);
 		if (row.accent) {
@@ -585,7 +607,17 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		const colW = (CONTENT_W - colGap) / 2;
 		const leftX = MARGIN;
 		const rightX = MARGIN + colW + colGap;
-		const maxRows = Math.max(data.eventDetails.length, data.eventSummary.length);
+		// Long values (a list of hold dates) have to wrap inside their own
+		// column — drawn unwrapped they ran straight over the Event Summary.
+		const detailValueX = MARGIN + colW * 0.45;
+		const detailValueW = colW - (detailValueX - MARGIN) - 0.08;
+		doc.setFont('helvetica', 'normal');
+		doc.setFontSize(8);
+		const detailLines = data.eventDetails.map(
+			(row) => doc.splitTextToSize(row.value, detailValueW) as string[]
+		);
+		const leftRows = detailLines.reduce((acc, l) => acc + Math.max(1, l.length), 0);
+		const maxRows = Math.max(leftRows, data.eventSummary.length);
 		ensureSpace(0.26 + maxRows * 0.16);
 
 		const barsY = y;
@@ -599,19 +631,45 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		doc.text('Event Summary', rightX + 0.08, barsY + 0.145);
 
 		let lY = barsY + 0.25;
-		for (const row of data.eventDetails) {
+		data.eventDetails.forEach((row, i) => {
 			doc.setFont('helvetica', 'normal');
 			doc.setFontSize(8);
 			doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
 			doc.text(row.label, leftX + 0.08, lY + 0.1);
-			doc.text(row.value, leftX + colW * 0.45, lY + 0.1);
-			lY += 0.15;
-		}
+			const lines = detailLines[i].length ? detailLines[i] : [''];
+			lines.forEach((line, k) => doc.text(line, leftX + colW * 0.45, lY + 0.1 + k * 0.13));
+			lY += Math.max(0.15, lines.length * 0.13 + 0.02);
+		});
 		let rY = barsY + 0.25;
 		for (const row of data.eventSummary) {
 			rY = kvRow(row, rightX, colW, rY);
 		}
 		y = Math.max(lY, rY) + 0.1;
+	}
+
+	// ------------------------------------------------------- additional notes
+	// Full width, straight under the two-column block. Only the deal's notes
+	// sections that are switched on reach this.
+	if (data.additionalNotes && data.additionalNotes.length > 0) {
+		const noteW = CONTENT_W - 0.24;
+		doc.setFont('helvetica', 'normal');
+		doc.setFontSize(8);
+		const wrapped = data.additionalNotes.map((n) => doc.splitTextToSize(n, noteW) as string[]);
+		const blockH = wrapped.reduce((acc, lines) => acc + lines.length * 0.13 + 0.03, 0);
+		// Heading + the first note always land on the same page.
+		ensureSpace(Math.min(0.26 + (wrapped[0]?.length || 1) * 0.13 + 0.03, FOOT_LIMIT - MARGIN));
+		bar('Additional Notes');
+		for (const lines of wrapped) {
+			ensureSpace(lines.length * 0.13 + 0.03);
+			doc.setFont('helvetica', 'normal');
+			doc.setFontSize(8);
+			doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+			doc.text('\u2022', MARGIN + 0.06, y + 0.1);
+			lines.forEach((line, i) => doc.text(line, MARGIN + 0.2, y + 0.1 + i * 0.13));
+			y += lines.length * 0.13 + 0.03;
+		}
+		y += 0.1;
+		void blockH;
 	}
 
 	// ---------------------------------------------------------- ticket scaling
@@ -849,11 +907,16 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		}
 	}
 
-	// Variable expenses only print when there are some — an empty table with a
-	// 0.00 total is just noise on the sheet.
-	if (data.variableRows.length > 0) {
+	// Variable expenses and commission only print when there are some — an
+	// empty table with a 0.00 total is just noise on the sheet.
+	const amountBand = (
+		title: string,
+		bandRows: { name: string; type: string; amount: string; potential: string }[],
+		bandTotal: number
+	) => {
+	if (bandRows.length === 0) return;
 	ensureSpace(0.5);
-	bar('Variable Expenses', money(data.variableTotal), MARGIN, CONTENT_W, true);
+	bar(title, money(bandTotal), MARGIN, CONTENT_W, true);
 	y -= 0.05; // header row sits flush inside the band
 	baseTable({
 		headStyles: {
@@ -866,8 +929,8 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		},
 		head: [['Type', 'Amount', isSettlement ? 'Total' : 'Total Potential']],
 		body: [
-			...data.variableRows.map((r) => [`${r.name} (${r.type})`, r.amount, r.potential]),
-			['Totals:', '', money(data.variableTotal)]
+			...bandRows.map((r) => [`${r.name} (${r.type})`, r.amount, r.potential]),
+			['Totals:', '', money(bandTotal)]
 		],
 		columnStyles: {
 			0: { cellWidth: 3.4 },
@@ -876,12 +939,38 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		},
 		didParseCell: (hook: any) => {
 			if (hook.section === 'head' && hook.column.index > 0) hook.cell.styles.halign = 'right';
-			if (hook.section === 'body' && hook.row.index === data.variableRows.length) {
+			if (hook.section === 'body' && hook.row.index === bandRows.length) {
 				hook.cell.styles.fontStyle = 'bold';
 			}
 		}
 	});
 	y += 0.1;
+	};
+
+	amountBand('Variable Expenses', data.variableRows, data.variableTotal);
+
+	// Commission is one line, not a section — "Produkt Commission (20% of Net
+	// Gross)" on the left, the amount on the right.
+	const commissionRows = data.commissionRows || [];
+	if (commissionRows.length > 0) {
+		// A trailing index from the old table UI ("Produkt Commission 1") reads
+		// wrong on a one-line entry — drop it.
+		const cleanName = (n: string) => (n || 'Produkt Commission').replace(/\s+\d+$/, '').trim();
+		const label =
+			commissionRows.length === 1
+				? `${cleanName(commissionRows[0].name)} (${commissionRows[0].amount} of ${commissionRows[0].type.replace(/^%\s*of\s*/i, '')})`
+				: 'Produkt Commission';
+		ensureSpace(0.3);
+		doc.setFillColor(BAR_SUB[0], BAR_SUB[1], BAR_SUB[2]);
+		doc.rect(MARGIN, y, CONTENT_W, 0.21, 'F');
+		doc.setFont('helvetica', 'bold');
+		doc.setFontSize(8);
+		doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
+		doc.text(label, MARGIN + 0.08, y + 0.145);
+		doc.text(money(data.commissionTotal || 0), PAGE_W - MARGIN - 0.08, y + 0.145, {
+			align: 'right'
+		} as any);
+		y += 0.31;
 	}
 
 	// --------------------------------------------------------------- contacts
@@ -948,8 +1037,44 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 			return words;
 		};
 
+		/**
+		 * A token with no break opportunity that is wider than the column (a
+		 * long URL, a pasted identifier) used to be drawn at full width and run
+		 * off the right margin. Chop it into pieces that fit.
+		 */
+		const splitOversizedWord = (wd: Word, maxW: number, size: number): Word[] => {
+			if (wd.w <= maxW) return [wd];
+			const out: Word[] = [];
+			let cur: Word = { frags: [], w: 0 };
+			for (const frag of wd.frags) {
+				let buf = '';
+				setFragFont(frag, size);
+				for (const ch of frag.text) {
+					const nextW = doc.getTextWidth(buf + ch);
+					if (buf && cur.w + nextW > maxW) {
+						const w = doc.getTextWidth(buf);
+						cur.frags.push({ ...frag, text: buf, w });
+						cur.w += w;
+						out.push(cur);
+						cur = { frags: [], w: 0 };
+						buf = ch;
+					} else {
+						buf += ch;
+					}
+					setFragFont(frag, size);
+				}
+				if (buf) {
+					const w = doc.getTextWidth(buf);
+					cur.frags.push({ ...frag, text: buf, w });
+					cur.w += w;
+				}
+			}
+			if (cur.frags.length) out.push(cur);
+			return out.length ? out : [wd];
+		};
+
 		const layoutLines = (runs: TermRun[], maxW: number, size: number): Word[][] => {
-			const words = tokenize(runs, size);
+			const words = tokenize(runs, size).flatMap((wd) => splitOversizedWord(wd, maxW, size));
 			doc.setFont('helvetica', 'normal');
 			doc.setFontSize(size);
 			const spaceW = doc.getTextWidth(' ');
@@ -1019,6 +1144,10 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 			}
 		};
 
+		const headingPt = (block: TermBlock) => HEADING_SIZE[block.level || 3] ?? 10;
+		/** Taller levels need more room than a body line. */
+		const headingLineH = (block: TermBlock) => Math.max(lineH, (headingPt(block) / 72) * 1.35);
+
 		const geom = (block: TermBlock) => {
 			const indentX = MARGIN + 0.08 + block.indent * 0.22 + (block.kind === 'bullet' ? 0.14 : 0);
 			return { indentX, maxW: CONTENT_W - (indentX - MARGIN) - 0.08 };
@@ -1027,7 +1156,8 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		/** Rendered height of one block (used for keep-together decisions). */
 		const blockHeight = (block: TermBlock): number => {
 			if (block.kind === 'space') return lineH * 0.7;
-			if (block.kind === 'heading') return 0.06 + lineH + 0.03;
+			if (block.kind === 'heading')
+				return 0.06 + headingLineH(block) + 0.03;
 			const { maxW } = geom(block);
 			return layoutLines(block.runs, maxW, bodySize).length * lineH + 0.03;
 		};
@@ -1043,6 +1173,15 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 		 *  including) the first paragraph, or the first full bullet run — so a
 		 *  section never opens with a lonely bar/heading at a page bottom. */
 		const leadHeight = (blocks: TermBlock[]): number => {
+			// A section bar must not land at the foot of a page with its first
+			// section spilling over: reserve that whole section when it fits.
+			let sectionH = 0;
+			for (let i = 0; i < blocks.length; i++) {
+				if (i > 0 && blocks[i].kind === 'heading') break;
+				sectionH += blockHeight(blocks[i]);
+			}
+			if (sectionH > 0 && sectionH <= FOOT_LIMIT - MARGIN) return sectionH;
+
 			let h = 0;
 			for (let i = 0; i < blocks.length; i++) {
 				const b = blocks[i];
@@ -1065,24 +1204,46 @@ export async function buildOfferPdf(data: OfferPdfData): Promise<Blob> {
 			const { indentX, maxW } = geom(block);
 
 			if (block.kind === 'heading') {
-				// Keep the heading attached to what follows: the whole bullet run
-				// (when it fits on a page) or the first two lines of a paragraph.
-				const nextBlock = blocks[bi + 1];
-				let followH = lineH * 2;
-				if (nextBlock && nextBlock.kind === 'bullet') {
-					const runH = bulletRunHeight(blocks, bi + 1);
-					followH = runH <= FOOT_LIMIT - MARGIN - 0.3 ? runH : lineH * 2;
-				} else if (nextBlock && nextBlock.kind === 'para') {
-					const nextLines = layoutLines(nextBlock.runs, maxW, bodySize);
-					followH = Math.min(nextLines.length, 2) * lineH;
+				// A section is a heading plus everything up to the next heading.
+				// Whenever the whole thing fits on a page it moves as one, so a
+				// section is never cut in half. Only a section taller than a page
+				// falls back to keeping the heading with its opening lines.
+				const hH = headingLineH(block);
+				const pageH = FOOT_LIMIT - MARGIN;
+				let sectionH = 0;
+				for (let k = bi; k < blocks.length; k++) {
+					if (k > bi && blocks[k].kind === 'heading') break;
+					sectionH += blockHeight(blocks[k]);
 				}
-				ensureSpace(0.06 + lineH + 0.03 + followH);
+				let followH: number;
+				if (sectionH <= pageH) {
+					followH = sectionH - (0.06 + hH + 0.03);
+				} else {
+					const nextBlock = blocks[bi + 1];
+					followH = lineH * 2;
+					if (nextBlock && nextBlock.kind === 'bullet') {
+						const runH = bulletRunHeight(blocks, bi + 1);
+						followH = runH <= pageH - 0.3 ? runH : lineH * 2;
+					} else if (nextBlock && nextBlock.kind === 'para') {
+						const nextLines = layoutLines(nextBlock.runs, maxW, bodySize);
+						followH = Math.min(nextLines.length, 2) * lineH;
+					}
+				}
+				ensureSpace(0.06 + hH + 0.03 + Math.max(0, followH));
 				y += 0.06;
 				doc.setFont('helvetica', 'bold');
-				doc.setFontSize(8.5);
+				doc.setFontSize(headingPt(block));
 				doc.setTextColor(BLACK[0], BLACK[1], BLACK[2]);
-				doc.text(block.runs.map((r) => r.text).join('').trim(), indentX, y + 0.08);
-				y += lineH + 0.03;
+				const headingText = block.runs
+					.map((r) => r.text)
+					.join('')
+					.trim();
+				doc.text(
+					(block.level || 3) === 6 ? headingText.toUpperCase() : headingText,
+					indentX,
+					y + hH * 0.72
+				);
+				y += hH + 0.03;
 				continue;
 			}
 

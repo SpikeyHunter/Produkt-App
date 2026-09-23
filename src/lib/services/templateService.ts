@@ -415,7 +415,13 @@ const OFFER_DEFAULTS_NAME = 'Offer Event Details';
 export interface OfferEventDefaults {
 	ageLimit: string; // "18+" unless changed
 	offerExpiryDays: number; // 14 unless changed
+	/** Produkt commission on net gross — 20% unless changed */
+	commissionPercent: number;
+	/** New events start with the commission line on */
+	commissionEnabled: boolean;
 }
+
+export const DEFAULT_COMMISSION_PERCENT = 20;
 
 export async function getOfferEventDefaults(): Promise<OfferEventDefaults> {
 	const { data } = await supabase
@@ -427,7 +433,11 @@ export async function getOfferEventDefaults(): Promise<OfferEventDefaults> {
 	const p = parseParams(data?.setting_params);
 	return {
 		ageLimit: p.ageLimit || '18+',
-		offerExpiryDays: Number(p.offerExpiryDays) > 0 ? Number(p.offerExpiryDays) : 14
+		offerExpiryDays: Number(p.offerExpiryDays) > 0 ? Number(p.offerExpiryDays) : 14,
+		commissionPercent:
+			Number(p.commissionPercent) > 0 ? Number(p.commissionPercent) : DEFAULT_COMMISSION_PERCENT,
+		// Absent means "not configured yet" — commission is on by default.
+		commissionEnabled: p.commissionEnabled !== false
 	};
 }
 
@@ -443,7 +453,12 @@ export async function saveOfferEventDefaults(defaults: OfferEventDefaults): Prom
 		setting_type: 'CONFIG',
 		setting_params: {
 			ageLimit: defaults.ageLimit || '18+',
-			offerExpiryDays: Number(defaults.offerExpiryDays) > 0 ? Number(defaults.offerExpiryDays) : 14
+			offerExpiryDays: Number(defaults.offerExpiryDays) > 0 ? Number(defaults.offerExpiryDays) : 14,
+			commissionPercent:
+				Number(defaults.commissionPercent) > 0
+					? Number(defaults.commissionPercent)
+					: DEFAULT_COMMISSION_PERCENT,
+			commissionEnabled: defaults.commissionEnabled !== false
 		}
 	};
 	const { error } = data?.id

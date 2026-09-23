@@ -98,7 +98,8 @@
 		w_tax: true,
 		w_tax_amount: 24,
 		// Support deals only: count this deal as an expense on the headliner's offer.
-		includeInHeadlinerDeal: false,
+		// Support is part of the headliner's deal unless told otherwise.
+		includeInHeadlinerDeal: true,
 		cad_tax_type: 'Flat' as 'Flat' | 'Taxes',
 		cad_qst: false,
 		cad_gst: false,
@@ -185,7 +186,7 @@
 						newDeal.description.bookingNotes = { enabled: false, notes: '' };
 				}
 				if (newDeal.w_tax_amount === undefined) newDeal.w_tax_amount = 24;
-				if (newDeal.includeInHeadlinerDeal === undefined) newDeal.includeInHeadlinerDeal = false;
+				if (newDeal.includeInHeadlinerDeal === undefined) newDeal.includeInHeadlinerDeal = true;
 
 				// Handle legacy deals for retroactive bonuses
 				if (!newDeal.details) {

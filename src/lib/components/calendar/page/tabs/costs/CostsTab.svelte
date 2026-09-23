@@ -3,9 +3,10 @@
 	import { supabase } from '$lib/supabase';
 	import FixedCosts from './FixedCosts.svelte';
 	import VariableCosts from './VariableCosts.svelte';
+	import CommissionLine from './CommissionLine.svelte';
 	import LoadCostTemplateModal from '$lib/components/calendar/page/modals/LoadCostTemplateModal.svelte';
 	import { slide } from 'svelte/transition';
-	import { getDefaultVariableExpenses } from '$lib/services/templateService';
+	import { getDefaultVariableExpenses, getOfferEventDefaults } from '$lib/services/templateService';
 	import { computeArtistFeeTotals } from '$lib/components/calendar/page/tabs/deals/dealEngine';
 
 	export let userRole: string = 'Email Only';
@@ -21,7 +22,7 @@
 	$: isAlternateVersion = viewedVersionNum > 0 && viewedVersionNum !== currentVersionNum;
 	$: isViewOnly = isAlternateVersion;
 
-	let eventCosts: { fixedCosts: any[]; variableCosts: any[] } = {
+	let eventCosts: { fixedCosts: any[]; variableCosts: any[]; commissionSeeded?: boolean } = {
 		fixedCosts: [],
 		variableCosts: []
 	};
@@ -147,18 +148,48 @@
 			.eq('version_number', viewedVersionNum)
 			.single();
 
+		let seeded = false;
 		if (dbData?.event_cost) {
 			eventCosts = {
 				fixedCosts: dbData.event_cost.fixedCosts || [],
-				variableCosts: dbData.event_cost.variableCosts || []
+				variableCosts: dbData.event_cost.variableCosts || [],
+				commissionSeeded: dbData.event_cost.commissionSeeded === true
 			};
 		} else {
 			// First costs for this event: seed the variable expenses flagged
 			// "Load in all events by default" in Settings > Templates.
 			const defaults = isViewOnly ? [] : await getDefaultVariableExpenses();
-			eventCosts = { fixedCosts: [], variableCosts: defaults };
-			if (!isViewOnly) triggerSave();
+			eventCosts = { fixedCosts: [], variableCosts: defaults, commissionSeeded: false };
+			seeded = true;
 		}
+
+		// Produkt commission, from Settings. Added once per event so deleting it
+		// sticks — the flag lives on the cost record, not on the settings row.
+		if (!isViewOnly && !eventCosts.commissionSeeded) {
+			eventCosts.commissionSeeded = true;
+			seeded = true;
+			try {
+				const cfg = await getOfferEventDefaults();
+				const already = (eventCosts.variableCosts || []).some((v: any) => v.commission === true);
+				if (cfg.commissionEnabled && !already) {
+					eventCosts.variableCosts = [
+						...(eventCosts.variableCosts || []),
+						{
+							id: crypto.randomUUID(),
+							name: 'Produkt Commission',
+							type: '% of Net Gross',
+							internalAmount: cfg.commissionPercent,
+							externalAmount: cfg.commissionPercent,
+							reported: true,
+							commission: true
+						}
+					];
+				}
+			} catch (err) {
+				console.error('[costs] could not read the commission default:', err);
+			}
+		}
+		if (seeded && !isViewOnly) triggerSave();
 
 		if (dbData?.event_revenue) {
 			eventRevenue = dbData.event_revenue;
@@ -212,6 +243,15 @@
 				{currency}
 				{triggerSave}
 				onLoadTemplate={openTemplateModal}
+			/>
+
+			<!-- Commission lives in the same array, one line on screen -->
+			<CommissionLine
+				bind:variableCosts={eventCosts.variableCosts}
+				{eventRevenue}
+				{artistFee}
+				{currency}
+				{triggerSave}
 			/>
 		{/if}
 	</div>

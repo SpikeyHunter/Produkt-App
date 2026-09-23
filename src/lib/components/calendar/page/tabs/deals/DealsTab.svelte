@@ -572,7 +572,15 @@
 	// --- Offer generation flow ---
 	// Steps: rate (saved vs live FX differs) -> version (overwrite vs new when a
 	// previous offer exists) -> confirm (first offer) -> generating -> done.
-	type OfferStep = 'rate' | 'nochange' | 'version' | 'confirm' | 'generating' | 'done' | 'error';
+	type OfferStep =
+		| 'loading'
+		| 'rate'
+		| 'nochange'
+		| 'version'
+		| 'confirm'
+		| 'generating'
+		| 'done'
+		| 'error';
 	let showOfferModal = false;
 	let offerDeal: Deal | null = null;
 	let offerUpdating = false;
@@ -869,11 +877,18 @@
 				det: x.details
 			}));
 
+		// Every deal's inclusion flag, not just the included ones: the sheet
+		// changes when one is toggled either way, so the hash must too.
+		const inclusion = deals
+			.map((x: Deal) => `${x.id}:${x.role}:${x.includeInHeadlinerDeal === true ? 1 : 0}`)
+			.sort();
+
 		const payload = {
 			// Bump when the sheet layout changes so older offers regenerate once.
-			v: 6,
+			v: 7,
 			d,
 			others,
+			inclusion,
 			rate: Number(resolveDealRate(deal).toFixed(6)),
 			tickets: (revenue?.tickets || []).map((t: any) => ({
 				n: t.name,
@@ -916,13 +931,9 @@
 	let offerRateInfoOnly = false;
 	let offerPrevRate: number | null = null;
 
-	function openOfferModal(deal: Deal) {
+	async function openOfferModal(deal: Deal) {
 		activeMenuId = null;
 		versionMenuId = null;
-		// Refresh in the background so the change-detection step compares
-		// against the live DB state, not a stale snapshot.
-		loadFreshDeals();
-		loadFreshFinancials();
 		// In Settlement / Settled: offers are frozen — settlement takes over.
 		if (isLockedStage) {
 			openSettlementModal(deal);
@@ -931,6 +942,17 @@
 		offerDeal = deal;
 		offerError = '';
 		lastGeneratedPath = null;
+
+		// AWAIT the refresh: change detection has to compare against the live DB
+		// state. Firing these off in the background meant a change made moments
+		// earlier (toggling a support deal into the headliner deal, an edit in
+		// another tab) was still invisible here, and the modal said "no changes".
+		offerStep = 'loading';
+		showOfferModal = true;
+		await Promise.all([loadFreshDeals(), loadFreshFinancials()]);
+		if (!showOfferModal || offerDeal?.id !== deal.id) return; // closed/changed meanwhile
+		deal = deals.find((d) => d.id === deal.id) || deal;
+		offerDeal = deal;
 
 		const ratesMatch = Math.abs(resolveDealRate(deal) - markedUpLiveRate(deal)) < 0.00005;
 		const noConversion = deal.dealCurrency === venueCurrency;
@@ -948,7 +970,6 @@
 		offerRateInfoOnly = !needsUpdatePrompt && rateChangedSinceLast && !noConversion;
 
 		offerStep = needsUpdatePrompt || offerRateInfoOnly ? 'rate' : nextOfferStep(deal);
-		showOfferModal = true;
 	}
 
 	function closeOfferModal() {
@@ -1064,6 +1085,28 @@
 				: input;
 		if (!d || isNaN(d.getTime())) return String(input || '');
 		return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+	}
+
+	/**
+	 * Hold dates, grouped by month: "11-12 Sept, 2026 + 22-23 Oct, 2026".
+	 * A flat list of long dates was far too wide for the Event Details column.
+	 */
+	function fmtHoldDates(dates: string[]): string {
+		const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
+		const groups: { key: string; label: string; days: number[] }[] = [];
+		for (const raw of [...dates].sort()) {
+			const m = String(raw).match(/^(\d{4})-(\d{2})-(\d{2})/);
+			if (!m) continue;
+			const key = `${m[1]}-${m[2]}`;
+			const day = Number(m[3]);
+			const found = groups.find((g) => g.key === key);
+			if (found) found.days.push(day);
+			else groups.push({ key, label: `${MONTHS[Number(m[2]) - 1]}, ${m[1]}`, days: [day] });
+		}
+		if (groups.length === 0) return dates.join(', ');
+		return groups
+			.map((g) => `${Array.from(new Set(g.days)).sort((a, b) => a - b).join('-')} ${g.label}`)
+			.join(' + ');
 	}
 
 	/** Sellout walkout for any deal (venue currency). Per-ticket / flat-bonus
@@ -1257,7 +1300,9 @@
 
 			// ---- Variable expenses (own Prism section) ----
 			const variableRows: { name: string; type: string; amount: string; potential: string }[] = [];
+			const commissionRows: { name: string; type: string; amount: string; potential: string }[] = [];
 			let variableTotal = 0;
+			let commissionTotal = 0;
 			(Array.isArray(cost.variableCosts) ? cost.variableCosts : []).forEach((v: any) => {
 				if (v.reported === false) return;
 				const m = Number(v.externalAmount ?? v.internalAmount) || 0;
@@ -1283,13 +1328,16 @@
 						amountLabel = `${cur} ${moneyNum(m)}`;
 						break;
 				}
-				variableRows.push({
-					name: v.name || 'Variable Cost',
+				// Commission is its own band on the sheet, not a variable expense.
+				const target = v.commission === true ? commissionRows : variableRows;
+				target.push({
+					name: v.name || (v.commission === true ? 'Produkt Commission' : 'Variable Cost'),
 					type: v.type || 'Flat',
 					amount: amountLabel,
 					potential: `${cur} ${moneyNum(amount)}`
 				});
-				variableTotal += amount;
+				if (v.commission === true) commissionTotal += amount;
+				else variableTotal += amount;
 			});
 
 			// ---- Talent pay: the other deals on this event (+ additional support) ----
@@ -1322,7 +1370,8 @@
 
 			// Expenses that are NOT this deal's own payout — the split point basis
 			// and the Break Even target.
-			const expensesExclSelf = fixedTotal + variableTotal + otherTalentTotal + supportBudget;
+			const expensesExclSelf =
+				fixedTotal + variableTotal + commissionTotal + otherTalentTotal + supportBudget;
 			selloutCtx.costs = expensesExclSelf;
 
 			// ---- This deal's walkout + offer band rows ----
@@ -1351,7 +1400,39 @@
 			if (deal.description?.groundTransport?.enabled) logi.push('ground');
 			if (deal.description?.immigration?.enabled) logi.push('exemption');
 			if (logi.length > 0) suffixParts.push(`plus ${logi.join(' + ')}`);
-			const dealSuffix = suffixParts.join(' ');
+			let dealSuffix = suffixParts.join(' ');
+
+			// Headliner sheets say so when support is folded into this deal —
+			// the guarantee above already covers them.
+			const supportFoldedIn =
+				!isSupportSheet &&
+				deals.some(
+					(d: Deal) =>
+						d.role === 'Support' &&
+						!d.isPendingInfoOnly &&
+						!!d.artistName &&
+						d.includeInHeadlinerDeal === true
+				);
+			if (supportFoldedIn) {
+				dealSuffix = dealSuffix
+					? `${dealSuffix}\n(Offer is inclusive of support)`
+					: '(Offer is inclusive of support)';
+			}
+
+			// Notes sections that are switched on for this deal print as their own
+			// full-width block under Event Details / Event Summary.
+			const additionalNotes: string[] = [];
+			const pushNotes = (n: any) => {
+				if (!n?.enabled) return;
+				String(n.notes || '')
+					.split(/\r?\n/)
+					.map((x: string) => x.trim())
+					.filter(Boolean)
+					.forEach((x: string) => additionalNotes.push(x));
+			};
+			pushNotes(deal.description?.other);
+			pushNotes(deal.description?.billing);
+			pushNotes(deal.description?.bookingNotes);
 
 			const fxNote = conversion
 				? `(FX RATE ${dealCur} = ${venueCurrency}/${rate.toFixed(4)})`
@@ -1509,9 +1590,10 @@
 			if (splitPresentation) {
 				summaryRows.push({
 					label: 'Fixed Expenses',
-					value: `-${cur} ${moneyNum(fixedBandTotal + variableTotal)}`
+					value: `-${cur} ${moneyNum(fixedBandTotal + variableTotal + commissionTotal)}`
 				});
-				const netToSplit = netGrossPotential - (fixedBandTotal + variableTotal);
+				const netToSplit =
+					netGrossPotential - (fixedBandTotal + variableTotal + commissionTotal);
 				summaryRows.push({
 					label: 'Net Revenue to Split',
 					value: `${cur} ${moneyNum(netToSplit)}`,
@@ -1543,10 +1625,19 @@
 					label: 'Fixed Expenses + Artist Payout',
 					value: `-${cur} ${moneyNum(fixedBandTotal)}`
 				});
-				summaryRows.push({
-					label: 'Variable Expenses',
-					value: `-${cur} ${moneyNum(variableTotal)}`
-				});
+				// An empty variable band says nothing — skip the row entirely.
+				if (variableTotal > 0) {
+					summaryRows.push({
+						label: 'Variable Expenses',
+						value: `-${cur} ${moneyNum(variableTotal)}`
+					});
+				}
+				if (commissionTotal > 0) {
+					summaryRows.push({
+						label: 'Produkt Commission',
+						value: `-${cur} ${moneyNum(commissionTotal)}`
+					});
+				}
 			}
 
 			// ---- Contacts ----
@@ -1578,20 +1669,24 @@
 			try {
 				const gid = event?.group_id || event?.calendar?.id;
 				if (gid) {
-					const { data: sibs } = await supabase
+					const { data: sibs, error: sibErr } = await supabase
 						.from('calendar_events')
-						.select('start_date, date')
+						.select('date, status')
 						.eq('group_id', gid);
+					if (sibErr) console.error('[offer] could not read the hold dates:', sibErr.message);
 					const all = (sibs || [])
-						.map((r: any) => r.start_date || r.date)
+						.filter((r: any) => r.status !== 'CANCELED' && r.status !== 'HIDDEN')
+						.map((r: any) => r.date)
 						.filter(Boolean)
 						.map((d: string) => d.slice(0, 10));
 					if (all.length > 1) eventDates = Array.from(new Set(all)).sort();
 				}
 			} catch {}
+			// Several holds on the table: the sheet can't name a date yet — the
+			// individual dates are still listed under Event Details.
 			const dateLabel =
 				eventDates.length > 1
-					? `${fmtLongDate(eventDates[0])} - ${fmtLongDate(eventDates[eventDates.length - 1])}`
+					? 'Mutually Agreeable'
 					: eventDate
 						? fmtLongDate(eventDate)
 						: '';
@@ -1607,8 +1702,9 @@
 			eventDetails.push({ label: 'Offer Sent', value: fmtLongDate(new Date()) });
 			if (eventDates.length > 0)
 				eventDetails.push({
-					label: 'Event Date(s)',
-					value: eventDates.map((d) => fmtLongDate(d)).join('  ·  ')
+					label: eventDates.length > 1 ? 'Holds' : 'Event Date(s)',
+					value:
+						eventDates.length > 1 ? fmtHoldDates(eventDates) : fmtLongDate(eventDates[0])
 				});
 			try {
 				const time = typeof event?.time === 'string' ? JSON.parse(event.time) : event?.time;
@@ -1644,6 +1740,7 @@
 				offerRows,
 				eventDetails,
 				eventSummary: summaryRows,
+				additionalNotes,
 				venueCurrency,
 				tickets,
 				scalingFooter: [
@@ -1652,14 +1749,16 @@
 				],
 				expenseSummaryLabel: splitPresentation ? 'Split Point Summary' : 'Expense Summary',
 				expenseSummaryValue: splitPresentation
-					? `Total: ${cur} ${moneyNum(fixedBandTotal + variableTotal)}`
-					: `Total Expenses ${cur} ${moneyNum(fixedBandTotal + variableTotal)}`,
-				totalExpenses: fixedBandTotal + variableTotal,
+					? `Total: ${cur} ${moneyNum(fixedBandTotal + variableTotal + commissionTotal)}`
+					: `Total Expenses ${cur} ${moneyNum(fixedBandTotal + variableTotal + commissionTotal)}`,
+				totalExpenses: fixedBandTotal + variableTotal + commissionTotal,
 				fixedBandLabel,
 				fixedBandTotal,
 				expenseGroups,
 				variableRows,
 				variableTotal,
+				commissionRows,
+				commissionTotal,
 				contacts,
 				dealTermsLine: `OFFER EXPIRES ${expiryDays} CALENDAR DAYS FROM "OFFER SENT" DATE.`,
 				depositLines: offerDepositLines(deal),
@@ -1894,7 +1993,9 @@
 
 			// ---- Variable expenses on actual figures ----
 			const variableRows: { name: string; type: string; amount: string; potential: string }[] = [];
+			const commissionRows: { name: string; type: string; amount: string; potential: string }[] = [];
 			let variableTotal = 0;
+			let commissionTotal = 0;
 			(Array.isArray(cost.variableCosts) ? cost.variableCosts : []).forEach((v: any) => {
 				if (v.reported === false && external) return;
 				const m = Number(external ? (v.externalAmount ?? v.internalAmount) : (v.internalAmount ?? v.externalAmount)) || 0;
@@ -1923,13 +2024,15 @@
 						break;
 				}
 				if (amount === 0) return;
-				variableRows.push({
-					name: v.name || 'Variable Cost',
+				const target = v.commission === true ? commissionRows : variableRows;
+				target.push({
+					name: v.name || (v.commission === true ? 'Produkt Commission' : 'Variable Cost'),
 					type: v.type || 'Flat',
 					amount: amountLabel,
 					potential: `$${moneyNum(amount)}`
 				});
-				variableTotal += amount;
+				if (v.commission === true) commissionTotal += amount;
+				else variableTotal += amount;
 			});
 
 			// ---- Talent pay (other included deals, settled on actuals) ----
@@ -1968,7 +2071,8 @@
 			if (supportActual > 0)
 				talentRows.push({ name: 'Additional Support', amount: supportActual });
 
-			const expensesExclSelf = fixedActualTotal + variableTotal + otherTalentTotal + supportActual;
+			const expensesExclSelf =
+				fixedActualTotal + variableTotal + commissionTotal + otherTalentTotal + supportActual;
 
 			// ---- Artist payout on actuals ----
 			const guarVenue = (Number(deal.guaranteeAmount) || 0) * rate;
@@ -2036,7 +2140,18 @@
 			if (fees > 0) eventSummary.push({ label: 'Ticket Fees', value: `-${cur} ${moneyNum(fees)}` });
 			eventSummary.push({ label: 'Net Gross', value: `${cur} ${moneyNum(netGross)}`, strong: true });
 			eventSummary.push({ label: 'Fixed Expenses', value: `-${cur} ${moneyNum(fixedActualTotal + otherTalentTotal + supportActual)}` });
-			eventSummary.push({ label: 'Variable Expenses', value: `-${cur} ${moneyNum(variableTotal)}` });
+			if (variableTotal > 0) {
+				eventSummary.push({
+					label: 'Variable Expenses',
+					value: `-${cur} ${moneyNum(variableTotal)}`
+				});
+			}
+			if (commissionTotal > 0) {
+				eventSummary.push({
+					label: 'Produkt Commission',
+					value: `-${cur} ${moneyNum(commissionTotal)}`
+				});
+			}
 			eventSummary.push({ label: 'Net Revenue to Split', value: `${cur} ${moneyNum(netToSplit)}`, strong: true });
 			const pct = Number(deal.details?.metricAmount) || 0;
 			const backendShare = (pct / 100) * Math.max(0, netToSplit);
@@ -2146,6 +2261,8 @@
 				expenseGroups,
 				variableRows,
 				variableTotal,
+				commissionRows,
+				commissionTotal,
 				contacts,
 				dealTermsLine: '',
 				termsAndConditions: ''
@@ -2312,17 +2429,47 @@
 			else parts.push(`Plus ${logiStr}`);
 		}
 
-		if (deal.description?.other?.enabled && deal.description.other.notes) {
-			parts.push(deal.description.other.notes);
-		}
-
-		return parts.join(' ');
+		// Notes are their own paragraph — running them into the tax/logistics
+		// sentence made both unreadable.
+		const line = parts.join(' ');
+		const notes =
+			deal.description?.other?.enabled && deal.description.other.notes
+				? String(deal.description.other.notes).trim()
+				: '';
+		if (!notes) return line;
+		return line ? `${line}\n${notes}` : notes;
 	}
 
 	async function saveToDatabase(updatedDeals: Deal[]) {
 		if (isViewOnly) return;
 
+		// Read-merge-write. event_deal also carries Deal Terms / T&C (written by
+		// the Terms tab) — building this payload from scratch used to erase them
+		// every time a deal was saved or an offer generated. Start from what's
+		// stored, drop only the artist keys, then write the current roster back.
 		let dbPayload: any = {};
+		try {
+			const targetIdForRead = event?.calendar?.id || event?.group_id || event?.id;
+			if (targetIdForRead) {
+				const { data } = await supabase
+					.from('calendar_data')
+					.select('event_deal')
+					.eq('calendar_id', targetIdForRead)
+					.eq('version_number', viewedVersionNum)
+					.maybeSingle();
+				const stored = parseMaybeJson(data?.event_deal);
+				if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+					dbPayload = { ...stored };
+				}
+			}
+		} catch (err) {
+			console.error('[DealsTab] pre-save read failed, writing deals only:', err);
+		}
+		// Stale artist slots (a removed 2nd support, say) must not survive the merge.
+		for (const key of Object.keys(dbPayload)) {
+			if (/^(headliner|support)_(id|name|pic|deal)(_\d+)?$/.test(key)) delete dbPayload[key];
+		}
+
 		const hList = updatedDeals.filter((d) => d.role === 'Headliner');
 		const sList = updatedDeals.filter((d) => d.role === 'Support');
 
@@ -2344,12 +2491,10 @@
 			dbPayload[`support_deal${sfx}`] = s.isPendingInfoOnly ? {} : cleanDealObj;
 		});
 
-		if (Object.keys(dbPayload).length === 0) {
-			dbPayload = {
-				headliner_id: 'NULL',
-				headliner_name: 'NULL',
-				headliner_pic: 'NULL'
-			};
+		if (hList.length === 0 && sList.length === 0) {
+			dbPayload.headliner_id = 'NULL';
+			dbPayload.headliner_name = 'NULL';
+			dbPayload.headliner_pic = 'NULL';
 		}
 
 		dbPayload.additional_support_budgeted = Number(additionalSupportBudgeted) || 0;
@@ -2583,7 +2728,7 @@
 																</p>
 															{/if}
 															{#if getLogisticsText(deal)}
-																<p class="text-xs text-gray2 font-medium mt-1">
+																<p class="text-xs text-gray2 font-medium mt-1 whitespace-pre-line">
 																	{getLogisticsText(deal)}
 																</p>
 															{/if}
@@ -3070,7 +3215,7 @@
 																</p>
 															{/if}
 															{#if getLogisticsText(deal)}
-																<p class="text-xs text-gray2 font-medium mt-1">
+																<p class="text-xs text-gray2 font-medium mt-1 whitespace-pre-line">
 																	{getLogisticsText(deal)}
 																</p>
 															{/if}
@@ -3845,7 +3990,7 @@
 									<line x1="12" y1="9" x2="12" y2="13"></line>
 									<line x1="12" y1="17" x2="12.01" y2="17"></line>
 								</svg>
-							{:else if offerStep === 'generating'}
+							{:else if offerStep === 'generating' || offerStep === 'loading'}
 								<svg class="w-8 h-8 text-lime animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
 									<path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
 								</svg>
@@ -3871,7 +4016,11 @@
 						</div>
 
 						<h3 class="text-xl font-black text-white mb-2 tracking-wide">
-							{offerStep === 'nochange' ? 'No Changes Detected' : 'Generating Offer'}
+							{offerStep === 'nochange'
+								? 'No Changes Detected'
+								: offerStep === 'loading'
+									? 'Checking for Changes'
+									: 'Generating Offer'}
 						</h3>
 						<p class="text-gray2 text-sm font-bold mb-6">
 							{offerDeal.artistName}
@@ -3997,6 +4146,10 @@
 									Rate locked at {lockedExchangeRate.toFixed(4)} ({effectiveStatus}).
 								</p>
 							{/if}
+						{:else if offerStep === 'loading'}
+							<p class="text-gray2 text-sm font-bold leading-relaxed">
+								Reading the latest deals, revenue and costs...
+							</p>
 						{:else if offerStep === 'generating'}
 							<p class="text-gray2 text-sm font-bold leading-relaxed">
 								Building the offer sheet PDF...
@@ -4011,7 +4164,10 @@
 						{/if}
 					</div>
 
-					<div class="p-6 flex gap-3 justify-center items-center bg-black/20 flex-nowrap">
+					<div
+						class="p-6 flex gap-3 justify-center items-center bg-black/20 flex-nowrap"
+						class:hidden={offerStep === 'loading'}
+					>
 						{#if offerStep === 'rate'}
 							{#if offerRateInfoOnly}
 								<button

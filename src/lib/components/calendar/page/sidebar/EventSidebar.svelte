@@ -178,7 +178,9 @@
 	// Settlement vs Actual wording on the right column.
 	// Internal tab -> "ACTUAL"; External tab -> "SETTLEMENT" (matches your screenshots).
 	$: rightLabel =
-		budgetTab === 'Internal' ? (statusLocked ? 'ACTUAL' : 'POTENTIAL') : 'SETTLEMENT';
+		model?.rightLabel ??
+		(budgetTab === 'Internal' ? (statusLocked ? 'ACTUAL' : 'POTENTIAL') : 'SETTLEMENT');
+	$: leftLabel = model?.leftLabel ?? 'ESTIMATED';
 
 	function computeModel(revenueData: any, costData: any, dealData: any, tab: 'Internal' | 'External') {
 		const revenue = parseJSON(revenueData);
@@ -311,17 +313,21 @@
 
 		// Variable costs
 		const variableCosts = Array.isArray(cost?.variableCosts) ? cost.variableCosts : [];
+		// Produkt commission rows live in the same array but get their own line
+		// in the summary, so every sum can be asked for one group or the other.
 		const sumVariable = (
 			gross: number,
 			net: number,
 			paid: number,
 			useActual: boolean,
-			amountField: 'internalAmount' | 'externalAmount' = 'internalAmount'
+			amountField: 'internalAmount' | 'externalAmount' = 'internalAmount',
+			group: 'variable' | 'commission' | 'all' = 'variable'
 		) => {
 			let total = 0;
 			variableCosts.forEach((v: any) => {
 				// The external view only carries reported rows (same as the sheets).
 				if (amountField === 'externalAmount' && v.reported === false) return;
+				if (group !== 'all' && (v.commission === true) !== (group === 'commission')) return;
 				const m = Number(v[amountField]) || 0;
 				switch (v.type) {
 					case 'Flat':
@@ -363,6 +369,8 @@
 		const variableField = tab === 'Internal' ? 'internalAmount' : ('externalAmount' as const);
 		const estVariable = sumVariable(estGross, estNetGross, estPaid, false, variableField);
 		const actVariable = sumVariable(actGross, actNetGross, actPaid, true, variableField);
+		const estCommission = sumVariable(estGross, estNetGross, estPaid, false, variableField, 'commission');
+		const actCommission = sumVariable(actGross, actNetGross, actPaid, true, variableField, 'commission');
 
 		// Additional support: budgeted always shown as ESTIMATED; right column uses actual
 		// (fall back to 0 when actual not entered, matching the Pro Forma rule).
@@ -380,6 +388,14 @@
 			return s + (a - c - k);
 		}, 0);
 		const potVariable = sumVariable(potentialGross, potNetGross, potPaid, false);
+		const potCommission = sumVariable(
+			potentialGross,
+			potNetGross,
+			potPaid,
+			false,
+			'internalAmount',
+			'commission'
+		);
 
 		// The right column's inputs: potential (sellout) pre-settlement on the
 		// Internal tab, otherwise the actual/settlement figures.
@@ -389,10 +405,11 @@
 		const rPaid = usePotential ? potPaid : actPaid;
 		const rFixed = usePotential ? estFixed : actFixed;
 		const rVariable = usePotential ? potVariable : actVariable;
+		const rCommission = usePotential ? potCommission : actCommission;
 		const rSupport = usePotential ? supportBudgeted : supportActual;
 
-		const baseEstCosts = estFixed + estVariable + supportBudgeted;
-		const baseActCosts = rFixed + rVariable + rSupport;
+		const baseEstCosts = estFixed + estVariable + estCommission + supportBudgeted;
+		const baseActCosts = rFixed + rVariable + rCommission + rSupport;
 
 		const totalAllotment = tickets.reduce((s, t) => s + (Number(t.allotment) || 0), 0);
 
@@ -475,8 +492,8 @@
 		const healthGross = sidebarLocked ? actGross : estGross;
 		const intEstVariable =
 			tab === 'Internal'
-				? estVariable
-				: sumVariable(estGross, estNetGross, estPaid, false, 'internalAmount');
+				? estVariable + estCommission
+				: sumVariable(estGross, estNetGross, estPaid, false, 'internalAmount', 'all');
 		const healthBase = intEstFixed + intEstVariable + supportBudgeted;
 		const healthExtras = includedTalentDeals(deal).reduce(
 			(sum, x) =>
@@ -515,20 +532,35 @@
 		const maxBar = Math.max(potentialGross, healthGross, healthExpenses, 1);
 		const flagPositive = healthGross - healthExpenses >= 0;
 
+		// On a hold / unconfirmed event the Internal view leads with the OFFER
+		// (sellout) figures and keeps ESTIMATED beside them — the offer is what
+		// was actually sent out, the estimate is the working number.
+		const unconfirmed = !['CONFIRMED', 'IN SETTLEMENT', 'SETTLED'].includes(event?.status);
+		const swapColumns = tab === 'Internal' && !sidebarLocked && unconfirmed;
+		const pair = (est: number, act: number) =>
+			swapColumns ? { est: act, act: est } : { est, act };
+
 		return {
 			currency,
 			headlinerName,
 			potentialGross,
-			ticketRows,
-			gross: { est: estGross, act: rGross },
-			taxes: { est: estTaxesFees, act: rTaxesFees },
-			netGross: { est: estNetGross, act: rNetGross },
-			expenses: { est: estExpensesDisplay, act: actExpensesDisplay },
-			guaranteeRow: { est: estPayout, act: actPayout },
-			talentRows,
-			variableRow: { est: estVariable + feeVarEst, act: rVariable + feeVarAct },
-			supportRow: { est: supportBudgeted, act: rSupport },
-			net: { est: estNet, act: actNet },
+			leftLabel: swapColumns ? 'OFFER' : 'ESTIMATED',
+			rightLabel: swapColumns ? 'ESTIMATED' : null,
+			ticketRows: swapColumns
+				? ticketRows.map((r: any) => ({ ...r, estimated: r.actual, actual: r.estimated }))
+				: ticketRows,
+			gross: pair(estGross, rGross),
+			taxes: pair(estTaxesFees, rTaxesFees),
+			netGross: pair(estNetGross, rNetGross),
+			expenses: pair(estExpensesDisplay, actExpensesDisplay),
+			guaranteeRow: pair(estPayout, actPayout),
+			talentRows: swapColumns
+				? talentRows.map((t: any) => ({ ...t, est: t.act, act: t.est }))
+				: talentRows,
+			variableRow: pair(estVariable + feeVarEst, rVariable + feeVarAct),
+			commissionRow: pair(estCommission, rCommission),
+			supportRow: pair(supportBudgeted, rSupport),
+			net: pair(estNet, actNet),
 			health: {
 				actualGross: healthGross,
 				grossLabel: sidebarLocked ? '(Act.)' : '(Est.)',
@@ -691,7 +723,7 @@
 								<div class="text-sm font-bold {valColor(model.gross.est)}">
 									{fmt(model.gross.est, model.currency)}
 								</div>
-								<div class="text-[10px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+								<div class="text-[10px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
 							</div>
 							<div class="text-center">
 								<div class="text-sm font-bold {valColor(model.gross.act)}">
@@ -713,7 +745,7 @@
 												<div class="text-sm font-bold {valColor(r.estimated)}">
 													{fmt(r.estimated, model.currency)}
 												</div>
-												<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
 											</div>
 											<div class="text-center">
 												<div class="text-sm font-bold {valColor(r.actual)}">
@@ -736,7 +768,7 @@
 							<div class="text-sm font-bold {valColor(-model.taxes.est)}">
 								{fmt(-model.taxes.est, model.currency)}
 							</div>
-							<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+							<div class="text-[9px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
 						</div>
 						<div class="text-center">
 							<div class="text-sm font-bold {valColor(-model.taxes.act)}">
@@ -754,7 +786,7 @@
 							<div class="text-sm font-bold {valColor(model.netGross.est)}">
 								{fmt(model.netGross.est, model.currency)}
 							</div>
-							<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+							<div class="text-[9px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
 						</div>
 						<div class="text-center">
 							<div class="text-sm font-bold {valColor(model.netGross.act)}">
@@ -786,7 +818,7 @@
 								<div class="text-sm font-bold {valColor(-model.expenses.est)}">
 									{fmt(-model.expenses.est, model.currency)}
 								</div>
-								<div class="text-[10px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+								<div class="text-[10px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
 							</div>
 							<div class="text-center">
 								<div class="text-sm font-bold {valColor(-model.expenses.act)}">
@@ -806,7 +838,7 @@
 												<div class="text-sm font-bold {valColor(-tr.est)}">
 													{fmt(-tr.est, model.currency)}
 												</div>
-												<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
 											</div>
 											<div class="text-center">
 												<div class="text-sm font-bold {valColor(-tr.act)}">
@@ -817,23 +849,45 @@
 										</div>
 									</div>
 								{/each}
-								<div>
-									<div class="text-[12px] text-lime font-semibold mb-1">Variable Costs</div>
-									<div class="grid grid-cols-2 gap-2">
-										<div class="text-center">
-											<div class="text-sm font-bold {valColor(-model.variableRow.est)}">
-												{fmt(-model.variableRow.est, model.currency)}
+				<!-- An all-zero variable line says nothing; commission is its own group -->
+								{#if model.variableRow.est !== 0 || model.variableRow.act !== 0}
+									<div>
+										<div class="text-[12px] text-lime font-semibold mb-1">Variable Costs</div>
+										<div class="grid grid-cols-2 gap-2">
+											<div class="text-center">
+												<div class="text-sm font-bold {valColor(-model.variableRow.est)}">
+													{fmt(-model.variableRow.est, model.currency)}
+												</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
 											</div>
-											<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
-										</div>
-										<div class="text-center">
-											<div class="text-sm font-bold {valColor(-model.variableRow.act)}">
-												{fmt(-model.variableRow.act, model.currency)}
+											<div class="text-center">
+												<div class="text-sm font-bold {valColor(-model.variableRow.act)}">
+													{fmt(-model.variableRow.act, model.currency)}
+												</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
 											</div>
-											<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
 										</div>
 									</div>
-								</div>
+								{/if}
+								{#if model.commissionRow.est !== 0 || model.commissionRow.act !== 0}
+									<div>
+										<div class="text-[12px] text-lime font-semibold mb-1">Produkt Commission</div>
+										<div class="grid grid-cols-2 gap-2">
+											<div class="text-center">
+												<div class="text-sm font-bold {valColor(-model.commissionRow.est)}">
+													{fmt(-model.commissionRow.est, model.currency)}
+												</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
+											</div>
+											<div class="text-center">
+												<div class="text-sm font-bold {valColor(-model.commissionRow.act)}">
+													{fmt(-model.commissionRow.act, model.currency)}
+												</div>
+												<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
+											</div>
+										</div>
+									</div>
+								{/if}
 								<div>
 									<div class="text-[12px] text-lime font-semibold mb-1">Additional Support</div>
 									<div class="grid grid-cols-2 gap-2">
@@ -841,7 +895,7 @@
 											<div class="text-sm font-bold {valColor(-model.supportRow.est)}">
 												{fmt(-model.supportRow.est, model.currency)}
 											</div>
-											<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+											<div class="text-[9px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
 										</div>
 										<div class="text-center">
 											<div class="text-sm font-bold {valColor(-model.supportRow.act)}">
@@ -863,7 +917,7 @@
 							<div class="text-sm font-black {model.net.est >= 0 ? 'text-confirmed' : 'text-problem'}">
 								{fmt(model.net.est, model.currency)}
 							</div>
-							<div class="text-[9px] font-bold text-gray2 tracking-wider">ESTIMATED</div>
+							<div class="text-[9px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
 						</div>
 						<div class="text-center">
 							<div class="text-sm font-black {model.net.act >= 0 ? 'text-confirmed' : 'text-problem'}">

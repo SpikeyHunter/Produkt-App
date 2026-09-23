@@ -13,6 +13,26 @@
 	export let fill = false;
 	export let disabled = false;
 	export let onInput: (() => void) | null = null;
+	/**
+	 * Paper preview. The offer sheet is printed black-on-white, so the editor
+	 * defaults to light — colours picked in a dark editor were impossible to
+	 * judge. The choice is remembered per user.
+	 */
+	export let surface: 'light' | 'dark' = 'light';
+	const SURFACE_KEY = 'produkt.rte.surface';
+	if (typeof localStorage !== 'undefined') {
+		const saved = localStorage.getItem(SURFACE_KEY);
+		if (saved === 'light' || saved === 'dark') surface = saved;
+	}
+	function toggleSurface() {
+		surface = surface === 'light' ? 'dark' : 'light';
+		try {
+			localStorage.setItem(SURFACE_KEY, surface);
+		} catch {
+			/* private mode — the session default is fine */
+		}
+	}
+	$: isLight = surface === 'light';
 
 	let editor: HTMLDivElement;
 	let wrapper: HTMLDivElement;
@@ -541,6 +561,26 @@
 		<button type="button" class={btn} title="Clear formatting" on:mousedown|preventDefault={saveSelection} on:click={() => exec('removeFormat')}>
 			<span class="text-xs font-black">T<sub>x</sub></span>
 		</button>
+
+		<!-- Paper preview: the sheet prints on white, so edit on white -->
+		<button
+			type="button"
+			class="{btn} ml-auto"
+			title={isLight ? 'Switch the editor to the dark theme' : 'Switch the editor to paper (white)'}
+			aria-pressed={isLight}
+			on:click={toggleSurface}
+		>
+			{#if isLight}
+				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+				</svg>
+			{:else}
+				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+					<circle cx="12" cy="12" r="4"></circle>
+					<path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path>
+				</svg>
+			{/if}
+		</button>
 	</div>
 
 	<!-- Editable area -->
@@ -559,7 +599,9 @@
 			data-placeholder={placeholder}
 			role="textbox"
 			tabindex="0"
-			class="rte-content px-5 py-4 text-sm text-white focus:outline-none overflow-y-auto leading-relaxed"
+			class="rte-content px-5 py-4 text-sm focus:outline-none overflow-y-auto leading-relaxed {isLight
+				? 'rte-light'
+				: 'text-white'}"
 			style={fill ? 'height: 100%;' : `min-height: ${minHeight}; max-height: ${maxHeight};`}
 		></div>
 
@@ -717,37 +759,64 @@
 		color: #6b6b6b;
 		pointer-events: none;
 	}
+	/* Heading scale mirrors the offer sheet (13/11/10/9/8.2/7.5pt over a
+	   7.5pt body), so what you size here is what prints. */
 	.rte-content :global(h1) {
-		font-size: 1.35rem;
+		font-size: 1.52rem;
 		font-weight: 800;
 		margin: 0.6em 0 0.25em;
 	}
 	.rte-content :global(h2) {
-		font-size: 1.2rem;
+		font-size: 1.29rem;
 		font-weight: 800;
 		margin: 0.6em 0 0.25em;
 	}
 	.rte-content :global(h3) {
+		font-size: 1.17rem;
+		font-weight: 700;
+		margin: 0.55em 0 0.2em;
+	}
+	.rte-content :global(h4) {
 		font-size: 1.05rem;
 		font-weight: 700;
 		margin: 0.5em 0 0.2em;
 	}
-	.rte-content :global(h4) {
-		font-size: 0.95rem;
-		font-weight: 700;
-		margin: 0.5em 0 0.2em;
-	}
 	.rte-content :global(h5) {
-		font-size: 0.88rem;
+		font-size: 0.96rem;
 		font-weight: 700;
-		margin: 0.4em 0 0.15em;
+		margin: 0.45em 0 0.18em;
 	}
 	.rte-content :global(h6) {
-		font-size: 0.82rem;
+		font-size: 0.875rem;
 		font-weight: 700;
 		margin: 0.4em 0 0.15em;
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
+	}
+
+	/* ---- paper preview ---- */
+	.rte-content.rte-light {
+		background: #ffffff;
+		color: #111111;
+	}
+	.rte-content.rte-light :global(a) {
+		color: #0b62d6;
+	}
+	.rte-content.rte-light:empty::before {
+		color: #9a9a9a;
+	}
+	.rte-content.rte-light :global(table.rte-table td),
+	.rte-content.rte-light :global(table.rte-table th) {
+		border-color: #c9c9c9;
+	}
+	.rte-content.rte-light :global(table.rte-table th) {
+		background: #f1f1f1;
+	}
+	/* White text was chosen to read on the dark editor; it prints black. */
+	.rte-content.rte-light :global([style*='color: rgb(255, 255, 255)']),
+	.rte-content.rte-light :global([style*='color:#fff']),
+	.rte-content.rte-light :global([style*='color: #fff']) {
+		color: #111111 !important;
 	}
 	.rte-content :global(p) {
 		margin: 0 0 0.4em;

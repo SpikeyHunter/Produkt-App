@@ -12,6 +12,10 @@
     export let onLoadTemplate: (() => void) | null = null;
     export let expanded: boolean = false;
 
+    // Produkt commission rows live in the same array but render as their own
+    // single line (CommissionLine.svelte) — never inside this table.
+    $: rows = variableCosts.filter((r: any) => r?.commission !== true);
+
     const variableTypes = [...VARIABLE_COST_TYPES];
 
     // --- REVENUE MATH ---
@@ -70,7 +74,7 @@
     }
 
     // Auto-calculate row fields
-    $: enrichedCosts = variableCosts.map(row => {
+    $: enrichedCosts = rows.map(row => {
         const offerBudget = calcValue(row.type, row.externalAmount, sellableMetrics);
         const estimatedInternal = calcValue(row.type, row.internalAmount, estMetrics);
         const actualInternal = calcValue(row.type, row.internalAmount, actualMetrics);
@@ -102,7 +106,7 @@
             ...variableCosts,
             {
                 id: crypto.randomUUID(),
-                name: `Variable Cost ${variableCosts.length + 1}`,
+                name: `Variable Cost ${rows.length + 1}`,
                 externalAmount: 0,
                 internalAmount: 0,
                 type: 'Flat',
@@ -280,13 +284,17 @@
         e.preventDefault();
 
         if (draggingRowIndex !== null && draggingRowIndex !== dropIndex) {
-            const clone = [...variableCosts];
-
-            const movedItem = clone.splice(draggingRowIndex, 1);
-            clone.splice(dropIndex, 0, movedItem[0]);
-            variableCosts = clone;
-            triggerSave();
-
+            // Indexes are positions in the filtered view; map them back onto
+            // the shared array so a commission row can't be disturbed.
+            const from = variableCosts.indexOf(rows[draggingRowIndex]);
+            const to = variableCosts.indexOf(rows[dropIndex]);
+            if (from > -1 && to > -1) {
+                const clone = [...variableCosts];
+                const movedItem = clone.splice(from, 1);
+                clone.splice(to, 0, movedItem[0]);
+                variableCosts = clone;
+                triggerSave();
+            }
         }
         draggingRowIndex = null;
         isDragHandle = false;
@@ -361,7 +369,7 @@
                     </thead>
 
                     <tbody class="divide-y divide-gray1 bg-transparent">
-                        {#each variableCosts as row, index (row.id)}
+                        {#each rows as row, index (row.id)}
                             {@const enriched = enrichedCosts[index] || {}}
                             {@const actualDiff = (enriched.estimatedInternal || 0) - (enriched.actualInternal || 0)}
                             {@const externalDiff = (enriched.estimatedInternal || 0) - (enriched.externalSettlement || 0)}

@@ -87,7 +87,10 @@
 	$: detailsDirty =
 		detailsLoaded &&
 		savedAgeLimit !== null &&
-		(ageLimit !== savedAgeLimit || offerExpiryDays !== savedExpiryDays);
+		(ageLimit !== savedAgeLimit ||
+			offerExpiryDays !== savedExpiryDays ||
+			commissionPercent !== savedCommissionPercent ||
+			commissionEnabled !== savedCommissionEnabled);
 	// Templates tab editor state (bound up from TemplatesManager).
 	let templatesRef: any = null;
 	let templatesDirty = false;
@@ -170,6 +173,10 @@
 	// ---- Event details defaults (Age Limit) ----
 	let ageLimit = '18+';
 	let offerExpiryDays = 14;
+	let commissionPercent = 20;
+	let commissionEnabled = true;
+	let savedCommissionPercent = 20;
+	let savedCommissionEnabled = true;
 	let savingDetails = false;
 	let detailsLoaded = false;
 	let detailsStatus = '';
@@ -177,8 +184,12 @@
 	getOfferEventDefaults().then((d) => {
 		ageLimit = d.ageLimit;
 		offerExpiryDays = d.offerExpiryDays;
+		commissionPercent = d.commissionPercent;
+		commissionEnabled = d.commissionEnabled;
 		savedAgeLimit = d.ageLimit;
 		savedExpiryDays = d.offerExpiryDays;
+		savedCommissionPercent = d.commissionPercent;
+		savedCommissionEnabled = d.commissionEnabled;
 		detailsLoaded = true;
 	});
 
@@ -186,10 +197,17 @@
 		if (savingDetails) return;
 		savingDetails = true;
 		detailsStatus = '';
-		const ok = await saveOfferEventDefaults({ ageLimit, offerExpiryDays });
+		const ok = await saveOfferEventDefaults({
+			ageLimit,
+			offerExpiryDays,
+			commissionPercent,
+			commissionEnabled
+		});
 		if (ok) {
 			savedAgeLimit = ageLimit;
 			savedExpiryDays = offerExpiryDays;
+			savedCommissionPercent = commissionPercent;
+			savedCommissionEnabled = commissionEnabled;
 		}
 		detailsStatus = ok ? 'Saved' : 'Save failed';
 		savingDetails = false;
@@ -354,6 +372,48 @@
 							<p class="text-[12px] text-gray2 font-bold ml-1 min-h-[18px]">
 								Days before an offer expires — "OFFER EXPIRES {offerExpiryDays || 14} CALENDAR DAYS
 								FROM "OFFER SENT" DATE."
+							</p>
+						</div>
+
+						<div class="space-y-2">
+							<div class="flex items-center justify-between gap-3">
+								<span class="text-[15px] font-bold text-white block">Produkt Commission</span>
+								<button
+									type="button"
+									role="switch"
+									aria-checked={commissionEnabled}
+									aria-label="Add the Produkt commission to new events"
+									disabled={!detailsLoaded}
+									on:click={() => (commissionEnabled = !commissionEnabled)}
+									class="relative inline-flex h-5 w-10 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none {commissionEnabled
+										? 'bg-lime'
+										: 'bg-[#444]'}"
+								>
+									<span
+										aria-hidden="true"
+										class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-black shadow ring-0 transition duration-150 {commissionEnabled
+											? 'translate-x-5'
+											: 'translate-x-0'}"
+									></span>
+								</button>
+							</div>
+							<div class="relative">
+								<input
+									id="commissionPercent"
+									type="number"
+									min="0"
+									step="0.5"
+									bind:value={commissionPercent}
+									placeholder="20"
+									disabled={!detailsLoaded || !commissionEnabled}
+									class="w-full bg-gray1 rounded-3xl px-4 py-2.5 pr-10 text-[15px] font-bold text-white placeholder-gray2 focus:outline-none disabled:opacity-50"
+								/>
+								<span class="absolute right-5 top-1/2 -translate-y-1/2 text-gray2 font-bold">%</span>
+							</div>
+							<p class="text-[12px] font-bold ml-1 min-h-[18px] {commissionEnabled ? 'text-lime' : 'text-gray2'}">
+								{commissionEnabled
+									? `New events start with a ${commissionPercent || 20}% commission on net gross.`
+									: 'New events start without a commission line.'}
 							</p>
 						</div>
 					</div>
