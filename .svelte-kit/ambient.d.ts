@@ -99,7 +99,6 @@ declare module '$env/static/private' {
 	export const COLOR: string;
 	export const USE_LOCAL_OAUTH: string;
 	export const npm_config_noproxy: string;
-	export const CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH: string;
 	export const npm_config_local_prefix: string;
 	export const GIT_EDITOR: string;
 	export const AI_AGENT: string;
@@ -111,6 +110,7 @@ declare module '$env/static/private' {
 	export const SSH_AUTH_SOCK: string;
 	export const __CF_USER_TEXT_ENCODING: string;
 	export const npm_execpath: string;
+	export const CLAUDE_CODE_DESKTOP_APP_VERSION: string;
 	export const CLAUDE_CODE_REPORT_FINDINGS: string;
 	export const PATH: string;
 	export const MCP_CONNECTION_NONBLOCKING: string;
@@ -128,6 +128,7 @@ declare module '$env/static/private' {
 	export const npm_config_npm_version: string;
 	export const NODE_USE_SYSTEM_CA: string;
 	export const XPC_FLAGS: string;
+	export const CLAUDE_CODE_SESSION_ATTENDED: string;
 	export const npm_config_node_gyp: string;
 	export const npm_package_version: string;
 	export const XPC_SERVICE_NAME: string;
@@ -153,13 +154,7 @@ declare module '$env/static/private' {
 	export const npm_node_execpath: string;
 	export const npm_config_prefix: string;
 	export const USE_STAGING_OAUTH: string;
-	export const TEST: string;
-	export const VITEST: string;
 	export const NODE_ENV: string;
-	export const PROD: string;
-	export const DEV: string;
-	export const BASE_URL: string;
-	export const MODE: string;
 }
 
 /**
@@ -311,7 +306,6 @@ declare module '$env/dynamic/private' {
 		COLOR: string;
 		USE_LOCAL_OAUTH: string;
 		npm_config_noproxy: string;
-		CLAUDE_CODE_SDK_HAS_OAUTH_REFRESH: string;
 		npm_config_local_prefix: string;
 		GIT_EDITOR: string;
 		AI_AGENT: string;
@@ -323,6 +317,7 @@ declare module '$env/dynamic/private' {
 		SSH_AUTH_SOCK: string;
 		__CF_USER_TEXT_ENCODING: string;
 		npm_execpath: string;
+		CLAUDE_CODE_DESKTOP_APP_VERSION: string;
 		CLAUDE_CODE_REPORT_FINDINGS: string;
 		PATH: string;
 		MCP_CONNECTION_NONBLOCKING: string;
@@ -340,6 +335,7 @@ declare module '$env/dynamic/private' {
 		npm_config_npm_version: string;
 		NODE_USE_SYSTEM_CA: string;
 		XPC_FLAGS: string;
+		CLAUDE_CODE_SESSION_ATTENDED: string;
 		npm_config_node_gyp: string;
 		npm_package_version: string;
 		XPC_SERVICE_NAME: string;
@@ -365,13 +361,7 @@ declare module '$env/dynamic/private' {
 		npm_node_execpath: string;
 		npm_config_prefix: string;
 		USE_STAGING_OAUTH: string;
-		TEST: string;
-		VITEST: string;
 		NODE_ENV: string;
-		PROD: string;
-		DEV: string;
-		BASE_URL: string;
-		MODE: string;
 		[key: `PUBLIC_${string}`]: undefined;
 		[key: `${string}`]: string | undefined;
 	}

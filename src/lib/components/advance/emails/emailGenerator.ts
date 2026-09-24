@@ -139,7 +139,15 @@ export async function generateAdvanceEmail(
 
     // Get the authenticated user's email
     const fromEmail = user.email;
-    const userName = user.user_metadata?.name || fromEmail.split('@')[0];
+    // Sign off with the first name only — "Best, Charles", never the full name.
+    // Handles "Charles Brousseau", "charles.brousseau@..." and "charles_b".
+    const rawName = user.user_metadata?.name || fromEmail.split('@')[0];
+    const firstName = String(rawName || '')
+        .trim()
+        // NOT on "-": a hyphenated first name (Marie-Claude) is one name.
+        .split(/[\s._]+/)
+        .filter(Boolean)[0] || '';
+    const userName = firstName.charAt(0).toUpperCase() + firstName.slice(1);
 
     const timetableContent = generateTimetableHtml(event.timetable || null);
 
@@ -204,7 +212,7 @@ export async function generateAdvanceEmail(
         </p>
         ${timetableContent}
 
-        <p>Best,&nbsp;<br>${userName.charAt(0).toUpperCase() + userName.slice(1)}</p>
+        <p>Best,&nbsp;<br>${userName}</p>
     `.replace(/\n/g, '').replace(/    /g, '').trim();
 
     const emlContent = `Subject: ${subject}
