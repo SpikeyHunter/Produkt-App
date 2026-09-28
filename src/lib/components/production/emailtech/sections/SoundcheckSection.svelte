@@ -113,7 +113,9 @@
         const found: SoundcheckRow[] = [];
         relevantEvents.forEach(row => {
             const scData = parseJson(row.soundcheck);
-            if (scData && scData.start_time && scData.status !== 'no') {
+            // only a booked soundcheck (status "yes"; legacy rows use enabled=true)
+            const status = scData?.status ?? (scData?.enabled === true ? 'yes' : null);
+            if (scData && scData.start_time && String(status).toLowerCase() === 'yes') {
                 found.push({
                     // Convert DB 24h time to 12h for consistency
                     start: format12h(scData.start_time),

@@ -283,8 +283,9 @@ export function firstSoundcheckStart(events: EmailTechEvent[], allRows: EmailTec
 			}
 		}
 		if (!sc || typeof sc !== 'object') return;
+		// only a booked soundcheck counts for the crew-call rule
 		const status = sc.status ?? (sc.enabled === true ? 'yes' : sc.enabled === false ? 'no' : null);
-		if (status === 'no' || !sc.start_time) return;
+		if (String(status).toLowerCase() !== 'yes' || !sc.start_time) return;
 		const t = to24h(String(sc.start_time).split('T').pop() || '');
 		if (t && (!best || t < best)) best = t;
 	});
