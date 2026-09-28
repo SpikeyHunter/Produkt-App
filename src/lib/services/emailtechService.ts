@@ -322,7 +322,7 @@ export async function updateLinkedEvents(eventId: number, ids: number[]): Promis
 export async function matchEventCrew(
     event: EmailTechEvent,
     allCrew: CrewMember[],
-    pinnedRowId?: number | null
+    pinnedRowId?: string | null
 ): Promise<{ match: ScheduleMatch; assignments: CrewAssignments | null }> {
     if (!event.event_date) {
         return {

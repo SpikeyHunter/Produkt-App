@@ -29,7 +29,7 @@ export const EMAILTECH_SCHEMA_SQL = `create table if not exists public.events_em
   tech_status text not null default 'todo',
   vj_status text not null default 'todo',
   linked_event_ids jsonb not null default '[]'::jsonb,
-  schedule_row_id integer,
+  schedule_row_id text,
   email_format text,
   visible_sections jsonb,
   liaison text,
@@ -44,6 +44,7 @@ export const EMAILTECH_SCHEMA_SQL = `create table if not exists public.events_em
   projector_outdoor text,
   visuals_interior text,
   visuals_custom boolean not null default false,
+  artwork_removal_off boolean not null default false,
   vj_visuals text,
   sponsor_name text,
   sponsor_link text,
@@ -97,7 +98,7 @@ export type FormKey = keyof TechEmailForm;
 
 const DATA_KEYS = ['tech_status', 'vj_status', 'linked_event_ids', 'schedule_row_id'] as const;
 /** boolean columns declared NOT NULL in events_emailtech */
-const BOOL_COLUMNS = new Set<string>(['crew_calls_manual', 'visuals_custom', 'soundcheck_custom', 'riders_attached', 'greeting_custom']);
+const BOOL_COLUMNS = new Set<string>(['crew_calls_manual', 'visuals_custom', 'artwork_removal_off', 'soundcheck_custom', 'riders_attached', 'greeting_custom']);
 const TOP_KEYS = ['crew', 'tech_mail', 'vj_mail'] as const;
 
 const PEER_COLORS = ['#E1FF00', '#86EFAC', '#FDBA74', '#93c5fd', '#f9a8d4', '#c4b5fd', '#22d3ee'];
@@ -142,7 +143,7 @@ export interface EmailTechSync {
 	setCrew(crew: CrewAssignments): void;
 	setStatus(status: string): void;
 	setLinked(ids: number[]): void;
-	setPinnedRow(rowId: number | null): void;
+	setPinnedRow(rowId: string | null): void;
 	setMail(type: 'tech' | 'vj', html: string): void;
 
 	focus(section: string | null): void;
@@ -233,7 +234,7 @@ export function createEmailTechSync(
 		markDirty(['linked_event_ids']);
 	}
 
-	function setPinnedRow(rowId: number | null) {
+	function setPinnedRow(rowId: string | null) {
 		record.update((r) => ({ ...r, email_data: { ...r.email_data, schedule_row_id: rowId } }));
 		markDirty(['schedule_row_id']);
 	}
@@ -635,7 +636,7 @@ export const SECTION_FORM_KEYS: Record<string, FormKey[]> = {
 	crew_call: ['crew_calls', 'crew_calls_manual'],
 	team_notes: ['team_notes'],
 	specs: ['specs_links', 'projects'],
-	visuals: ['projector_outdoor', 'visuals_interior', 'sponsor_name', 'sponsor_link', 'sponsor_notes'],
+	visuals: ['projector_outdoor', 'visuals_interior', 'visuals_custom', 'artwork_removal_off', 'sponsor_name', 'sponsor_link', 'sponsor_notes'],
 	set_times: ['set_times'],
 	soundcheck: ['soundcheck'],
 	lounge_ambiance: ['lounge_ambiance'],

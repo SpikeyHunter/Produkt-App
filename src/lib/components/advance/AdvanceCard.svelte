@@ -139,6 +139,9 @@
 
 	function generateSmartTags(event) {
 		const tags = [];
+		// Local artists have no contract / role list / passports / immigration /
+		// flights / hotels / rider upload on the card — never tag those.
+		const isLocal = event.artist_type === 'Local';
 		const hospoRider = parseJson(event.hospo_rider);
 		if (hospoRider && hospoRider.rider_sent_to_mihir === false) {
 			tags.push('Rider to Mihir');
@@ -164,12 +167,12 @@
 			event.redlined_contract_url ||
 			event.contract_url;
 
-		if (!event.contract || !hasContractFile) {
+		if (!isLocal && (!event.contract || !hasContractFile)) {
 			tags.push('Contract');
 		}
 
 		const roles = parseJson(event.roles);
-		if (!roles || !Array.isArray(roles) || roles.length === 0) {
+		if (!isLocal && (!roles || !Array.isArray(roles) || roles.length === 0)) {
 			tags.push('Role List');
 		}
 
@@ -198,7 +201,7 @@
 			tags.push('ROS');
 		}
 
-		if (roles && Array.isArray(roles)) {
+		if (!isLocal && roles && Array.isArray(roles)) {
 			const rolesNeedingPassports = roles.filter((r) => r.immigration === true);
 			if (rolesNeedingPassports.length > 0) {
 				const passportInfo = parseJson(event.passport_info);
@@ -218,7 +221,9 @@
 			}
 		}
 
-		if (event.immigration_status === 'Waiting') {
+		if (isLocal) {
+			// no immigration for locals
+		} else if (event.immigration_status === 'Waiting') {
 			tags.push('Immigration waiting');
 		} else if (!event.immigration_status || event.immigration_status === 'To Do') {
 			if (roles && Array.isArray(roles)) {
@@ -230,7 +235,7 @@
 		}
 
 		const groundInfo = parseJson(event.ground_info);
-		const flightsEnabled = event.flights_enabled !== false;
+		const flightsEnabled = event.flights_enabled !== false && !isLocal;
 		if (flightsEnabled) {
 			const hasArrivals = groundInfo?.arrivals && groundInfo.arrivals.length > 0;
 			const hasDepartures = groundInfo?.departures && groundInfo.departures.length > 0;
@@ -239,7 +244,7 @@
 			}
 		}
 
-		const hotelsEnabled = event.hotel_enabled !== false;
+		const hotelsEnabled = event.hotel_enabled !== false && !isLocal;
 		if (hotelsEnabled) {
 			const hotelInfo = parseJson(event.hotel_info);
 			if (!hotelInfo || !Array.isArray(hotelInfo) || hotelInfo.length === 0) {
@@ -255,7 +260,9 @@
 		}
 
 		const riderFiles = parseJson(event.rider_files);
-		if (!riderFiles || !riderFiles.tech_rider_url) {
+		if (isLocal) {
+			// backline is picked on the card, no rider file to chase
+		} else if (!riderFiles || !riderFiles.tech_rider_url) {
 			tags.push('Rider');
 		} else if (riderFiles.hospitality_included === 'No' && !riderFiles.hospo_rider_url) {
 			tags.push('Rider');

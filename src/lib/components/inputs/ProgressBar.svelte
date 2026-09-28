@@ -43,7 +43,8 @@
 		'visual_received',
 		'calendar_synced',
 		'flights_enabled',
-		'event_venue'
+		'event_venue',
+		'artist_type'
 	];
 
 	// Watch for changes in any progress-related fields

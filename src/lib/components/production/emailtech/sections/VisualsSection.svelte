@@ -48,6 +48,18 @@
 	// text after the time on the removal line ("TVS only" by default)
 	let removalText = 'TVS only';
 	const DEFAULT_REMOVAL = 'TVS only';
+	$: removalOff = !!formData.artwork_removal_off;
+
+	/** "\nPlease remove show artworks at 12:00 AM TVS only", or '' when the line is off */
+	function removalLine(time: string): string {
+		if (formData.artwork_removal_off) return '';
+		return `\nPlease remove show artworks at ${formatTimeDisplay(time || '00:00')} ${removalText || DEFAULT_REMOVAL}`;
+	}
+	function toggleRemoval() {
+		if (readOnly) return;
+		formData.artwork_removal_off = !formData.artwork_removal_off;
+		updateInteriorData();
+	}
 
 	// --- 3. SPONSOR (typed by hand, no list) ---
 	$: if (formData.sponsor_name === undefined) formData.sponsor_name = '';
@@ -141,8 +153,7 @@
 			} else {
 				// Enforce Standard Layout for Interior
 				if (isNCG || isDSTRKT) {
-					const validTime = removalTime || '00:00';
-					formData.visuals_interior = `${standardInteriorText}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} ${useStdLogo ? DEFAULT_REMOVAL : removalText}`;
+					formData.visuals_interior = `${standardInteriorText}${removalLine(removalTime)}`;
 				}
 			}
 		} else {
@@ -153,7 +164,7 @@
 			// also clears it for Bazart on user interaction).
 			if (!isBazart) {
 				const content = useStdLogo && (isNCG || isDSTRKT) ? standardInteriorText : customInteriorText;
-				formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(removalTime)} ${useStdLogo ? DEFAULT_REMOVAL : removalText}`;
+				formData.visuals_interior = `${content}${removalLine(removalTime)}`;
 			}
 		}
 	}
@@ -182,8 +193,7 @@
 			formData.visuals_interior = '';
 		} else {
 			const content = useStandardLogo && (isNCG || isDSTRKT) ? standardInteriorText : customInteriorText;
-			const validTime = removalTime || '00:00';
-			formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} ${useStandardLogo ? DEFAULT_REMOVAL : removalText}`;
+			formData.visuals_interior = `${content}${removalLine(removalTime)}`;
 		}
 		dispatch('change');
 	}
@@ -221,6 +231,7 @@
 		outdoorTime = isBazart ? '17:00' : '21:30';
 		removalTime = '00:00';
 		removalText = DEFAULT_REMOVAL;
+		formData.artwork_removal_off = false;
 		customLogoName = 'Custom Logo';
 		customOutdoorText = projectorLink ? `Link: ${projectorLink}` : 'Link: ';
 		customInteriorText = standardInteriorText || 'Link: \nStage: \nShow Artwork: ';
@@ -335,29 +346,37 @@
 						></textarea>
 					{/if}
 
-					<div class="flex items-center gap-3 mt-1 pl-1">
+					<!-- "Please remove show artworks at {time} {text}" — toggle off to drop the line -->
+					<div class="flex items-center gap-3 mt-1 pl-1 {removalOff ? 'opacity-50' : ''}">
+						<button
+							type="button"
+							role="switch"
+							aria-checked={!removalOff}
+							aria-label="Include the remove-artwork line"
+							disabled={readOnly}
+							on:click={toggleRemoval}
+							class="relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border-2 border-transparent transition-colors cursor-pointer {removalOff ? 'bg-gray2' : 'bg-lime'}"
+						>
+							<span class="pointer-events-none inline-block h-3 w-3 transform rounded-full bg-black shadow transition {removalOff ? 'translate-x-0' : 'translate-x-3'}"></span>
+						</button>
 						<input
 							aria-label="Removal Time"
 							type="time"
 							bind:value={removalTime}
 							on:input={updateInteriorData}
-							disabled={readOnly}
+							disabled={readOnly || removalOff}
 							class="bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white w-[5.5rem] flex-shrink-0 text-center focus:border-lime focus:outline-none transition-colors"
 						/>
-						{#if useStandardLogo}
-							<span class="text-sm text-gray2 font-bold">Remove Artwork TVS only</span>
-						{:else}
-							<span class="text-sm text-gray2 font-bold whitespace-nowrap">Remove Artwork</span>
-							<input
-								aria-label="Removal note"
-								type="text"
-								bind:value={removalText}
-								on:input={updateInteriorData}
-								disabled={readOnly}
-								placeholder="TVS only"
-								class="bg-transparent border-b border-gray1 px-2 py-1 text-sm text-white focus:border-lime focus:outline-none placeholder-gray2/50 transition-colors flex-1 min-w-0"
-							/>
-						{/if}
+						<span class="text-sm text-gray2 font-bold whitespace-nowrap">Remove Artwork</span>
+						<input
+							aria-label="Removal note"
+							type="text"
+							bind:value={removalText}
+							on:input={updateInteriorData}
+							disabled={readOnly || removalOff}
+							placeholder="TVS only"
+							class="bg-transparent border-b border-gray1 px-2 py-1 text-sm text-white focus:border-lime focus:outline-none placeholder-gray2/50 transition-colors flex-1 min-w-0"
+						/>
 					</div>
 				</div>
 			{/if}

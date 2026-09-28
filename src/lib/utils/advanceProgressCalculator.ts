@@ -18,6 +18,11 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 
 	const progressItems: ProgressItem[] = [];
 
+	// Local artists: no role list / passports / immigration / hotels / flights /
+	// rider upload (those sections are disabled on the card), so they are left
+	// out of the score instead of dragging it down.
+	const isLocal = (event as any).artist_type === 'Local';
+
 	// Parse roles once to check for VJ
 	const roles = parseJson(event.roles);
 	const hasVJ = Array.isArray(roles) && roles.some((r: any) => r.role === 'VJ');
@@ -48,16 +53,18 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 		included: true
 	});
 
-	// 4. Role List
-	progressItems.push({
-		name: 'role_list',
-		value: event.role_list === true ? 100 : 0,
-		weight: 1,
-		included: true
-	});
+	// 4. Role List (not for locals)
+	if (!isLocal) {
+		progressItems.push({
+			name: 'role_list',
+			value: event.role_list === true ? 100 : 0,
+			weight: 1,
+			included: true
+		});
+	}
 
-	// 5. Roles with Immigration and Passport Info
-	const rolesProgress = calculateRolesProgress(event);
+	// 5. Roles with Immigration and Passport Info (not for locals)
+	const rolesProgress = isLocal ? { value: 0, included: false } : calculateRolesProgress(event);
 	// Always include if there are roles, even if progress is 0
 	if (rolesProgress.included) {
 		progressItems.push({
@@ -69,24 +76,26 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 		console.log('Roles/Passport/Immigration progress:', rolesProgress.value + '%');
 	}
 
-	// 6. Immigration Status
-	const immigrationStatusValue =
-		event.immigration_status === 'Sent'
-			? 100
-			: event.immigration_status === 'Waiting'
-				? 75
-				: event.immigration_status === 'Received'
-					? 50
-					: 0;
-	progressItems.push({
-		name: 'immigration_status',
-		value: immigrationStatusValue,
-		weight: 1,
-		included: true
-	});
+	// 6. Immigration Status (not for locals)
+	if (!isLocal) {
+		const immigrationStatusValue =
+			event.immigration_status === 'Sent'
+				? 100
+				: event.immigration_status === 'Waiting'
+					? 75
+					: event.immigration_status === 'Received'
+						? 50
+						: 0;
+		progressItems.push({
+			name: 'immigration_status',
+			value: immigrationStatusValue,
+			weight: 1,
+			included: true
+		});
+	}
 
-	// 7. Hotel Info - EXCLUDE if hotel_enabled is false
-	const hotelEnabled = event.hotel_enabled !== false; // Default to true if not specified
+	// 7. Hotel Info - EXCLUDE if hotel_enabled is false (or local artist)
+	const hotelEnabled = event.hotel_enabled !== false && !isLocal; // Default to true if not specified
 	if (hotelEnabled) {
 		const hotelProgress = calculateHotelProgress(event);
 		progressItems.push({
@@ -100,8 +109,8 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 		console.log('Hotels disabled - excluding from progress calculation');
 	}
 
-	// 8. Ground Info (Flights) - EXCLUDE if flights_enabled is false
-	const flightsEnabled = event.flights_enabled !== false; // Default to true if not specified
+	// 8. Ground Info (Flights) - EXCLUDE if flights_enabled is false (or local artist)
+	const flightsEnabled = event.flights_enabled !== false && !isLocal; // Default to true if not specified
 	if (flightsEnabled) {
 		const flightsProgress = calculateFlightsProgress(event);
 		progressItems.push({
@@ -144,14 +153,16 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 		console.log('Ground transport disabled - excluding from progress calculation');
 	}
 
-	// 11. Rider Files
-	const riderProgress = calculateRiderProgress(event);
-	progressItems.push({
-		name: 'rider_files',
-		value: riderProgress,
-		weight: 1,
-		included: true
-	});
+	// 11. Rider Files (locals use the backline picker, no rider upload)
+	if (!isLocal) {
+		const riderProgress = calculateRiderProgress(event);
+		progressItems.push({
+			name: 'rider_files',
+			value: riderProgress,
+			weight: 1,
+			included: true
+		});
+	}
 
 	// 12. Visual Received (skip for Bazart venue OR if VJ is assigned)
 	if (event.event_venue !== 'Bazart' && !hasVJ) {
@@ -185,6 +196,7 @@ export function calculateAdvanceProgress(event: EventAdvance): number {
 		totalScore,
 		totalWeight,
 		percentage,
+		isLocal,
 		flightsEnabled,
 		hotelEnabled,
 		groundEnabled

@@ -90,6 +90,8 @@ export interface TechEmailForm {
     sponsor_notes?: string;
     /** true = projector/TV texts are typed by hand instead of the venue defaults */
     visuals_custom?: boolean;
+    /** true = no "Please remove show artworks at …" line */
+    artwork_removal_off?: boolean;
     set_times: {
         event_id: number;
         venue: string;
@@ -153,8 +155,8 @@ export interface EmailData {
     vj_status?: string;
     /** events combined into this email (selector "Link") */
     linked_event_ids?: number[];
-    /** schedule_techs.id chosen by hand when the match was ambiguous */
-    schedule_row_id?: number | null;
+    /** schedule_techs.id (uuid) chosen by hand when the match was ambiguous */
+    schedule_row_id?: string | null;
     [key: string]: any;
 }
 
@@ -162,7 +164,7 @@ export interface EmailData {
 export const FORM_COLUMNS: (keyof TechEmailForm)[] = [
     'email_format', 'visible_sections', 'liaison', 'greeting_custom', 'greeting_text', 'crew_calls', 'crew_calls_manual',
     'team_notes', 'vj_notes', 'specs_links', 'projects', 'projector_outdoor',
-    'visuals_interior', 'visuals_custom', 'vj_visuals', 'sponsor_name', 'sponsor_link',
+    'visuals_interior', 'visuals_custom', 'artwork_removal_off', 'vj_visuals', 'sponsor_name', 'sponsor_link',
     'sponsor_notes', 'set_times', 'soundcheck', 'soundcheck_custom', 'riders_attached',
     'backline', 'travelling_party', 'vj_schedule', 'lights', 'sfx', 'sponsors',
     'post_show', 'lounge_ambiance'
@@ -183,6 +185,6 @@ export function emailDataFromRow(row: any): EmailData {
         tech_status: row.tech_status || 'todo',
         vj_status: row.vj_status || 'todo',
         linked_event_ids: Array.isArray(row.linked_event_ids) ? row.linked_event_ids : [],
-        schedule_row_id: row.schedule_row_id ?? null
+        schedule_row_id: row.schedule_row_id != null ? String(row.schedule_row_id) : null
     };
 }

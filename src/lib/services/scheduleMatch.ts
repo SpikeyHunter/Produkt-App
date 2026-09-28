@@ -18,7 +18,8 @@ import { supabase } from '$lib/supabase';
 import type { CrewAssignments, CrewMember } from '$lib/types/emailtech';
 
 export interface ScheduleRow {
-	id: number;
+	/** uuid */
+	id: string;
 	date: string;
 	year: number | null;
 	type: string | null;
@@ -123,7 +124,7 @@ export async function findScheduleRow(opts: {
 	eventName: string;
 	artistName: string;
 	calendarLink?: string | null;
-	pinnedRowId?: number | null;
+	pinnedRowId?: string | null;
 }): Promise<ScheduleMatch> {
 	const day = String(opts.eventDate || '').slice(0, 10);
 	const bounds = monthBounds(day);
