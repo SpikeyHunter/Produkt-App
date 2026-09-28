@@ -4,7 +4,7 @@
     // "APACHE (FR)"). Lists the whole month so the right row can be picked.
     import { createEventDispatcher } from 'svelte';
     import Modal from '$lib/components/modals/Modal.svelte';
-    import type { ScheduleRow } from '$lib/services/scheduleMatch';
+    import { isExcludedType, type ScheduleRow } from '$lib/services/scheduleMatch';
     import type { EmailTechEvent } from '$lib/types/emailtech';
 
     export let isOpen = false;
@@ -69,7 +69,7 @@
                 <div class="w-24 shrink-0">
                     <div class="text-xs font-bold {sameDay ? 'text-lime' : 'text-gray2'}">{fmtDay(r.date)}</div>
                     {#if r.type}
-                        <div class="text-[10px] uppercase tracking-wider text-gray2 mt-0.5 truncate">{r.type}</div>
+                        <div class="text-[10px] uppercase tracking-wider mt-0.5 truncate {isExcludedType(r.type) ? 'text-problem/80' : 'text-gray2'}">{r.type}</div>
                     {/if}
                 </div>
                 <div class="flex-1 min-w-0">

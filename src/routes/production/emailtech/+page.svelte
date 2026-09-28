@@ -334,10 +334,12 @@
 
     async function applyMatch(match: ScheduleMatch, assignments: CrewAssignments | null) {
         crewSourceNote = match.row ? `${match.row.event_name || 'row'} (${match.reason})` : match.reason;
-        if (match.status === 'ambiguous') {
+        // Several shows, or no show at all that day (only corpo / maintenance…):
+        // let the user pick any row of the month, non-show types included.
+        if (match.status === 'ambiguous' || (match.status === 'none' && match.monthRows.length)) {
             pickRows = match.monthRows;
             pickCandidates = match.candidates;
-            pickReason = match.reason;
+            pickReason = match.status === 'none' ? `${match.reason} — pick any row to use its crew, or skip` : match.reason;
             pickOpen = true;
             return;
         }

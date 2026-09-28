@@ -96,6 +96,8 @@ export interface Touch {
 export type FormKey = keyof TechEmailForm;
 
 const DATA_KEYS = ['tech_status', 'vj_status', 'linked_event_ids', 'schedule_row_id'] as const;
+/** boolean columns declared NOT NULL in events_emailtech */
+const BOOL_COLUMNS = new Set<string>(['crew_calls_manual', 'visuals_custom', 'soundcheck_custom', 'riders_attached', 'greeting_custom']);
 const TOP_KEYS = ['crew', 'tech_mail', 'vj_mail'] as const;
 
 const PEER_COLORS = ['#E1FF00', '#86EFAC', '#FDBA74', '#93c5fd', '#f9a8d4', '#c4b5fd', '#22d3ee'];
@@ -283,12 +285,16 @@ export function createEmailTechSync(
 			if (!ok) throw new Error('save failed');
 			saveState.set(dirty.size ? 'dirty' : 'saved');
 			return true;
-		} catch (err) {
-			console.error('[emailtech sync] save failed:', err);
+		} catch (err: any) {
+			console.error('[emailtech sync] save failed:', err?.message || err);
 			keys.forEach((k) => dirty.add(k));
 			if (whole) formTouchedWhole = true;
 			saveState.set('error');
-			if (!destroyed) setTimeout(() => void flush(), 4000);
+			// 22xxx / 23xxx are data or constraint errors: retrying the same
+			// payload cannot succeed, so wait for the next edit instead
+			const code = String(err?.code || '');
+			const permanent = /^2[23]/.test(code) || code === '42703';
+			if (!destroyed && !permanent) setTimeout(() => void flush(), 4000);
 			return false;
 		}
 	}
@@ -308,7 +314,13 @@ export function createEmailTechSync(
 		if (keys.has('tech_mail')) payload.tech_mail = local.tech_mail;
 		if (keys.has('vj_mail')) payload.vj_mail = local.vj_mail;
 		for (const k of DATA_KEYS) if (keys.has(k)) payload[k] = (local.email_data as any)[k] ?? null;
-		for (const k of FORM_COLUMNS) if (whole || keys.has(k)) payload[k] = form[k] ?? null;
+		for (const k of FORM_COLUMNS) {
+			if (!whole && !keys.has(k)) continue;
+			const v = form[k];
+			// NOT NULL boolean columns: an unset flag is false, never null
+			if (BOOL_COLUMNS.has(k)) payload[k] = !!v;
+			else payload[k] = v ?? null;
+		}
 
 		const { data, error } = await supabase
 			.from(EMAILTECH_TABLE)
@@ -486,7 +498,10 @@ export function createEmailTechSync(
 			rev: stamp(),
 			updated_by: userName
 		};
-		for (const k of FORM_COLUMNS) if (form[k] !== undefined) seed[k] = form[k];
+		for (const k of FORM_COLUMNS) {
+			if (BOOL_COLUMNS.has(k)) seed[k] = !!form[k];
+			else if (form[k] !== undefined) seed[k] = form[k];
+		}
 		const { error: insErr } = await supabase.from(EMAILTECH_TABLE).upsert(seed, { onConflict: 'event_id', ignoreDuplicates: true });
 		if (insErr) console.warn('[emailtech sync] seed failed:', insErr.message);
 	}
