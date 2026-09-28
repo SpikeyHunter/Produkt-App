@@ -16,6 +16,7 @@
         fetchEmailTechEvents,
         fetchCrewMembers,
         matchEventCrew,
+        fetchEmailTechRecord,
         updateLinkedEvents,
         resetEventData,
         addCrewMember,
@@ -127,8 +128,20 @@
 
         if (switching) {
             await teardownSync();
-            // use the freshest copy of the event (refreshEvents may have replaced it)
+            // Use the freshest copy of the event, and re-read its email-tech row
+            // from the database before the editor mounts: the list is a snapshot
+            // from page load and may miss what someone else (or you, on another
+            // event) saved since.
             const fresh = events.find((e) => e.id === primary.id) || primary;
+            loading = true;
+            const latest = await fetchEmailTechRecord(fresh.event_id);
+            loading = false;
+            if (latest) {
+                fresh.crew = latest.crew;
+                fresh.email_data = latest.email_data;
+                fresh.tech_mail = latest.tech_mail;
+                fresh.vj_mail = latest.vj_mail;
+            }
             selectedEvents = [fresh, ...selection.slice(1).map((e) => events.find((x) => x.id === e.id) || e)];
             startSync(fresh);
         } else {

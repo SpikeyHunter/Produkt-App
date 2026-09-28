@@ -46,6 +46,19 @@
 			if (match) return match[1];
 			return ROWS[i].timeOptions[0] || '';
 		});
+		// write the default time into the label too, so the email shows it
+		let touched = false;
+		formData.lights.forEach((l, i) => {
+			const t = timeSelections[i];
+			if (t && t !== 'N/A' && !/\(.*\)/.test(l.area)) {
+				l.area = `${ROWS[i].label} (${t})`;
+				touched = true;
+			}
+		});
+		if (touched) {
+			formData.lights = [...formData.lights];
+			dispatch('change');
+		}
 	}
 
 	function handleReset() {

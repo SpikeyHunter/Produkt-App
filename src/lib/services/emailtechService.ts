@@ -287,6 +287,35 @@ export async function updateEmailStatus(eventId: number, templateType: 'tech' | 
   }
 }
 
+/**
+ * Fresh copy of one event's email-tech data, straight from the database.
+ * The page calls this when an event is opened: the list loaded at page load
+ * can be minutes old, and starting the editor from a stale copy would let its
+ * automatic fields (set times, crew names, backline…) save that stale copy
+ * over what someone else just changed.
+ */
+export async function fetchEmailTechRecord(
+    eventId: number
+): Promise<{ crew: CrewAssignments; email_data: any; tech_mail: string | null; vj_mail: string | null } | null> {
+    const { data, error } = await supabase.from(EMAILTECH_TABLE).select('*').eq('event_id', eventId).maybeSingle();
+    if (!error) {
+        if (!data) return null;
+        return { crew: normalizeCrew(data.crew), email_data: emailDataFromRow(data), tech_mail: data.tech_mail ?? null, vj_mail: data.vj_mail ?? null };
+    }
+    if (!isMissingTable(error)) {
+        console.error('Error fetching events_emailtech row:', error);
+        return null;
+    }
+    tableMissing.set(true);
+    const { data: ev } = await supabase
+        .from('events')
+        .select('crew, email_data, tech_mail, vj_mail')
+        .eq('event_id', eventId)
+        .maybeSingle();
+    if (!ev) return null;
+    return { crew: normalizeCrew(ev.crew), email_data: ev.email_data || {}, tech_mail: ev.tech_mail ?? null, vj_mail: ev.vj_mail ?? null };
+}
+
 /** Save which events are combined into `eventId`'s email (read-merge-write on email_data). */
 export async function updateLinkedEvents(eventId: number, ids: number[]): Promise<boolean> {
     try {

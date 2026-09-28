@@ -19,8 +19,10 @@ import { normalizeCrew } from '$lib/types/emailtech';
 export type Block =
 	| { kind: 'paragraph'; text: string }
 	| { kind: 'lines'; heading?: string; lines: string[] }
-	| { kind: 'bullets'; heading?: string; items: string[] }
-	| { kind: 'kv'; heading?: string; rows: { k: string; v: string; strong?: boolean }[] }
+	/** free text: "- " lines become bullets, "@Name" and other lines stay plain, blank lines are kept */
+	| { kind: 'notes'; heading?: string; lines: { text: string; bullet: boolean }[] }
+	| { kind: 'bullets'; heading?: string; items: string[]; /** white bold heading instead of the lime label */ plainHeading?: boolean }
+	| { kind: 'kv'; heading?: string; rows: { k: string; v: string; strong?: boolean; sub?: string; dots?: string[] }[] }
 	| { kind: 'links'; heading?: string; rows: { label: string; url: string }[] }
 	| { kind: 'setlist'; heading: string; rows: { time: string; artist: string; strong?: boolean }[] }
 	| { kind: 'linkgroups'; heading: string; groups: { label: string; items: string[] }[] };
@@ -29,6 +31,8 @@ export interface EmailSection {
 	id: string;
 	title: string;
 	blocks: Block[];
+	/** title / sub-heading / bullet colour for this section (lime by default) */
+	accent?: string;
 }
 
 export interface EmailModel {
@@ -47,13 +51,20 @@ export interface EmailModel {
 
 /* ---------------------------------------------------------------- helpers */
 
-/** Hosted copy of static/images/ProduktXX_LOGO1.png (mail clients need an absolute URL). */
-export const EMAIL_LOGO_URL = 'https://app.produkt.ca/images/ProduktXX_LOGO_lockup.png';
+/** Public copy of the lockup logo (Supabase storage — app.produkt.ca is behind auth for mail clients). */
+export const EMAIL_LOGO_URL =
+	'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO_lockup.png';
 
 const THEME = {
 	lime: '#E1FF00',
 	/** lime at 10% over the box colour — the advance sheet's headliner row */
 	highlight: '#3d4027',
+	/** "problem" red for **important** notes, and its 10% tint */
+	problem: '#FCA5A5',
+	problemBg: '#403737',
+	confirmed: '#86EFAC',
+	info: '#c4b5fd',
+	question: '#93c5fd',
 	page: '#161616',
 	card: '#212121',
 	box: '#2B2B2B',
@@ -77,6 +88,21 @@ const URL_RE = /(https?:\/\/[^\s<>"')\]]+[^\s<>"')\].,;:!?])/g;
 export function linkify(text: string, color = THEME.lime): string {
 	const safe = escapeHtml(text);
 	return safe.replace(URL_RE, (u) => `<a href="${u}" style="color:${color};text-decoration:underline;word-break:break-all;">${u}</a>`);
+}
+
+/** "**text**" -> highlighted (tinted background, lime bold), asterisks removed.
+ *  Run on already-escaped HTML. */
+export function emphasize(html: string, color = THEME.problem, bg = THEME.problemBg): string {
+	return html.replace(
+		/\*\*([^*\n]+?)\*\*/g,
+		`<span style="color:${color};font-weight:700;background:${bg};background-color:${bg};padding:1px 5px;border-radius:4px;">$1</span>`
+	);
+}
+
+/** Whole line wrapped in ** ** -> the text without them, else null. */
+function wholeLineEmphasis(text: string): string | null {
+	const m = String(text || '').trim().match(/^\*\*(.+?)\*\*$/);
+	return m ? m[1] : null;
 }
 
 export function isUrl(s: string): boolean {
@@ -184,9 +210,27 @@ export function sortBacklineItems(items: string[]): string[] {
 	return [...items].sort((a, b) => backlineRank(a) - backlineRank(b) || a.localeCompare(b));
 }
 
+/** Team-notes lines: only "- " / "• " lines are bullets; "@Name" lines and
+ *  everything else stay as typed; empty lines are kept as spacing. */
+export function notesLines(text: string): { text: string; bullet: boolean }[] {
+	return String(text || '')
+		.replace(/\r/g, '')
+		.split('\n')
+		.map((raw) => {
+			const t = raw.trim();
+			if (/^[-•]\s+/.test(t)) return { text: t.replace(/^[-•]\s+/, ''), bullet: true };
+			return { text: t, bullet: false };
+		});
+}
+
 /* ------------------------------------------------------------- tech model */
 
-export function buildTechModel(events: EmailTechEvent[], form: TechEmailForm, senderName: string): EmailModel {
+export interface ModelOptions {
+	/** light colour name -> hex, from Settings (for the dots next to colours) */
+	lightColors?: Record<string, string>;
+}
+
+export function buildTechModel(events: EmailTechEvent[], form: TechEmailForm, senderName: string, opts: ModelOptions = {}): EmailModel {
 	const main = mainEventOf(events);
 	const crew = crewOf(main);
 	const dateStr = formatLongDate(main?.event_date);
@@ -195,9 +239,9 @@ export function buildTechModel(events: EmailTechEvent[], form: TechEmailForm, se
 	const videoName = first((crew.VIDEO || [])[0] || '') || 'Video';
 
 	const sections: EmailSection[] = [];
-	const push = (id: string, title: string, blocks: Block[]) => {
+	const push = (id: string, title: string, blocks: Block[], accent?: string) => {
 		const kept = blocks.filter(Boolean);
-		if (kept.length) sections.push({ id, title, blocks: kept });
+		if (kept.length) sections.push({ id, title, blocks: kept, accent });
 	};
 
 	// Crew call
@@ -205,13 +249,12 @@ export function buildTechModel(events: EmailTechEvent[], form: TechEmailForm, se
 		const rows = (form.crew_calls || [])
 			.filter((c) => c.time && c.names)
 			.map((c) => ({ k: formatCrewTime(c.time), v: c.names }));
-		if (crew.LASERS?.length) rows.push({ k: 'Lasers', v: crew.LASERS.join(', ') });
 		if (rows.length) push('crew_call', 'Crew Call', [{ kind: 'kv', rows }]);
 	}
 
 	// Team notes
 	if (visible(form, 'team_notes') && form.team_notes?.trim()) {
-		push('team_notes', 'Team Notes', [{ kind: 'lines', lines: form.team_notes.split('\n') }]);
+		push('team_notes', 'Team Notes', [{ kind: 'notes', lines: notesLines(form.team_notes) }]);
 	}
 
 	// Specs + projects
@@ -219,8 +262,10 @@ export function buildTechModel(events: EmailTechEvent[], form: TechEmailForm, se
 		const blocks: Block[] = [];
 		const links = (form.specs_links || []).filter((l) => l.label && l.url);
 		if (links.length) blocks.push({ kind: 'links', rows: links });
-		const projects = (form.projects || []).filter((p) => p.trim());
-		if (projects.length) blocks.push({ kind: 'bullets', heading: 'Projects', items: projects });
+		// same rules as team notes: "- " lines are bullets, "@Name" lines and
+		// plain text stay as typed, blank lines are kept
+		const projects = form.projects || [];
+		if (projects.some((p) => p.trim())) blocks.push({ kind: 'notes', heading: 'Projects', lines: notesLines(projects.join('\n')) });
 		push('specs', 'Venue Specs & Projects', blocks);
 	}
 
@@ -264,16 +309,17 @@ export function buildTechModel(events: EmailTechEvent[], form: TechEmailForm, se
 	// Lounge ambiance (Bazart)
 	const l = form.lounge_ambiance;
 	if (visible(form, 'lounge_ambiance') && l && (l.terrasse_type || l.lounge_option || l.lounge_custom)) {
-		const rows: { k: string; v: string }[] = [];
+		// one heading per area, its choice as a bullet underneath
+		const blocks: Block[] = [];
 		if (l.terrasse_type) {
 			const tName = l.terrasse_type === 'back-side' ? 'Back-Side Terrace' : 'Back Terrace';
 			const tVal = (l.terrasse_option === 'Other' ? l.terrasse_custom : l.terrasse_option) || 'No Music';
-			rows.push({ k: tName, v: tVal });
+			blocks.push({ kind: 'bullets', heading: tName, items: [tVal], plainHeading: true });
 		}
 		if (l.lounge_option || l.lounge_custom) {
-			rows.push({ k: 'Lounge', v: (l.lounge_option === 'Other' ? l.lounge_custom : l.lounge_option) || 'No Music' });
+			blocks.push({ kind: 'bullets', heading: 'Lounge', items: [(l.lounge_option === 'Other' ? l.lounge_custom : l.lounge_option) || 'No Music'], plainHeading: true });
 		}
-		push('lounge_ambiance', 'Bazart Ambiance', [{ kind: 'kv', rows }]);
+		push('lounge_ambiance', 'Bazart Ambiance', blocks);
 	}
 
 	// Riders / backline
@@ -299,10 +345,29 @@ export function buildTechModel(events: EmailTechEvent[], form: TechEmailForm, se
 		push('vj', 'VJ', [{ kind: 'bullets', items: form.vj_schedule.split('\n').filter((x) => x.trim()) }]);
 	}
 
-	// Lights
+	// Lights — "Lounge (5PM & 10PM)" -> area + time, colours with a swatch each
 	if (visible(form, 'lights') && form.lights?.some((x) => x.color)) {
+		const hexOf = (name: string) => {
+			const key = name.trim().toLowerCase();
+			const hit = Object.entries(opts.lightColors || {}).find(([k]) => k.trim().toLowerCase() === key);
+			return hit ? hit[1] : '';
+		};
 		push('lights', 'Lights', [
-			{ kind: 'kv', rows: form.lights.filter((r) => r.color).map((r) => ({ k: r.area, v: r.color })) }
+			{
+				kind: 'kv',
+				rows: form.lights
+					.filter((r) => r.color)
+					.map((r) => {
+						const m = String(r.area || '').match(/^(.*?)\s*\((.*)\)\s*$/);
+						const parts = r.color.split('/').map((x) => x.trim()).filter(Boolean);
+						return {
+							k: m ? m[1] : r.area,
+							sub: m ? m[2] : '',
+							v: parts.join(' / '),
+							dots: parts.map(hexOf)
+						};
+					})
+			}
 		]);
 	}
 
@@ -472,48 +537,92 @@ function h(tag: string, style: string, inner: string, attrs = ''): string {
 	return `<${tag}${attrs ? ' ' + attrs : ''} style="${style}">${inner}</${tag}>`;
 }
 
-function subheading(text: string): string {
+function subheading(text: string, accent = THEME.lime): string {
 	if (!text) return '';
-	return h('div', `${FONT}font-size:11px;line-height:16px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${THEME.lime};margin:0 0 6px 0;`, escapeHtml(text));
+	return h('div', `${FONT}font-size:11px;line-height:16px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${accent};margin:0 0 6px 0;`, escapeHtml(text));
 }
 
-function renderBlockTemplate(b: Block): string {
+function renderBlockTemplate(b: Block, accent = THEME.lime): string {
 	const base = `${FONT}font-size:14px;line-height:21px;color:${THEME.text};`;
 	switch (b.kind) {
 		case 'paragraph':
 			return h('p', `${base}margin:0;font-weight:700;`, linkify(b.text));
 		case 'lines':
 			return (
-				subheading(b.heading || '') +
+				subheading(b.heading || '', accent) +
 				h('div', `${base}margin:0;`, b.lines.map((ln) => (ln.trim() ? linkify(ln) : '&nbsp;')).join('<br>'))
 			);
+		case 'notes': {
+			// The boxed template already says "Team Notes": a bare "@Team" line is
+			// noise here (it stays in the text email). Drop it and any blank right after.
+			const lines: typeof b.lines = [];
+			b.lines.forEach((ln, i) => {
+				if (/^@team\s*:?$/i.test(ln.text)) return;
+				if (!ln.text && i > 0 && /^@team\s*:?$/i.test(b.lines[i - 1].text)) return;
+				lines.push(ln);
+			});
+			while (lines.length && !lines[0].text) lines.shift();
+			return (
+				subheading(b.heading || '', accent) +
+				`<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">` +
+				lines
+					.map((ln) =>
+						ln.bullet
+							? `<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${accent};">•</td><td style="${base}padding:0 0 2px 0;">${emphasize(linkify(ln.text))}</td></tr>`
+							: wholeLineEmphasis(ln.text) !== null
+								? // whole line in ** **: highlighted row, like a headliner in the set times
+									`<tr><td colspan="2" style="${base}padding:5px 8px;margin:2px 0;color:${THEME.problem};font-weight:700;background:${THEME.problemBg};background-color:${THEME.problemBg};border-left:3px solid ${THEME.problem};">${linkify(wholeLineEmphasis(ln.text) || '', THEME.problem)}</td></tr>`
+								: `<tr><td colspan="2" style="${base}padding:0 0 2px 0;${ln.text ? '' : 'height:12px;line-height:12px;font-size:12px;'}">${ln.text ? emphasize(linkify(ln.text)) : '&nbsp;'}</td></tr>`
+					)
+					.join('') +
+				`</table>`
+			);
+		}
 		case 'bullets':
 			return (
-				subheading(b.heading || '') +
+				(b.plainHeading && b.heading
+					? h('div', `${base}font-weight:700;margin:0 0 4px 0;`, escapeHtml(b.heading))
+					: subheading(b.heading || '', accent)) +
 				`<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">` +
 				b.items
 					.map(
 						(it) =>
-							`<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${THEME.lime};">•</td><td style="${base}padding:0 0 2px 0;">${linkify(it)}</td></tr>`
+							`<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${accent};">•</td><td style="${base}padding:0 0 2px 0;">${linkify(it)}</td></tr>`
 					)
 					.join('') +
 				`</table>`
 			);
 		case 'kv':
 			return (
-				subheading(b.heading || '') +
+				subheading(b.heading || '', accent) +
 				`<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">` +
 				b.rows
-					.map(
-						(r) =>
-							`<tr><td valign="top" style="${base}padding:3px 12px 3px 0;color:${THEME.muted};white-space:nowrap;">${escapeHtml(r.k)}</td><td valign="top" width="100%" style="${base}padding:3px 0;${r.strong ? 'font-weight:700;' : ''}">${linkify(r.v)}</td></tr>`
-					)
+					.map((r) => {
+						const key =
+							escapeHtml(r.k) +
+							(r.sub ? `<br><span style="font-size:11px;line-height:14px;color:${THEME.dim};">${escapeHtml(r.sub)}</span>` : '');
+						const val = r.dots?.length
+							? r.v
+									.split('/')
+									.map((x) => x.trim())
+									.filter(Boolean)
+									.map((name, i) => {
+										const hex = r.dots?.[i];
+										const dot = hex
+											? `<span style="display:inline-block;width:10px;height:10px;border-radius:5px;background:${hex};background-color:${hex};vertical-align:middle;margin:0 5px 2px 0;border:1px solid rgba(0,0,0,.35);"></span>`
+											: '';
+										return `${dot}${escapeHtml(name)}`;
+									})
+									.join(`<span style="color:${THEME.dim};margin:0 6px;">/</span>`)
+							: linkify(r.v);
+						return `<tr><td valign="top" style="${base}padding:3px 12px 3px 0;color:${THEME.muted};white-space:nowrap;">${key}</td><td valign="top" width="100%" style="${base}padding:3px 0;${r.strong ? 'font-weight:700;' : ''}">${val}</td></tr>`;
+					})
 					.join('') +
 				`</table>`
 			);
 		case 'links':
 			return (
-				subheading(b.heading || '') +
+				subheading(b.heading || '', accent) +
 				b.rows
 					.map(
 						(r) =>
@@ -523,7 +632,7 @@ function renderBlockTemplate(b: Block): string {
 			);
 		case 'setlist':
 			return (
-				(b.heading ? subheading(b.heading) : '') +
+				(b.heading ? subheading(b.heading, accent) : '') +
 				`<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">` +
 				b.rows
 					.map(
@@ -542,7 +651,7 @@ function renderBlockTemplate(b: Block): string {
 					const items = g.items
 						.map(
 							(it) =>
-								`<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${THEME.lime};">•</td><td style="${base}padding:0 0 2px 0;">${isUrl(it) ? linkify(it) : escapeHtml(it)}</td></tr>`
+								`<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${accent};">•</td><td style="${base}padding:0 0 2px 0;">${isUrl(it) ? linkify(it) : escapeHtml(it)}</td></tr>`
 						)
 						.join('');
 					return `<div style="margin:0 0 10px 0;">${label}<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">${items}</table></div>`;
@@ -552,8 +661,9 @@ function renderBlockTemplate(b: Block): string {
 }
 
 function renderSectionTemplate(s: EmailSection): string {
-	const title = h('div', `${FONT}font-size:13px;line-height:18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${THEME.lime};`, escapeHtml(s.title));
-	const body = s.blocks.map((b, i) => `<div style="margin:${i ? '22px' : '0'} 0 10px 0;">${renderBlockTemplate(b)}</div>`).join('');
+	const accent = s.accent || THEME.lime;
+	const title = h('div', `${FONT}font-size:13px;line-height:18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${accent};`, escapeHtml(s.title));
+	const body = s.blocks.map((b, i) => `<div style="margin:${i ? '22px' : '0'} 0 10px 0;">${renderBlockTemplate(b, accent)}</div>`).join('');
 	return `
 <tr><td class="sx" style="padding:0 24px 14px 24px;background:${THEME.card};background-color:${THEME.card};">
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-radius:12px;background:${THEME.box};background-color:${THEME.box};">
@@ -641,10 +751,12 @@ function renderBlockSimple(b: Block): string {
 			return p(`<strong>${linkify(b.text, '#0000EE')}</strong>`);
 		case 'lines':
 			return head(b.heading) + p(b.lines.map((l) => (l.trim() ? linkify(l, '#0000EE') : '')).join('<br>'));
+		case 'notes':
+			return head(b.heading) + p(b.lines.map((l) => (l.bullet ? `• ${linkify(l.text, '#0000EE')}` : linkify(l.text, '#0000EE')).replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>')).join('<br>'));
 		case 'bullets':
 			return head(b.heading) + `<div style="margin:0 0 10px 0;">${b.items.map((i) => `• ${linkify(i, '#0000EE')}`).join('<br>')}</div>`;
 		case 'kv':
-			return head(b.heading) + `<div style="margin:0 0 10px 0;">${b.rows.map((r) => `${escapeHtml(r.k)}: ${r.strong ? '<strong>' : ''}${linkify(r.v, '#0000EE')}${r.strong ? '</strong>' : ''}`).join('<br>')}</div>`;
+			return head(b.heading) + `<div style="margin:0 0 10px 0;">${b.rows.map((r) => `${escapeHtml(r.k)}${r.sub ? ` (${escapeHtml(r.sub)})` : ''}: ${r.strong ? '<strong>' : ''}${linkify(r.v, '#0000EE')}${r.strong ? '</strong>' : ''}`).join('<br>')}</div>`;
 		case 'links':
 			return head(b.heading) + `<div style="margin:0 0 10px 0;">${b.rows.map((r) => `<strong>${escapeHtml(r.label)}</strong>: <a href="${escapeHtml(r.url)}">${escapeHtml(r.url)}</a>`).join('<br>')}</div>`;
 		case 'setlist':
@@ -692,13 +804,17 @@ export function renderText(m: EmailModel): string {
 					if (b.heading) out.push(b.heading);
 					out.push(...b.lines);
 					break;
+				case 'notes':
+					if (b.heading) out.push(b.heading);
+					out.push(...b.lines.map((l) => (l.bullet ? `• ${l.text}` : l.text).replace(/\*\*([^*\n]+?)\*\*/g, '$1')));
+					break;
 				case 'bullets':
 					if (b.heading) out.push(b.heading);
 					out.push(...b.items.map((i) => `• ${i}`));
 					break;
 				case 'kv':
 					if (b.heading) out.push(b.heading);
-					out.push(...b.rows.map((r) => `${r.k}: ${r.v}`));
+					out.push(...b.rows.map((r) => `${r.k}${r.sub ? ` (${r.sub})` : ''}: ${r.v}`));
 					break;
 				case 'links':
 					if (b.heading) out.push(b.heading);

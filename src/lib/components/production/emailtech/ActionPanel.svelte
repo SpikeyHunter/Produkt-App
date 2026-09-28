@@ -66,8 +66,9 @@
 	// The selected event owns the crew; linked events only add their info.
 	$: mainEvent = selectedEvents[0];
 	$: allCrew = mainEvent ? normalizeCrew(mainEvent.crew) : {};
+	// every crew slot, Lasers included
 	$: techTo = mainEvent && settings.autoPeople.crewTo
-		? crewEmails(mainEvent.crew, ['LD', 'VIDEO', 'VJ', 'SOUND', 'TECH', 'DT'])
+		? crewEmails(mainEvent.crew, ['LD', 'VIDEO', 'VJ', 'SOUND', 'TECH', 'DT', 'LASERS'])
 		: [];
 	$: liaisonCc = settings.autoPeople.liaisonCc ? liaisonEmails(selectedEvents) : [];
 	$: techCc = dedupe([...liaisonCc, ...settings.tech.cc], techTo);
