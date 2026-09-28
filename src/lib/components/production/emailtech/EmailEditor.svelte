@@ -49,11 +49,22 @@
     }
 
     // --- Keep crew names and set times in step with the event data ---
-    $: crewKey = JSON.stringify(selectedEvents[0]?.crew || null);
-    $: if (formData && selectedEvents.length && crewKey) syncCrewToForm(selectedEvents[0].crew);
+    // Only when the INPUTS change (crew, timetable, event). Re-deriving on every
+    // form replacement would echo a remote edit straight back as a save and two
+    // clients could ping-pong forever.
+    let lastCrewKey = '';
+    let lastSetTimesKey = '';
+    $: crewKey = `${selectedEvents[0]?.event_id ?? ''}:${JSON.stringify(selectedEvents[0]?.crew || null)}`;
+    $: if (formData && selectedEvents.length && crewKey !== lastCrewKey) {
+        lastCrewKey = crewKey;
+        syncCrewToForm(selectedEvents[0].crew);
+    }
 
     $: setTimesKey = selectedEvents.map((e) => `${e.event_id}:${JSON.stringify(e.timetable)}`).join('|') + '|' + events.length;
-    $: if (formData && selectedEvents.length && setTimesKey) syncSetTimes(selectedEvents);
+    $: if (formData && selectedEvents.length && setTimesKey !== lastSetTimesKey) {
+        lastSetTimesKey = setTimesKey;
+        syncSetTimes(selectedEvents);
+    }
 
     function syncCrewToForm(rawCrew: any) {
         if (!formData || formData.crew_calls_manual) return;

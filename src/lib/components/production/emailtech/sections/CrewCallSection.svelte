@@ -19,6 +19,7 @@
 
     // No calls yet (or none with a time) and nothing typed by hand -> the
     // automatic times: soundcheck − offset, else the settings default (7PM).
+    // Existing times are never overwritten here; Autofill / "Auto times" do that.
     $: if (formData && autoTechTime && !formData.crew_calls_manual) {
         if (!formData.crew_calls) {
             formData.crew_calls = defaultCalls();
@@ -26,11 +27,27 @@
         } else if (formData.crew_calls.length && formData.crew_calls.every((c) => !c.time)) {
             formData.crew_calls = formData.crew_calls.map((c, i) => ({ ...c, time: i === 0 ? autoTechTime : i === 1 ? rule.vjTime || '21:00' : c.time }));
             dispatch('change');
-        } else if (formData.crew_calls[0] && formData.crew_calls[0].time !== autoTechTime) {
-            // still automatic: follow the soundcheck / settings
-            formData.crew_calls[0].time = autoTechTime;
-            dispatch('change');
         }
+    }
+
+    /** Earliest first; rows without a time go last. */
+    function sortByTime() {
+        if (readOnly) return;
+        formData.crew_calls = [...formData.crew_calls].sort((a, b) => {
+            if (!a.time) return 1;
+            if (!b.time) return -1;
+            return a.time.localeCompare(b.time);
+        });
+        handleChange();
+    }
+
+    function move(i: number, dir: -1 | 1) {
+        const j = i + dir;
+        if (readOnly || j < 0 || j >= formData.crew_calls.length) return;
+        const list = [...formData.crew_calls];
+        [list[i], list[j]] = [list[j], list[i]];
+        formData.crew_calls = list;
+        handleChange();
     }
 
     function defaultCalls() {
@@ -115,6 +132,12 @@
                     />
                     
                     {#if !readOnly}
+                        <div class="flex flex-col -my-1">
+                            <button type="button" aria-label="Move up" on:click={() => move(i, -1)} disabled={i === 0}
+                                class="text-gray2 hover:text-white cursor-pointer px-1 leading-none text-[10px] disabled:opacity-20 disabled:cursor-default">▲</button>
+                            <button type="button" aria-label="Move down" on:click={() => move(i, 1)} disabled={i === formData.crew_calls.length - 1}
+                                class="text-gray2 hover:text-white cursor-pointer px-1 leading-none text-[10px] disabled:opacity-20 disabled:cursor-default">▼</button>
+                        </div>
                         <button type="button" aria-label="Remove crew call" on:click={() => removeCrewCall(i)} class="text-gray2 hover:text-problem cursor-pointer p-1 transition-colors">
                             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -129,9 +152,14 @@
     
     {#if !readOnly}
         <div class="flex items-center justify-between mt-1 gap-3">
-            <button type="button" on:click={addCrewCall} class="text-xs text-lime font-bold hover:underline cursor-pointer flex items-center gap-1">
-                <span>+</span> Add Call Time
-            </button>
+            <div class="flex items-center gap-4">
+                <button type="button" on:click={addCrewCall} class="text-xs text-lime font-bold hover:underline cursor-pointer flex items-center gap-1">
+                    <span>+</span> Add Call Time
+                </button>
+                {#if formData.crew_calls.length > 1}
+                    <button type="button" on:click={sortByTime} class="text-[10px] font-bold uppercase text-gray2 hover:text-lime cursor-pointer" title="Earliest call first">Sort by time</button>
+                {/if}
+            </div>
             {#if formData.crew_calls_manual}
                 <!-- times were edited by hand; put them back on automatic -->
                 <button type="button" on:click={useAutoTimes} class="text-[10px] font-bold uppercase text-gray2 hover:text-lime cursor-pointer shrink-0"

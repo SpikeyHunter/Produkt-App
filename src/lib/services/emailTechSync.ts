@@ -67,6 +67,11 @@ export const EMAILTECH_SCHEMA_SQL = `create table if not exists public.events_em
   updated_by text,
   updated_at timestamptz not null default now()
 );
+create or replace function public.set_updated_at() returns trigger as $$
+begin new.updated_at = now(); return new; end; $$ language plpgsql;
+drop trigger if exists events_emailtech_updated_at on public.events_emailtech;
+create trigger events_emailtech_updated_at before update on public.events_emailtech
+  for each row execute function public.set_updated_at();
 alter table public.events_emailtech enable row level security;
 create policy "authenticated all on events_emailtech" on public.events_emailtech
   for all to authenticated using (true) with check (true);
@@ -109,6 +114,9 @@ const clientId = `c_${Math.random().toString(36).slice(2, 10)}`;
 
 /** Set once we know the table is missing; the page shows the SQL. */
 export const tableMissing = writable(false);
+
+/** Console trail for co-editing issues: filter the console on "[emailtech]". */
+const log = (...a: any[]) => console.info('[emailtech]', ...a);
 
 function clone<T>(v: T): T {
 	return v === undefined ? v : JSON.parse(JSON.stringify(v));
@@ -171,6 +179,10 @@ export function createEmailTechSync(
 	let formTouchedWhole = false;
 
 	let mode: 'table' | 'legacy' = get(tableMissing) ? 'legacy' : 'table';
+	/** newest row timestamp we wrote or accepted — older rows are stale echoes */
+	let lastAccepted = '';
+	/** bumps on every completed write; a refetch started before it is discarded */
+	let writeSeq = 0;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let saving: Promise<boolean> | null = null;
 	let pendingAfterSave = false;
@@ -326,7 +338,7 @@ export function createEmailTechSync(
 		const { data, error } = await supabase
 			.from(EMAILTECH_TABLE)
 			.upsert(payload, { onConflict: 'event_id' })
-			.select('event_id');
+			.select('event_id, updated_at');
 		if (error) {
 			if (isMissingTable(error)) {
 				mode = 'legacy';
@@ -336,6 +348,10 @@ export function createEmailTechSync(
 			throw error;
 		}
 		if (!data?.length) throw new Error('Row not written (permissions?)');
+		writeSeq++;
+		const at = String(data[0].updated_at || '');
+		if (at > lastAccepted) lastAccepted = at;
+		log(`saved #${eventId}`, [...keys].join(','), whole ? '(whole form)' : '', at);
 		channel?.send({ type: 'broadcast', event: 'saved', payload: { clientId, user: userName, rev: payload.rev } });
 		return true;
 	}
@@ -393,7 +409,7 @@ export function createEmailTechSync(
 	/* ------------------------------------------------------------ remote */
 
 	/** Merge a remote record (already in EmailTechRecord shape) over non-dirty pieces. */
-	function mergeRecord(remote: EmailTechRecord, revToCheck?: string | null) {
+	function mergeRecord(remote: EmailTechRecord, revToCheck?: string | null, by?: string) {
 		if (revToCheck && seenRevs.has(revToCheck)) return;
 		const changed: string[] = [];
 		record.update((r) => {
@@ -432,14 +448,27 @@ export function createEmailTechSync(
 			}
 			return next;
 		});
-		if (changed.length) remoteCbs.forEach((cb) => cb(changed));
+		if (changed.length) {
+			log(`remote #${eventId} by ${by || '?'}:`, changed.join(','), dirty.size ? `(kept local: ${[...dirty].join(',')})` : '');
+			remoteCbs.forEach((cb) => cb(changed));
+		}
 	}
 
 	function mergeTableRow(row: any) {
 		if (!row) return;
+		// A row older than what we last wrote/accepted is an echo that overtook
+		// a newer write (or a slow refetch): applying it would revert edits.
+		const at = String(row.updated_at || '');
+		if (row.rev && seenRevs.has(row.rev)) return;
+		if (at && lastAccepted && at < lastAccepted) {
+			log(`stale row #${eventId} dropped (${at} < ${lastAccepted}) by ${row.updated_by || '?'}`);
+			return;
+		}
+		if (at > lastAccepted) lastAccepted = at;
 		mergeRecord(
 			{ crew: normalizeCrew(row.crew), email_data: emailDataFromRow(row), tech_mail: row.tech_mail ?? null, vj_mail: row.vj_mail ?? null },
-			row.rev
+			row.rev,
+			row.updated_by
 		);
 	}
 
@@ -448,13 +477,19 @@ export function createEmailTechSync(
 		const data: EmailData = (row.email_data as EmailData) || {};
 		mergeRecord(
 			{ crew: normalizeCrew(row.crew), email_data: data, tech_mail: row.tech_mail ?? null, vj_mail: row.vj_mail ?? null },
-			(data as any)?._rev?.rev
+			(data as any)?._rev?.rev,
+			(data as any)?._rev?.user
 		);
 	}
 
 	async function refetch() {
+		const seqAtStart = writeSeq;
 		if (mode === 'table') {
 			const { data, error } = await supabase.from(EMAILTECH_TABLE).select('*').eq('event_id', eventId).maybeSingle();
+			if (writeSeq !== seqAtStart) {
+				log(`refetch #${eventId} discarded (we wrote meanwhile)`);
+				return;
+			}
 			if (error && isMissingTable(error)) {
 				mode = 'legacy';
 				tableMissing.set(true);
@@ -481,9 +516,11 @@ export function createEmailTechSync(
 			return;
 		}
 		if (data) {
+			log(`open #${eventId} (row from ${data.updated_by || '?'} @ ${data.updated_at})`);
 			mergeTableRow(data);
 			return;
 		}
+		log(`open #${eventId}: no row yet, seeding from events columns`);
 		// first time on this event with the new table: copy what the old columns had
 		const local = get(record);
 		const form: any = local.email_data.tech_form_data || {};
@@ -522,6 +559,7 @@ export function createEmailTechSync(
 			})
 		);
 		peers.set(list);
+		log(`peers #${eventId}:`, list.map((p) => p.user).join(', ') || 'none');
 	}
 
 	function announceTouch() {
