@@ -23,7 +23,7 @@
         deleteCrewMember
     } from '$lib/services/emailtechService';
     import { crewFromScheduleRow, type ScheduleRow, type ScheduleMatch } from '$lib/services/scheduleMatch';
-    import { createEmailTechSync, tableMissing, EMAILTECH_SCHEMA_SQL, type EmailTechSync, type EmailTechRecord, type Peer, type SaveState, type Touch } from '$lib/services/emailTechSync';
+    import { createEmailTechSync, tableMissing, stableStringify, EMAILTECH_SCHEMA_SQL, type EmailTechSync, type EmailTechRecord, type Peer, type SaveState, type Touch } from '$lib/services/emailTechSync';
     import { loadEmailSettings } from '$lib/services/emailSettingsService';
     import { defaultTechForm, liaisonNamesOf } from '$lib/services/techTemplateService'; 
     import { authStore } from '$lib/stores/authStore';
@@ -43,8 +43,12 @@
 
     // --- co-editing ---
     let sync: EmailTechSync | null = null;
-    /** event the engine is bound to (selectedEvents can change under us via bind:) */
+    /** event the engine is bound to */
     let syncEventId: number | null = null;
+    /** the editor only renders once the selected event's live record is in place —
+     *  never against another event's form or a stale copy */
+    let editorReady = false;
+    let switching = false;
     let settingsOpen = false;
     let sqlCopied = false;
     let record: EmailTechRecord | null = null;
@@ -124,26 +128,42 @@
 
     async function selectEvents(selection: EmailTechEvent[]) {
         const primary = selection[0];
-        const switching = !sync || syncEventId !== primary.event_id;
+        const isSwitch = !sync || syncEventId !== primary.event_id;
 
-        if (switching) {
-            await teardownSync();
-            // Use the freshest copy of the event, and re-read its email-tech row
-            // from the database before the editor mounts: the list is a snapshot
-            // from page load and may miss what someone else (or you, on another
-            // event) saved since.
-            const fresh = events.find((e) => e.id === primary.id) || primary;
-            loading = true;
-            const latest = await fetchEmailTechRecord(fresh.event_id);
-            loading = false;
-            if (latest) {
-                fresh.crew = latest.crew;
-                fresh.email_data = latest.email_data;
-                fresh.tech_mail = latest.tech_mail;
-                fresh.vj_mail = latest.vj_mail;
+        if (isSwitch) {
+            if (switching) return; // a switch is already in progress
+            // Never leave an event with unsaved edits: flush first, and stay
+            // here if that fails so nothing typed is lost.
+            if (sync?.hasUnsaved()) {
+                const ok = await sync.flush();
+                if (!ok) {
+                    alert('Your last changes could not be saved (connection?). Staying on this event so nothing is lost — try again in a moment.');
+                    selectedEvents = [...selectedEvents]; // snap the selector back to this event
+                    return;
+                }
             }
-            selectedEvents = [fresh, ...selection.slice(1).map((e) => events.find((x) => x.id === e.id) || e)];
-            startSync(fresh);
+            switching = true;
+            editorReady = false;
+            try {
+                await teardownSync();
+                // Use the freshest copy of the event, and re-read its email-tech
+                // row from the database before the editor mounts: the list is a
+                // snapshot from page load and may miss what someone else (or
+                // you, on another event) saved since.
+                const fresh = events.find((e) => e.id === primary.id) || primary;
+                const latest = await fetchEmailTechRecord(fresh.event_id);
+                if (latest) {
+                    fresh.crew = latest.crew;
+                    fresh.email_data = latest.email_data;
+                    fresh.tech_mail = latest.tech_mail;
+                    fresh.vj_mail = latest.vj_mail;
+                }
+                selectedEvents = [fresh, ...selection.slice(1).map((e) => events.find((x) => x.id === e.id) || e)];
+                startSync(fresh); // sets currentFormData from the live record
+                editorReady = true;
+            } finally {
+                switching = false;
+            }
         } else {
             selectedEvents = selection;
         }
@@ -154,6 +174,12 @@
     }
 
     async function resetView() {
+        if (sync?.hasUnsaved() && !(await sync.flush())) {
+            alert('Your last changes could not be saved (connection?). Staying on this event so nothing is lost.');
+            selectedEvents = [...selectedEvents]; // snap the selector back to this event
+            return;
+        }
+        editorReady = false;
         await teardownSync();
         selectedEvents = [];
         crewAssignments = {};
@@ -263,7 +289,7 @@
         const saved: any = record.email_data.tech_form_data || {};
         const patch: Partial<TechEmailForm> = {};
         for (const k of Object.keys(form) as (keyof TechEmailForm)[]) {
-            if (JSON.stringify(form[k] ?? null) !== JSON.stringify(saved[k] ?? null)) (patch as any)[k] = form[k];
+            if (stableStringify(form[k] ?? null) !== stableStringify(saved[k] ?? null)) (patch as any)[k] = form[k];
         }
         if (Object.keys(patch).length) sync.setForm(patch);
     }
@@ -388,6 +414,7 @@
         const eventId = selectedEvents[0].event_id;
         
         loading = true;
+        editorReady = false;
         await teardownSync();
         const success = await resetEventData(eventId, 'tech');
         if (success) {
@@ -449,7 +476,17 @@
     <title>Email</title>
 </svelte:head>
 
-<svelte:window on:beforeunload={() => { void sync?.flush(); }} />
+<svelte:window
+    on:beforeunload={(e) => {
+        void sync?.flush();
+        if (sync?.hasUnsaved()) {
+            e.preventDefault();
+            e.returnValue = '';
+        }
+    }}
+    on:visibilitychange={() => { if (document.visibilityState === 'hidden') void sync?.flush(); }}
+    on:pagehide={() => { void sync?.flush(); }}
+/>
 
 <MainLayout pageTitle="Email Tech">
     <div class="emailtech-page h-full flex flex-col p-6 w-full mx-auto overflow-hidden gap-4">
@@ -465,7 +502,7 @@
         <div class="flex-1 grid grid-cols-[300px_minmax(0,1fr)_300px] gap-6 min-w-[1200px] overflow-hidden">
             <div class="flex flex-col gap-4 overflow-hidden">
                 <div class="bg-navbar border border-gray1 rounded-xl p-3 flex-shrink-0">
-                    <EventSelector {events} bind:selectedEvents {loading} on:select={handleEventSelect} on:link={handleLink} />
+                    <EventSelector {events} {selectedEvents} loading={loading || switching} on:select={handleEventSelect} on:link={handleLink} />
                 </div>
                 <div class="flex-1 overflow-y-auto flex flex-col gap-4">
                     <EventInfo event={selectedEvents[0] || null} />
@@ -517,18 +554,27 @@
                 </div>
 
                 <!-- svelte-ignore a11y-no-static-element-interactions -->
-                <div class="flex-1 p-0 overflow-hidden bg-navbar" on:focusin={handleEditorFocusIn} on:focusout={handleEditorFocusOut}>
-                    <EmailEditor
-                        bind:this={emailEditorComponent}
-                        formData={currentFormData}
-                        {selectedEvents}
-                        {events}
-                        {senderName}
-                        touched={touchedStore}
-                        readOnly={selectedEvents.length === 0}
-                        on:change={handleContentChange}
-                        on:link={handleLinkIds}
-                    />
+                <div class="flex-1 p-0 overflow-hidden bg-navbar relative" on:focusin={handleEditorFocusIn} on:focusout={handleEditorFocusOut}>
+                    {#if editorReady && selectedEvents.length && sync}
+                        <EmailEditor
+                            bind:this={emailEditorComponent}
+                            formData={currentFormData}
+                            {selectedEvents}
+                            {events}
+                            {senderName}
+                            touched={touchedStore}
+                            readOnly={false}
+                            on:change={handleContentChange}
+                            on:link={handleLinkIds}
+                        />
+                    {:else if switching || (selectedEvents.length && !editorReady)}
+                        <div class="absolute inset-0 flex items-center justify-center gap-3 text-gray2 text-sm font-bold">
+                            <div class="animate-spin w-5 h-5 border-2 border-lime border-t-transparent rounded-full"></div>
+                            Loading latest…
+                        </div>
+                    {:else}
+                        <div class="absolute inset-0 flex items-center justify-center text-gray2 text-sm font-bold opacity-50">Select an event</div>
+                    {/if}
                 </div>
             </div>
 

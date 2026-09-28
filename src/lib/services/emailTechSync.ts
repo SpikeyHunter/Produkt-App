@@ -17,7 +17,7 @@
 
 import { writable, get, type Readable } from 'svelte/store';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { supabase } from '$lib/supabase';
+import { supabase as defaultClient } from '$lib/supabase';
 import type { CrewAssignments, EmailData, TechEmailForm } from '$lib/types/emailtech';
 import { normalizeCrew, FORM_COLUMNS, emailDataFromRow } from '$lib/types/emailtech';
 
@@ -110,8 +110,6 @@ const PEER_COLORS = ['#E1FF00', '#86EFAC', '#FDBA74', '#93c5fd', '#f9a8d4', '#c4
 const TOUCH_TTL = 6000;
 const SAVE_DEBOUNCE = 700;
 
-const clientId = `c_${Math.random().toString(36).slice(2, 10)}`;
-
 /** Set once we know the table is missing; the page shows the SQL. */
 export const tableMissing = writable(false);
 
@@ -122,8 +120,21 @@ function clone<T>(v: T): T {
 	return v === undefined ? v : JSON.parse(JSON.stringify(v));
 }
 
-function same(a: any, b: any): boolean {
-	return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+/** JSON with object keys sorted at every level: Postgres jsonb reorders keys,
+ *  so a plain JSON.stringify would call an unchanged value "changed". */
+export function stableStringify(v: any): string {
+	if (v === undefined) v = null;
+	return JSON.stringify(v, (_k, val) =>
+		val && typeof val === 'object' && !Array.isArray(val)
+			? Object.keys(val)
+					.sort()
+					.reduce((o: any, k) => ((o[k] = val[k]), o), {})
+			: val
+	);
+}
+
+export function same(a: any, b: any): boolean {
+	return stableStringify(a ?? null) === stableStringify(b ?? null);
 }
 
 function colorFor(id: string): string {
@@ -156,14 +167,21 @@ export interface EmailTechSync {
 
 	focus(section: string | null): void;
 	flush(): Promise<boolean>;
-	destroy(): Promise<void>;
+	/** true while something typed here has not been confirmed in the database */
+	hasUnsaved(): boolean;
+	/** flushes first; false when that last save failed (edits are still local) */
+	destroy(): Promise<boolean>;
 }
 
 export function createEmailTechSync(
 	eventId: number,
 	initial: Partial<EmailTechRecord>,
-	userName: string
+	userName: string,
+	/** test seam: anything with the client surface the engine uses (from / channel / auth) */
+	db: any = defaultClient
 ): EmailTechSync {
+	// one identity per engine: revs, presence key and echo suppression hang off it
+	const clientId = `c_${Math.random().toString(36).slice(2, 10)}`;
 	const record = writable<EmailTechRecord>({
 		crew: normalizeCrew(initial.crew),
 		email_data: clone(initial.email_data) || {},
@@ -188,7 +206,6 @@ export function createEmailTechSync(
 	let pendingAfterSave = false;
 	let destroyed = false;
 	let myRev = 0;
-	const seenRevs = new Set<string>();
 
 	const remoteCbs = new Set<(keys: string[]) => void>();
 	const advanceCbs = new Set<() => void>();
@@ -209,10 +226,14 @@ export function createEmailTechSync(
 	}
 
 	function setForm(patch: Partial<TechEmailForm>) {
-		const keys = Object.keys(patch);
+		// only keys whose value really differs (key order never counts)
+		const cur: any = currentForm() || {};
+		const keys = Object.keys(patch).filter((k) => !same((patch as any)[k], cur[k]));
 		if (!keys.length) return;
+		const real: any = {};
+		keys.forEach((k) => (real[k] = (patch as any)[k]));
 		record.update((r) => {
-			const form = { ...(r.email_data.tech_form_data || ({} as TechEmailForm)), ...clone(patch) };
+			const form = { ...(r.email_data.tech_form_data || ({} as TechEmailForm)), ...clone(real) };
 			return { ...r, email_data: { ...r.email_data, tech_form_data: form } };
 		});
 		markDirty(keys);
@@ -292,7 +313,7 @@ export function createEmailTechSync(
 		dirty.clear();
 		formTouchedWhole = false;
 		try {
-			const { data: session } = await supabase.auth.getSession();
+			const { data: session } = await db.auth.getSession();
 			if (!session?.session) throw new Error('Not signed in');
 			const ok = mode === 'table' ? await saveTable(keys, whole) : await saveLegacy(keys, whole);
 			if (!ok) throw new Error('save failed');
@@ -312,10 +333,9 @@ export function createEmailTechSync(
 		}
 	}
 
+	/** who wrote last, for the console trail (never used to skip merges) */
 	function stamp(): string {
-		const rev = `${clientId}:${++myRev}`;
-		seenRevs.add(rev);
-		return rev;
+		return `${clientId}:${++myRev}`;
 	}
 
 	/** Table mode: upsert only the dirty columns. */
@@ -335,10 +355,10 @@ export function createEmailTechSync(
 			else payload[k] = v ?? null;
 		}
 
-		const { data, error } = await supabase
+		const { data, error } = await db
 			.from(EMAILTECH_TABLE)
 			.upsert(payload, { onConflict: 'event_id' })
-			.select('event_id, updated_at');
+			.select('*');
 		if (error) {
 			if (isMissingTable(error)) {
 				mode = 'legacy';
@@ -348,17 +368,25 @@ export function createEmailTechSync(
 			throw error;
 		}
 		if (!data?.length) throw new Error('Row not written (permissions?)');
+		// Read-back check: every column we sent must be what the row now holds.
+		const row = data[0];
+		const wrong = Object.keys(payload).filter(
+			(k) => !['event_id', 'rev', 'updated_by', 'updated_at'].includes(k) && !same(payload[k], row[k])
+		);
+		if (wrong.length) throw Object.assign(new Error(`write not confirmed for: ${wrong.join(', ')}`), { code: 'VERIFY' });
 		writeSeq++;
-		const at = String(data[0].updated_at || '');
+		const at = String(row.updated_at || '');
 		if (at > lastAccepted) lastAccepted = at;
 		log(`saved #${eventId}`, [...keys].join(','), whole ? '(whole form)' : '', at);
+		// the row we got back is the newest state: pick up what others changed meanwhile
+		mergeTableRow(row);
 		channel?.send({ type: 'broadcast', event: 'saved', payload: { clientId, user: userName, rev: payload.rev } });
 		return true;
 	}
 
 	/** Legacy mode: read-merge-write on events.email_data. */
 	async function saveLegacy(keys: Set<string>, whole: boolean): Promise<boolean> {
-		const { data: row, error: readErr } = await supabase
+		const { data: row, error: readErr } = await db
 			.from('events')
 			.select('crew, email_data, tech_mail, vj_mail')
 			.eq('event_id', eventId)
@@ -385,7 +413,7 @@ export function createEmailTechSync(
 		if (keys.has('tech_mail')) update.tech_mail = local.tech_mail;
 		if (keys.has('vj_mail')) update.vj_mail = local.vj_mail;
 
-		const { data: written, error } = await supabase.from('events').update(update).eq('event_id', eventId).select('event_id');
+		const { data: written, error } = await db.from('events').update(update).eq('event_id', eventId).select('event_id');
 		if (error) throw error;
 		if (!written?.length) throw new Error('Row not updated (permissions?)');
 
@@ -409,8 +437,10 @@ export function createEmailTechSync(
 	/* ------------------------------------------------------------ remote */
 
 	/** Merge a remote record (already in EmailTechRecord shape) over non-dirty pieces. */
-	function mergeRecord(remote: EmailTechRecord, revToCheck?: string | null, by?: string) {
-		if (revToCheck && seenRevs.has(revToCheck)) return;
+	function mergeRecord(remote: EmailTechRecord, _rev?: string | null, by?: string) {
+		// No "is this my own echo" short-circuit: with column-level merging an
+		// echo changes nothing (equal values, dirty keys skipped), while a row
+		// stamped with our rev may still carry another client's newer columns.
 		const changed: string[] = [];
 		record.update((r) => {
 			const next: EmailTechRecord = { ...r, email_data: { ...r.email_data } };
@@ -459,7 +489,6 @@ export function createEmailTechSync(
 		// A row older than what we last wrote/accepted is an echo that overtook
 		// a newer write (or a slow refetch): applying it would revert edits.
 		const at = String(row.updated_at || '');
-		if (row.rev && seenRevs.has(row.rev)) return;
 		if (at && lastAccepted && at < lastAccepted) {
 			log(`stale row #${eventId} dropped (${at} < ${lastAccepted}) by ${row.updated_by || '?'}`);
 			return;
@@ -485,7 +514,7 @@ export function createEmailTechSync(
 	async function refetch() {
 		const seqAtStart = writeSeq;
 		if (mode === 'table') {
-			const { data, error } = await supabase.from(EMAILTECH_TABLE).select('*').eq('event_id', eventId).maybeSingle();
+			const { data, error } = await db.from(EMAILTECH_TABLE).select('*').eq('event_id', eventId).maybeSingle();
 			if (writeSeq !== seqAtStart) {
 				log(`refetch #${eventId} discarded (we wrote meanwhile)`);
 				return;
@@ -499,7 +528,7 @@ export function createEmailTechSync(
 			}
 		}
 		if (mode === 'legacy') {
-			const { data } = await supabase.from('events').select('crew, email_data, tech_mail, vj_mail').eq('event_id', eventId).maybeSingle();
+			const { data } = await db.from('events').select('crew, email_data, tech_mail, vj_mail').eq('event_id', eventId).maybeSingle();
 			if (data) mergeLegacyRow(data);
 		}
 	}
@@ -507,7 +536,7 @@ export function createEmailTechSync(
 	/** Make sure the table row exists (seeded from the old columns the first time). */
 	async function ensureRow() {
 		if (mode !== 'table') return;
-		const { data, error } = await supabase.from(EMAILTECH_TABLE).select('*').eq('event_id', eventId).maybeSingle();
+		const { data, error } = await db.from(EMAILTECH_TABLE).select('*').eq('event_id', eventId).maybeSingle();
 		if (error) {
 			if (isMissingTable(error)) {
 				mode = 'legacy';
@@ -540,7 +569,7 @@ export function createEmailTechSync(
 			if (BOOL_COLUMNS.has(k)) seed[k] = !!form[k];
 			else if (form[k] !== undefined) seed[k] = form[k];
 		}
-		const { error: insErr } = await supabase.from(EMAILTECH_TABLE).upsert(seed, { onConflict: 'event_id', ignoreDuplicates: true });
+		const { error: insErr } = await db.from(EMAILTECH_TABLE).upsert(seed, { onConflict: 'event_id', ignoreDuplicates: true });
 		if (insErr) console.warn('[emailtech sync] seed failed:', insErr.message);
 	}
 
@@ -586,10 +615,11 @@ export function createEmailTechSync(
 	}
 
 	function connect() {
-		channel = supabase.channel(`emailtech-${eventId}`, {
+		const ch = db.channel(`emailtech-${eventId}`, {
 			config: { presence: { key: clientId }, broadcast: { self: false } }
-		});
-		channel
+		}) as RealtimeChannel;
+		channel = ch;
+		ch
 			.on(
 				'postgres_changes',
 				{ event: '*', schema: 'public', table: EMAILTECH_TABLE, filter: `event_id=eq.${eventId}` },
@@ -628,15 +658,21 @@ export function createEmailTechSync(
 		}
 	}
 
-	async function destroy() {
+	function hasUnsaved(): boolean {
+		return dirty.size > 0 || formTouchedWhole || !!saving;
+	}
+
+	async function destroy(): Promise<boolean> {
 		destroyed = true;
 		if (timer) clearTimeout(timer);
 		touchTimers.forEach((t) => clearTimeout(t));
-		await flush();
+		const ok = await flush();
+		if (!ok) log(`destroy #${eventId}: last save FAILED, unsaved: ${[...dirty].join(',')}`);
 		if (channel) {
-			await supabase.removeChannel(channel);
+			await db.removeChannel(channel);
 			channel = null;
 		}
+		return ok;
 	}
 
 	connect();
@@ -664,6 +700,7 @@ export function createEmailTechSync(
 		setMail,
 		focus,
 		flush,
+		hasUnsaved,
 		destroy
 	};
 }
