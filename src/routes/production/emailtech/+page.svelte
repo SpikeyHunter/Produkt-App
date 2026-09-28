@@ -23,7 +23,8 @@
         deleteCrewMember
     } from '$lib/services/emailtechService';
     import { crewFromScheduleRow, type ScheduleRow, type ScheduleMatch } from '$lib/services/scheduleMatch';
-    import { createEmailTechSync, tableMissing, stableStringify, EMAILTECH_SCHEMA_SQL, type EmailTechSync, type EmailTechRecord, type Peer, type SaveState, type Touch } from '$lib/services/emailTechSync';
+    import { createEmailTechSync, tableMissing, EMAILTECH_SCHEMA_SQL, type EmailTechSync, type EmailTechRecord, type Peer, type SaveState, type Touch } from '$lib/services/emailTechSync';
+    import { formFromRecord, formPatch } from '$lib/services/emailTechForm';
     import { loadEmailSettings } from '$lib/services/emailSettingsService';
     import { defaultTechForm, liaisonNamesOf } from '$lib/services/techTemplateService'; 
     import { authStore } from '$lib/stores/authStore';
@@ -264,34 +265,23 @@
         }
     }
 
-    /** Saved form + defaults for any field added since it was saved. */
+    /** Saved form + defaults — always a deep copy, never sharing objects with the record. */
     function formFrom(rec: EmailTechRecord | null): TechEmailForm {
-        const base: TechEmailForm = JSON.parse(JSON.stringify(defaultTechForm));
-        const saved = rec?.email_data?.tech_form_data;
-        if (!saved) {
-            return { ...base, visible_sections: { ...base.visible_sections, team_notes: false } };
-        }
-        return {
-            ...base,
-            ...JSON.parse(JSON.stringify(saved)),
-            visible_sections: { ...base.visible_sections, ...(saved.visible_sections || {}) },
-            set_times: Array.isArray(saved.set_times) ? saved.set_times : [],
-            crew_calls: Array.isArray(saved.crew_calls) && saved.crew_calls.length ? saved.crew_calls : base.crew_calls,
-            backline: Array.isArray(saved.backline) ? saved.backline : []
-        };
+        return formFromRecord(rec);
     }
 
     /** Editor changed something: send only the keys that differ. */
     function handleContentChange(e: CustomEvent<TechEmailForm>) {
-        if (!sync || !record) return;
+        if (!sync || !record) {
+            console.warn('[emailtech] edit ignored: no live record (switching?)');
+            return;
+        }
         const form = e.detail;
         currentFormData = form;
-        const saved: any = record.email_data.tech_form_data || {};
-        const patch: Partial<TechEmailForm> = {};
-        for (const k of Object.keys(form) as (keyof TechEmailForm)[]) {
-            if (stableStringify(form[k] ?? null) !== stableStringify(saved[k] ?? null)) (patch as any)[k] = form[k];
-        }
-        if (Object.keys(patch).length) sync.setForm(patch);
+        const patch = formPatch(form, record.email_data.tech_form_data);
+        const keys = Object.keys(patch);
+        if (keys.length) sync.setForm(patch);
+        else console.info('[emailtech] edit: nothing differs from the record');
     }
 
     function handleMails(e: CustomEvent<{ tech: string; vj: string }>) {
@@ -467,8 +457,9 @@
         }
     }
 
+    // idle = nothing pending since the event was opened: everything is in the database
     const SAVE_LABEL: Record<SaveState, string> = {
-        idle: '', dirty: 'Unsaved…', saving: 'Saving…', saved: 'Saved', error: 'NOT SAVED — retrying'
+        idle: 'Saved', dirty: 'Unsaved…', saving: 'Saving…', saved: 'Saved', error: 'NOT SAVED — retrying'
     };
 </script>
 
@@ -524,10 +515,15 @@
                 <div class="flex items-center justify-between p-3 border-b border-gray1 bg-gray1/50 flex-shrink-0">
                     <div class="flex items-center gap-3">
                         <h2 class="text-sm font-bold text-white pl-2">Tech & VJ Mail</h2>
-                        {#if selectedEvents.length}
+                        {#if selectedEvents.length && editorReady}
                             {@const st = $saveStateStore}
-                            <span class="text-[10px] font-bold uppercase tracking-wider
-                                {st === 'error' ? 'text-problem animate-pulse' : st === 'saved' ? 'text-confirmed' : 'text-gray2'}">
+                            <span class="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5
+                                {st === 'error' ? 'text-problem animate-pulse' : st === 'saved' || st === 'idle' ? 'text-confirmed' : st === 'dirty' ? 'text-tentatif' : 'text-gray2'}">
+                                {#if st === 'saving'}
+                                    <span class="w-2.5 h-2.5 border-2 border-gray2 border-t-transparent rounded-full animate-spin"></span>
+                                {:else if st === 'saved' || st === 'idle'}
+                                    <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+                                {/if}
                                 {SAVE_LABEL[st]}
                             </span>
                         {/if}
