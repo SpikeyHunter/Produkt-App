@@ -2,6 +2,7 @@
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { fly } from 'svelte/transition';
 	import type { TechEmailForm } from '$lib/types/emailtech';
+	import { emailSettings } from '$lib/services/emailSettingsService';
 	import SectionCard from './SectionCard.svelte';
 
 	export let formData: TechEmailForm;
@@ -16,31 +17,11 @@
 		dispatch('toggle', e.detail);
 	}
 
-	const COLORS = [
-		{ label: 'Bazart Colors', value: 'Bazart Colors', hex: '#FCD34D' },
-		{ label: 'Green', value: 'Green', hex: '#86EFAC' },
-		{ label: 'Gold', value: 'Gold', hex: '#FCD34D' },
-		{ label: 'Orange', value: 'Orange', hex: '#FDBA74' },
-		{ label: 'Red', value: 'Red', hex: '#FCA5A5' },
-		{ label: 'Blue', value: 'Blue', hex: '#c4b5fd' },
-		{ label: 'Cyan', value: 'Cyan', hex: '#22d3ee' },
-		{ label: 'Purple', value: 'Purple', hex: '#93c5fd' },
-		{ label: 'Yellow', value: 'Yellow', hex: '#fef08a' },
-		{ label: 'Pink', value: 'Pink', hex: '#f9a8d4' }
-	];
-    
-	const ROWS = [
-		{
-			label: 'Niveau 1/Terrace',
-			timeOptions: ['N/A', '5PM-3AM'],
-			mode: 'single',
-			allowBazart: true
-		},
-		{ label: 'Lounge', timeOptions: ['5PM-3AM', '5PM & 10PM'], mode: 'dynamic', allowBazart: true },
-		{ label: 'Facade', timeOptions: ['7PM & 9PM', '5PM & 10PM'], mode: 'dual', allowBazart: true },
-		{ label: 'Main Room', timeOptions: [], mode: 'fixed_single', allowBazart: false },
-		{ label: 'Laser GA', timeOptions: ['10PM', '9PM'], mode: 'single', allowBazart: false }
-	];
+	// Colours and rows come from Settings > General > Emails. Each colour's
+	// value is its label; the swatch is the settings hex (Blue is blue again).
+	$: COLORS = $emailSettings.lights.colors.map((c) => ({ label: c.label, value: c.label, hex: c.hex }));
+	$: ROWS = $emailSettings.lights.rows;
+	$: if (ROWS && formData) initData();
 
 	let timeSelections: string[] = [];
 
@@ -49,8 +30,15 @@
 	});
 
 	function initData() {
-		if (!formData.lights || formData.lights.length !== ROWS.length) {
-			formData.lights = ROWS.map((r) => ({ area: r.label, color: '' }));
+		if (!ROWS?.length) return;
+		// Keep saved colours by row label; add/remove rows to match settings.
+		if (!formData.lights || formData.lights.length !== ROWS.length ||
+			ROWS.some((r, i) => !String(formData.lights[i]?.area || '').startsWith(r.label))) {
+			const prev = formData.lights || [];
+			formData.lights = ROWS.map((r) => {
+				const old = prev.find((l) => String(l.area || '').startsWith(r.label));
+				return { area: old?.area || r.label, color: old?.color || '' };
+			});
 			dispatch('change');
 		}
 		timeSelections = formData.lights.map((l, i) => {

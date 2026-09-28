@@ -2,6 +2,7 @@
     import { createEventDispatcher } from 'svelte';
     import { fly } from 'svelte/transition';
     import type { TechEmailForm } from '$lib/types/emailtech';
+    import { emailSettings } from '$lib/services/emailSettingsService';
     import SectionCard from './SectionCard.svelte';
 
     export let formData: TechEmailForm;
@@ -9,28 +10,11 @@
     export let stretch = false;
     const dispatch = createEventDispatcher();
 
-    // --- OPTIONS ---
-    // "Other" is moved to the top. "Unselected" removed.
-    const BACK_SIDE_OPTS = [
-        'Other',
-        'No Music',
-        '5PM to Close - Playlist',
-        '5PM - Playlist & 12AM - Bazart Music',
-        '5PM - Playlist & 12AM - Main Room Music'
-    ];
-
-    const BACK_OPTS = [
-        'Other',
-        'No Music',
-        '10PM - Main Room Music (ambiance/not too loud)'
-    ];
-
-    const LOUNGE_OPTS = [
-        'Other',
-        'No Music',
-        '5PM - Playlist & 10PM - Bazart Music',
-        '5PM - Playlist & 12AM - Main Room Music (when Bazart closed)'
-    ];
+    // --- OPTIONS (Settings > General > Emails) ---
+    // "Other" always comes first and opens the free-text field.
+    $: BACK_SIDE_OPTS = ['Other', ...$emailSettings.lounge.backSide];
+    $: BACK_OPTS = ['Other', ...$emailSettings.lounge.back];
+    $: LOUNGE_OPTS = ['Other', ...$emailSettings.lounge.lounge];
 
     // --- LOCAL STATE ---
     $: if (formData && !formData.lounge_ambiance) {

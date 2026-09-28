@@ -207,9 +207,19 @@
     function handleReset() {
         if (readOnly) return;
         formData.soundcheck = ''; 
+        formData.soundcheck_custom = false;
         rebuildRows(); 
         dispatch('change');
     }
+
+    // Custom: the rows that came from the advance become editable too.
+    $: custom = !!formData.soundcheck_custom;
+    function toggleCustom() {
+        if (readOnly) return;
+        formData.soundcheck_custom = !formData.soundcheck_custom;
+        dispatch('change');
+    }
+    $: canEdit = (row: SoundcheckRow) => !readOnly && (row.isManual || custom);
 
     function handleToggle(e: CustomEvent) { 
         dispatch('toggle', e.detail);
@@ -225,10 +235,21 @@
     stretch={stretch}
 >
     <div class="flex flex-col gap-2">
+        {#if !readOnly}
+            <div class="flex items-center justify-between -mt-1">
+                <span class="text-[10px] text-gray2 uppercase font-bold ml-1">{custom ? 'Editing advance rows' : 'From the advance'}</span>
+                <button type="button" on:click={toggleCustom}
+                    class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border transition-colors cursor-pointer
+                    {custom ? 'bg-lime text-black border-lime' : 'border-gray1 text-gray2 hover:text-white hover:border-gray2'}"
+                    title="Edit the soundcheck rows that came from the advance">
+                    Custom
+                </button>
+            </div>
+        {/if}
         {#each rows as row, i}
             <div class="relative flex flex-col gap-1.5 bg-black/20 p-2 rounded-lg border border-gray1/30">
                 
-                {#if !readOnly && row.isManual}
+                {#if canEdit(row)}
                     <button 
                         type="button" 
                         aria-label="Remove row"
@@ -246,7 +267,7 @@
                             type="time"
                             value={to24h(row.start)} 
                             on:input={(e) => handleTimeInput(i, 'start', e.currentTarget.value)}
-                            disabled={readOnly || !row.isManual} 
+                            disabled={!canEdit(row)} 
                             style="color-scheme: dark;"
                             class="w-full bg-navbar border border-gray1 rounded-lg px-1 py-1.5 text-sm text-white disabled:!text-gray3 text-center focus:border-lime focus:outline-none transition-colors placeholder-gray2/50 disabled:!opacity-100 disabled:cursor-not-allowed"
                         />
@@ -258,7 +279,7 @@
                             type="time"
                             value={to24h(row.end)} 
                             on:input={(e) => handleTimeInput(i, 'end', e.currentTarget.value)}
-                            disabled={readOnly || !row.isManual}
+                            disabled={!canEdit(row)}
                             style="color-scheme: dark;"
                             class="w-full bg-navbar border border-gray1 rounded-lg px-1 py-1.5 text-sm text-white disabled:!text-gray3 text-center focus:border-lime focus:outline-none transition-colors placeholder-gray2/50 disabled:!opacity-100 disabled:cursor-not-allowed"
                         />
@@ -271,7 +292,7 @@
                         type="text" 
                         bind:value={row.artist} 
                         on:input={handleArtistInput}
-                        disabled={readOnly || !row.isManual}
+                        disabled={!canEdit(row)}
                         placeholder="Artist Name"
                         class="w-full bg-navbar border border-gray1 rounded-lg px-2 py-1.5 text-sm text-white disabled:!text-gray3 focus:border-lime focus:outline-none placeholder-gray2/50 transition-colors disabled:!opacity-100 disabled:cursor-not-allowed"
                     />

@@ -5,10 +5,30 @@ import type {
   CrewAssignments, 
   CrewMember
 } from '$lib/types/emailtech';
+import { normalizeCrew, emailDataFromRow } from '$lib/types/emailtech';
+import { findScheduleRow, crewFromScheduleRow, type ScheduleMatch } from './scheduleMatch';
+import { EMAILTECH_TABLE, isMissingTable, tableMissing } from './emailTechSync';
 
 // --- RESET FUNCTION ---
 export async function resetEventData(eventId: number, type: 'tech' | 'vj'): Promise<boolean> {
     try {
+        // new table: drop the row (links are kept on purpose: they are a choice, not content)
+        const { data: row, error: readErr } = await supabase
+            .from(EMAILTECH_TABLE)
+            .select('linked_event_ids')
+            .eq('event_id', eventId)
+            .maybeSingle();
+        if (!readErr) {
+            const { error: delErr } = await supabase.from(EMAILTECH_TABLE).delete().eq('event_id', eventId);
+            if (delErr) throw delErr;
+            if (row?.linked_event_ids && Array.isArray(row.linked_event_ids) && row.linked_event_ids.length) {
+                await supabase.from(EMAILTECH_TABLE).insert({ event_id: eventId, linked_event_ids: row.linked_event_ids });
+            }
+        } else if (!isMissingTable(readErr)) {
+            throw readErr;
+        }
+
+        // old columns too, so the legacy fallback is clean as well
         const updateObject: any = {
             crew: null,
             email_data: {} 
@@ -78,6 +98,7 @@ export async function deleteCrewMember(id: string | number): Promise<boolean> {
     }
 }
 
+/** Legacy (events.email_data). The page saves through emailTechSync now. */
 export async function updateEventEmailData(eventId: number, type: 'tech' | 'vj', data: any): Promise<boolean> {
     try {
         const { data: current, error: fetchError } = await supabase
@@ -123,15 +144,35 @@ export async function fetchEmailTechEvents(): Promise<EmailTechEvent[]> {
     
     const { data: eventsData, error: eventsError } = await supabase
       .from('events')
-      .select('event_id, event_name, event_date, event_venue, timetable, event_flyer, event_status, tech_mail, vj_mail, crew, email_data')
+      .select('event_id, event_name, event_date, event_venue, timetable, event_flyer, event_status, tech_mail, vj_mail, crew, email_data, calendar_link')
       .in('event_id', eventIds);
 
     if (eventsError) console.error('Error fetching events:', eventsError);
 
     const eventsMap = new Map(eventsData?.map(event => [event.event_id, event]) || []);
 
+    // Email-tech data lives in events_emailtech (one row per event). Events
+    // without a row yet fall back to the old columns on `events`.
+    const techMap = new Map<number, any>();
+    const { data: techRows, error: techErr } = await supabase
+      .from(EMAILTECH_TABLE)
+      .select('*')
+      .in('event_id', eventIds);
+    if (techErr) {
+      if (isMissingTable(techErr)) tableMissing.set(true);
+      else console.error('Error fetching events_emailtech:', techErr);
+    } else {
+      tableMissing.set(false);
+      (techRows || []).forEach((r: any) => techMap.set(r.event_id, r));
+    }
+
     return advanceData.map(row => {
       const eventData = eventsMap.get(row.event_id);
+      const tech = techMap.get(row.event_id);
+      const crew = tech ? normalizeCrew(tech.crew) : eventData?.crew ? normalizeCrew(eventData.crew) : null;
+      const email_data = tech ? emailDataFromRow(tech) : eventData?.email_data || null;
+      const tech_mail = tech ? tech.tech_mail ?? null : eventData?.tech_mail || null;
+      const vj_mail = tech ? tech.vj_mail ?? null : eventData?.vj_mail || null;
       return {
         id: `${row.event_id}-${row.artist_name}`,
         event_id: row.event_id,
@@ -142,6 +183,7 @@ export async function fetchEmailTechEvents(): Promise<EmailTechEvent[]> {
         event_venue: eventData?.event_venue || null,
         event_flyer: eventData?.event_flyer || null,
         event_status: eventData?.event_status || null,
+        calendar_link: eventData?.calendar_link || null,
         tech_rider: row.tech_rider,
         rider_files: row.rider_files,
         sfx_rider: row.sfx_rider,
@@ -152,10 +194,10 @@ export async function fetchEmailTechEvents(): Promise<EmailTechEvent[]> {
         ground_transport: row.ground_transport,
         ground_info: row.ground_info,
         notes: row.notes,
-        tech_mail: eventData?.tech_mail || null,
-        vj_mail: eventData?.vj_mail || null,
-        crew: eventData?.crew || null,
-        email_data: eventData?.email_data || null,
+        tech_mail,
+        vj_mail,
+        crew,
+        email_data,
         dos: row.dos,
         roles: row.roles,
       };
@@ -245,99 +287,57 @@ export async function updateEmailStatus(eventId: number, templateType: 'tech' | 
   }
 }
 
-// --- AUTOFILL HELPERS ---
-
-function normalize(str: string): string {
-    return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-}
-
-function splitNames(raw: string | null): string[] {
-    if (!raw) return [];
-    if (raw.toUpperCase() === 'N/A' || raw.toUpperCase() === 'NA') return [];
-    return raw.split(/[\+\&,\/]/)
-        .map(s => s.trim())
-        .filter(s => s.length > 0 && s.toUpperCase() !== 'N/A');
-}
-
-function findBestMatch(partialName: string, allCrew: CrewMember[]): string | null {
-    if (!partialName) return null;
-    const search = normalize(partialName);
-    const exact = allCrew.find(c => normalize(c.name) === search);
-    if (exact) return exact.name;
-    if (search.length < 2) return null;
-    const startsWith = allCrew.find(c => normalize(c.name).startsWith(search));
-    if (startsWith) return startsWith.name;
-    const wordMatch = allCrew.find(c => normalize(c.name).split(' ').includes(search));
-    if (wordMatch) return wordMatch.name;
-    if (search.length > 3) {
-        const includes = allCrew.find(c => normalize(c.name).includes(search));
-        if (includes) return includes.name;
-    }
-    return null; 
-}
-
-// --- CREW AUTOFILL ---
-export async function autofillEventCrew(
-    eventId: number, 
-    eventDate: string,
-    targetEventName: string
-): Promise<{ success: boolean; assignments: CrewAssignments | null }> {
+/** Save which events are combined into `eventId`'s email (read-merge-write on email_data). */
+export async function updateLinkedEvents(eventId: number, ids: number[]): Promise<boolean> {
     try {
-        console.log(`[Autofill] Starting for ${eventDate} (ID: ${eventId}). Target: "${targetEventName}"`);
+        const clean = ids.filter((id) => id !== eventId);
+        const { error: upErr } = await supabase
+            .from(EMAILTECH_TABLE)
+            .upsert({ event_id: eventId, linked_event_ids: clean }, { onConflict: 'event_id' });
+        if (!upErr) return true;
+        if (!isMissingTable(upErr)) throw upErr;
 
-        const { data: scheduleRows, error: scheduleError } = await supabase
-            .from('schedule_techs')
-            .select('*')
-            .eq('date', eventDate);
-
-        if (scheduleError) {
-             console.error('[Autofill] Error fetching schedule_techs:', scheduleError);
-             return { success: false, assignments: null };
-        }
-        
-        if (!scheduleRows || scheduleRows.length === 0) {
-            console.warn(`[Autofill] No schedule found for date: ${eventDate}`);
-            return { success: false, assignments: null };
-        }
-
-        let selectedSchedule = scheduleRows[0];
-
-        if (scheduleRows.length > 1) {
-            const cleanTarget = normalize(targetEventName.replace(/\[.*?\]/g, ''));
-            const bestMatch = scheduleRows.find(row => {
-                const schedName = normalize(row.event_name || '');
-                return schedName.includes(cleanTarget);
-            });
-
-            if (bestMatch) selectedSchedule = bestMatch;
-        }
-
-        const allCrew = await fetchCrewMembers();
-        const newAssignments: CrewAssignments = {};
-
-        const mapRole = (scheduleField: string | null, targetRole: string) => {
-            if (!scheduleField) return;
-            const rawNames = splitNames(scheduleField);
-            const matchedNames: string[] = [];
-            rawNames.forEach(raw => {
-                const match = findBestMatch(raw, allCrew);
-                matchedNames.push(match || raw);
-            });
-            if (matchedNames.length > 0) newAssignments[targetRole] = matchedNames;
-        };
-
-        mapRole(selectedSchedule.ld, 'LD');
-        mapRole(selectedSchedule.video, 'Video');
-        mapRole(selectedSchedule.vj, 'VJ');
-        mapRole(selectedSchedule.sound, 'Sound');
-        mapRole(selectedSchedule.tech_sm, 'Stage/Tech'); 
-        mapRole(selectedSchedule.dt, 'DT');
-
-        const success = await updateEventCrew(eventId, newAssignments);
-        return success ? { success: true, assignments: newAssignments } : { success: false, assignments: null };
-
-    } catch (error) {
-        console.error('[Autofill] Critical failure:', error);
-        return { success: false, assignments: null };
+        const { data: current, error: fetchError } = await supabase
+            .from('events')
+            .select('email_data')
+            .eq('event_id', eventId)
+            .single();
+        if (fetchError) throw fetchError;
+        const merged = { ...(current?.email_data || {}), linked_event_ids: ids.filter((id) => id !== eventId) };
+        const { error } = await supabase.from('events').update({ email_data: merged }).eq('event_id', eventId);
+        if (error) throw error;
+        return true;
+    } catch (e) {
+        console.error('Error updating linked events', e);
+        return false;
     }
+}
+
+// --- CREW FROM THE TECH SCHEDULE ---
+//
+// Finds the schedule_techs row for the event (see scheduleMatch.ts) and maps
+// its staff columns onto the crew slots. Nothing is written here: the page
+// decides what to do with an ambiguous match (pick modal) and saves through
+// the sync engine.
+export async function matchEventCrew(
+    event: EmailTechEvent,
+    allCrew: CrewMember[],
+    pinnedRowId?: number | null
+): Promise<{ match: ScheduleMatch; assignments: CrewAssignments | null }> {
+    if (!event.event_date) {
+        return {
+            match: { status: 'none', row: null, candidates: [], monthRows: [], reason: 'No event date' },
+            assignments: null
+        };
+    }
+    const match = await findScheduleRow({
+        eventDate: event.event_date,
+        venue: event.event_venue,
+        eventName: event.event_name || '',
+        artistName: event.artist_name || '',
+        calendarLink: event.calendar_link || null,
+        pinnedRowId: pinnedRowId ?? event.email_data?.schedule_row_id ?? null
+    });
+    const assignments = match.row ? crewFromScheduleRow(match.row, allCrew) : null;
+    return { match, assignments };
 }

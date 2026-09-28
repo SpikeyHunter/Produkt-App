@@ -23,6 +23,8 @@
 	export let readOnly = false;
 	export let availableEvents: EmailTechEvent[] = [];
 	export let selectedEvent: EmailTechEvent | null = null;
+	/** main event first, then the ones linked to it */
+	export let selectedEvents: EmailTechEvent[] = [];
 
 	const dispatch = createEventDispatcher();
 	let showRiderModal = false;
@@ -47,7 +49,7 @@
 		showRiderModal = true;
 	}
 
-	$: secondEventId = formData.second_event?.event_id || null;
+	$: secondEventId = selectedEvents[1]?.event_id || formData.second_event?.event_id || null;
 	$: vjName = (selectedEvent?.crew?.['VJ'] || ['VJ'])[0]?.split(' ')[0] || 'VJ';
 </script>
 
@@ -55,12 +57,13 @@
 	<HeaderSection
 		bind:formData
 		{readOnly}
+		{selectedEvents}
 		events={availableEvents}
-		mainEvent={selectedEvent}
 		on:change={handleChange}
 		on:toggle={handleToggle}
+		on:link
 	/>
-	<CrewCallSection bind:formData {readOnly} on:change={handleChange} on:toggle={handleToggle} />
+	<CrewCallSection bind:formData {readOnly} events={selectedEvents} allEvents={availableEvents} on:change={handleChange} on:toggle={handleToggle} />
 	<TeamNotesSection bind:formData {readOnly} on:change={handleChange} on:toggle={handleToggle} />
 	<ProjectsSpecsSection
 		bind:formData
@@ -68,7 +71,7 @@
 		on:change={handleChange}
 		on:toggle={handleToggle}
 	/>
-	<VisualsSection bind:formData {readOnly} on:change={handleChange} on:toggle={handleToggle} />
+	<VisualsSection bind:formData {readOnly} venue={selectedEvent?.event_venue || null} eventName={selectedEvent?.event_name || ''} on:change={handleChange} on:toggle={handleToggle} />
 	<SetTimesSection bind:formData {readOnly} on:change={handleChange} on:toggle={handleToggle} />
 
     <div class="grid grid-cols-1 md:grid-cols-2 mb-4 gap-4 items-stretch">

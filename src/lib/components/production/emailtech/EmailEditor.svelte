@@ -1,148 +1,101 @@
 <script lang="ts">
-    import { createEventDispatcher, tick } from 'svelte';
-    import { autofillTechForm, defaultTechForm, initSetTimes } from '$lib/services/techTemplateService';
-    // [Fix] Corrected Import Paths
-    import { generateTechEmailString } from '$lib/utils/emailTechGenerator'; 
-    import type { EmailTechEvent, TechEmailForm, TimetableEntry } from '$lib/types/emailtech';
+    import { createEventDispatcher, setContext } from 'svelte';
+    import { writable, readable, type Readable } from 'svelte/store';
+    import { autofillTechForm, initSetTimes } from '$lib/services/techTemplateService';
+    import { generateTechEmailString } from '$lib/utils/emailTechGenerator';
+    import { generateVJEmailString } from '$lib/utils/emailGenerator';
+    import { normalizeCrew } from '$lib/types/emailtech';
+    import { emailSettings } from '$lib/services/emailSettingsService';
+    import type { EmailTechEvent, TechEmailForm } from '$lib/types/emailtech';
+    import type { Touch } from '$lib/services/emailTechSync';
     import TechForm from './TechForm.svelte';
 
-    export let content: string = '';
+    /** The form lives in the page's sync record; this component edits it and
+     *  reports every change so only the touched pieces get saved. */
+    export let formData: TechEmailForm;
     export let readOnly: boolean = false;
     export let selectedEvents: EmailTechEvent[] = [];
     export let events: EmailTechEvent[] = [];
+    export let senderName = 'Tech Team';
+    /** who is editing which section (from the sync engine) */
+    export let touched: Readable<Record<string, Touch>> = readable({});
 
-    const dispatch = createEventDispatcher();
-    let formData: TechEmailForm = JSON.parse(JSON.stringify(defaultTechForm));
-    let currentEventId: number = -1;
-    let suppressSave = false;
+    const dispatch = createEventDispatcher<{ change: TechEmailForm }>();
 
-    const DEFAULT_CREW_CALLS = [{ time: '19:00', names: '' }, { time: '20:30', names: '' }];
+    // SectionCard reads this through context to show the "✎ Name" badge.
+    const touchedCtx = writable<Record<string, Touch>>({});
+    setContext('emailtech-touched', touchedCtx);
+    $: touchedCtx.set($touched || {});
 
-    // Detect Event Switch
-    $: primaryEventId = selectedEvents.length > 0 ? selectedEvents[0].event_id : -1;
-    $: if (primaryEventId !== -1 && primaryEventId !== currentEventId) {
-        currentEventId = primaryEventId;
-        initForm();
+    // --- Preview ---
+    let view: 'edit' | 'preview' = 'edit';
+    let previewKind: 'tech' | 'vj' = 'tech';
+    let previewWidth: 'mobile' | 'desktop' = 'desktop';
+    $: previewFormat = formData?.email_format || $emailSettings.format;
+    $: previewHtml =
+        view === 'preview' && selectedEvents.length && formData
+            ? previewKind === 'tech'
+                ? generateTechEmailString(selectedEvents, formData, senderName, previewFormat)
+                : generateVJEmailString(selectedEvents, formData, senderName, previewFormat)
+            : '';
+    // the "text" format is black-on-white paragraphs, like a plain mail client
+    $: previewDoc = previewFormat === 'text'
+        ? `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;padding:24px;background:#fff;}</style></head><body>${previewHtml}</body></html>`
+        : previewHtml;
+
+    export function showPreview(kind: 'tech' | 'vj' = 'tech') {
+        previewKind = kind;
+        view = 'preview';
     }
 
-    // Sync Helpers
-    $: if (selectedEvents.length > 0 && selectedEvents[0].crew && !suppressSave) {
-        syncCrewToForm(selectedEvents[0].crew);
+    // --- Keep crew names and set times in step with the event data ---
+    $: crewKey = JSON.stringify(selectedEvents[0]?.crew || null);
+    $: if (formData && selectedEvents.length && crewKey) syncCrewToForm(selectedEvents[0].crew);
+
+    $: setTimesKey = selectedEvents.map((e) => `${e.event_id}:${JSON.stringify(e.timetable)}`).join('|') + '|' + events.length;
+    $: if (formData && selectedEvents.length && setTimesKey) syncSetTimes(selectedEvents);
+
+    function syncCrewToForm(rawCrew: any) {
+        if (!formData || formData.crew_calls_manual) return;
+        const crew = normalizeCrew(rawCrew);
+        const firsts = (roles: string[]) => {
+            const out: string[] = [];
+            roles.forEach((r) => (crew[r] || []).forEach((n) => {
+                const f = n.trim().split(' ')[0];
+                if (f && !out.includes(f)) out.push(f);
+            }));
+            return out.join(', ');
+        };
+        const techs = firsts(['LD', 'VIDEO', 'SOUND', 'TECH', 'DT']);
+        const vjs = firsts(['VJ']);
+        if (!formData.crew_calls?.length) return;
+        let changed = false;
+        if (formData.crew_calls[0].names !== techs) { formData.crew_calls[0].names = techs; changed = true; }
+        if (formData.crew_calls[1] && formData.crew_calls[1].names !== vjs) { formData.crew_calls[1].names = vjs; changed = true; }
+        if (changed) emit();
     }
 
-    $: if (formData && !suppressSave) {
-        syncSetTimes(selectedEvents[0], formData.second_event);
-    }
-
-    function syncCrewToForm(crew: any) {
-        if (!formData || suppressSave) return;
-        const priorityOrder = ['LD', 'Video', 'Sound', 'Stage/Tech'];
-        const excludedRoles = ['DT', 'VJ'];
-        const allRoles = Object.keys(crew || {});
-        const otherRoles = allRoles.filter(r => !priorityOrder.includes(r) && !excludedRoles.includes(r));
-        const finalRoleOrder = [...priorityOrder, ...otherRoles];
-        const orderedNames = new Set<string>();
-
-        if (crew && typeof crew === 'object') {
-            finalRoleOrder.forEach(role => {
-                const names = crew[role];
-                if (Array.isArray(names)) {
-                    names.forEach((fullName: string) => {
-                        const firstName = fullName.trim().split(' ')[0];
-                        if (firstName) orderedNames.add(firstName);
-                    });
-                }
-            });
+    function syncSetTimes(evts: EmailTechEvent[]) {
+        const next = initSetTimes(evts, events);
+        if (JSON.stringify(formData.set_times) !== JSON.stringify(next)) {
+            formData.set_times = next;
+            emit();
         }
-
-        const namesString = Array.from(orderedNames).join(', ');
-        if (formData.crew_calls.length > 0 && formData.crew_calls[0].names !== namesString) {
-            formData.crew_calls[0].names = namesString;
-            updateOutput();
-        }
-    }
-
-    function syncSetTimes(mainEvent: EmailTechEvent, secondEvent: EmailTechEvent | null | undefined) {
-        if (!mainEvent || suppressSave) return;
-        const newSetTimes = initSetTimes([mainEvent]);
-        if (secondEvent && secondEvent.timetable) {
-            let entries: TimetableEntry[] = [];
-            try { 
-                entries = typeof secondEvent.timetable === 'string' ? JSON.parse(secondEvent.timetable) : secondEvent.timetable;
-            } catch (e) {}
-            
-            if (entries.length > 0) {
-                let venueLabel = secondEvent.event_venue || 'Second Stage';
-                if (venueLabel === 'New City Gas') venueLabel = 'Main Room';
-                else if (venueLabel === 'Bazart') venueLabel = 'Bazart Lounge';
-                newSetTimes.push({ event_id: secondEvent.event_id, venue: venueLabel, entries: entries });
-            }
-        }
-        if (JSON.stringify(formData.set_times) !== JSON.stringify(newSetTimes)) {
-            formData.set_times = newSetTimes;
-            updateOutput();
-        }
-    }
-
-    async function initForm() {
-        if (selectedEvents.length === 0) return;
-        
-        // STOP SAVE during initialization
-        suppressSave = true;
-        
-        const primary = selectedEvents[0];
-        // Safely access nested properties
-        const savedData = primary.email_data?.tech_form_data;
-
-        if (savedData) {
-            // Merge defaults with saved data to ensure new fields are present
-            formData = {
-                ...JSON.parse(JSON.stringify(defaultTechForm)),
-                ...savedData,
-                visible_sections: { ...defaultTechForm.visible_sections, ...(savedData.visible_sections || {}) },
-                set_times: Array.isArray(savedData.set_times) ? savedData.set_times : [],
-                crew_calls: (Array.isArray(savedData.crew_calls) && savedData.crew_calls.length > 0) ? savedData.crew_calls : DEFAULT_CREW_CALLS,
-                backline: Array.isArray(savedData.backline) ? savedData.backline : JSON.parse(JSON.stringify(defaultTechForm.backline)),
-            };
-        } else {
-            // New Form
-            formData = {
-                ...JSON.parse(JSON.stringify(defaultTechForm)),
-                visible_sections: { ...defaultTechForm.visible_sections, 'team_notes': false },
-                set_times: initSetTimes(selectedEvents),
-                crew_calls: DEFAULT_CREW_CALLS
-            };
-        }
-
-        // Wait for Svelte to reflect changes in DOM/Child components
-        await tick();
-        
-        // Allow saving again
-        suppressSave = false;
-        
-        // Regenerate HTML on load to sync with data
-        const generatedHtml = generateTechEmailString(selectedEvents, formData, 'Tech Team');
-        content = generatedHtml;
-        // Do not dispatch 'change' here to prevent auto-save on load
     }
 
     function handleFormChange(e: CustomEvent<TechEmailForm>) {
-        // This comes from the child components (inputs)
-        if (suppressSave) return;
-        formData = e.detail;
-        updateOutput();
+        if (e.detail && e.detail !== formData) formData = e.detail;
+        emit();
     }
 
-    function updateOutput() {
-        if (suppressSave) return;
-        const generatedHtml = generateTechEmailString(selectedEvents, formData, 'Tech Team');
-        content = generatedHtml;
-        dispatch('change', { content: generatedHtml, structuredData: formData });
+    function emit() {
+        if (readOnly || !formData) return;
+        dispatch('change', formData);
     }
 
     export function runAutofill() {
-        formData = autofillTechForm(selectedEvents, formData);
-        handleFormChange({ detail: formData } as CustomEvent);
+        formData = autofillTechForm(selectedEvents, formData, events);
+        emit();
     }
 </script>
 
@@ -150,14 +103,58 @@
     {#if selectedEvents.length === 0}
         <div class="absolute inset-0 flex items-center justify-center text-gray2 text-sm font-bold opacity-50">Select an event</div>
     {:else}
-        <div class="h-full overflow-y-auto p-4 custom-scrollbar">
-            <TechForm 
-                bind:formData 
-                {readOnly} 
-                availableEvents={events} 
-                selectedEvent={selectedEvents[0]} 
-                on:change={handleFormChange} 
-            />
+        <!-- Edit / Preview switch -->
+        <div class="flex items-center justify-between px-4 py-2 shrink-0 gap-3 border-b border-gray1/60">
+            <div class="flex gap-1 bg-gray1 p-1 rounded-lg">
+                <button type="button" on:click={() => (view = 'edit')}
+                    class="px-3 text-xs font-bold py-1.5 rounded-md transition-all cursor-pointer {view === 'edit' ? 'bg-lime text-black shadow-sm' : 'text-gray-400 hover:text-white'}">Edit</button>
+                <button type="button" on:click={() => (view = 'preview')}
+                    class="px-3 text-xs font-bold py-1.5 rounded-md transition-all cursor-pointer {view === 'preview' ? 'bg-lime text-black shadow-sm' : 'text-gray-400 hover:text-white'}">Preview</button>
+            </div>
+            {#if view === 'preview'}
+                <div class="flex items-center gap-2">
+                    <div class="flex gap-1 bg-gray1 p-1 rounded-lg">
+                        <button type="button" on:click={() => (previewKind = 'tech')}
+                            class="px-3 text-xs font-bold py-1.5 rounded-md transition-all cursor-pointer {previewKind === 'tech' ? 'bg-white text-black' : 'text-gray-400 hover:text-white'}">Tech</button>
+                        <button type="button" on:click={() => (previewKind = 'vj')}
+                            class="px-3 text-xs font-bold py-1.5 rounded-md transition-all cursor-pointer {previewKind === 'vj' ? 'bg-white text-black' : 'text-gray-400 hover:text-white'}">VJ</button>
+                    </div>
+                    <div class="flex gap-1 bg-gray1 p-1 rounded-lg">
+                        <button type="button" on:click={() => (previewWidth = 'mobile')} title="Phone width (375px)" aria-label="Phone width"
+                            class="px-2.5 py-1.5 rounded-md transition-all cursor-pointer {previewWidth === 'mobile' ? 'bg-white text-black' : 'text-gray-400 hover:text-white'}">
+                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+                        </button>
+                        <button type="button" on:click={() => (previewWidth = 'desktop')} title="Desktop width" aria-label="Desktop width"
+                            class="px-2.5 py-1.5 rounded-md transition-all cursor-pointer {previewWidth === 'desktop' ? 'bg-white text-black' : 'text-gray-400 hover:text-white'}">
+                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        </button>
+                    </div>
+                </div>
+            {/if}
         </div>
+
+        {#if view === 'edit'}
+            <div class="flex-1 overflow-y-auto px-4 pb-4 custom-scrollbar">
+                <TechForm 
+                    bind:formData 
+                    {readOnly} 
+                    availableEvents={events} 
+                    {selectedEvents}
+                    selectedEvent={selectedEvents[0]} 
+                    on:change={handleFormChange} 
+                    on:link
+                />
+            </div>
+        {:else}
+            <div class="flex-1 overflow-auto p-4 bg-black/30 flex justify-center items-start">
+                <iframe
+                    title="Email preview"
+                    srcdoc={previewDoc}
+                    sandbox=""
+                    class="{previewFormat === 'text' ? 'bg-white' : 'bg-[#161616]'} border border-gray1 rounded-xl shadow-2xl transition-all duration-300"
+                    style="width: {previewWidth === 'mobile' ? '375px' : '100%'}; max-width: 100%; height: 100%; min-height: 640px;"
+                ></iframe>
+            </div>
+        {/if}
     {/if}
 </div>

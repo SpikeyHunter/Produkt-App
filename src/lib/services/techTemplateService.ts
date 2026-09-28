@@ -1,4 +1,8 @@
 import type { EmailTechEvent, TechEmailForm, TimetableEntry } from '$lib/types/emailtech';
+import { normalizeCrew } from '$lib/types/emailtech';
+import { get } from 'svelte/store';
+import { emailSettings, crewCallFromSoundcheck, to24h } from './emailSettingsService';
+import { parseDosNames, sortDosNames } from '$lib/components/settings/AdvanceVariables';
 
 export const techTemplateSections = [
 	{ id: 'header', label: 'Header & Liaison' },
@@ -84,8 +88,48 @@ export const defaultTechForm: TechEmailForm = {
     }
 };
 
-export function initSetTimes(events: EmailTechEvent[]) {
+/** Advance rows (every artist) of the given events, from the full list. */
+export function advanceRowsFor(events: EmailTechEvent[], allRows: EmailTechEvent[]): EmailTechEvent[] {
+	const ids = new Set(events.map((e) => e.event_id));
+	const rows = allRows.filter((r) => ids.has(r.event_id));
+	// make sure the selected rows themselves are in there
+	events.forEach((e) => {
+		if (!rows.some((r) => r.id === e.id)) rows.push(e);
+	});
+	return rows;
+}
+
+const normName = (s: string) =>
+	String(s || '')
+		.normalize('NFD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.toLowerCase()
+		.replace(/\(.*?\)/g, '')
+		.replace(/[^a-z0-9]+/g, ' ')
+		.trim();
+
+/**
+ * Set times per venue. Entries whose artist is a headliner on the advance
+ * (events_advance.artist_type) get `artist_type` so the email highlights
+ * them — all of them when there are several.
+ */
+export function initSetTimes(events: EmailTechEvent[], allRows: EmailTechEvent[] = []) {
 	const setTimes: { event_id: number; venue: string; entries: TimetableEntry[] }[] = [];
+	const rows = advanceRowsFor(events, allRows);
+	const headliners = rows
+		.filter((r) => /headliner/i.test(String(r.artist_type || '')))
+		.map((r) => ({ event_id: r.event_id, name: normName(r.artist_name) }))
+		.filter((h) => h.name);
+	const tag = (eventId: number, entry: TimetableEntry): TimetableEntry => {
+		const a = normName(entry.artist);
+		const hit = headliners.some(
+			(h) => h.event_id === eventId && (a === h.name || a.includes(h.name) || h.name.includes(a))
+		);
+		const t: any = { ...entry };
+		if (hit) t.artist_type = 'Headliner';
+		else if (t.artist_type && /headliner/i.test(t.artist_type) && headliners.some((h) => h.event_id === eventId)) delete t.artist_type;
+		return t;
+	};
 	events.forEach((evt) => {
 		if (evt.timetable) {
 			let entries: TimetableEntry[] = [];
@@ -94,6 +138,7 @@ export function initSetTimes(events: EmailTechEvent[]) {
 			} catch (e) {
 				console.error('Error parsing timetable', e);
 			}
+			entries = (Array.isArray(entries) ? entries : []).map((t) => tag(evt.event_id, t));
 			let venueLabel =
 				evt.event_venue === 'New City Gas'
 					? 'Main Room'
@@ -108,10 +153,10 @@ export function initSetTimes(events: EmailTechEvent[]) {
 
 export function autofillTechForm(
 	events: EmailTechEvent[],
-	currentForm: TechEmailForm
+	currentForm: TechEmailForm,
+	allRows: EmailTechEvent[] = []
 ): TechEmailForm {
-	const mainEvent = events.find((e) => e.event_venue === 'New City Gas') || events[0];
-	const bazartEvent = events.find((e) => e.event_venue === 'Bazart');
+	const mainEvent = events[0];
 	const existingVisibility = currentForm.visible_sections || defaultTechForm.visible_sections;
     
     // Explicitly define the default object here to satisfy TypeScript
@@ -132,45 +177,47 @@ export function autofillTechForm(
         lounge_ambiance: { ...existingLounge } 
     };
 
-	form.liaison =
-		bazartEvent && mainEvent.event_venue === 'New City Gas'
-			? 'Charles (Main Room) and Émile (Bazart)'
-			: 'Charles';
+	const settings = get(emailSettings);
 
-	if (mainEvent.crew) {
+	// Liaison = the advance's DOS (events_advance.dos): "Charles", "Charles
+	// and Ben"… Two shows -> each liaison with their room.
+	form.liaison = liaisonLine(events);
+
+	const crew = normalizeCrew(mainEvent.crew);
+	if (!form.crew_calls_manual) {
 		const techs = [
-			...(mainEvent.crew['LD'] || []),
-			...(mainEvent.crew['Sound'] || []),
-			...(mainEvent.crew['Stage/Tech'] || []),
-			...(mainEvent.crew['Video'] || [])
+			...(crew.LD || []),
+			...(crew.SOUND || []),
+			...(crew.TECH || []),
+			...(crew.VIDEO || []),
+			...(crew.DT || [])
 		]
 			.map((n) => n.split(' ')[0])
+			.filter((n, i, a) => n && a.indexOf(n) === i)
 			.join(', ');
-		const vjs = (mainEvent.crew['VJ'] || []).map((n) => n.split(' ')[0]).join(', ');
+		const vjs = (crew.VJ || []).map((n) => n.split(' ')[0]).join(', ');
 		form.crew_calls = [
-			{ time: '19:00', names: techs },
-			{ time: '21:00', names: vjs || 'Marco' }
+			{ time: techCallTime(events, settings.crewCall, allRows), names: techs },
+			{ time: settings.crewCall.vjTime || '21:00', names: vjs }
 		];
 	}
 
 	const eventNameUpper = (mainEvent.event_name || '').toUpperCase();
 	const venue = mainEvent.event_venue || 'New City Gas';
 	
-	let specsLabel = 'NCG Specs';
-	let specsUrl = 'https://drive.google.com/drive/folders/13_TFSl6-u6JF6mZ7XD9hJ9SRVAWTEc0e?usp=share_link';
-
-	if (eventNameUpper.includes('DSTRKT')) {
-		specsLabel = 'DSTRKT Specs';
-		specsUrl = 'https://drive.google.com/drive/folders/13ZyO3sv6suZHnkxn8jN1mnS2N_Foqzyx?usp=share_link';
-	} else if (eventNameUpper.includes('NCG360') || eventNameUpper.includes('360')) {
-		specsLabel = 'NCG 360 Specs';
-		specsUrl = 'https://drive.google.com/drive/folders/1F-q3_R9Cg3o3J-d6_F5g_u6_K7_y9_b_?usp=sharing';
-	} else if (venue === 'Bazart' || eventNameUpper.includes('BAZART')) {
-		specsLabel = 'Bazart Specs';
-		specsUrl = 'https://drive.google.com/drive/folders/1f-twa-hlssqjpUD2CN0zdqGn8cYnbpWY?usp=share_link';
+	// Stage specs come from Settings (gear on the page). Pick by event name,
+	// fall back to the first entry; a spec chosen by hand is kept.
+	const specs = settings.specs;
+	const pick = (needle: string) => specs.find((x) => x.label.toUpperCase().replace(/\s/g, '').includes(needle));
+	let chosen = specs[0];
+	if (eventNameUpper.includes('DSTRKT')) chosen = pick('DSTRKT') || chosen;
+	else if (eventNameUpper.includes('360')) chosen = pick('360') || chosen;
+	else if (venue === 'Bazart' || eventNameUpper.includes('BAZART')) chosen = pick('BAZART') || chosen;
+	const current = form.specs_links?.[0];
+	const currentIsKnown = current?.label && specs.some((x) => x.label === current.label && x.url === current.url);
+	if (chosen && !currentIsKnown && !(current?.label === 'Other' && current.url)) {
+		form.specs_links = [{ label: chosen.label, url: chosen.url }];
 	}
-
-	form.specs_links = [{ label: specsLabel, url: specsUrl }];
 
 	if (!form.team_notes) form.team_notes = '@Team';
 	form.projects = ['TBD'];
@@ -179,14 +226,83 @@ export function autofillTechForm(
 		form.visuals_interior =
 			'Link: https://link.produkt.ca/ncg-tv\nNCG: Folder #1\nShow Artwork: Folder #3\nPlease remove show artworks at 12:00 AM';
 
-	form.set_times = initSetTimes(events);
-	form.vj_schedule = `10PM-3:00AM: ${(mainEvent.crew?.['VJ'] || []).map((n) => n.split(' ')[0]).join(', ') || 'Marco'}`;
+	form.set_times = initSetTimes(events, allRows);
+	form.vj_schedule = `10PM-3:00AM: ${(crew.VJ || []).map((n) => n.split(' ')[0]).join(', ') || 'VJ'}`;
 
-	if (!form.lights || form.lights.length === 0) form.lights = defaultTechForm.lights;
+	if (!form.lights || form.lights.length === 0)
+		form.lights = settings.lights.rows.map((r) => ({ area: r.label, color: '' }));
 
 	const sfxLines = events.filter((e) => e.sfx_rider).map((e) => `${e.artist_name} - SFX`);
 	form.sfx = sfxLines.length > 0 ? sfxLines.join('\n') : 'NONE';
 	form.post_show = 'Please make sure your work space is clean THANK YOU! :)';
 
 	return form;
+}
+
+/* ------------------------------------------------------------- liaison */
+
+const ROOM_OF: Record<string, string> = { 'New City Gas': 'Main Room', Bazart: 'Bazart' };
+
+/** DOS names of one advance row, sorted the way the advance sheet sorts them. */
+export function liaisonNamesOf(event: EmailTechEvent | null | undefined): string[] {
+	return sortDosNames(parseDosNames(event?.dos));
+}
+
+function joinNames(names: string[]): string {
+	if (names.length <= 1) return names[0] || '';
+	return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * "Charles" · "Charles and Ben" · two shows with different liaisons ->
+ * "Charles (Main Room) and Ben (Bazart)".
+ */
+export function liaisonLine(events: EmailTechEvent[]): string {
+	const perEvent = events
+		.map((e) => ({ names: liaisonNamesOf(e), room: ROOM_OF[e.event_venue || ''] || e.event_venue || '' }))
+		.filter((x) => x.names.length);
+	if (!perEvent.length) return '';
+	const all = new Set(perEvent.flatMap((x) => x.names));
+	const sameEverywhere = perEvent.every((x) => x.names.length === all.size);
+	if (perEvent.length === 1 || sameEverywhere) return joinNames(Array.from(all));
+	return joinNames(perEvent.map((x) => `${joinNames(x.names)}${x.room ? ` (${x.room})` : ''}`));
+}
+
+/* ----------------------------------------------------------- crew call */
+
+/** Earliest soundcheck start across every artist of the events, "HH:MM", or ''. */
+export function firstSoundcheckStart(events: EmailTechEvent[], allRows: EmailTechEvent[] = []): string {
+	let best = '';
+	advanceRowsFor(events, allRows).forEach((e) => {
+		let sc: any = e.soundcheck;
+		for (let i = 0; i < 3 && typeof sc === 'string'; i++) {
+			try {
+				sc = JSON.parse(sc);
+			} catch {
+				sc = null;
+			}
+		}
+		if (!sc || typeof sc !== 'object') return;
+		const status = sc.status ?? (sc.enabled === true ? 'yes' : sc.enabled === false ? 'no' : null);
+		if (status === 'no' || !sc.start_time) return;
+		const t = to24h(String(sc.start_time).split('T').pop() || '');
+		if (t && (!best || t < best)) best = t;
+	});
+	return best;
+}
+
+/** Settings default, or soundcheck − offset when the rule is on and a soundcheck exists. */
+export function techCallTime(
+	events: EmailTechEvent[],
+	rule: { techTime: string; soundcheckOffsetMin: number; useSoundcheck: boolean },
+	allRows: EmailTechEvent[] = []
+): string {
+	if (rule.useSoundcheck) {
+		const sc = firstSoundcheckStart(events, allRows);
+		if (sc) {
+			const call = crewCallFromSoundcheck(sc, rule.soundcheckOffsetMin);
+			if (call) return call;
+		}
+	}
+	return rule.techTime || '19:00';
 }

@@ -2,6 +2,7 @@
     import { createEventDispatcher, tick } from 'svelte';
     import { fly } from 'svelte/transition';
     import type { TechEmailForm } from '$lib/types/emailtech';
+    import { emailSettings } from '$lib/services/emailSettingsService';
     import SectionCard from './SectionCard.svelte';
 
     export let formData: TechEmailForm;
@@ -73,11 +74,10 @@
 
 
     // --- DROPDOWN LOGIC ---
-    const SPECS_OPTIONS = [
-        { label: 'Bazart Specs', url: 'https://drive.google.com/drive/folders/1f-twa-hlssqjpUD2CN0zdqGn8cYnbpWY?usp=share_link', color: '#ffe089ff' },
-        { label: 'DSTRKT Specs', url: 'https://drive.google.com/drive/folders/13ZyO3sv6suZHnkxn8jN1mnS2N_Foqzyx?usp=share_link', color: '#afd3e9ff' },
-        { label: 'NCG Specs', url: 'https://drive.google.com/drive/folders/13_TFSl6-u6JF6mZ7XD9hJ9SRVAWTEc0e?usp=share_link', color: '#c4ef9bff' },
-        { label: 'NCG 360 Specs', url: 'https://drive.google.com/file/d/13VNqmW0KWzLnsQTqn8bDEJpJGYJ35Tpq/view?usp=share_link', color: '#fa7a90ff' },
+    // Stage specs come from Settings (gear on the page); "Other" lets you type
+    // a name and a link.
+    $: SPECS_OPTIONS = [
+        ...$emailSettings.specs.map((x) => ({ label: x.label, url: x.url, color: x.color || '#9ca3af' })),
         { label: 'Other', url: '', color: '#9ca3af' }
     ];
 
@@ -85,8 +85,11 @@
 
     // Reactive helpers for the dropdown UI
     $: currentSpec = formData.specs_links?.[0] || { label: '', url: '' };
-    $: selectedOption = SPECS_OPTIONS.find(opt => opt.label === currentSpec.label) 
-        || (currentSpec.label ? { label: currentSpec.label, color: '#9ca3af', url: '' } : null);
+    $: isKnown = SPECS_OPTIONS.some((opt) => opt.label !== 'Other' && opt.label === currentSpec.label && opt.url === currentSpec.url);
+    $: isOther = !!currentSpec.label && !isKnown; // "Other" or a custom name typed in
+    $: selectedOption = isKnown
+        ? SPECS_OPTIONS.find((opt) => opt.label === currentSpec.label)
+        : currentSpec.label ? { label: currentSpec.label === 'Other' ? 'Other' : `Other · ${currentSpec.label}`, color: '#9ca3af', url: '' } : null;
 
     function selectSpec(option: typeof SPECS_OPTIONS[0]) {
         if (!formData.specs_links) formData.specs_links = [];
@@ -99,6 +102,14 @@
         
         showDropdown = false;
         dispatch('change');
+    }
+
+    function handleOtherNameChange(e: Event) {
+        const target = e.target as HTMLInputElement;
+        if (formData.specs_links[0]) {
+            formData.specs_links[0].label = target.value || 'Other';
+            dispatch('change');
+        }
     }
 
     function handleOtherUrlChange(e: Event) {
@@ -199,15 +210,23 @@
                 {/if}
             </div>
 
-            {#if currentSpec.label === 'Other'}
-                <div transition:fly={{ y: -5, duration: 150 }}>
+            {#if isOther}
+                <div transition:fly={{ y: -5, duration: 150 }} class="flex flex-col gap-1.5">
+                    <input 
+                        type="text" 
+                        value={currentSpec.label === 'Other' ? '' : currentSpec.label} 
+                        on:input={handleOtherNameChange}
+                        disabled={readOnly}
+                        placeholder="Specs name (e.g. Side Stage)"
+                        class="w-full bg-navbar border border-gray1 rounded-2xl px-3 py-2.5 text-xs text-white placeholder-gray2/50 focus:border-lime focus:outline-none transition-colors" 
+                    />
                     <input 
                         type="text" 
                         value={currentSpec.url} 
                         on:input={handleOtherUrlChange}
                         disabled={readOnly}
                         placeholder="Paste custom link here"
-                        class="w-full bg-navbar border border-gray1 rounded-2xl px-3 py-3 text-xs text-white placeholder-gray2/50 focus:border-lime focus:outline-none transition-colors" 
+                        class="w-full bg-navbar border border-gray1 rounded-2xl px-3 py-2.5 text-xs text-lime placeholder-gray2/50 focus:border-lime focus:outline-none transition-colors" 
                     />
                 </div>
             {/if}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { TechEmailForm } from '$lib/types/emailtech';
+	import { sortBacklineItems } from '$lib/utils/emailTechTemplate';
 	import SectionCard from './SectionCard.svelte';
 
 	export let formData: TechEmailForm;
@@ -154,12 +155,12 @@
 			});
 		}
 
-		finalItems.sort();
 		if (finalItems.length === 0) return null;
 
+		// mixer → CDJ → RMX → the rest
 		return {
 			venue: realVenueName,
-			items: finalItems
+			items: sortBacklineItems(finalItems)
 		};
 	}
 

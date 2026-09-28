@@ -1,10 +1,15 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { CrewMember, CrewAssignments, CrewRole, EmailTechEvent } from '$lib/types/emailtech';
+	import { CREW_ROLES } from '$lib/types/emailtech';
     
     export let crewMembers: CrewMember[] = [];
 	export let assignments: CrewAssignments = {};
     export let selectedEvents: EmailTechEvent[] = [];
+    /** liaison first names from the advance (events_advance.dos) — read only */
+    export let liaisonNames: string[] = [];
+    /** one line about where the crew came from ("Linked to the calendar event", …) */
+    export let sourceNote = '';
 
 	const dispatch = createEventDispatcher();
     $: isEventSelected = selectedEvents && selectedEvents.length > 0;
@@ -17,15 +22,8 @@
 	let deleteConfirmId: string | null = null;
 	let draggedOverRole: CrewRole | null = null;
     
-    // Typed slots for iteration
-    const roleSlots: { role: CrewRole; label: string }[] = [
-		{ role: 'LD', label: 'LD' },
-		{ role: 'Video', label: 'Video' },
-		{ role: 'VJ', label: 'VJ' },
-		{ role: 'Sound', label: 'Sound' },
-		{ role: 'Stage/Tech', label: 'Stage/Tech' },
-		{ role: 'DT', label: 'DT' }
-	];
+    // Slots: drop targets (Lasers too — it just never autofills) and Liaison (from the advance).
+    const roleSlots = CREW_ROLES;
     
     $: filteredCrew = crewMembers
 		.filter((member) => {
@@ -106,6 +104,10 @@
 		assignments = {};
         dispatch('assign', { assignments: {} });
 	}
+
+    function handleSlotKeydown(e: KeyboardEvent, role: CrewRole) {
+        if ((e.key === 'Delete' || e.key === 'Backspace') && assignments[role]?.length) clearRole(role);
+    }
 
 	function getFirstName(fullName: string | undefined): string {
 		if (!fullName) return '';
@@ -221,10 +223,30 @@
 			<p class="text-xs text-gray2">Drag crew to assign roles:</p>
 			<button type="button" on:click={clearAllAssignments} disabled={!isEventSelected} class="text-gray2 hover:text-white text-xs font-bold transition-colors px-2 py-1 rounded hover:bg-gray2">Clear All</button>
 		</div>
-         <div class="grid grid-cols-3 gap-2">
+        {#if sourceNote && isEventSelected}
+            <p class="text-[10px] text-gray2 -mt-2 mb-2 truncate" title={sourceNote}>Schedule: {sourceNote}</p>
+        {/if}
+         <div class="grid grid-cols-4 gap-2">
              {#each roleSlots as slot}
                 {@const assignedNames = assignments[slot.role]}
-                <div role="button" tabindex="0" class="relative group" on:dragover={(e) => handleDragOver(e, slot.role)} on:dragleave={handleDragLeave} on:drop={(e) => handleDrop(e, slot.role)}>
+                {#if slot.kind === 'auto'}
+                    <!-- Liaison comes from the advance sheet (DOS); not a drop target -->
+                    <div class="relative" title="From the advance (DOS)">
+                        <div class="bg-gray1/60 rounded-lg p-3 min-h-[80px] h-full flex flex-col items-center justify-center relative border-2 border-dashed border-gray2/60">
+                            <div class="absolute top-1.5 left-2 text-[9px] text-gray3 font-bold uppercase">{slot.label}</div>
+                            {#if liaisonNames.length}
+                                <div class="flex flex-col items-center justify-center text-center pt-3">
+                                    {#each liaisonNames as name (name)}
+                                        <div class="text-white text-xs">{name}</div>
+                                    {/each}
+                                </div>
+                            {:else}
+                                <div class="text-gray2 text-[10px] italic text-center pt-3">No DOS on advance</div>
+                            {/if}
+                        </div>
+                    </div>
+                {:else}
+                <div role="button" tabindex="0" class="relative group" on:dragover={(e) => handleDragOver(e, slot.role)} on:dragleave={handleDragLeave} on:drop={(e) => handleDrop(e, slot.role)} on:keydown={(e) => handleSlotKeydown(e, slot.role)}>
                     <div class="bg-gray1 rounded-lg p-3 min-h-[80px] h-full flex flex-col items-center justify-center transition-all duration-200 relative border-2 {draggedOverRole === slot.role ? 'border-lime' : 'border-gray2'}">
                         <div class="absolute top-1.5 left-2 text-[9px] text-gray3 font-bold uppercase">{slot.label}</div>
                         
@@ -261,6 +283,7 @@
                         {/if}
                     </div>
                 </div>
+                {/if}
              {/each}
          </div>
     </div>

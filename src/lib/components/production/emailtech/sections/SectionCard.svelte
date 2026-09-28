@@ -1,11 +1,18 @@
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, getContext } from 'svelte';
+    import type { Readable } from 'svelte/store';
+    import type { Touch } from '$lib/services/emailTechSync';
+
     export let title: string;
     export let isVisible: boolean = true;
     export let id: string = '';
     export let stretch: boolean = false; 
 
     const dispatch = createEventDispatcher();
+
+    // Who else touched this section in the last few seconds (set by EmailEditor).
+    const touched = getContext<Readable<Record<string, Touch>> | undefined>('emailtech-touched');
+    $: touch = touched && id ? $touched?.[id] : undefined;
     
     let resetActive = false;
     let resetTimer: ReturnType<typeof setTimeout>;
@@ -29,12 +36,23 @@
     }
 </script>
 
-<div class="bg-gray1/30 border border-gray1 rounded-lg transition-opacity duration-200 
+<!-- data-section lets the page know which card has focus (presence) -->
+<div data-section={id} class="bg-gray1/30 border rounded-lg transition-all duration-200 
     {isVisible ? 'opacity-100' : 'opacity-60'} 
-    {stretch ? 'h-full flex flex-col mb-0' : 'mb-4'}">
+    {stretch ? 'h-full flex flex-col mb-0' : 'mb-4'}"
+    style={touch ? `border-color: ${touch.color};` : 'border-color: var(--color-gray1);'}>
     
     <div class="w-full flex items-center justify-between p-3 bg-gray1/50 rounded-t-lg shrink-0">
-        <span class="text-xs font-bold text-lime uppercase tracking-wider">{title}</span>
+        <span class="flex items-center gap-2 min-w-0">
+            <span class="text-xs font-bold text-lime uppercase tracking-wider">{title}</span>
+            {#if touch}
+                <span class="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full text-black truncate"
+                      style="background-color: {touch.color};"
+                      title="{touch.user} is editing this section">
+                    ✎ {touch.user}
+                </span>
+            {/if}
+        </span>
         
         <div class="flex items-center gap-3">
             {#if isVisible && !['set_times', 'travelling', 'vj', 'sfx', 'footer'].some(skip => id.includes(skip))} 

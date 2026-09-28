@@ -32,8 +32,22 @@
     return acc;
   }, [] as EmailTechEvent[]);
 
+  // Linked events (email_data.linked_event_ids, saved on the owner) show as
+  // ONE merged row: the owner carries chips for its partners and the partner
+  // rows are hidden from the list.
+  $: linkedOf = (evt: EmailTechEvent): EmailTechEvent[] => {
+    const ids: number[] = Array.isArray(evt.email_data?.linked_event_ids) ? evt.email_data.linked_event_ids : [];
+    return ids
+      .map((id) => uniqueEvents.find((e) => e.event_id === id))
+      .filter((e): e is EmailTechEvent => !!e && e.event_id !== evt.event_id);
+  };
+  $: hiddenIds = new Set<number>(
+    uniqueEvents.flatMap((e) => linkedOf(e).map((p) => p.event_id))
+  );
+
   // Filter and Sort Logic based on ViewMode
   $: filteredEvents = uniqueEvents
+    .filter((event: EmailTechEvent) => !hiddenIds.has(event.event_id) || selectedEvents[0]?.event_id === event.event_id)
     .filter((event: EmailTechEvent) => {
         // Filter by Status: LIVE vs PAST (Not LIVE)
         if (viewMode === 'LIVE') {
@@ -54,38 +68,56 @@
     .filter((event: EmailTechEvent) => {
       if (!searchTerm) return true;
       const searchLower = searchTerm.toLowerCase();
+      const partners = linkedOf(event);
       return (
         event.event_name?.toLowerCase().includes(searchLower) ||
         event.artist_name.toLowerCase().includes(searchLower) ||
-        event.event_venue?.toLowerCase().includes(searchLower)
+        event.event_venue?.toLowerCase().includes(searchLower) ||
+        partners.some((p) => p.event_name?.toLowerCase().includes(searchLower))
       );
     });
 
-  // Clicking a row always selects THAT event only — two shows on the same day
-  // stay separate emails unless they're linked on purpose.
+  // Clicking a row selects that event plus whatever is linked to it — one
+  // combined email. Nothing links by itself: same-day shows stay separate
+  // until "+ Link" is used.
   function handleEventClick(clickedEvent: EmailTechEvent) {
     const isOnlySelection =
-      selectedEvents.length === 1 && selectedEvents[0].id === clickedEvent.id;
+      selectedEvents.length >= 1 && selectedEvents[0].id === clickedEvent.id;
 
-    selectedEvents = isOnlySelection ? [] : [clickedEvent];
+    selectedEvents = isOnlySelection ? [] : [clickedEvent, ...linkedOf(clickedEvent)];
     showDropdown = false;
     dispatch('select', selectedEvents);
   }
 
-  /** Can this row be linked to (or unlinked from) the current selection? */
+  /** Any other event can be linked to the selected one. */
   function canLink(event: EmailTechEvent): boolean {
     const first = selectedEvents[0];
-    if (!first || first.id === event.id) return false;
-    return !!event.event_date && event.event_date === first.event_date;
+    return !!first && first.id !== event.id && first.event_id !== event.event_id;
   }
 
   // Explicit link/unlink — keeps the dropdown open so several can be combined.
+  // The page persists the ids on the owner (email_data.linked_event_ids).
   function toggleLink(event: EmailTechEvent) {
     const isLinked = selectedEvents.some(e => e.id === event.id);
     selectedEvents = isLinked
       ? selectedEvents.filter(e => e.id !== event.id)
       : [...selectedEvents, event];
+    dispatch('link', { primary: selectedEvents[0], ids: selectedEvents.slice(1).map((e) => e.event_id) });
     dispatch('select', selectedEvents);
+  }
+
+  /** × on a chip: drop that partner from the owner's links. */
+  function unlink(owner: EmailTechEvent, partner: EmailTechEvent) {
+    const ids = linkedOf(owner).map((p) => p.event_id).filter((id) => id !== partner.event_id);
+    if (selectedEvents[0]?.event_id === owner.event_id) {
+      selectedEvents = selectedEvents.filter((e) => e.event_id !== partner.event_id);
+      dispatch('select', selectedEvents);
+    } else {
+      // not the open event: update the owner's data locally so the row splits now
+      owner.email_data = { ...(owner.email_data || {}), linked_event_ids: ids };
+      events = [...events];
+    }
+    dispatch('link', { primary: owner, ids });
   }
   
   function handleClickOutside(e: MouseEvent) {
@@ -120,7 +152,7 @@
   }
 
   $: selectionText = selectedEvents.length > 0 
-    ? selectedEvents.map(e => e.event_name).join(' & ') 
+    ? selectedEvents.map(e => e.event_name).join(' + ') 
     : 'Select Event';
 </script>
 
@@ -176,6 +208,7 @@
                     {@const isPrimary = selectedEvents[0]?.id === event.id}
                     {@const linkable = canLink(event)}
                     {@const statusInfo = getStatusDetails(event)}
+                    {@const partners = linkedOf(event)}
                     <div class="group relative flex items-center gap-4 p-3 hover:bg-gray1 transition-colors border-b border-gray1 last:border-b-0">
                     <button
                     type="button"
@@ -197,6 +230,21 @@
                         <div class="flex-1 min-w-0">
                         <div class="text-white text-sm font-bold truncate transition-colors group-hover:text-lime">{event.event_name}</div>
                         <div class="text-gray2 text-xs">{event.event_venue || 'No Venue'} • {formatDate(event.event_date)}</div>
+                        {#if partners.length}
+                        <div class="mt-1 flex flex-wrap gap-1">
+                            {#each partners as p (p.id)}
+                                <span class="pointer-events-auto relative z-10 inline-flex items-center gap-1 text-[10px] font-bold pl-1.5 pr-1 py-0.5 rounded-full border border-lime/50 text-lime max-w-full">
+                                    <svg class="w-2.5 h-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                    <span class="truncate">{p.event_name}</span>
+                                    <button type="button" on:click|stopPropagation={() => unlink(event, p)}
+                                        class="ml-0.5 w-3.5 h-3.5 rounded-full flex items-center justify-center hover:bg-lime hover:text-black transition-colors cursor-pointer"
+                                        title="Unlink {p.event_name}" aria-label="Unlink {p.event_name}">
+                                        <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                    </button>
+                                </span>
+                            {/each}
+                        </div>
+                        {/if}
                         
                         <div class="mt-1">
                             <span 

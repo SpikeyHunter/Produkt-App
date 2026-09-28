@@ -6,13 +6,19 @@
 
 	export let formData: TechEmailForm;
 	export let readOnly = false;
+	/** main event's venue / name — decides which venue defaults apply */
+	export let venue: string | null = null;
+	export let eventName: string = '';
 	const dispatch = createEventDispatcher();
 
 	// --- 1. VENUE & DEFAULT LOGIC ---
-	$: specLabel = formData.specs_links?.[0]?.label || '';
-	$: isDSTRKT = specLabel.includes('DSTRKT');
-	$: isBazart = specLabel.toLowerCase().includes('bazart');
-	$: isNCG = specLabel.includes('NCG') || specLabel.includes('360');
+	// Venue from the event itself (specs are configurable, so their labels
+	// can't be relied on); the spec label only helps spot DSTRKT / 360.
+	$: specLabel = (formData.specs_links?.[0]?.label || '').toUpperCase().replace(/\s/g, '');
+	$: nameUpper = (eventName || '').toUpperCase().replace(/\s/g, '');
+	$: isDSTRKT = specLabel.includes('DSTRKT') || nameUpper.includes('DSTRKT');
+	$: isBazart = (venue || '').toLowerCase().includes('bazart') || specLabel.includes('BAZART');
+	$: isNCG = !isDSTRKT && !isBazart && ((venue || '').toLowerCase().includes('new city gas') || specLabel.includes('NCG') || specLabel.includes('360') || specLabel.includes('MAINSTAGE'));
 	$: isStandardVenue = isDSTRKT || isBazart || isNCG;
 
 	// Default logo name logic
@@ -39,40 +45,27 @@
 	let customOutdoorText = 'Link: ';
 	let customInteriorText = 'Link: \nStage: \nShow Artwork: ';
 	let removalTime = '';
+	// text after the time on the removal line ("TVS only" by default)
+	let removalText = 'TVS only';
+	const DEFAULT_REMOVAL = 'TVS only';
 
-	// --- 3. SPONSOR LOGIC (Moved up for reactivity) ---
-	const SPONSOR_OPTIONS = [
-		{ label: 'None', color: '#52525b' },
-		{ label: 'Patron', color: '#ffe089ff' },
-		{ label: 'Patron El Alto', color: '#4CC252' },
-		{ label: 'Moet Chandon', color: '#ffe089ff' },
-		{ label: 'Grey Goose', color: '#E3FFFF' },
-		{ label: 'Redbull', color: '#fa7a90ff' },
-		{ label: 'Budlight', color: '#087bff' },
-		{ label: 'Stella Artois', color: '#E33E19' },
-		{ label: 'Corona', color: '#d7b8e8ff' },
-		{ label: 'Other', color: '#9ca3af' }
-	];
+	// --- 3. SPONSOR (typed by hand, no list) ---
+	$: if (formData.sponsor_name === undefined) formData.sponsor_name = '';
+	$: if (formData.sponsor_name === 'None') formData.sponsor_name = '';
+	$: hasSponsor = !!(formData.sponsor_name || '').trim();
 
-	let showSponsorDropdown = false;
+	// Venue defaults fill the projector/TV texts unless "Custom" is on.
+	$: useStandardLogo = isStandardVenue && !formData.visuals_custom;
 
-	$: if (formData.sponsor_name === undefined) formData.sponsor_name = 'None';
-
-	$: currentSponsorLabel = (() => {
-		if (formData.sponsor_name === 'None') return 'None';
-		if (!formData.sponsor_name) return 'Other';
-		const match = SPONSOR_OPTIONS.find((opt) => opt.label === formData.sponsor_name);
-		return match ? match.label : 'Other';
-	})();
-
-	$: currentSponsorColor = (() => {
-		if (currentSponsorLabel === 'Other') return '#9ca3af';
-		const match = SPONSOR_OPTIONS.find((opt) => opt.label === currentSponsorLabel);
-		return match ? match.color : '#52525b';
-	})();
-
-	// The Core Fix: Stage specs ONLY override if sponsor is NOT custom.
-	$: useStandardLogo = isStandardVenue && currentSponsorLabel !== 'Other';
+	function toggleCustom() {
+		if (readOnly) return;
+		formData.visuals_custom = !formData.visuals_custom;
+		dispatch('change');
+		setTimeout(() => {
+			updateOutdoorData();
+			updateInteriorData();
+		}, 0);
+	}
 
 	// --- 4. SYNC LOGIC ---
 	$: {
@@ -136,6 +129,8 @@
 		if (formData.visuals_interior) {
 			const parsed = parseTimeFromText(formData.visuals_interior);
 			if (parsed) removalTime = parsed;
+			const tail = formData.visuals_interior.match(/Please remove show artworks at\s+\d{1,2}:\d{2}\s*[AP]M\s*(.*)$/i);
+			if (tail) removalText = tail[1].trim() || DEFAULT_REMOVAL;
 
 			if (!useStdLogo) {
 				// Allow editing the main body
@@ -147,7 +142,7 @@
 				// Enforce Standard Layout for Interior
 				if (isNCG || isDSTRKT) {
 					const validTime = removalTime || '00:00';
-					formData.visuals_interior = `${standardInteriorText}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} TVS only`;
+					formData.visuals_interior = `${standardInteriorText}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} ${useStdLogo ? DEFAULT_REMOVAL : removalText}`;
 				}
 			}
 		} else {
@@ -158,7 +153,7 @@
 			// also clears it for Bazart on user interaction).
 			if (!isBazart) {
 				const content = useStdLogo && (isNCG || isDSTRKT) ? standardInteriorText : customInteriorText;
-				formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(removalTime)} TVS only`;
+				formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(removalTime)} ${useStdLogo ? DEFAULT_REMOVAL : removalText}`;
 			}
 		}
 	}
@@ -188,7 +183,7 @@
 		} else {
 			const content = useStandardLogo && (isNCG || isDSTRKT) ? standardInteriorText : customInteriorText;
 			const validTime = removalTime || '00:00';
-			formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} TVS only`;
+			formData.visuals_interior = `${content}\nPlease remove show artworks at ${formatTimeDisplay(validTime)} ${useStandardLogo ? DEFAULT_REMOVAL : removalText}`;
 		}
 		dispatch('change');
 	}
@@ -221,26 +216,18 @@
 		el.style.height = el.scrollHeight + 'px';
 	}
 
-	function selectSponsor(option: (typeof SPONSOR_OPTIONS)[0]) {
-		formData.sponsor_name = option.label === 'Other' ? '' : option.label;
-		showSponsorDropdown = false;
-		dispatch('change');
-		
-		setTimeout(() => {
-			updateOutdoorData();
-			updateInteriorData();
-		}, 0);
-	}
-
 	function handleReset() {
 		if (readOnly) return;
 		outdoorTime = isBazart ? '17:00' : '21:30';
 		removalTime = '00:00';
+		removalText = DEFAULT_REMOVAL;
 		customLogoName = 'Custom Logo';
 		customOutdoorText = projectorLink ? `Link: ${projectorLink}` : 'Link: ';
 		customInteriorText = standardInteriorText || 'Link: \nStage: \nShow Artwork: ';
-		formData.sponsor_name = 'None';
+		formData.sponsor_name = '';
 		formData.sponsor_link = '';
+		formData.sponsor_notes = '';
+		formData.visuals_custom = false;
 
 		updateOutdoorData();
 		updateInteriorData();
@@ -256,14 +243,6 @@
 	}
 </script>
 
-<svelte:window
-	on:click={(e) => {
-		if (showSponsorDropdown && !(e.target as Element).closest('.sponsor-dropdown')) {
-			showSponsorDropdown = false;
-		}
-	}}
-/>
-
 <SectionCard
 	title="Visuals & Video"
 	id="visuals"
@@ -275,7 +254,17 @@
 		<div class="flex flex-col gap-6">
 			
 			<div class="flex flex-col gap-1.5">
-				<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Exterior Projector</span>
+				<div class="flex items-center justify-between">
+					<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Exterior Projector</span>
+					{#if isStandardVenue && !readOnly}
+						<button type="button" on:click={toggleCustom}
+							class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border transition-colors cursor-pointer
+							{formData.visuals_custom ? 'bg-lime text-black border-lime' : 'border-gray1 text-gray2 hover:text-white hover:border-gray2'}"
+							title="Type the projector / TV texts yourself instead of the venue defaults">
+							Custom
+						</button>
+					{/if}
+				</div>
 
 				<div class="flex items-center gap-3 pl-1">
 					<input
@@ -355,7 +344,20 @@
 							disabled={readOnly}
 							class="bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white w-[5.5rem] flex-shrink-0 text-center focus:border-lime focus:outline-none transition-colors"
 						/>
-						<span class="text-sm text-gray2 font-bold">Remove Artwork TVS only</span>
+						{#if useStandardLogo}
+							<span class="text-sm text-gray2 font-bold">Remove Artwork TVS only</span>
+						{:else}
+							<span class="text-sm text-gray2 font-bold whitespace-nowrap">Remove Artwork</span>
+							<input
+								aria-label="Removal note"
+								type="text"
+								bind:value={removalText}
+								on:input={updateInteriorData}
+								disabled={readOnly}
+								placeholder="TVS only"
+								class="bg-transparent border-b border-gray1 px-2 py-1 text-sm text-white focus:border-lime focus:outline-none placeholder-gray2/50 transition-colors flex-1 min-w-0"
+							/>
+						{/if}
 					</div>
 				</div>
 			{/if}
@@ -363,78 +365,18 @@
 
 		<div class="flex flex-col gap-4 relative z-0">
 			<div class="flex flex-col gap-1.5">
-				<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Sponsor</span>
-
-				<div class="relative sponsor-dropdown">
-					<button
-						type="button"
-						disabled={readOnly}
-						on:click={() => (showSponsorDropdown = !showSponsorDropdown)}
-						class="w-full bg-navbar border border-gray1 rounded-2xl px-3 py-3 text-sm text-white flex items-center justify-between hover:bg-gray1/50 transition-colors focus:outline-none focus:ring-1 focus:ring-lime cursor-pointer min-h-[46px]"
-					>
-						<span class="flex items-center gap-2 truncate">
-							<span
-								class="w-3 h-3 rounded-full flex-shrink-0"
-								style="background-color: {currentSponsorColor};"
-							></span>
-							<span>{currentSponsorLabel}</span>
-						</span>
-
-						{#if !readOnly}
-							<svg
-								class="w-4 h-4 text-gray2 transition-transform {showSponsorDropdown
-									? 'rotate-180'
-									: ''}"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								stroke-width="2"
-								stroke-linecap="round"
-								stroke-linejoin="round"
-							>
-								<polyline points="6 9 12 15 18 9" />
-							</svg>
-						{/if}
-					</button>
-
-					{#if showSponsorDropdown && !readOnly}
-						<div
-							transition:fly={{ y: -5, duration: 150 }}
-							class="absolute top-full left-0 right-0 mt-1 bg-navbar border border-gray1 rounded-xl shadow-xl z-50 overflow-hidden max-h-64 overflow-y-auto custom-scrollbar"
-						>
-							{#each SPONSOR_OPTIONS as option}
-								<button
-									type="button"
-									on:click={() => selectSponsor(option)}
-									class="w-full text-left px-4 py-2.5 text-sm text-white hover:bg-gray1 flex items-center gap-3 transition-colors border-b border-gray1 last:border-0 cursor-pointer"
-								>
-									<span
-										class="w-3 h-3 rounded-full flex-shrink-0 shadow-sm"
-										style="background-color: {option.color};"
-									></span>
-									{option.label}
-								</button>
-							{/each}
-						</div>
-					{/if}
-				</div>
+				<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Sponsor / Branding</span>
+				<input
+					type="text"
+					bind:value={formData.sponsor_name}
+					on:input={handleChange}
+					disabled={readOnly}
+					placeholder="None — type a sponsor name (e.g. Patron, Red Bull)…"
+					class="w-full bg-navbar border border-gray1 rounded-2xl px-3 py-3 text-sm text-white placeholder-gray2/50 focus:border-lime focus:outline-none transition-colors"
+				/>
 			</div>
 
-			{#if currentSponsorLabel === 'Other'}
-				<div transition:fly={{ y: -5, duration: 150 }} class="flex flex-col gap-1.5">
-					<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Sponsor Name</span>
-					<input
-						type="text"
-						bind:value={formData.sponsor_name}
-						on:input={handleChange}
-						disabled={readOnly}
-						placeholder="Enter sponsor name..."
-						class="w-full bg-navbar border border-gray1 rounded-2xl px-3 py-3 text-sm text-white placeholder-gray2/50 focus:border-lime focus:outline-none transition-colors"
-					/>
-				</div>
-			{/if}
-
-			{#if currentSponsorLabel !== 'None'}
+			{#if hasSponsor}
 				<div transition:fly={{ y: -5, duration: 150 }} class="flex flex-col gap-1.5">
 					<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Sponsor Visuals Link</span>
 					<input
@@ -445,6 +387,20 @@
 						placeholder="Paste link to visuals..."
 						class="w-full bg-navbar border border-gray1 rounded-2xl px-3 py-3 text-xs text-lime placeholder-gray2/50 focus:border-lime focus:outline-none transition-colors"
 					/>
+				</div>
+				<div transition:fly={{ y: -5, duration: 150 }} class="flex flex-col gap-1.5">
+					<span class="text-[10px] text-gray2 uppercase font-bold ml-1">Sponsor Notes</span>
+					<textarea
+						bind:value={formData.sponsor_notes}
+						on:input={(e) => {
+							adjustHeight(e.target as HTMLTextAreaElement);
+							dispatch('change');
+						}}
+						disabled={readOnly}
+						rows="2"
+						placeholder="Logo placement, timing, bar branding…"
+						class="w-full bg-navbar border border-gray1 rounded-2xl p-3 text-xs text-white leading-relaxed focus:border-lime focus:outline-none placeholder-gray2/50 resize-none overflow-hidden"
+					></textarea>
 				</div>
 			{/if}
 		</div>

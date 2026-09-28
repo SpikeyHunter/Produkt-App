@@ -1,6 +1,10 @@
 <script lang="ts">
+    // VJ content: "Artist" lines followed by "- item" lines. Items that are
+    // URLs render as links; anything else stays plain text. The box is
+    // editable; the advance fills it when it is empty (or on Reset).
     import { createEventDispatcher, onMount } from 'svelte';
     import type { TechEmailForm } from '$lib/types/emailtech';
+    import { isUrl } from '$lib/utils/emailTechTemplate';
     import SectionCard from './SectionCard.svelte';
 
     export let formData: TechEmailForm;
@@ -10,11 +14,8 @@
     export let currentEventId: number | string | null = null;
 
     const dispatch = createEventDispatcher();
-
-    // Support fallback to visuals_interior for existing data on load
-    $: if (formData && formData.vj_visuals === undefined) {
-        formData.vj_visuals = formData.visuals_interior || '';
-    }
+    let editing = false;
+    let lastEventId: number | string | null = null;
 
     function handleChange() { 
         dispatch('change', formData);
@@ -28,36 +29,34 @@
         handleChange();
     }
 
-    // Lifecycle hook ensures sync happens immediately on load to sync with DB
     onMount(() => {
-        populateVisuals(true);
+        populateVisuals(false);
     });
 
     function parseJson(data: any) {
         if (!data) return null;
         try {
             const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-            // Handle double-stringified JSON common in some Supabase responses
             return typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
         } catch (e) { 
             return null; 
         }
     }
 
-    // Re-populate if events or event ID changes
-    $: if (events && currentEventId) {
-        populateVisuals();
+    // New event -> fill from the advance when nothing was typed yet.
+    $: if (events && currentEventId && currentEventId !== lastEventId) {
+        lastEventId = currentEventId;
+        populateVisuals(false);
     }
 
-    function populateVisuals(forceSync = false) {
-        if (!events || !currentEventId) return;
-        
+    /** What the advance rows say right now. */
+    function advanceContent(): string {
+        if (!events || !currentEventId) return '';
         const relevantEvents = events.filter(e => String(e.event_id) === String(currentEventId));
-        let outputLines: string[] = [];
-        let hasContent = false;
+        const outputLines: string[] = [];
 
-        // Sort: Headliners first for VJ priority
-        const sortedEvents = relevantEvents.sort((a, b) => {
+        // Headliners first
+        const sortedEvents = [...relevantEvents].sort((a, b) => {
              const typeA = (a.artist_type || '').toLowerCase();
              const typeB = (b.artist_type || '').toLowerCase();
              if (typeA.includes('headliner')) return -1;
@@ -67,60 +66,82 @@
 
         sortedEvents.forEach(row => {
             const visualsData = parseJson(row.visuals);
-            let links: string[] = [];
-
+            const items: string[] = [];
             if (visualsData && typeof visualsData === 'object') {
-                Object.values(visualsData).forEach((link: any) => {
-                    if (typeof link === 'string' && link.trim() !== '') {
-                        links.push(link.trim());
-                    }
+                Object.values(visualsData).forEach((v: any) => {
+                    if (typeof v === 'string' && v.trim() !== '') items.push(v.trim());
                 });
             }
-
-            if (links.length > 0) {
-                hasContent = true;
+            if (items.length > 0) {
                 outputLines.push(row.artist_name || 'Artist');
-                links.forEach(link => {
-                    outputLines.push(`- ${link}`);
-                });
-                outputLines.push(''); 
+                items.forEach(it => outputLines.push(`- ${it}`));
+                outputLines.push('');
             }
         });
+        return outputLines.join('\n').trim();
+    }
 
-        const newContent = hasContent ? outputLines.join('\n').trim() : "WAITING";
-        
-        // Push to DB if content is new or if forced (on mount)
-        if (formData.vj_visuals !== newContent || forceSync) {
-            formData.vj_visuals = newContent;
+    /** force = Reset button: overwrite what was typed. */
+    export function populateVisuals(force: boolean) {
+        const fromAdvance = advanceContent();
+        const current = (formData.vj_visuals || '').trim();
+        if (!force && current && current !== 'WAITING') return;
+        const next = fromAdvance || 'WAITING';
+        if (formData.vj_visuals !== next) {
+            formData.vj_visuals = next;
             handleChange();
         }
+    }
+
+    function adjustHeight(el: HTMLTextAreaElement) {
+        el.style.height = 'auto';
+        el.style.height = el.scrollHeight + 'px';
     }
 </script>
 
 <SectionCard 
     title="VJ Visuals / Content" 
-    id="visuals" 
-    isVisible={formData.visible_sections?.['visuals']} 
+    id="vj_visuals" 
+    isVisible={formData.visible_sections?.['vj_visuals'] ?? true} 
     on:toggle={handleToggle}
     on:reset={() => populateVisuals(true)}
     stretch={stretch}
 >
     <div class="flex flex-col gap-2 {readOnly ? 'opacity-60 pointer-events-none' : ''}">
-        <div class="flex flex-col gap-1">
+        <div class="flex items-center justify-between">
             <span class="text-[10px] text-gray2 uppercase font-bold ml-1">Content Links / Instructions</span>
-            
+            {#if !readOnly}
+                <button type="button" on:click={() => (editing = !editing)}
+                    class="text-[10px] font-bold uppercase {editing ? 'text-lime' : 'text-gray2 hover:text-white'} cursor-pointer">
+                    {editing ? 'Done' : 'Edit'}
+                </button>
+            {/if}
+        </div>
+
+        {#if editing && !readOnly}
+            <textarea
+                bind:value={formData.vj_visuals}
+                on:input={(e) => { adjustHeight(e.target as HTMLTextAreaElement); handleChange(); }}
+                rows="6"
+                placeholder={'Artist Name\n- https://link…\n- plain instruction'}
+                class="w-full bg-navbar border border-lime/60 rounded-2xl p-3 text-sm text-white font-mono leading-relaxed focus:border-lime focus:outline-none placeholder-gray2/50 resize-none overflow-hidden"
+            ></textarea>
+            <p class="text-[10px] text-gray2 ml-1">One artist per line, then “- ” items. Only real URLs become links.</p>
+        {:else}
             <div class="w-full bg-navbar border border-gray1 rounded-2xl p-3 text-sm text-white font-mono whitespace-pre-wrap overflow-hidden">
-                {#if formData.vj_visuals && formData.vj_visuals !== 'WAITING'}
+                {#if formData.vj_visuals && formData.vj_visuals.trim() && formData.vj_visuals.trim() !== 'WAITING'}
                     {#each formData.vj_visuals.split('\n') as line}
                         {#if line.trim().startsWith('- ')}
-                            {@const url = line.replace('- ', '').trim()}
+                            {@const item = line.trim().slice(2).trim()}
                             <div class="flex">
                                 <span class="mr-1">-</span>
-                                <a href={url} target="_blank" rel="noopener noreferrer" class="text-lime hover:underline break-all">
-                                    {url}
-                                </a>
+                                {#if isUrl(item)}
+                                    <a href={item} target="_blank" rel="noopener noreferrer" class="text-lime hover:underline break-all">{item}</a>
+                                {:else}
+                                    <span class="break-words">{item}</span>
+                                {/if}
                             </div>
-                        {:else}
+                        {:else if line.trim()}
                             <div class="font-bold mt-2 first:mt-0">{line}</div>
                         {/if}
                     {/each}
@@ -128,6 +149,6 @@
                     <span class="text-gray-500 italic">WAITING</span>
                 {/if}
             </div>
-        </div>
+        {/if}
     </div>
 </SectionCard>
