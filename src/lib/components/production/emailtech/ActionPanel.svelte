@@ -105,6 +105,9 @@
 		try {
 			const { data: { user } } = await supabase.auth.getUser();
 			const senderEmail = user?.email || 'tech@newcitygas.com';
+			// the sender is never a recipient of their own email (liaison / CC lists
+			// can contain them)
+			const notMe = (list: string[]) => list.filter((e) => lower(e) !== lower(senderEmail));
 
 			// What the page stores (preview version, public logo URL).
 			const techHtml = generateTechEmailString(selectedEvents, formData, senderName, format);
@@ -123,9 +126,9 @@
 			downloadEml({
 				subject: techSubject,
 				from: senderEmail,
-				to: techTo,
-				cc: techCc,
-				bcc: techBcc,
+				to: notMe(techTo),
+				cc: notMe(techCc),
+				bcc: notMe(techBcc),
 				html: techHtmlEml,
 				text: techText,
 				filename: generateTechFileName(selectedEvents),
@@ -137,9 +140,9 @@
 					downloadEml({
 						subject: vjSubject,
 						from: senderEmail,
-						to: vjTo,
-						cc: vjCc,
-						bcc: vjBcc,
+						to: notMe(vjTo),
+						cc: notMe(vjCc),
+						bcc: notMe(vjBcc),
 						html: vjHtmlEml,
 						text: vjText,
 						filename: generateVJFileName(selectedEvents),

@@ -55,24 +55,110 @@ export interface EmailModel {
 export const EMAIL_LOGO_URL =
 	'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO_lockup.png';
 
+/**
+ * Inline colours are the LIGHT theme (readable in every client, even ones that
+ * strip <style>). applyThemeClasses() tags each coloured element with a class
+ * and the <style> block swaps in DARK_THEME under prefers-color-scheme: dark.
+ * Every light value must be unique — it is how an element's role is found.
+ */
 const THEME = {
-	lime: '#E1FF00',
-	/** lime at 10% over the box colour — the advance sheet's headliner row */
-	highlight: '#3d4027',
-	/** "problem" red for **important** notes, and its 10% tint */
-	problem: '#FCA5A5',
-	problemBg: '#403737',
+	/** accent text: titles, sub-headings, bullets, links */
+	lime: '#5A6800',
+	highlight: '#F1F9C6',
+	problem: '#B42318',
+	problemBg: '#FDECEC',
 	confirmed: '#86EFAC',
 	info: '#c4b5fd',
 	question: '#93c5fd',
+	page: '#F4F4F2',
+	card: '#FFFFFF',
+	box: '#F4F4F1',
+	line: '#E3E3DE',
+	text: '#1A1A1A',
+	muted: '#5E5E5A',
+	dim: '#6B6B66',
+	// header band: navbar gray in both themes (white logo), lime accents
+	headBg: '#212121',
+	headText: '#FAFAF9',
+	headMuted: '#B8B8B5',
+	// titles / sub-headings: black on a lime pill in light, lime text in dark
+	pillBg: '#E1FF03',
+	pillText: '#111114',
+	// bullets and headliner-row text
+	bullet: '#111115',
+	hlText: '#111116',
+	// links: near-black + lime underline in light, lime in dark
+	link: '#1A1D00',
+	// fixed in both themes (not re-coloured)
+	bar: '#E1FF00'
+};
+
+/** dark value for each themed role (same keys as THEME) */
+const DARK_THEME: Record<string, string> = {
+	lime: '#E1FF00',
+	highlight: '#3D4027',
+	problem: '#FCA5A5',
+	problemBg: '#403737',
 	page: '#161616',
 	card: '#212121',
 	box: '#2B2B2B',
-	line: '#2F2F2F',
+	line: '#383838',
 	text: '#F7F7F7',
 	muted: '#BDBDBB',
-	dim: '#8A8A8A'
+	dim: '#9E9E9E',
+	pillBg: 'transparent',
+	pillText: '#E1FF00',
+	bullet: '#E1FF00',
+	hlText: '#E1FF00',
+	link: '#E1FF00'
 };
+
+const LIGHT_TO_ROLE: Record<string, string> = Object.fromEntries(
+	Object.keys(DARK_THEME).map((k) => [(THEME as any)[k].toLowerCase(), k])
+);
+
+/** Add c-/bg-/bd-<role> classes to every element whose inline colours are themed. */
+export function applyThemeClasses(html: string): string {
+	return html.replace(/<([a-zA-Z][a-zA-Z0-9]*)(\s[^>]*?)?\sstyle="([^"]*)"([^>]*)>/g, (tag, name, pre = '', style, post) => {
+		const cls = new Set<string>();
+		const role = (hex: string) => LIGHT_TO_ROLE[hex.toLowerCase()];
+		// only the LAST declaration of a property is the one that applies
+		const last = (re: RegExp) => [...style.matchAll(re)].pop()?.[1];
+		const fg = last(/(?<![-\w])color:\s*(#[0-9a-fA-F]{6})/g);
+		const bg = last(/background(?:-color)?:\s*(#[0-9a-fA-F]{6})/g);
+		if (fg && role(fg)) cls.add(`c-${role(fg)}`);
+		if (bg && role(bg)) cls.add(`bg-${role(bg)}`);
+		for (const m of style.matchAll(/border(?:-left|-right|-top|-bottom)?:[^;]*?(#[0-9a-fA-F]{6})/g)) if (role(m[1])) cls.add(`bd-${role(m[1])}`);
+		if (!cls.size) return tag;
+		const all = `${pre || ''}${post || ''}`;
+		const existing = all.match(/\sclass="([^"]*)"/);
+		if (existing) {
+			const merged = `${existing[1]} ${[...cls].join(' ')}`.trim();
+			return `<${name}${(pre || '').replace(existing[0], ` class="${merged}"`)} style="${style}"${(post || '').replace(existing[0], ` class="${merged}"`)}>`;
+		}
+		return `<${name}${pre || ''} class="${[...cls].join(' ')}" style="${style}"${post}>`;
+	});
+}
+
+/** CSS that turns the tagged elements dark; `force` = no media query (preview). */
+function darkCss(force: boolean): string {
+	const rules: string[] = [];
+	for (const [role, hex] of Object.entries(DARK_THEME)) {
+		rules.push(`.c-${role}{color:${hex} !important;}`);
+		rules.push(`.bg-${role}{background:${hex} !important;background-color:${hex} !important;}`);
+		rules.push(`.bd-${role}{border-color:${hex} !important;}`);
+	}
+	const extra = `.pill{padding:0 !important;border-radius:0 !important;}
+`;
+	const body = `body,.bg-page{background:${DARK_THEME.page} !important;background-color:${DARK_THEME.page} !important;}\n${rules.join('\n')}\n${extra}`;
+	if (force) return body;
+	// Apple Mail / iOS / Outlook.com (data-ogsc/ogsb) dark modes
+	const ogsc = Object.entries(DARK_THEME)
+		.map(([r, hex]) => `[data-ogsc] .c-${r}{color:${hex} !important;} [data-ogsb] .bg-${r}{background-color:${hex} !important;}`)
+		.join('\n');
+	const ogscExtra = `[data-ogsc] .pill{padding:0 !important;}`;
+	return `@media (prefers-color-scheme: dark){\n${body}\n}\n${ogsc}\n${ogscExtra}`;
+}
 
 export function escapeHtml(s: string): string {
 	return String(s ?? '')
@@ -85,9 +171,11 @@ export function escapeHtml(s: string): string {
 const URL_RE = /(https?:\/\/[^\s<>"')\]]+[^\s<>"')\].,;:!?])/g;
 
 /** Escape, then turn only URLs into anchors. */
-export function linkify(text: string, color = THEME.lime): string {
+const LINK_STYLE = `font-weight:600;text-decoration:underline;text-decoration-color:#B9D400;text-decoration-thickness:2px;text-underline-offset:3px;word-break:break-all;`;
+
+export function linkify(text: string, color = THEME.link): string {
 	const safe = escapeHtml(text);
-	return safe.replace(URL_RE, (u) => `<a href="${u}" style="color:${color};text-decoration:underline;word-break:break-all;">${u}</a>`);
+	return safe.replace(URL_RE, (u) => `<a href="${u}" style="color:${color};${LINK_STYLE}">${u}</a>`);
 }
 
 /** "**text**" -> highlighted (tinted background, lime bold), asterisks removed.
@@ -537,9 +625,15 @@ function h(tag: string, style: string, inner: string, attrs = ''): string {
 	return `<${tag}${attrs ? ' ' + attrs : ''} style="${style}">${inner}</${tag}>`;
 }
 
-function subheading(text: string, accent = THEME.lime): string {
+/** lime pill with black text in light; plain lime text in dark */
+function pill(text: string, size: 'title' | 'sub'): string {
+	const fs = size === 'title' ? 'font-size:12px;line-height:16px;padding:4px 11px;' : 'font-size:10px;line-height:14px;padding:3px 9px;';
+	return `<span class="pill" style="${FONT}display:inline-block;${fs}font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:${THEME.pillText};background:${THEME.pillBg};background-color:${THEME.pillBg};border-radius:999px;">${escapeHtml(text)}</span>`;
+}
+
+function subheading(text: string, _accent = THEME.lime): string {
 	if (!text) return '';
-	return h('div', `${FONT}font-size:11px;line-height:16px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${accent};margin:0 0 6px 0;`, escapeHtml(text));
+	return `<div style="margin:0 0 8px 0;">${pill(text, 'sub')}</div>`;
 }
 
 function renderBlockTemplate(b: Block, accent = THEME.lime): string {
@@ -568,7 +662,7 @@ function renderBlockTemplate(b: Block, accent = THEME.lime): string {
 				lines
 					.map((ln) =>
 						ln.bullet
-							? `<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${accent};">•</td><td style="${base}padding:0 0 2px 0;">${emphasize(linkify(ln.text))}</td></tr>`
+							? `<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${THEME.bullet};">•</td><td style="${base}padding:0 0 2px 0;">${emphasize(linkify(ln.text))}</td></tr>`
 							: wholeLineEmphasis(ln.text) !== null
 								? // whole line in ** **: highlighted row, like a headliner in the set times
 									`<tr><td colspan="2" style="${base}padding:5px 8px;margin:2px 0;color:${THEME.problem};font-weight:700;background:${THEME.problemBg};background-color:${THEME.problemBg};border-left:3px solid ${THEME.problem};">${linkify(wholeLineEmphasis(ln.text) || '', THEME.problem)}</td></tr>`
@@ -587,7 +681,7 @@ function renderBlockTemplate(b: Block, accent = THEME.lime): string {
 				b.items
 					.map(
 						(it) =>
-							`<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${accent};">•</td><td style="${base}padding:0 0 2px 0;">${linkify(it)}</td></tr>`
+							`<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${THEME.bullet};">•</td><td style="${base}padding:0 0 2px 0;">${linkify(it)}</td></tr>`
 					)
 					.join('') +
 				`</table>`
@@ -626,7 +720,7 @@ function renderBlockTemplate(b: Block, accent = THEME.lime): string {
 				b.rows
 					.map(
 						(r) =>
-							`<div style="${base}margin:0 0 4px 0;"><strong>${escapeHtml(r.label)}</strong>: <a href="${escapeHtml(r.url)}" style="color:${THEME.lime};text-decoration:underline;word-break:break-all;">${escapeHtml(r.url)}</a></div>`
+							`<div style="${base}margin:0 0 4px 0;"><strong>${escapeHtml(r.label)}</strong>: <a href="${escapeHtml(r.url)}" style="color:${THEME.link};${LINK_STYLE}">${escapeHtml(r.url)}</a></div>`
 					)
 					.join('')
 			);
@@ -638,7 +732,7 @@ function renderBlockTemplate(b: Block, accent = THEME.lime): string {
 					.map(
 						(r, i) =>
 							r.strong
-								? `<tr><td valign="top" style="${base}padding:5px 12px 5px 8px;white-space:nowrap;color:${THEME.lime};background:${THEME.highlight};background-color:${THEME.highlight};border-left:3px solid ${THEME.lime};">${escapeHtml(r.time)}</td><td valign="top" width="100%" style="${base}padding:5px 8px 5px 0;color:${THEME.lime};background:${THEME.highlight};background-color:${THEME.highlight};">${escapeHtml(r.artist)}</td></tr>`
+								? `<tr><td valign="top" style="${base}padding:5px 12px 5px 8px;white-space:nowrap;font-weight:700;color:${THEME.hlText};background:${THEME.highlight};background-color:${THEME.highlight};border-left:3px solid ${THEME.bar};">${escapeHtml(r.time)}</td><td valign="top" width="100%" style="${base}padding:5px 8px 5px 0;font-weight:700;color:${THEME.hlText};background:${THEME.highlight};background-color:${THEME.highlight};">${escapeHtml(r.artist)}</td></tr>`
 								: `<tr><td valign="top" style="${base}padding:5px 12px 5px 11px;white-space:nowrap;color:${THEME.muted};${i ? `border-top:1px solid ${THEME.line};` : ''}">${escapeHtml(r.time)}</td><td valign="top" width="100%" style="${base}padding:5px 0;${i ? `border-top:1px solid ${THEME.line};` : ''}">${escapeHtml(r.artist)}</td></tr>`
 					)
 					.join('') +
@@ -651,7 +745,7 @@ function renderBlockTemplate(b: Block, accent = THEME.lime): string {
 					const items = g.items
 						.map(
 							(it) =>
-								`<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${accent};">•</td><td style="${base}padding:0 0 2px 0;">${isUrl(it) ? linkify(it) : escapeHtml(it)}</td></tr>`
+								`<tr><td valign="top" width="10" style="${base}padding:0 4px 2px 0;color:${THEME.bullet};">•</td><td style="${base}padding:0 0 2px 0;">${isUrl(it) ? linkify(it) : escapeHtml(it)}</td></tr>`
 						)
 						.join('');
 					return `<div style="margin:0 0 10px 0;">${label}<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">${items}</table></div>`;
@@ -662,7 +756,7 @@ function renderBlockTemplate(b: Block, accent = THEME.lime): string {
 
 function renderSectionTemplate(s: EmailSection): string {
 	const accent = s.accent || THEME.lime;
-	const title = h('div', `${FONT}font-size:13px;line-height:18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${accent};`, escapeHtml(s.title));
+	const title = `<div>${pill(s.title, 'title')}</div>`;
 	const body = s.blocks.map((b, i) => `<div style="margin:${i ? '22px' : '0'} 0 10px 0;">${renderBlockTemplate(b, accent)}</div>`).join('');
 	return `
 <tr><td class="sx" style="padding:0 12px 12px 12px;background:${THEME.card};background-color:${THEME.card};">
@@ -674,12 +768,19 @@ function renderSectionTemplate(s: EmailSection): string {
 }
 
 export interface RenderOptions {
-	/** img src for the logo: the public URL (preview) or "cid:…" (inline part of the .eml) */
+	/** img src for the logo (defaults to the public URL) */
 	logoSrc?: string;
+	/** preview only: pin a theme instead of following the device */
+	scheme?: 'light' | 'dark';
 }
 
 export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): string {
+	return applyThemeClasses(renderTemplateRaw(m, opts));
+}
+
+function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
 	const logoSrc = opts.logoSrc || EMAIL_LOGO_URL;
+	const themeCss = opts.scheme === 'light' ? '' : darkCss(opts.scheme === 'dark');
 	const base = `${FONT}font-size:14px;line-height:21px;color:${THEME.text};`;
 	const intro = m.intro.map((p) => h('p', `${base}margin:0 0 8px 0;`, linkify(p))).join('');
 	const closing = m.closing.map((p) => h('p', `${base}margin:0 0 8px 0;`, linkify(p))).join('');
@@ -690,14 +791,16 @@ export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): str
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
-<meta name="color-scheme" content="dark">
-<meta name="supported-color-schemes" content="dark">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
 <title>${escapeHtml(m.eventTitle)}</title>
 <style>
   body{margin:0;padding:0;-webkit-text-size-adjust:100%;}
   table{border-collapse:collapse;}
   img{border:0;line-height:100%;}
-  a{color:${THEME.lime};}
+  a{color:${THEME.link};}
+  :root{color-scheme:light dark;supported-color-schemes:light dark;}
+  ${themeCss}
   @media only screen and (min-width:621px){
     .px{padding-left:28px !important;padding-right:28px !important;}
     .sx{padding-left:24px !important;padding-right:24px !important;}
@@ -712,29 +815,29 @@ export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): str
   }
 </style>
 </head>
-<body style="margin:0;padding:0;width:100%;background:${THEME.page};background-color:${THEME.page};">
-<div style="width:100%;margin:0;padding:0;background:${THEME.page};background-color:${THEME.page};">
+<body style="margin:0;padding:0;width:100%;">
+<div style="width:100%;margin:0;padding:0;">
 <div style="display:none;font-size:1px;color:${THEME.page};line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${escapeHtml(m.eventTitle)} — ${escapeHtml(m.dateLine)}</div>
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;min-width:100%;background:${THEME.page};background-color:${THEME.page};">
-<tr><td align="center" style="padding:12px 6px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;min-width:100%;">
+<tr><td align="center" style="padding:8px 0;">
 <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table role="presentation" class="wrap" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;max-width:600px;background:${THEME.card};background-color:${THEME.card};border-radius:16px;overflow:hidden;">
-  <tr><td style="height:5px;line-height:5px;font-size:5px;background:${THEME.lime};background-color:${THEME.lime};">&nbsp;</td></tr>
-  <tr><td class="px" style="padding:20px 18px 16px 18px;background:${THEME.card};background-color:${THEME.card};">
+<table role="presentation" class="wrap" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;max-width:600px;background:${THEME.card};background-color:${THEME.card};border:1px solid ${THEME.line};border-radius:16px;overflow:hidden;">
+  <tr><td style="height:5px;line-height:5px;font-size:5px;background:${THEME.bar};background-color:${THEME.bar};">&nbsp;</td></tr>
+  <tr><td class="px" style="padding:14px 18px 14px 18px;background:${THEME.headBg};background-color:${THEME.headBg};">
     <!-- row 1: sheet title + logo · row 2: event + date at full width, so a long
          event name never gets squeezed next to the logo on a phone -->
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
       <td valign="middle" style="padding:0;">
-        <div class="h1" style="${FONT}font-size:24px;line-height:28px;font-weight:800;letter-spacing:-.02em;color:${THEME.lime};white-space:nowrap;">${escapeHtml(m.sheetTitle)}</div>
+        <span style="${FONT}display:inline-block;font-size:13px;line-height:16px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#111111;background:${THEME.bar};background-color:${THEME.bar};border-radius:999px;padding:5px 12px;white-space:nowrap;">${escapeHtml(m.sheetTitle)}</span>
       </td>
-      <td valign="middle" align="right" width="120" style="padding:0 0 0 12px;">
-        <img src="${logoSrc}" alt="Produkt" width="110" style="display:block;width:110px;max-width:110px;height:auto;border:0;" />
+      <td valign="middle" align="right" width="104" style="padding:0 0 0 12px;">
+        <img src="${logoSrc}" alt="Produkt" width="96" style="display:block;width:96px;max-width:96px;height:auto;border:0;" />
       </td>
     </tr></table>
-    <div class="h2" style="${FONT}font-size:19px;line-height:24px;font-weight:700;color:${THEME.text};margin-top:8px;">${escapeHtml(m.eventTitle)}</div>
-    <div style="${FONT}font-size:13px;line-height:18px;color:${THEME.muted};margin-top:2px;">${escapeHtml(m.dateLine)}</div>
+    <div class="h2" style="${FONT}font-size:18px;line-height:23px;font-weight:700;color:${THEME.headText};margin-top:10px;">${escapeHtml(m.eventTitle)}</div>
+    <div style="${FONT}font-size:13px;line-height:18px;color:${THEME.headMuted};margin-top:2px;">${escapeHtml(m.dateLine)}</div>
   </td></tr>
-  <tr><td class="px" style="padding:0 18px 14px 18px;background:${THEME.card};background-color:${THEME.card};">
+  <tr><td class="px" style="padding:16px 18px 14px 18px;background:${THEME.card};background-color:${THEME.card};">
     ${m.greeting ? `<p style="${base}margin:0 0 8px 0;">${escapeHtml(m.greeting)}</p>` : ''}
     ${intro}
   </td></tr>
@@ -743,7 +846,7 @@ export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): str
     ${closing}
     <p style="${base}margin:12px 0 0 0;">${escapeHtml(m.signoff)}<br><strong>${escapeHtml(m.sender)}</strong></p>
   </td></tr>
-  <tr><td style="height:4px;line-height:4px;font-size:4px;background:${THEME.lime};background-color:${THEME.lime};">&nbsp;</td></tr>
+  <tr><td style="height:4px;line-height:4px;font-size:4px;background:${THEME.bar};background-color:${THEME.bar};">&nbsp;</td></tr>
 </table>
 <!--[if mso]></td></tr></table><![endif]-->
 <div style="${FONT}font-size:11px;line-height:16px;color:${THEME.dim};padding:10px 0 0 0;">Powered by Produkt</div>
