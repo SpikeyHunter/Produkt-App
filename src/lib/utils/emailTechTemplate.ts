@@ -54,55 +54,23 @@ export interface EmailModel {
 /* ---------------------------------------------------------------- helpers */
 
 /** Public copy of the lockup logo (Supabase storage — app.produkt.ca is behind auth for mail clients). */
-/** black lockup for the light header; served from the app's static files */
-export const EMAIL_LOGO_BLACK_URL = 'https://app.produkt.ca/images/ProduktXX_LOGO_lockup_black.png';
 export const EMAIL_LOGO_URL =
 	'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO_lockup.png';
 
 /**
- * Inline colours are the LIGHT theme (readable in every client, even ones that
- * strip <style>). applyThemeClasses() tags each coloured element with a class
- * and the <style> block swaps in DARK_THEME under prefers-color-scheme: dark.
- * Every light value must be unique — it is how an element's role is found.
+ * Dark theme only, every colour inline. Mail's "Send Again" rebuilds the
+ * message and drops <style> / color-scheme hints, so anything that relied on
+ * them (light/dark switching) broke after re-sending. Inline colours survive.
  */
 const THEME = {
 	/** accent text: titles, sub-headings, bullets, links */
-	lime: '#5A6800',
-	highlight: '#F1F9C6',
-	problem: '#B42318',
-	problemBg: '#FDECEC',
-	confirmed: '#86EFAC',
-	info: '#c4b5fd',
-	question: '#93c5fd',
-	page: '#F4F4F2',
-	card: '#FFFFFF',
-	box: '#F4F4F1',
-	line: '#E3E3DE',
-	text: '#1A1A1A',
-	muted: '#5E5E5A',
-	dim: '#6B6B66',
-	// header band: light gray + black logo in light, navbar gray + white logo in dark
-	headBg: '#EDEDEA',
-	headText: '#141414',
-	headMuted: '#5A5A56',
-	// titles / sub-headings: black on a lime pill in light, lime text in dark
-	pillBg: '#E1FF03',
-	pillText: '#111114',
-	// bullets and headliner-row text
-	bullet: '#111115',
-	hlText: '#111116',
-	// links: near-black + lime underline in light, lime in dark
-	link: '#1A1D00',
-	// fixed in both themes (not re-coloured)
-	bar: '#E1FF00'
-};
-
-/** dark value for each themed role (same keys as THEME) */
-const DARK_THEME: Record<string, string> = {
 	lime: '#E1FF00',
 	highlight: '#3D4027',
 	problem: '#FCA5A5',
 	problemBg: '#403737',
+	confirmed: '#86EFAC',
+	info: '#c4b5fd',
+	question: '#93c5fd',
 	page: '#161616',
 	card: '#212121',
 	box: '#2B2B2B',
@@ -110,63 +78,15 @@ const DARK_THEME: Record<string, string> = {
 	text: '#F7F7F7',
 	muted: '#BDBDBB',
 	dim: '#9E9E9E',
-	headBg: '#212121',
+	headBg: '#1A1A1A',
 	headText: '#FAFAF9',
 	headMuted: '#B8B8B5',
-	pillBg: 'transparent',
 	pillText: '#E1FF00',
 	bullet: '#E1FF00',
 	hlText: '#E1FF00',
-	link: '#E1FF00'
+	link: '#E1FF00',
+	bar: '#E1FF00'
 };
-
-const LIGHT_TO_ROLE: Record<string, string> = Object.fromEntries(
-	Object.keys(DARK_THEME).map((k) => [(THEME as any)[k].toLowerCase(), k])
-);
-
-/** Add c-/bg-/bd-<role> classes to every element whose inline colours are themed. */
-export function applyThemeClasses(html: string): string {
-	return html.replace(/<([a-zA-Z][a-zA-Z0-9]*)(\s[^>]*?)?\sstyle="([^"]*)"([^>]*)>/g, (tag, name, pre = '', style, post) => {
-		const cls = new Set<string>();
-		const role = (hex: string) => LIGHT_TO_ROLE[hex.toLowerCase()];
-		// only the LAST declaration of a property is the one that applies
-		const last = (re: RegExp) => [...style.matchAll(re)].pop()?.[1];
-		const fg = last(/(?<![-\w])color:\s*(#[0-9a-fA-F]{6})/g);
-		const bg = last(/background(?:-color)?:\s*(#[0-9a-fA-F]{6})/g);
-		if (fg && role(fg)) cls.add(`c-${role(fg)}`);
-		if (bg && role(bg)) cls.add(`bg-${role(bg)}`);
-		for (const m of style.matchAll(/border(?:-left|-right|-top|-bottom)?:[^;]*?(#[0-9a-fA-F]{6})/g)) if (role(m[1])) cls.add(`bd-${role(m[1])}`);
-		if (!cls.size) return tag;
-		const all = `${pre || ''}${post || ''}`;
-		const existing = all.match(/\sclass="([^"]*)"/);
-		if (existing) {
-			const merged = `${existing[1]} ${[...cls].join(' ')}`.trim();
-			return `<${name}${(pre || '').replace(existing[0], ` class="${merged}"`)} style="${style}"${(post || '').replace(existing[0], ` class="${merged}"`)}>`;
-		}
-		return `<${name}${pre || ''} class="${[...cls].join(' ')}" style="${style}"${post}>`;
-	});
-}
-
-/** CSS that turns the tagged elements dark; `force` = no media query (preview). */
-function darkCss(force: boolean): string {
-	const rules: string[] = [];
-	for (const [role, hex] of Object.entries(DARK_THEME)) {
-		rules.push(`.c-${role}{color:${hex} !important;}`);
-		rules.push(`.bg-${role}{background:${hex} !important;background-color:${hex} !important;}`);
-		rules.push(`.bd-${role}{border-color:${hex} !important;}`);
-	}
-	const extra = `.pill{padding:0 !important;border-radius:0 !important;}
-.logo-light{display:none !important;}
-.logo-dark{display:block !important;width:96px !important;max-width:96px !important;max-height:none !important;height:auto !important;}`;
-	const body = `body,.bg-page{background:${DARK_THEME.page} !important;background-color:${DARK_THEME.page} !important;}\n${rules.join('\n')}\n${extra}`;
-	if (force) return body;
-	// Apple Mail / iOS / Outlook.com (data-ogsc/ogsb) dark modes
-	const ogsc = Object.entries(DARK_THEME)
-		.map(([r, hex]) => `[data-ogsc] .c-${r}{color:${hex} !important;} [data-ogsb] .bg-${r}{background-color:${hex} !important;}`)
-		.join('\n');
-	const ogscExtra = `[data-ogsc] .pill{padding:0 !important;} [data-ogsc] .logo-light{display:none !important;} [data-ogsc] .logo-dark{display:block !important;width:96px !important;max-height:none !important;}`;
-	return `@media (prefers-color-scheme: dark){\n${body}\n}\n${ogsc}\n${ogscExtra}`;
-}
 
 export function escapeHtml(s: string): string {
 	return String(s ?? '')
@@ -644,8 +564,8 @@ function h(tag: string, style: string, inner: string, attrs = ''): string {
 
 /** lime pill with black text in light; plain lime text in dark */
 function pill(text: string, size: 'title' | 'sub'): string {
-	const fs = size === 'title' ? 'font-size:12px;line-height:16px;padding:4px 11px;' : 'font-size:10px;line-height:14px;padding:3px 9px;';
-	return `<span class="pill" style="${FONT}display:inline-block;${fs}font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:${THEME.pillText};background:${THEME.pillBg};background-color:${THEME.pillBg};border-radius:999px;">${escapeHtml(text)}</span>`;
+	const fs = size === 'title' ? 'font-size:13px;line-height:18px;letter-spacing:.06em;' : 'font-size:11px;line-height:16px;letter-spacing:.08em;';
+	return `<span style="${FONT}display:inline-block;${fs}font-weight:800;text-transform:uppercase;color:${THEME.pillText};">${escapeHtml(text)}</span>`;
 }
 
 function subheading(text: string, _accent = THEME.lime): string {
@@ -785,21 +705,17 @@ function renderSectionTemplate(s: EmailSection): string {
 }
 
 export interface RenderOptions {
-	/** img src for the white logo (dark theme) — defaults to the public URL */
+	/** img src for the logo — defaults to the public URL */
 	logoSrc?: string;
-	/** img src for the black logo (light theme) */
-	logoBlackSrc?: string;
-	/** preview only: pin a theme instead of following the device */
-	scheme?: 'light' | 'dark';
+
 }
 
 export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): string {
-	return applyThemeClasses(renderTemplateRaw(m, opts));
+	return renderTemplateRaw(m, opts);
 }
 
 function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
 	const logoSrc = opts.logoSrc || EMAIL_LOGO_URL;
-	const themeCss = opts.scheme === 'light' ? '' : darkCss(opts.scheme === 'dark');
 	const base = `${FONT}font-size:14px;line-height:21px;color:${THEME.text};`;
 	const intro = m.intro.map((p) => h('p', `${base}margin:0 0 8px 0;`, boldIn(linkify(p), m.boldPhrase))).join('');
 	const closing = m.closing.map((p) => h('p', `${base}margin:0 0 8px 0;`, linkify(p))).join('');
@@ -812,8 +728,7 @@ function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
   table{border-collapse:collapse;}
   img{border:0;line-height:100%;}
   a{color:${THEME.link};}
-  :root{color-scheme:light dark;supported-color-schemes:light dark;}
-  ${themeCss}
+  :root{color-scheme:dark;supported-color-schemes:dark;}
   @media only screen and (min-width:621px){
     .px{padding-left:28px !important;padding-right:28px !important;}
     .sx{padding-left:24px !important;padding-right:24px !important;}
@@ -828,17 +743,17 @@ function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
   }`;
 
 	return `<!DOCTYPE html>
-<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="color-scheme:light dark;supported-color-schemes:light dark;">
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="color-scheme:dark;supported-color-schemes:dark;background:#161616;">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="x-apple-disable-message-reformatting">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
+<meta name="color-scheme" content="dark only">
+<meta name="supported-color-schemes" content="dark">
 <title>${escapeHtml(m.eventTitle)}</title>
 <style>${css}</style>
 </head>
-<body style="margin:0;padding:0;width:100%;color-scheme:light dark;">
+<body style="margin:0;padding:0;width:100%;color-scheme:dark;background:#161616;background-color:#161616;">
 <style>${css}</style>
 <div style="width:100%;margin:0;padding:0;">
 <div style="display:none;font-size:1px;color:${THEME.page};line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${escapeHtml(m.eventTitle)} — ${escapeHtml(m.dateLine)}</div>
@@ -855,8 +770,7 @@ function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
         <span style="${FONT}display:inline-block;font-size:13px;line-height:16px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#111111;background:${THEME.bar};background-color:${THEME.bar};border-radius:999px;padding:5px 12px;white-space:nowrap;">${escapeHtml(m.sheetTitle)}</span>
       </td>
       <td valign="middle" align="right" width="104" style="padding:0 0 0 12px;">
-        <img class="logo-light" src="${opts.logoBlackSrc || EMAIL_LOGO_BLACK_URL}" alt="Produkt" width="96" style="display:block;width:96px;max-width:96px;height:auto;border:0;" />
-        <!--[if !mso]><!--><img class="logo-dark" src="${logoSrc}" alt="" width="96" style="display:none;width:0;max-width:0;max-height:0;overflow:hidden;mso-hide:all;height:auto;border:0;" /><!--<![endif]-->
+        <img src="${logoSrc}" alt="Produkt" width="96" height="27" style="display:block;width:96px;max-width:96px;height:27px;border:0;margin-left:auto;font-size:11px;color:#FAFAF9;" />
       </td>
     </tr></table>
     <div class="h2" style="${FONT}font-size:18px;line-height:23px;font-weight:700;color:${THEME.headText};margin-top:10px;">${escapeHtml(m.eventTitle)}</div>
@@ -871,10 +785,10 @@ function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
     ${closing}
     <p style="${base}margin:12px 0 0 0;">${escapeHtml(m.signoff)}<br><strong>${escapeHtml(m.sender)}</strong></p>
   </td></tr>
+  <tr><td align="center" style="${FONT}font-size:11px;line-height:16px;color:${THEME.dim};padding:0 18px 12px 18px;background:${THEME.card};background-color:${THEME.card};">Powered by Produkt</td></tr>
   <tr><td style="height:4px;line-height:4px;font-size:4px;background:${THEME.bar};background-color:${THEME.bar};">&nbsp;</td></tr>
 </table>
 <!--[if mso]></td></tr></table><![endif]-->
-<div style="${FONT}font-size:11px;line-height:16px;color:${THEME.dim};padding:10px 0 0 0;">Powered by Produkt</div>
 </td></tr>
 </table>
 </div>
