@@ -673,7 +673,13 @@ function renderSectionTemplate(s: EmailSection): string {
 </td></tr>`;
 }
 
-export function renderTemplateHtml(m: EmailModel): string {
+export interface RenderOptions {
+	/** img src for the logo: the public URL (preview) or "cid:…" (inline part of the .eml) */
+	logoSrc?: string;
+}
+
+export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): string {
+	const logoSrc = opts.logoSrc || EMAIL_LOGO_URL;
 	const base = `${FONT}font-size:14px;line-height:21px;color:${THEME.text};`;
 	const intro = m.intro.map((p) => h('p', `${base}margin:0 0 8px 0;`, linkify(p))).join('');
 	const closing = m.closing.map((p) => h('p', `${base}margin:0 0 8px 0;`, linkify(p))).join('');
@@ -716,7 +722,7 @@ export function renderTemplateHtml(m: EmailModel): string {
         <div class="h1" style="${FONT}font-size:26px;line-height:30px;font-weight:800;letter-spacing:-.02em;color:${THEME.lime};white-space:nowrap;">${escapeHtml(m.sheetTitle)}</div>
       </td>
       <td valign="middle" align="right" width="120" style="padding:0 0 0 12px;">
-        <img src="${EMAIL_LOGO_URL}" alt="Produkt" width="110" style="display:block;width:110px;max-width:110px;height:auto;border:0;" />
+        <img src="${logoSrc}" alt="Produkt" width="110" style="display:block;width:110px;max-width:110px;height:auto;border:0;" />
       </td>
     </tr></table>
     <div class="h2" style="${FONT}font-size:19px;line-height:24px;font-weight:700;color:${THEME.text};margin-top:8px;">${escapeHtml(m.eventTitle)}</div>

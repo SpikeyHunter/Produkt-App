@@ -1,5 +1,5 @@
 import type { EmailTechEvent, TechEmailForm, EmailFormat } from '$lib/types/emailtech';
-import { buildVJModel, renderTemplateHtml, renderSimpleHtml, renderText, formatLongDate } from './emailTechTemplate';
+import { buildVJModel, renderTemplateHtml, renderSimpleHtml, renderText, formatLongDate, type RenderOptions } from './emailTechTemplate';
 
 /**
  * Generates a file name for the VJ email: VJ_Name_Month_Day_Year
@@ -28,11 +28,12 @@ export function generateVJEmailString(
     events: EmailTechEvent[],
     form: TechEmailForm,
     senderName: string,
-    format: EmailFormat = form.email_format || 'html'
+    format: EmailFormat = form.email_format || 'html',
+    render: RenderOptions = {}
 ): string {
     if (!events.length) return '';
     const model = buildVJModel(events, form, senderName);
-    return format === 'text' ? renderSimpleHtml(model) : renderTemplateHtml(model);
+    return format === 'text' ? renderSimpleHtml(model) : renderTemplateHtml(model, render);
 }
 
 export function generateVJEmailText(events: EmailTechEvent[], form: TechEmailForm, senderName: string): string {

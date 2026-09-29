@@ -1,7 +1,7 @@
 import type { EmailTechEvent, TechEmailForm, EmailFormat } from '$lib/types/emailtech';
 import { get } from 'svelte/store';
 import { emailSettings } from '$lib/services/emailSettingsService';
-import { buildTechModel, renderTemplateHtml, renderSimpleHtml, renderText, type ModelOptions } from './emailTechTemplate';
+import { buildTechModel, renderTemplateHtml, renderSimpleHtml, renderText, type ModelOptions, type RenderOptions } from './emailTechTemplate';
 
 /** colour swatches for the Lights block, from Settings */
 function modelOptions(): ModelOptions {
@@ -33,11 +33,12 @@ export function generateTechEmailString(
 	events: EmailTechEvent[],
 	form: TechEmailForm,
 	senderName: string,
-	format: EmailFormat = form.email_format || 'html'
+	format: EmailFormat = form.email_format || 'html',
+	render: RenderOptions = {}
 ): string {
 	if (!events.length) return '';
 	const model = buildTechModel(events, form, senderName, modelOptions());
-	return format === 'text' ? renderSimpleHtml(model) : renderTemplateHtml(model);
+	return format === 'text' ? renderSimpleHtml(model) : renderTemplateHtml(model, render);
 }
 
 export function generateTechEmailText(events: EmailTechEvent[], form: TechEmailForm, senderName: string): string {

@@ -23,7 +23,7 @@
         deleteCrewMember
     } from '$lib/services/emailtechService';
     import { crewFromScheduleRow, type ScheduleRow, type ScheduleMatch } from '$lib/services/scheduleMatch';
-    import { createEmailTechSync, tableMissing, EMAILTECH_SCHEMA_SQL, type EmailTechSync, type EmailTechRecord, type Peer, type SaveState, type Touch } from '$lib/services/emailTechSync';
+    import { createEmailTechSync, tableMissing, stableStringify, EMAILTECH_SCHEMA_SQL, type EmailTechSync, type EmailTechRecord, type Peer, type SaveState, type Touch } from '$lib/services/emailTechSync';
     import { formFromRecord, formPatch } from '$lib/services/emailTechForm';
     import { loadEmailSettings } from '$lib/services/emailSettingsService';
     import { defaultTechForm, liaisonNamesOf } from '$lib/services/techTemplateService'; 
@@ -256,12 +256,20 @@
 
         const primary = selectedEvents[0];
         if (primary) {
+            // Re-trigger the editor's derived fields (crew-call names, VJ
+            // schedule…) only when their inputs really changed — not on every
+            // keystroke or echo.
+            const inputsChanged =
+                stableStringify(primary.crew || {}) !== stableStringify(rec.crew || {}) ||
+                stableStringify(primary.email_data?.linked_event_ids || []) !== stableStringify(rec.email_data.linked_event_ids || []);
             primary.crew = rec.crew;
             primary.email_data = rec.email_data;
             primary.tech_mail = rec.tech_mail;
             primary.vj_mail = rec.vj_mail;
-            selectedEvents = [...selectedEvents];
-            events = [...events];
+            if (inputsChanged || initial) {
+                selectedEvents = [...selectedEvents];
+                events = [...events];
+            }
         }
     }
 

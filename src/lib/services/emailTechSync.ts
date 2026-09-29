@@ -201,6 +201,8 @@ export function createEmailTechSync(
 	let lastAccepted = '';
 	/** bumps on every completed write; a refetch started before it is discarded */
 	let writeSeq = 0;
+	/** per-column save timestamps, to flag a save loop in the console */
+	const saveHits = new Map<string, number[]>();
 	let timer: ReturnType<typeof setTimeout> | null = null;
 	let saving: Promise<boolean> | null = null;
 	let pendingAfterSave = false;
@@ -378,6 +380,13 @@ export function createEmailTechSync(
 		const at = String(row.updated_at || '');
 		if (at > lastAccepted) lastAccepted = at;
 		log(`saved #${eventId}`, [...keys].join(','), whole ? '(whole form)' : '', at);
+		const now = Date.now();
+		for (const k of keys) {
+			const hits = (saveHits.get(k) || []).filter((t) => now - t < 10000);
+			hits.push(now);
+			saveHits.set(k, hits);
+			if (hits.length === 6) console.warn(`[emailtech] "${k}" saved 6× in 10s on #${eventId} — something keeps rewriting it`);
+		}
 		// the row we got back is the newest state: pick up what others changed meanwhile
 		mergeTableRow(row);
 		channel?.send({ type: 'broadcast', event: 'saved', payload: { clientId, user: userName, rev: payload.rev } });
@@ -511,12 +520,32 @@ export function createEmailTechSync(
 		);
 	}
 
+	// Realtime messages are only a "something changed" signal: their payload
+	// can be partial (large text/jsonb values are left out), and merging a
+	// partial row would wipe columns locally — which fed derived fields (VJ
+	// schedule from crew…) and made them save in a loop. So: re-read the row.
+	let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+	function scheduleRefetch(why: string) {
+		if (destroyed) return;
+		if (refetchTimer) clearTimeout(refetchTimer);
+		refetchTimer = setTimeout(() => {
+			refetchTimer = null;
+			log(`refetch #${eventId} (${why})`);
+			void refetch();
+		}, 150);
+	}
+
 	async function refetch() {
+		if (destroyed) return;
 		const seqAtStart = writeSeq;
 		if (mode === 'table') {
 			const { data, error } = await db.from(EMAILTECH_TABLE).select('*').eq('event_id', eventId).maybeSingle();
 			if (writeSeq !== seqAtStart) {
-				log(`refetch #${eventId} discarded (we wrote meanwhile)`);
+				// our write landed while reading: this copy may predate it, but the
+				// change we were told about may still be newer than our write's
+				// returned row — read again rather than drop it
+				log(`refetch #${eventId} raced our write, reading again`);
+				scheduleRefetch('retry after our write');
 				return;
 			}
 			if (error && isMissingTable(error)) {
@@ -623,15 +652,18 @@ export function createEmailTechSync(
 			.on(
 				'postgres_changes',
 				{ event: '*', schema: 'public', table: EMAILTECH_TABLE, filter: `event_id=eq.${eventId}` },
-				(payload) => {
-					if (mode === 'table' && payload.eventType !== 'DELETE') mergeTableRow(payload.new as any);
+				(payload: any) => {
+					if (mode !== 'table') return;
+					// our own write: the row it returned was already merged
+					if (String(payload?.new?.rev || '').startsWith(`${clientId}:`)) return;
+					scheduleRefetch(`change by ${payload?.new?.updated_by || '?'}`);
 				}
 			)
 			.on(
 				'postgres_changes',
 				{ event: 'UPDATE', schema: 'public', table: 'events', filter: `event_id=eq.${eventId}` },
-				(payload) => {
-					if (mode === 'legacy') mergeLegacyRow(payload.new as any);
+				() => {
+					if (mode === 'legacy') scheduleRefetch('events change');
 				}
 			)
 			.on(
@@ -641,8 +673,8 @@ export function createEmailTechSync(
 			)
 			.on('presence', { event: 'sync' }, updatePeers)
 			.on('broadcast', { event: 'touch' }, ({ payload }) => receiveTouch(payload))
-			.on('broadcast', { event: 'saved' }, ({ payload }) => {
-				if (payload?.clientId !== clientId) void refetch();
+			.on('broadcast', { event: 'saved' }, ({ payload }: any) => {
+				if (payload?.clientId !== clientId) scheduleRefetch(`saved by ${payload?.user || '?'}`);
 			})
 			.subscribe((status) => {
 				if (status === 'SUBSCRIBED') channel?.track({ clientId, user: userName, section: mySection });
@@ -665,6 +697,7 @@ export function createEmailTechSync(
 	async function destroy(): Promise<boolean> {
 		destroyed = true;
 		if (timer) clearTimeout(timer);
+		if (refetchTimer) clearTimeout(refetchTimer);
 		touchTimers.forEach((t) => clearTimeout(t));
 		const ok = await flush();
 		if (!ok) log(`destroy #${eventId}: last save FAILED, unsaved: ${[...dirty].join(',')}`);

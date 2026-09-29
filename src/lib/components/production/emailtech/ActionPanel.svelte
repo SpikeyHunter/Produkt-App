@@ -106,13 +106,19 @@
 			const { data: { user } } = await supabase.auth.getUser();
 			const senderEmail = user?.email || 'tech@newcitygas.com';
 
+			// What the page stores (preview version, public logo URL).
 			const techHtml = generateTechEmailString(selectedEvents, formData, senderName, format);
 			const techText = generateTechEmailText(selectedEvents, formData, senderName);
 			const vjHtml = generateVJEmailString(selectedEvents, formData, senderName, format);
 			const vjText = generateVJEmailText(selectedEvents, formData, senderName);
-
-			// The page stores both through the sync engine.
 			dispatch('mails', { tech: techHtml, vj: vjHtml });
+
+			// The .eml carries the logo as an inline part: mail clients don't load
+			// remote images in drafts, so the HTML points at cid: instead.
+			const logo = format === 'html' ? await fetchInlineLogo() : null;
+			const render = logo ? { logoSrc: `cid:${logo.cid}` } : {};
+			const techHtmlEml = logo ? generateTechEmailString(selectedEvents, formData, senderName, format, render) : techHtml;
+			const vjHtmlEml = logo ? generateVJEmailString(selectedEvents, formData, senderName, format, render) : vjHtml;
 
 			const attachments = await fetchAndProcessRiders(selectedEvents);
 
@@ -122,10 +128,11 @@
 				to: techTo,
 				cc: techCc,
 				bcc: techBcc,
-				html: techHtml,
+				html: techHtmlEml,
 				text: techText,
 				filename: generateTechFileName(selectedEvents),
-				attachments
+				attachments,
+				inline: logo ? [logo] : []
 			});
 
 			if (vjName) {
@@ -136,10 +143,11 @@
 						to: vjTo,
 						cc: vjCc,
 						bcc: vjBcc,
-						html: vjHtml,
+						html: vjHtmlEml,
 						text: vjText,
 						filename: generateVJFileName(selectedEvents),
-						attachments: []
+						attachments: [],
+						inline: logo ? [logo] : []
 					});
 				}, 600);
 			}
@@ -213,6 +221,20 @@
 		return attachments;
 	}
 
+	/** The lockup logo from this app's own static files, base64, for the inline part. */
+	async function fetchInlineLogo(): Promise<{ cid: string; filename: string; content: string; mimeType: string } | null> {
+		try {
+			const res = await fetch('/images/ProduktXX_LOGO_lockup.png');
+			if (!res.ok) throw new Error(String(res.status));
+			const blob = await res.blob();
+			const b64 = (await blobToBase64(blob)).split(',')[1];
+			return { cid: 'produkt-logo@produkt.ca', filename: 'produkt-logo.png', content: b64, mimeType: blob.type || 'image/png' };
+		} catch (e) {
+			console.warn('[emailtech] logo not embedded (using the URL instead):', e);
+			return null;
+		}
+	}
+
 	function blobToBase64(blob: Blob): Promise<string> {
 		return new Promise((resolve, reject) => {
 			const reader = new FileReader();
@@ -246,9 +268,13 @@
 		text: string;
 		filename: string;
 		attachments: { filename: string; content: string; mimeType: string }[];
+		/** images referenced from the HTML as cid:<cid> */
+		inline?: { cid: string; filename: string; content: string; mimeType: string }[];
 	}) {
 		const boundary = '----=_NextPart_000_0001';
 		const mixedBoundary = '----=_NextPart_Mixed_000_0002';
+		const relatedBoundary = '----=_NextPart_Related_000_0003';
+		const inline = opts.inline || [];
 
 		const headers = [
 			`From: ${opts.from}`,
@@ -262,7 +288,21 @@
 			`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`
 		].filter(Boolean);
 
-		let emlContent = `${headers.join('\r\n')}\r\n\r\n--${mixedBoundary}\r\nContent-Type: multipart/alternative; boundary="${boundary}"\r\n\r\n--${boundary}\r\nContent-Type: text/plain; charset="utf-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${chunkString(toBase64Utf8(opts.text), 76)}\r\n\r\n--${boundary}\r\nContent-Type: text/html; charset="utf-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${chunkString(toBase64Utf8(opts.html), 76)}\r\n\r\n--${boundary}--\r\n`;
+		// text + html alternatives; when there are inline images they are
+		// wrapped in multipart/related so the html can reference them by cid
+		const alternative =
+			`Content-Type: multipart/alternative; boundary="${boundary}"\r\n\r\n--${boundary}\r\nContent-Type: text/plain; charset="utf-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${chunkString(toBase64Utf8(opts.text), 76)}\r\n\r\n--${boundary}\r\nContent-Type: text/html; charset="utf-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${chunkString(toBase64Utf8(opts.html), 76)}\r\n\r\n--${boundary}--\r\n`;
+		let body: string;
+		if (inline.length) {
+			body = `Content-Type: multipart/related; boundary="${relatedBoundary}"; type="multipart/alternative"\r\n\r\n--${relatedBoundary}\r\n${alternative}`;
+			inline.forEach((img) => {
+				body += `\r\n--${relatedBoundary}\r\nContent-Type: ${img.mimeType}; name="${img.filename}"\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <${img.cid}>\r\nContent-Disposition: inline; filename="${img.filename}"\r\n\r\n${chunkString(img.content, 76)}\r\n`;
+			});
+			body += `--${relatedBoundary}--\r\n`;
+		} else {
+			body = alternative;
+		}
+		let emlContent = `${headers.join('\r\n')}\r\n\r\n--${mixedBoundary}\r\n${body}`;
 
 		opts.attachments.forEach((file) => {
 			emlContent += `\r\n--${mixedBoundary}\r\nContent-Type: ${file.mimeType}; name="${file.filename}"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename="${file.filename}"\r\n\r\n${chunkString(file.content, 76)}\r\n`;
