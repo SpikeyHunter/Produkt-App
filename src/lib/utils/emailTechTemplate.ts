@@ -43,6 +43,8 @@ export interface EmailModel {
 	dateLine: string; // "Bazart • Friday, September 25, 2026"
 	greeting: string;
 	intro: string[]; // paragraphs after the greeting (may contain URLs)
+	/** "Event — Date": shown in bold wherever it appears in the intro */
+	boldPhrase?: string;
 	sections: EmailSection[];
 	closing: string[];
 	signoff: string; // "Thanks a lot,"
@@ -52,6 +54,8 @@ export interface EmailModel {
 /* ---------------------------------------------------------------- helpers */
 
 /** Public copy of the lockup logo (Supabase storage — app.produkt.ca is behind auth for mail clients). */
+/** black lockup for the light header; served from the app's static files */
+export const EMAIL_LOGO_BLACK_URL = 'https://app.produkt.ca/images/ProduktXX_LOGO_lockup_black.png';
 export const EMAIL_LOGO_URL =
 	'https://vngekjtqbdnfeombtjnx.supabase.co/storage/v1/object/public/public-assets/ProduktXX_LOGO_lockup.png';
 
@@ -77,10 +81,10 @@ const THEME = {
 	text: '#1A1A1A',
 	muted: '#5E5E5A',
 	dim: '#6B6B66',
-	// header band: navbar gray in both themes (white logo), lime accents
-	headBg: '#212121',
-	headText: '#FAFAF9',
-	headMuted: '#B8B8B5',
+	// header band: light gray + black logo in light, navbar gray + white logo in dark
+	headBg: '#EDEDEA',
+	headText: '#141414',
+	headMuted: '#5A5A56',
 	// titles / sub-headings: black on a lime pill in light, lime text in dark
 	pillBg: '#E1FF03',
 	pillText: '#111114',
@@ -106,6 +110,9 @@ const DARK_THEME: Record<string, string> = {
 	text: '#F7F7F7',
 	muted: '#BDBDBB',
 	dim: '#9E9E9E',
+	headBg: '#212121',
+	headText: '#FAFAF9',
+	headMuted: '#B8B8B5',
 	pillBg: 'transparent',
 	pillText: '#E1FF00',
 	bullet: '#E1FF00',
@@ -149,14 +156,15 @@ function darkCss(force: boolean): string {
 		rules.push(`.bd-${role}{border-color:${hex} !important;}`);
 	}
 	const extra = `.pill{padding:0 !important;border-radius:0 !important;}
-`;
+.logo-light{display:none !important;}
+.logo-dark{display:block !important;width:96px !important;max-width:96px !important;max-height:none !important;height:auto !important;}`;
 	const body = `body,.bg-page{background:${DARK_THEME.page} !important;background-color:${DARK_THEME.page} !important;}\n${rules.join('\n')}\n${extra}`;
 	if (force) return body;
 	// Apple Mail / iOS / Outlook.com (data-ogsc/ogsb) dark modes
 	const ogsc = Object.entries(DARK_THEME)
 		.map(([r, hex]) => `[data-ogsc] .c-${r}{color:${hex} !important;} [data-ogsb] .bg-${r}{background-color:${hex} !important;}`)
 		.join('\n');
-	const ogscExtra = `[data-ogsc] .pill{padding:0 !important;}`;
+	const ogscExtra = `[data-ogsc] .pill{padding:0 !important;} [data-ogsc] .logo-light{display:none !important;} [data-ogsc] .logo-dark{display:block !important;width:96px !important;max-height:none !important;}`;
 	return `@media (prefers-color-scheme: dark){\n${body}\n}\n${ogsc}\n${ogscExtra}`;
 }
 
@@ -191,6 +199,13 @@ export function emphasize(html: string, color = THEME.problem, bg = THEME.proble
 function wholeLineEmphasis(text: string): string | null {
 	const m = String(text || '').trim().match(/^\*\*(.+?)\*\*$/);
 	return m ? m[1] : null;
+}
+
+/** Wrap every occurrence of `phrase` (escaped) in <strong>. Run on escaped HTML. */
+function boldIn(html: string, phrase?: string): string {
+	if (!phrase) return html;
+	const esc = escapeHtml(phrase);
+	return html.split(esc).join(`<strong style="font-weight:700;">${esc}</strong>`);
 }
 
 export function isUrl(s: string): boolean {
@@ -494,6 +509,7 @@ export function buildTechModel(events: EmailTechEvent[], form: TechEmailForm, se
 		dateLine: `${venues || 'Venue TBD'} • ${dateStr}`,
 		greeting,
 		intro: paragraphs,
+		boldPhrase: `${titles} — ${dateStr}`,
 		sections,
 		closing: ['Please confirm and let me know if you have any questions!'],
 		signoff: 'Thanks a lot,',
@@ -610,6 +626,7 @@ export function buildVJModel(events: EmailTechEvent[], form: TechEmailForm, send
 		dateLine: `${venues || 'Venue TBD'} • ${dateStr}`,
 		greeting: `Hi ${vjName},`,
 		intro: [`Here's all the information for ${titles} — ${dateStr}.`, `Please be on site at ${formatCrewTime(vjCall)}.`],
+		boldPhrase: `${titles} — ${dateStr}`,
 		sections,
 		closing: ["Let me know if there's anything :)"],
 		signoff: 'Thanks,',
@@ -768,8 +785,10 @@ function renderSectionTemplate(s: EmailSection): string {
 }
 
 export interface RenderOptions {
-	/** img src for the logo (defaults to the public URL) */
+	/** img src for the white logo (dark theme) — defaults to the public URL */
 	logoSrc?: string;
+	/** img src for the black logo (light theme) */
+	logoBlackSrc?: string;
 	/** preview only: pin a theme instead of following the device */
 	scheme?: 'light' | 'dark';
 }
@@ -782,7 +801,7 @@ function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
 	const logoSrc = opts.logoSrc || EMAIL_LOGO_URL;
 	const themeCss = opts.scheme === 'light' ? '' : darkCss(opts.scheme === 'dark');
 	const base = `${FONT}font-size:14px;line-height:21px;color:${THEME.text};`;
-	const intro = m.intro.map((p) => h('p', `${base}margin:0 0 8px 0;`, linkify(p))).join('');
+	const intro = m.intro.map((p) => h('p', `${base}margin:0 0 8px 0;`, boldIn(linkify(p), m.boldPhrase))).join('');
 	const closing = m.closing.map((p) => h('p', `${base}margin:0 0 8px 0;`, linkify(p))).join('');
 
 	return `<!DOCTYPE html>
@@ -831,7 +850,8 @@ function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
         <span style="${FONT}display:inline-block;font-size:13px;line-height:16px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#111111;background:${THEME.bar};background-color:${THEME.bar};border-radius:999px;padding:5px 12px;white-space:nowrap;">${escapeHtml(m.sheetTitle)}</span>
       </td>
       <td valign="middle" align="right" width="104" style="padding:0 0 0 12px;">
-        <img src="${logoSrc}" alt="Produkt" width="96" style="display:block;width:96px;max-width:96px;height:auto;border:0;" />
+        <img class="logo-light" src="${opts.logoBlackSrc || EMAIL_LOGO_BLACK_URL}" alt="Produkt" width="96" style="display:block;width:96px;max-width:96px;height:auto;border:0;" />
+        <!--[if !mso]><!--><img class="logo-dark" src="${logoSrc}" alt="" width="96" style="display:none;width:0;max-width:0;max-height:0;overflow:hidden;mso-hide:all;height:auto;border:0;" /><!--<![endif]-->
       </td>
     </tr></table>
     <div class="h2" style="${FONT}font-size:18px;line-height:23px;font-weight:700;color:${THEME.headText};margin-top:10px;">${escapeHtml(m.eventTitle)}</div>
@@ -896,7 +916,7 @@ function renderBlockSimple(b: Block): string {
 export function renderSimpleHtml(m: EmailModel): string {
 	let html = `<div style="font-family:sans-serif;font-size:10pt;color:#000;line-height:1.3;">`;
 	if (m.greeting) html += `<p style="margin:0 0 10px 0;">${escapeHtml(m.greeting)}</p>`;
-	html += m.intro.map((p) => `<p style="margin:0 0 10px 0;">${linkify(p, '#0000EE')}</p>`).join('');
+	html += m.intro.map((p) => `<p style="margin:0 0 10px 0;">${boldIn(linkify(p, '#0000EE'), m.boldPhrase)}</p>`).join('');
 	m.sections.forEach((s) => {
 		html += `<br><p style="margin:0;"><strong style="text-decoration:underline;">${escapeHtml(s.title)}</strong></p>`;
 		html += s.blocks.map(renderBlockSimple).join('');

@@ -45,15 +45,29 @@
 	let customOutdoorText = 'Link: ';
 	let customInteriorText = 'Link: \nStage: \nShow Artwork: ';
 	let removalTime = '';
-	// text after the time on the removal line ("TVS only" by default)
-	let removalText = 'TVS only';
-	const DEFAULT_REMOVAL = 'TVS only';
+	// the whole remove-artwork sentence, editable; the time is appended: "<text> at 12:00 AM"
+	const DEFAULT_REMOVAL = 'Please remove show artworks on TVS only';
+	let removalText = DEFAULT_REMOVAL;
 	$: removalOff = !!formData.artwork_removal_off;
 
-	/** "\nPlease remove show artworks at 12:00 AM TVS only", or '' when the line is off */
+	/** "\n<text> at 12:00 AM", or '' when the line is off */
 	function removalLine(time: string): string {
 		if (formData.artwork_removal_off) return '';
-		return `\nPlease remove show artworks at ${formatTimeDisplay(time || '00:00')} ${removalText || DEFAULT_REMOVAL}`;
+		return `\n${(removalText || DEFAULT_REMOVAL).trim()} at ${formatTimeDisplay(time || '00:00')}`;
+	}
+
+	/** Split the interior text into its body and the remove-artwork line (last line). */
+	function splitRemoval(full: string): { body: string; text: string; time: string } | null {
+		const lines = String(full || '').split('\n');
+		const last = (lines[lines.length - 1] || '').trim();
+		const body = lines.slice(0, -1).join('\n');
+		// current format: "<text> at 12:00 AM"
+		let m = last.match(/^(.*\S)\s+at\s+(\d{1,2}:\d{2}\s*[AP]M)\s*$/i);
+		if (m) return { body, text: m[1], time: parseTimeFromText(m[2]) || '00:00' };
+		// older format: "Please remove show artworks at 12:00 AM TVS only"
+		m = last.match(/^Please remove show artworks at\s+(\d{1,2}:\d{2}\s*[AP]M)\s*(.*)$/i);
+		if (m) return { body, text: `Please remove show artworks on ${m[2].trim() || 'TVS only'}`, time: parseTimeFromText(m[1]) || '00:00' };
+		return null;
 	}
 	function toggleRemoval() {
 		if (readOnly) return;
@@ -139,17 +153,16 @@
 
 	function syncInteriorFromProp(useStdLogo: boolean) {
 		if (formData.visuals_interior) {
-			const parsed = parseTimeFromText(formData.visuals_interior);
-			if (parsed) removalTime = parsed;
-			const tail = formData.visuals_interior.match(/Please remove show artworks at\s+\d{1,2}:\d{2}\s*[AP]M\s*(.*)$/i);
-			if (tail) removalText = tail[1].trim() || DEFAULT_REMOVAL;
+			const rem = splitRemoval(formData.visuals_interior);
+			if (rem) {
+				removalTime = rem.time;
+				removalText = rem.text;
+			}
 
 			if (!useStdLogo) {
 				// Allow editing the main body
-				const splitContent = formData.visuals_interior.split('\nPlease remove');
-				if (splitContent[0]) {
-					customInteriorText = splitContent[0];
-				}
+				const bodyOnly = rem ? rem.body : formData.visuals_interior;
+				if (bodyOnly) customInteriorText = bodyOnly;
 			} else {
 				// Enforce Standard Layout for Interior
 				if (isNCG || isDSTRKT) {
@@ -346,36 +359,38 @@
 						></textarea>
 					{/if}
 
-					<!-- "Please remove show artworks at {time} {text}" — toggle off to drop the line -->
-					<div class="flex items-center gap-3 mt-1 pl-1 {removalOff ? 'opacity-50' : ''}">
-						<button
-							type="button"
-							role="switch"
-							aria-checked={!removalOff}
-							aria-label="Include the remove-artwork line"
-							disabled={readOnly}
-							on:click={toggleRemoval}
-							class="relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border-2 border-transparent transition-colors cursor-pointer {removalOff ? 'bg-gray2' : 'bg-lime'}"
-						>
-							<span class="pointer-events-none inline-block h-3 w-3 transform rounded-full bg-black shadow transition {removalOff ? 'translate-x-0' : 'translate-x-3'}"></span>
-						</button>
+					<!-- remove-artwork line: "<text> at <time>" — one editable sentence; toggle off to drop it -->
+					<div class="flex flex-col gap-1.5 mt-1 pl-1 {removalOff ? 'opacity-50' : ''}">
+						<div class="flex items-center gap-3">
+							<button
+								type="button"
+								role="switch"
+								aria-checked={!removalOff}
+								aria-label="Include the remove-artwork line"
+								disabled={readOnly}
+								on:click={toggleRemoval}
+								class="relative inline-flex h-4 w-7 flex-shrink-0 rounded-full border-2 border-transparent transition-colors cursor-pointer {removalOff ? 'bg-gray2' : 'bg-lime'}"
+							>
+								<span class="pointer-events-none inline-block h-3 w-3 transform rounded-full bg-black shadow transition {removalOff ? 'translate-x-0' : 'translate-x-3'}"></span>
+							</button>
+							<span class="text-[10px] text-gray2 uppercase font-bold">Remove artwork at</span>
+							<input
+								aria-label="Removal Time"
+								type="time"
+								bind:value={removalTime}
+								on:input={updateInteriorData}
+								disabled={readOnly || removalOff}
+								class="bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white w-[5.5rem] flex-shrink-0 text-center focus:border-lime focus:outline-none transition-colors"
+							/>
+						</div>
 						<input
-							aria-label="Removal Time"
-							type="time"
-							bind:value={removalTime}
-							on:input={updateInteriorData}
-							disabled={readOnly || removalOff}
-							class="bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white w-[5.5rem] flex-shrink-0 text-center focus:border-lime focus:outline-none transition-colors"
-						/>
-						<span class="text-sm text-gray2 font-bold whitespace-nowrap">Remove Artwork</span>
-						<input
-							aria-label="Removal note"
+							aria-label="Remove-artwork sentence"
 							type="text"
 							bind:value={removalText}
 							on:input={updateInteriorData}
 							disabled={readOnly || removalOff}
-							placeholder="TVS only"
-							class="bg-transparent border-b border-gray1 px-2 py-1 text-sm text-white focus:border-lime focus:outline-none placeholder-gray2/50 transition-colors flex-1 min-w-0"
+							placeholder={DEFAULT_REMOVAL}
+							class="w-full bg-navbar border border-gray1 rounded-2xl px-3 py-2 text-sm text-white focus:border-lime focus:outline-none placeholder-gray2/50 transition-colors"
 						/>
 					</div>
 				</div>

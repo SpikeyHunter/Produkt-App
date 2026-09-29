@@ -33,12 +33,17 @@
     let previewWidth: 'mobile' | 'desktop' = 'desktop';
     /** preview the email as it looks on a phone/computer in light or dark mode */
     let previewScheme: 'light' | 'dark' = 'dark';
+    // preview loads the black logo from this app (works before it is deployed)
+    $: previewRender = {
+        scheme: previewScheme,
+        logoBlackSrc: typeof location !== 'undefined' ? `${location.origin}/images/ProduktXX_LOGO_lockup_black.png` : undefined
+    };
     $: previewFormat = formData?.email_format || $emailSettings.format;
     $: previewHtml =
         view === 'preview' && selectedEvents.length && formData
             ? previewKind === 'tech'
-                ? generateTechEmailString(selectedEvents, formData, senderName, previewFormat, { scheme: previewScheme })
-                : generateVJEmailString(selectedEvents, formData, senderName, previewFormat, { scheme: previewScheme })
+                ? generateTechEmailString(selectedEvents, formData, senderName, previewFormat, previewRender)
+                : generateVJEmailString(selectedEvents, formData, senderName, previewFormat, previewRender)
             : '';
     // the "text" format is black-on-white paragraphs, like a plain mail client
     // mail-app background behind the card, per theme

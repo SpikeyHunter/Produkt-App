@@ -55,7 +55,7 @@
         </span>
         
         <div class="flex items-center gap-3">
-            {#if isVisible && !['set_times', 'travelling', 'vj', 'sfx', 'footer'].some(skip => id.includes(skip))} 
+            {#if isVisible && !['set_times', 'travelling', 'vj', 'sfx', 'footer'].includes(id)} 
                 <button 
                     type="button"
                     on:click={handleResetClick}

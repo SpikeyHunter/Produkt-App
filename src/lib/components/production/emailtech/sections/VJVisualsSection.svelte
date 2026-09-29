@@ -5,6 +5,7 @@
     import { createEventDispatcher, onMount } from 'svelte';
     import type { TechEmailForm } from '$lib/types/emailtech';
     import { isUrl } from '$lib/utils/emailTechTemplate';
+    import { supabase } from '$lib/supabase';
     import SectionCard from './SectionCard.svelte';
 
     export let formData: TechEmailForm;
@@ -49,10 +50,10 @@
         populateVisuals(false);
     }
 
-    /** What the advance rows say right now. */
-    function advanceContent(): string {
-        if (!events || !currentEventId) return '';
-        const relevantEvents = events.filter(e => String(e.event_id) === String(currentEventId));
+    /** What the advance rows say right now (from `rows`, default: the loaded list). */
+    function advanceContent(rows: any[] = events): string {
+        if (!rows || !currentEventId) return '';
+        const relevantEvents = rows.filter(e => String(e.event_id) === String(currentEventId));
         const outputLines: string[] = [];
 
         // Headliners first
@@ -93,6 +94,37 @@
         }
     }
 
+    // Refresh: re-read the visuals straight from the advance (links added
+    // after the email was started) and replace the box with them.
+    let refreshing = false;
+    let refreshNote = '';
+    async function refreshFromAdvance() {
+        if (readOnly || refreshing || !currentEventId) return;
+        refreshing = true;
+        refreshNote = '';
+        try {
+            const { data, error } = await supabase
+                .from('events_advance')
+                .select('event_id, artist_name, artist_type, visuals')
+                .eq('event_id', currentEventId);
+            if (error) throw error;
+            const next = advanceContent(data || []) || 'WAITING';
+            if (formData.vj_visuals !== next) {
+                formData.vj_visuals = next;
+                handleChange();
+                refreshNote = 'Updated from the advance';
+            } else {
+                refreshNote = 'Already up to date';
+            }
+        } catch (e) {
+            console.error('[emailtech] visuals refresh failed:', e);
+            refreshNote = 'Could not refresh — try again';
+        } finally {
+            refreshing = false;
+            setTimeout(() => (refreshNote = ''), 2500);
+        }
+    }
+
     function adjustHeight(el: HTMLTextAreaElement) {
         el.style.height = 'auto';
         el.style.height = el.scrollHeight + 'px';
@@ -104,17 +136,22 @@
     id="vj_visuals" 
     isVisible={formData.visible_sections?.['vj_visuals'] ?? true} 
     on:toggle={handleToggle}
-    on:reset={() => populateVisuals(true)}
+    on:reset={refreshFromAdvance}
     stretch={stretch}
 >
     <div class="flex flex-col gap-2 {readOnly ? 'opacity-60 pointer-events-none' : ''}">
         <div class="flex items-center justify-between">
             <span class="text-[10px] text-gray2 uppercase font-bold ml-1">Content Links / Instructions</span>
             {#if !readOnly}
+                <div class="flex items-center gap-3">
+                {#if refreshNote}
+                    <span class="text-[10px] text-gray2">{refreshNote}</span>
+                {/if}
                 <button type="button" on:click={() => (editing = !editing)}
                     class="text-[10px] font-bold uppercase {editing ? 'text-lime' : 'text-gray2 hover:text-white'} cursor-pointer">
                     {editing ? 'Done' : 'Edit'}
                 </button>
+                </div>
             {/if}
         </div>
 
