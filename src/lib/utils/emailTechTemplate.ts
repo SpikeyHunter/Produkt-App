@@ -665,7 +665,7 @@ function renderSectionTemplate(s: EmailSection): string {
 	const title = h('div', `${FONT}font-size:13px;line-height:18px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:${accent};`, escapeHtml(s.title));
 	const body = s.blocks.map((b, i) => `<div style="margin:${i ? '22px' : '0'} 0 10px 0;">${renderBlockTemplate(b, accent)}</div>`).join('');
 	return `
-<tr><td class="sx" style="padding:0 24px 14px 24px;background:${THEME.card};background-color:${THEME.card};">
+<tr><td class="sx" style="padding:0 12px 12px 12px;background:${THEME.card};background-color:${THEME.card};">
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-radius:12px;background:${THEME.box};background-color:${THEME.box};">
     <tr><td style="padding:12px 16px 0 16px;">${title}</td></tr>
     <tr><td style="padding:10px 16px 6px 16px;">${body}</td></tr>
@@ -698,6 +698,11 @@ export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): str
   table{border-collapse:collapse;}
   img{border:0;line-height:100%;}
   a{color:${THEME.lime};}
+  @media only screen and (min-width:621px){
+    .px{padding-left:28px !important;padding-right:28px !important;}
+    .sx{padding-left:24px !important;padding-right:24px !important;}
+    .h1{font-size:26px !important;line-height:30px !important;}
+  }
   @media only screen and (max-width:620px){
     .wrap{width:100% !important;}
     .px{padding-left:16px !important;padding-right:16px !important;}
@@ -707,19 +712,20 @@ export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): str
   }
 </style>
 </head>
-<body style="margin:0;padding:0;background:${THEME.page};background-color:${THEME.page};">
+<body style="margin:0;padding:0;width:100%;background:${THEME.page};background-color:${THEME.page};">
+<div style="width:100%;margin:0;padding:0;background:${THEME.page};background-color:${THEME.page};">
 <div style="display:none;font-size:1px;color:${THEME.page};line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${escapeHtml(m.eventTitle)} — ${escapeHtml(m.dateLine)}</div>
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${THEME.page};background-color:${THEME.page};">
-<tr><td align="center" style="padding:16px 8px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;min-width:100%;background:${THEME.page};background-color:${THEME.page};">
+<tr><td align="center" style="padding:12px 6px;">
 <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
 <table role="presentation" class="wrap" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;max-width:600px;background:${THEME.card};background-color:${THEME.card};border-radius:16px;overflow:hidden;">
   <tr><td style="height:5px;line-height:5px;font-size:5px;background:${THEME.lime};background-color:${THEME.lime};">&nbsp;</td></tr>
-  <tr><td class="px" style="padding:22px 28px 18px 28px;background:${THEME.card};background-color:${THEME.card};">
+  <tr><td class="px" style="padding:20px 18px 16px 18px;background:${THEME.card};background-color:${THEME.card};">
     <!-- row 1: sheet title + logo · row 2: event + date at full width, so a long
          event name never gets squeezed next to the logo on a phone -->
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr>
       <td valign="middle" style="padding:0;">
-        <div class="h1" style="${FONT}font-size:26px;line-height:30px;font-weight:800;letter-spacing:-.02em;color:${THEME.lime};white-space:nowrap;">${escapeHtml(m.sheetTitle)}</div>
+        <div class="h1" style="${FONT}font-size:24px;line-height:28px;font-weight:800;letter-spacing:-.02em;color:${THEME.lime};white-space:nowrap;">${escapeHtml(m.sheetTitle)}</div>
       </td>
       <td valign="middle" align="right" width="120" style="padding:0 0 0 12px;">
         <img src="${logoSrc}" alt="Produkt" width="110" style="display:block;width:110px;max-width:110px;height:auto;border:0;" />
@@ -728,12 +734,12 @@ export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): str
     <div class="h2" style="${FONT}font-size:19px;line-height:24px;font-weight:700;color:${THEME.text};margin-top:8px;">${escapeHtml(m.eventTitle)}</div>
     <div style="${FONT}font-size:13px;line-height:18px;color:${THEME.muted};margin-top:2px;">${escapeHtml(m.dateLine)}</div>
   </td></tr>
-  <tr><td class="px" style="padding:0 28px 16px 28px;background:${THEME.card};background-color:${THEME.card};">
+  <tr><td class="px" style="padding:0 18px 14px 18px;background:${THEME.card};background-color:${THEME.card};">
     ${m.greeting ? `<p style="${base}margin:0 0 8px 0;">${escapeHtml(m.greeting)}</p>` : ''}
     ${intro}
   </td></tr>
   ${m.sections.map(renderSectionTemplate).join('')}
-  <tr><td class="px" style="padding:6px 28px 24px 28px;background:${THEME.card};background-color:${THEME.card};">
+  <tr><td class="px" style="padding:6px 18px 22px 18px;background:${THEME.card};background-color:${THEME.card};">
     ${closing}
     <p style="${base}margin:12px 0 0 0;">${escapeHtml(m.signoff)}<br><strong>${escapeHtml(m.sender)}</strong></p>
   </td></tr>
@@ -743,6 +749,10 @@ export function renderTemplateHtml(m: EmailModel, opts: RenderOptions = {}): str
 <div style="${FONT}font-size:11px;line-height:16px;color:${THEME.dim};padding:10px 0 0 0;">Powered by Produkt</div>
 </td></tr>
 </table>
+</div>
+<!-- blank space so attachments (riders) don't sit right against the email -->
+<div style="height:28px;line-height:28px;font-size:28px;">&nbsp;</div>
+<br>
 </body>
 </html>`;
 }
@@ -789,7 +799,7 @@ export function renderSimpleHtml(m: EmailModel): string {
 		html += s.blocks.map(renderBlockSimple).join('');
 	});
 	html += `<br>` + m.closing.map((p) => `<p style="margin:0;">${linkify(p, '#0000EE')}</p>`).join('');
-	html += `<p style="margin:10px 0 0 0;">${escapeHtml(m.signoff)}<br>${escapeHtml(m.sender)}</p></div>`;
+	html += `<p style="margin:10px 0 0 0;">${escapeHtml(m.signoff)}<br>${escapeHtml(m.sender)}</p></div><br><br>`;
 	return html;
 }
 
@@ -840,6 +850,6 @@ export function renderText(m: EmailModel): string {
 			out.push('');
 		});
 	});
-	out.push(...m.closing, '', m.signoff, m.sender);
+	out.push(...m.closing, '', m.signoff, m.sender, '', '');
 	return out.join('\n').replace(/\n{3,}/g, '\n\n');
 }

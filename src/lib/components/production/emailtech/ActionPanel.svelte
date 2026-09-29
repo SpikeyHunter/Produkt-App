@@ -113,12 +113,10 @@
 			const vjText = generateVJEmailText(selectedEvents, formData, senderName);
 			dispatch('mails', { tech: techHtml, vj: vjHtml });
 
-			// The .eml carries the logo as an inline part: mail clients don't load
-			// remote images in drafts, so the HTML points at cid: instead.
-			const logo = format === 'html' ? await fetchInlineLogo() : null;
-			const render = logo ? { logoSrc: `cid:${logo.cid}` } : {};
-			const techHtmlEml = logo ? generateTechEmailString(selectedEvents, formData, senderName, format, render) : techHtml;
-			const vjHtmlEml = logo ? generateVJEmailString(selectedEvents, formData, senderName, format, render) : vjHtml;
+			// Logo = public image URL (not an embedded cid: part): Mail drops
+			// embedded parts when an .eml is re-sent, a URL survives it.
+			const techHtmlEml = techHtml;
+			const vjHtmlEml = vjHtml;
 
 			const attachments = await fetchAndProcessRiders(selectedEvents);
 
@@ -131,8 +129,7 @@
 				html: techHtmlEml,
 				text: techText,
 				filename: generateTechFileName(selectedEvents),
-				attachments,
-				inline: logo ? [logo] : []
+				attachments
 			});
 
 			if (vjName) {
@@ -146,8 +143,7 @@
 						html: vjHtmlEml,
 						text: vjText,
 						filename: generateVJFileName(selectedEvents),
-						attachments: [],
-						inline: logo ? [logo] : []
+						attachments: []
 					});
 				}, 600);
 			}
@@ -219,20 +215,6 @@
 			}
 		}
 		return attachments;
-	}
-
-	/** The lockup logo from this app's own static files, base64, for the inline part. */
-	async function fetchInlineLogo(): Promise<{ cid: string; filename: string; content: string; mimeType: string } | null> {
-		try {
-			const res = await fetch('/images/ProduktXX_LOGO_lockup.png');
-			if (!res.ok) throw new Error(String(res.status));
-			const blob = await res.blob();
-			const b64 = (await blobToBase64(blob)).split(',')[1];
-			return { cid: 'produkt-logo@produkt.ca', filename: 'produkt-logo.png', content: b64, mimeType: blob.type || 'image/png' };
-		} catch (e) {
-			console.warn('[emailtech] logo not embedded (using the URL instead):', e);
-			return null;
-		}
 	}
 
 	function blobToBase64(blob: Blob): Promise<string> {
