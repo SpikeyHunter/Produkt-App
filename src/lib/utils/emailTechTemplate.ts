@@ -804,16 +804,10 @@ function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
 	const intro = m.intro.map((p) => h('p', `${base}margin:0 0 8px 0;`, boldIn(linkify(p), m.boldPhrase))).join('');
 	const closing = m.closing.map((p) => h('p', `${base}margin:0 0 8px 0;`, linkify(p))).join('');
 
-	return `<!DOCTYPE html>
-<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="x-apple-disable-message-reformatting">
-<meta name="color-scheme" content="light dark">
-<meta name="supported-color-schemes" content="light dark">
-<title>${escapeHtml(m.eventTitle)}</title>
-<style>
+	// Dark-mode + layout rules. Kept in <head> AND repeated at the top of
+	// <body>: Mail's "Send Again" can drop the head, and without these rules
+	// the phone never switches to dark.
+	const css = `
   body{margin:0;padding:0;-webkit-text-size-adjust:100%;}
   table{border-collapse:collapse;}
   img{border:0;line-height:100%;}
@@ -831,10 +825,21 @@ function renderTemplateRaw(m: EmailModel, opts: RenderOptions): string {
     .sx{padding-left:12px !important;padding-right:12px !important;}
     .h1{font-size:22px !important;line-height:26px !important;}
     .h2{font-size:17px !important;line-height:22px !important;}
-  }
-</style>
+  }`;
+
+	return `<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" style="color-scheme:light dark;supported-color-schemes:light dark;">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>${escapeHtml(m.eventTitle)}</title>
+<style>${css}</style>
 </head>
-<body style="margin:0;padding:0;width:100%;">
+<body style="margin:0;padding:0;width:100%;color-scheme:light dark;">
+<style>${css}</style>
 <div style="width:100%;margin:0;padding:0;">
 <div style="display:none;font-size:1px;color:${THEME.page};line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${escapeHtml(m.eventTitle)} — ${escapeHtml(m.dateLine)}</div>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;min-width:100%;">
