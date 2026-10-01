@@ -143,7 +143,8 @@
 		// flights / hotels / rider upload on the card — never tag those.
 		const isLocal = event.artist_type === 'Local';
 		const hospoRider = parseJson(event.hospo_rider);
-		if (hospoRider && hospoRider.rider_sent_to_mihir === false) {
+		// Not sent unless explicitly marked sent (older riders have no flag at all).
+		if (hospoRider && hospoRider.rider_sent_to_mihir !== true) {
 			tags.push('Rider to Mihir');
 		}
 

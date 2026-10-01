@@ -26,18 +26,41 @@
 	const beerOptions = ['Corona', 'Stella', 'Bud Light', 'Corona 0%'];
 	const otherDrinkOptions = [
 		'Red Bull Regular',
-		'Evian Water',
+		'Vellamo Water',
 		'Ginger Beer',
 		'Red Bull Sugar Free',
-		'Sparkling Water',
+		'Vellamo Sparkling Water',
 		'Whiteclaw',
 		'Red Bull Watermelon',
 		'Perrier',
-		'Seltzer',
+		'Gatorade',
 		'Red Bull Apricot',
 		'Tonic',
-		'Soda'
+		'Soda',
+		'Red Bull Peach',
+		'Coca-Cola',
+		'Coke Zero'
 	];
+	// Riders saved before the rename keep their picks under the new names
+	// (instead of showing up again as "custom" items).
+	const RENAMED_DRINKS: Record<string, string> = {
+		'Evian Water': 'Vellamo Water',
+		'Sparkling Water': 'Vellamo Sparkling Water',
+		Seltzer: 'Gatorade'
+	};
+	function migrateDrinks(items: { [key: string]: Item } = {}): { [key: string]: Item } {
+		const out: { [key: string]: Item } = {};
+		for (const [key, item] of Object.entries(items || {})) {
+			const to = RENAMED_DRINKS[key];
+			if (!to) {
+				out[key] = item;
+				continue;
+			}
+			const prev = out[to] || items[to];
+			out[to] = prev && prev.selected ? prev : item;
+		}
+		return out;
+	}
 	const juiceOptions = ['Pineapple Juice', 'Cranberry Juice', 'Orange Juice', 'Apple Juice'];
 	// Define a consistent type for all selectable items, including custom ones.
 	type Item = {
@@ -128,7 +151,7 @@
 				const augmentedSpirits = augmentWithCustomFlag(existingData.spirits, spiritOptions);
 				const augmentedBeers = augmentWithCustomFlag(existingData.beers_wine?.beers, beerOptions);
 				const augmentedOtherDrinks = augmentWithCustomFlag(
-					existingData.other_drinks,
+					migrateDrinks(existingData.other_drinks),
 					otherDrinkOptions
 				);
 				const augmentedWine = augmentWithCustomFlag(existingData.beers_wine?.wine);
@@ -319,6 +342,9 @@
 				}
 			});
 			cleanedData.custom_requests = newCustomRequests;
+			// A rider is "not sent to Mihir" until someone marks it sent — stored
+			// explicitly so the gathered page shows the "Rider to Mihir" tag.
+			if (cleanedData.rider_sent_to_mihir !== true) cleanedData.rider_sent_to_mihir = false;
 
 			// Create updates object with both hospo_rider and food_buyout
 			const updates = {
