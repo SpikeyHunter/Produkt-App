@@ -34,7 +34,7 @@
 		<div 
 			transition:fly={{ y: 40, duration: 300 }}
 			class="relative w-full max-w-[95vw] lg:max-w-5xl bg-navbar border border-gray1 rounded-2xl flex flex-col shadow-2xl overflow-hidden" 
-			style="max-height: 90vh;"
+			style="height: 90vh;"
 		>
 			
 			<div class="flex items-center justify-between p-4 border-b border-gray1 bg-navbar z-10">
@@ -66,21 +66,20 @@
 				</div>
 			</div>
 
-			<div 
-				class="relative w-full bg-gray1/30 p-2 sm:p-4 overflow-hidden flex-1" 
-				style="height: calc(90vh - 80px); min-height: 400px;"
-			>
+			<!-- a real height (not just max-height) so the PDF can fill it; the frame
+			     sits absolutely inside, otherwise it collapses to the 150px default -->
+			<div class="relative w-full bg-gray1/30 overflow-hidden flex-1 min-h-0">
 				{#if contractUrl}
 					{#key pdfSrc}
 						<iframe
 							src={pdfSrc}
-							class="w-full h-full rounded-lg border border-gray1 bg-white shadow-inner"
+							class="absolute inset-2 sm:inset-4 w-[calc(100%-1rem)] h-[calc(100%-1rem)] sm:w-[calc(100%-2rem)] sm:h-[calc(100%-2rem)] rounded-lg border border-gray1 bg-white shadow-inner"
 							title="Contract PDF Viewer"
 							loading="lazy"
 						></iframe>
 					{/key}
 				{:else}
-					<div class="w-full h-full flex flex-col items-center justify-center text-gray2 bg-gray1/20 rounded-lg">
+					<div class="absolute inset-2 sm:inset-4 flex flex-col items-center justify-center text-gray2 bg-gray1/20 rounded-lg">
 						<svg class="w-12 h-12 mb-4 opacity-50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
 							<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
 							<polyline points="14 2 14 8 20 8"></polyline>
