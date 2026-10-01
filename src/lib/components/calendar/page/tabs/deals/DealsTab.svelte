@@ -1305,6 +1305,8 @@
 			let commissionTotal = 0;
 			(Array.isArray(cost.variableCosts) ? cost.variableCosts : []).forEach((v: any) => {
 				if (v.reported === false) return;
+				// Produkt commission is INTERNAL: never on an offer or settlement
+				if (v.commission === true) return;
 				const m = Number(v.externalAmount ?? v.internalAmount) || 0;
 				if (m === 0) return;
 				let amount = 0;
@@ -1998,6 +2000,8 @@
 			let commissionTotal = 0;
 			(Array.isArray(cost.variableCosts) ? cost.variableCosts : []).forEach((v: any) => {
 				if (v.reported === false && external) return;
+				// Produkt commission is INTERNAL: never on a settlement (either version)
+				if (v.commission === true) return;
 				const m = Number(external ? (v.externalAmount ?? v.internalAmount) : (v.internalAmount ?? v.externalAmount)) || 0;
 				if (m === 0) return;
 				let amount = 0;

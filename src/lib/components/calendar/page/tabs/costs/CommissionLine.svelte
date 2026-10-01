@@ -126,42 +126,36 @@
 </script>
 
 <section class="flex flex-col mt-6">
-	<div class="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl bg-gray1/40">
-		<h3 class="text-xl font-black text-lime tracking-wide mr-auto">Produkt Commission</h3>
+	<!-- one line: title · rate · type · sellout / est / actual · remove -->
+	<div class="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-gray1/40 min-w-0">
+		<h3 class="text-base font-black text-lime tracking-wide whitespace-nowrap">Produkt Commission</h3>
+		<span class="hidden xl:inline text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-gray1 text-gray2 whitespace-nowrap" title="Never shown on offers, settlements or anything sent out">Internal</span>
 
 		{#if row}
-			<div class="flex items-center gap-2">
-				<div class="relative">
-					<input
-						type="number"
-						min="0"
-						step="0.5"
-						value={row.internalAmount ?? 0}
-						on:input={(e) => setAmount(Number(e.currentTarget.value))}
-						on:blur={triggerSave}
-						aria-label="Commission amount"
-						class="w-24 bg-gray1 rounded-2xl pl-3 pr-7 py-1.5 text-sm font-bold text-white text-right focus:outline-none focus:ring-2 focus:ring-lime"
-					/>
-					<span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray2 text-sm font-bold">
-						{isPct(row.type) ? '%' : '$'}
-					</span>
-				</div>
-
-				<div class="w-[150px]">
-					<Dropdown
-						options={typeOptions}
-						value={row.type}
-						small
-						onChange={setType}
-						placeholder="Type"
-					/>
-				</div>
+			<div class="relative shrink-0">
+				<input
+					type="number"
+					min="0"
+					step="0.5"
+					value={row.internalAmount ?? 0}
+					on:input={(e) => setAmount(Number(e.currentTarget.value))}
+					on:blur={triggerSave}
+					aria-label="Commission amount"
+					class="w-20 bg-gray1 rounded-2xl pl-3 pr-6 py-1.5 text-sm font-bold text-white text-right focus:outline-none focus:ring-2 focus:ring-lime"
+				/>
+				<span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray2 text-sm font-bold">
+					{isPct(row.type) ? '%' : '$'}
+				</span>
 			</div>
 
-			<div class="flex items-center gap-6 text-sm font-bold text-gray2">
-				<div>Offer Budget: <span class="text-white">{money(offerBudget)}</span></div>
-				<div>/ Estimated: <span class="text-white">{money(estimated)}</span></div>
-				<div>/ Actual: <span class="text-white">{money(actual)}</span></div>
+			<div class="w-[130px] shrink-0">
+				<Dropdown options={typeOptions} value={row.type} small onChange={setType} placeholder="Type" />
+			</div>
+
+			<div class="flex flex-1 items-center justify-end gap-3 text-xs font-bold text-gray2 min-w-0 overflow-hidden whitespace-nowrap">
+				<div>Sellout <span class="text-white">{money(offerBudget)}</span></div>
+				<div>Est. <span class="text-white">{money(estimated)}</span></div>
+				<div>Actual <span class="text-white">{money(actual)}</span></div>
 			</div>
 
 			<button
@@ -169,7 +163,7 @@
 				on:click={removeRow}
 				title="Remove the commission from this event"
 				aria-label="Remove commission"
-				class="w-7 h-7 flex items-center justify-center rounded-lg text-gray2 hover:text-problem hover:bg-problem/10 cursor-pointer transition-colors"
+				class="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg text-gray2 hover:text-problem hover:bg-problem/10 cursor-pointer transition-colors"
 			>
 				<svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
 					<line x1="18" y1="6" x2="6" y2="18" stroke-linecap="round" />
@@ -177,11 +171,11 @@
 				</svg>
 			</button>
 		{:else}
-			<span class="text-sm font-bold text-gray2">Not applied to this event</span>
+			<span class="text-sm font-bold text-gray2 ml-auto whitespace-nowrap">Not applied to this event</span>
 			<button
 				type="button"
 				on:click={addRow}
-				class="px-4 py-2 bg-lime text-black text-sm font-bold rounded-3xl hover:opacity-90 cursor-pointer transition-colors"
+				class="shrink-0 px-4 py-1.5 bg-lime text-black text-sm font-bold rounded-3xl hover:opacity-90 cursor-pointer transition-colors"
 			>
 				Add Commission
 			</button>

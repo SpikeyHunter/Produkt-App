@@ -267,6 +267,8 @@ export function computeEventCosts(
 
 	let variable = 0;
 	(Array.isArray(c.variableCosts) ? c.variableCosts : []).forEach((v: any) => {
+		// Produkt commission is internal: never part of an artist's split point.
+		if (v?.commission === true) return;
 		const m = Number(external ? v.externalAmount : v.internalAmount) || 0;
 		switch (v.type) {
 			case 'Flat':
@@ -518,6 +520,7 @@ export function computeArtistFeeTotals(
 	const variableFor = (m: { gross: number; netGross: number; paid: number }, actual: boolean) => {
 		let v = 0;
 		(Array.isArray(c.variableCosts) ? c.variableCosts : []).forEach((row: any) => {
+			if (row?.commission === true) return; // internal, not an artist expense
 			const amt = Number(row.internalAmount) || 0;
 			switch (row.type) {
 				case 'Flat':

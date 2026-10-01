@@ -197,8 +197,18 @@
 		});
 
 		let variableTotal = 0;
+		// Produkt commission: an internal cost, counted in the totals but kept out
+		// of the artists' split-point basis (subtracted after the payouts).
+		let commissionTotal = 0;
 		variableCosts.forEach((v: any) => {
 			const multiplier = Number(v.internalAmount) || 0;
+			if (v.commission === true) {
+				if (v.type === '% of Gross') commissionTotal += (multiplier / 100) * grossRevenue;
+				else if (v.type === '% of Net Gross') commissionTotal += (multiplier / 100) * netGross;
+				else if (v.type === '$ per Paid Ticket' || v.type === '$ per Attendee') commissionTotal += multiplier * paidTickets;
+				else if (v.type === 'Flat') commissionTotal += multiplier;
+				return;
+			}
 			switch (v.type) {
 				case 'Flat':
 					variableTotal += isActual
@@ -322,7 +332,7 @@
 
 		// 5. Final Calculations
 		const totalExpenses =
-			expensesBeforeArtist + artistPayout + otherTalentPayout + additionalSupport + artistFeeVariable;
+			expensesBeforeArtist + artistPayout + otherTalentPayout + additionalSupport + artistFeeVariable + commissionTotal;
 		const netProfit = netGross + additionalRevenue - totalExpenses;
 
 		return {

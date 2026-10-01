@@ -369,8 +369,12 @@
 		const variableField = tab === 'Internal' ? 'internalAmount' : ('externalAmount' as const);
 		const estVariable = sumVariable(estGross, estNetGross, estPaid, false, variableField);
 		const actVariable = sumVariable(actGross, actNetGross, actPaid, true, variableField);
-		const estCommission = sumVariable(estGross, estNetGross, estPaid, false, variableField, 'commission');
-		const actCommission = sumVariable(actGross, actNetGross, actPaid, true, variableField, 'commission');
+		// Produkt commission is INTERNAL only: never on the External view, and
+		// never part of the artists' split-point basis (it is subtracted after
+		// the payouts, below).
+		const internalView = tab === 'Internal';
+		const estCommission = internalView ? sumVariable(estGross, estNetGross, estPaid, false, 'internalAmount', 'commission') : 0;
+		const actCommission = internalView ? sumVariable(actGross, actNetGross, actPaid, true, 'internalAmount', 'commission') : 0;
 
 		// Additional support: budgeted always shown as ESTIMATED; right column uses actual
 		// (fall back to 0 when actual not entered, matching the Pro Forma rule).
@@ -388,14 +392,9 @@
 			return s + (a - c - k);
 		}, 0);
 		const potVariable = sumVariable(potentialGross, potNetGross, potPaid, false);
-		const potCommission = sumVariable(
-			potentialGross,
-			potNetGross,
-			potPaid,
-			false,
-			'internalAmount',
-			'commission'
-		);
+		const potCommission = internalView
+			? sumVariable(potentialGross, potNetGross, potPaid, false, 'internalAmount', 'commission')
+			: 0;
 
 		// The right column's inputs: potential (sellout) pre-settlement on the
 		// Internal tab, otherwise the actual/settlement figures.
@@ -408,8 +407,9 @@
 		const rCommission = usePotential ? potCommission : actCommission;
 		const rSupport = usePotential ? supportBudgeted : supportActual;
 
-		const baseEstCosts = estFixed + estVariable + estCommission + supportBudgeted;
-		const baseActCosts = rFixed + rVariable + rCommission + rSupport;
+		// split-point basis: what the artists' deals are computed on (no commission)
+		const baseEstCosts = estFixed + estVariable + supportBudgeted;
+		const baseActCosts = rFixed + rVariable + rSupport;
 
 		const totalAllotment = tickets.reduce((s, t) => s + (Number(t.allotment) || 0), 0);
 
@@ -469,14 +469,15 @@
 		// added after the payout math so they never feed the split point.
 		const feeRows = variableCosts.filter(
 			(v: any) =>
-				v.type === '% of Artist Fee' && !(variableField === 'externalAmount' && v.reported === false)
+				v.type === '% of Artist Fee' &&
+				!(variableField === 'externalAmount' && (v.reported === false || v.commission === true))
 		);
 		const feePct = feeRows.reduce((s: number, v: any) => s + (Number(v[variableField]) || 0), 0) / 100;
 		const feeVarEst = feePct * (estPayout + extraEst);
 		const feeVarAct = feePct * (actPayout + extraAct);
 
-		const estExpensesDisplay = estExpenses - estFixed + feeVarEst;
-		const actExpensesDisplay = actExpenses - rFixed + feeVarAct;
+		const estExpensesDisplay = estExpenses - estFixed + feeVarEst + estCommission;
+		const actExpensesDisplay = actExpenses - rFixed + feeVarAct + rCommission;
 
 		const talentRows = [
 			{ name: headlinerName, est: estPayout, act: actPayout },
@@ -491,9 +492,8 @@
 		// Always computed on the INTERNAL basis so it never shifts with the tab. ---
 		const healthGross = sidebarLocked ? actGross : estGross;
 		const intEstVariable =
-			tab === 'Internal'
-				? estVariable + estCommission
-				: sumVariable(estGross, estNetGross, estPaid, false, 'internalAmount', 'all');
+			tab === 'Internal' ? estVariable : sumVariable(estGross, estNetGross, estPaid, false, 'internalAmount');
+		const intEstCommission = sumVariable(estGross, estNetGross, estPaid, false, 'internalAmount', 'commission');
 		const healthBase = intEstFixed + intEstVariable + supportBudgeted;
 		const healthExtras = includedTalentDeals(deal).reduce(
 			(sum, x) =>
@@ -527,6 +527,7 @@
 			healthPayout +
 			healthExtras +
 			intEstVariable +
+			intEstCommission +
 			supportBudgeted +
 			healthFeePct * (healthPayout + healthExtras);
 		const maxBar = Math.max(potentialGross, healthGross, healthExpenses, 1);
@@ -561,6 +562,8 @@
 			commissionRow: pair(estCommission, rCommission),
 			supportRow: pair(supportBudgeted, rSupport),
 			net: pair(estNet, actNet),
+			// internal only: NET as if there were no Produkt commission
+			netBeforeCommission: pair(estNet + estCommission, actNet + rCommission),
 			health: {
 				actualGross: healthGross,
 				grossLabel: sidebarLocked ? '(Act.)' : '(Est.)',
@@ -911,7 +914,9 @@
 				</div>
 
 				<div class="px-3 py-3 border-t border-gray1/40">
-					<div class="text-sm font-black text-lime mb-2 tracking-wide">NET</div>
+					<div class="text-sm font-black text-lime mb-2 tracking-wide">
+						NET{#if model.commissionRow.est !== 0 || model.commissionRow.act !== 0}<span class="text-[10px] font-bold text-gray2 tracking-normal ml-1.5">after Produkt Commission</span>{/if}
+					</div>
 					<div class="grid grid-cols-2 gap-2">
 						<div class="text-center">
 							<div class="text-sm font-black {model.net.est >= 0 ? 'text-confirmed' : 'text-problem'}">
@@ -926,6 +931,24 @@
 							<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
 						</div>
 					</div>
+					<!-- internal only: the same NET without the Produkt commission -->
+					{#if model.commissionRow.est !== 0 || model.commissionRow.act !== 0}
+						<div class="text-[11px] font-bold text-gray2 mt-3 mb-1.5 tracking-wide">NET before Produkt Commission</div>
+						<div class="grid grid-cols-2 gap-2">
+							<div class="text-center">
+								<div class="text-sm font-bold {model.netBeforeCommission.est >= 0 ? 'text-confirmed' : 'text-problem'} opacity-80">
+									{fmt(model.netBeforeCommission.est, model.currency)}
+								</div>
+								<div class="text-[9px] font-bold text-gray2 tracking-wider">{leftLabel}</div>
+							</div>
+							<div class="text-center">
+								<div class="text-sm font-bold {model.netBeforeCommission.act >= 0 ? 'text-confirmed' : 'text-problem'} opacity-80">
+									{fmt(model.netBeforeCommission.act, model.currency)}
+								</div>
+								<div class="text-[9px] font-bold text-gray2 tracking-wider">{rightLabel}</div>
+							</div>
+						</div>
+					{/if}
 				</div>
 			</div>
 		</div>
