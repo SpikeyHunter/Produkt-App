@@ -124,7 +124,7 @@
 	$: showAllocation =
 		isCustom &&
 		options.includeAllocation &&
-		(allocationRows.length > 0 || allocation.pool.allocated > 0);
+		allocationRows.length > 0;
 
 	/* ------------------------------ summary ------------------------------- */
 
@@ -389,30 +389,14 @@
 					<span class="{AMT} ml-6">Left</span>
 				</div>
 
-				{#if allocation.pool.allocated > 0 || allocation.pool.spent > 0}
-					<div class="flex items-center py-1 border-b border-gray2/10 text-[12px]">
-						<span class="flex-1 text-white">All expenses (pool)</span>
-						<span class="{AMT} text-confirmed">{formatMoney(allocation.pool.allocated)}</span>
-						<span class="{AMT} ml-6 text-problem">{formatMoney(allocation.pool.spent)}</span>
-						<span class="{AMT} ml-6 {allocation.pool.remaining > 0 ? 'text-confirmed' : 'text-problem'}">{formatMoney(allocation.pool.remaining)}</span>
-					</div>
-				{/if}
-
 				{#each allocationRows as row (row.target)}
 					<div class="flex items-center py-1 border-b border-gray2/10 last:border-0 text-[12px]">
 						<span class="flex-1 text-white">{row.label}</span>
 						<span class="{AMT} text-confirmed">{formatMoney(row.allocated)}</span>
 						<span class="{AMT} ml-6 text-problem">{formatMoney(row.spent)}</span>
-						<span class="{AMT} ml-6 {row.remaining > 0 ? 'text-confirmed' : 'text-problem'}">{formatMoney(row.remaining)}</span>
+						<span class="{AMT} ml-6 {row.remaining < 0 ? 'text-problem' : 'text-confirmed'}">{formatMoney(row.remaining)}</span>
 					</div>
 				{/each}
-
-				{#if allocation.pool.overruns > 0}
-					<div class="mt-1.5 pt-1.5 flex justify-between text-[10px] text-gray2">
-						<span>Overruns covered by the pool</span>
-						<span class="font-mono text-problem">{formatMoney(allocation.pool.overruns)}</span>
-					</div>
-				{/if}
 			</div>
 		</div>
 	{/if}
